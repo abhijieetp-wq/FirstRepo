@@ -1,0 +1,67 @@
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // Which tabs each role can see. Order here is the display order.
+  var TABS = [
+    { view: "dashboard", label: "Dashboard", roles: ["Coordinator", "Warehouse", "Manager"] },
+    { view: "customers", label: "Customers", roles: ["Coordinator", "Manager"] },
+    { view: "enquiries", label: "Enquiries", roles: ["Coordinator", "Manager"] },
+    { view: "catalog", label: "Parts Catalog", roles: ["Coordinator", "Warehouse", "Manager"] },
+    { view: "quote", label: "New Quotation", roles: ["Coordinator", "Manager"] },
+    { view: "quotations", label: "Quotations", roles: ["Coordinator", "Manager"] },
+    { view: "orders", label: "Orders", roles: ["Coordinator", "Warehouse", "Manager"] }
+  ];
+
+  var currentUser = null;
+
+  function showMsg(text, type) {
+    var box = $("msg-box");
+    box.textContent = text;
+    box.className = "msg show " + (type === "error" ? "msg-error" : "msg-success");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(function () { box.className = "msg"; }, 4000);
+  }
+
+  function goToTab(view) {
+    document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });
+    document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
+    document.querySelector('.tab-btn[data-view="' + view + '"]').classList.add("active");
+    $("view-" + view).classList.add("active");
+  }
+
+  function renderTabs() {
+    var visible = TABS.filter(function (t) { return t.roles.indexOf(currentUser.role) !== -1; });
+    $("tabs").innerHTML = visible.map(function (t, i) {
+      return '<button class="tab-btn' + (i === 0 ? " active" : "") + '" data-view="' + t.view + '">' + t.label + "</button>";
+    }).join("");
+    $("tabs").querySelectorAll(".tab-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () { goToTab(btn.dataset.view); });
+    });
+    document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
+    if (visible.length) $("view-" + visible[0].view).classList.add("active");
+  }
+
+  function onBootSuccess(user) {
+    currentUser = user;
+    $("whoami").innerHTML = "Signed in as <b>" + user.name + "</b> (" + user.role + ")";
+    renderTabs();
+    $("boot-screen").style.display = "none";
+    $("app").style.display = "block";
+  }
+
+  function onBootFailure(err) {
+    $("boot-screen").style.display = "none";
+    $("error-screen").style.display = "flex";
+    $("error-text").textContent = err && err.message ? err.message : String(err);
+  }
+
+  function init() {
+    google.script.run.withSuccessHandler(onBootSuccess).withFailureHandler(onBootFailure).bootstrap();
+  }
+
+  init();
+})();
+</script>

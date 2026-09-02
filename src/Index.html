@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8" />
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+
+<div id="boot-screen" class="boot-screen">
+  <div class="card">
+    <h3 style="margin-bottom:10px;">Loading ELGI Spares ERP…</h3>
+    <p style="color:var(--ink-soft); font-size:13px;">Checking your account against the Users tab.</p>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">EL</div>
+      <div class="brand-text">
+        <h1>ELGI Spares ERP</h1>
+        <span>Spares Sales Department</span>
+      </div>
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div class="whoami" id="whoami"></div>
+  </div>
+
+  <div class="container">
+    <div id="msg-box" class="msg"></div>
+
+    <div class="view active" id="view-dashboard">
+      <div class="page-head"><div><h2>Dashboard</h2><p>Live snapshot across enquiries, quotations, orders, payments and stock.</p></div></div>
+      <div class="empty">Dashboard is built after the other modules (Phase 1, step 8) — coming soon.</div>
+    </div>
+
+    <div class="view" id="view-customers">
+      <div class="page-head"><div><h2>Customers</h2><p>Master customer list.</p></div></div>
+      <div class="empty">Not built yet — coming in the next step.</div>
+    </div>
+
+    <div class="view" id="view-enquiries">
+      <div class="page-head"><div><h2>Enquiries</h2><p>Requirement capture and follow-up tracker.</p></div></div>
+      <div class="empty">Not built yet — coming in the next step.</div>
+    </div>
+
+    <div class="view" id="view-catalog">
+      <div class="page-head"><div><h2>Parts Catalog</h2><p>Master list of spares with List / Special / Alternate rates.</p></div></div>
+      <div class="empty">Not built yet — this is the next module we'll build.</div>
+    </div>
+
+    <div class="view" id="view-quote">
+      <div class="page-head"><div><h2>New Quotation</h2><p>Pick a customer, add parts, compare rates, save or print.</p></div></div>
+      <div class="empty">Not built yet — coming in a later step.</div>
+    </div>
+
+    <div class="view" id="view-quotations">
+      <div class="page-head"><div><h2>Quotations</h2><p>Every quotation the team has saved.</p></div></div>
+      <div class="empty">Not built yet — coming in a later step.</div>
+    </div>
+
+    <div class="view" id="view-orders">
+      <div class="page-head"><div><h2>Orders</h2><p>PO to dispatch to payment.</p></div></div>
+      <div class="empty">Not built yet — coming in a later step.</div>
+    </div>
+
+    <footer class="hint">ELGI Spares Sales ERP — internal tool.</footer>
+  </div>
+</div>
+
+<div id="error-screen" class="boot-screen" style="display:none;">
+  <div class="card">
+    <h3 style="margin-bottom:10px; color:var(--red);">Can't open the app</h3>
+    <p id="error-text" style="color:var(--ink-soft); font-size:13px;"></p>
+  </div>
+</div>
+
+<?!= include('JavaScript'); ?>
+</body>
+</html>
