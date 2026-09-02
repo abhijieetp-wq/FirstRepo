@@ -1,5 +1,5 @@
 **/**
-!src/**
-!src/appsscript.json
-.git/**
-node_modules/**
+!appsscript.json
+!**/*.gs
+!**/*.js
+!**/*.html
