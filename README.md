@@ -24,6 +24,7 @@ Google Sheet — no separate database or hosting. See `ELGI-Spares-ERP-Handoff-B
    - `Enquiries`: `id, enquiryNo, date, customerName, machine, requirement, owner, status, nextActionDate, source, lostReasonId`
    - `LostReasons`: `id, reasonText, active`
    - `Parts`: `id, partNo, description, category, unit, listRate, specialRate, altPartNo, altDescription, altRate, systemStock`
+   - `Units` *(v2 brief — separate machine/model catalog, distinct from Parts)*: `id, modelCode, modelName, category, hpRating, workingPressure, fad, listRate, specialRate, leadTimeDays, warrantyPeriod, notes`
    - `Quotations`: `id, quoteNo, date, customer, machine, location, contact, preparedBy, validity, gstPct, subtotal, discountAmt, gstAmt, grand, status, enquiryId`
    - `QuotationItems`: `id, quotationId, partNo, description, rateType, rate, discount, qty, lineTotal`
    - `Orders`: `id, orderNo, quotationId, quoteNo, customer, grand, poNo, poDate, dispatchStatus, dispatchDate, paymentStatus, received, dueDate, creditOverrideBy, creditOverrideReason, creditOverrideDate`
@@ -58,22 +59,32 @@ src/
   Code.gs             doGet() entry point, include() helper, bootstrap()
   Auth.gs             current-user lookup against the Users tab, role checks
   SheetService.gs      generic read/append/update/delete helpers keyed off tab headers
-  Index.html          page shell, tab navigation
+  Parts.gs            Parts (spares) catalog CRUD — read: everyone, write: Manager-only
+  Units.gs            Units (machines) catalog CRUD — read: everyone, write: Manager-only
+  Index.html          page shell, tab navigation, catalog view + add/edit modals
   Stylesheet.html      shared CSS (design reused from the reference prototype)
-  JavaScript.html      client bootstrap + tab switching
+  JavaScript.html      client bootstrap, tab switching, catalog module
 ```
 
-Feature modules (Customers, Enquiries, Parts, Quotations, Orders, Dashboard) are added
+Feature modules (Customers, Enquiries, Quotations, Orders, Dashboard) are added
 incrementally as `<Module>.gs` on the server side and new sections of `Index.html` /
 `JavaScript.html` on the client side, per the brief's Phase 1 build order.
+
+## Permissions note (v2 brief)
+
+Write access to both the **Parts** and **Units** catalogs — individual add/edit/delete and
+the future bulk CSV upload — is **Manager-only, no exception**. Coordinator and Warehouse
+get read-only access (including physical stock counts). This is enforced server-side in
+`Parts.gs`/`Units.gs` via `requireRole_`, not just hidden in the UI.
 
 ## Build status
 
 - [x] Users/roles + Workspace SSO shell
-- [ ] Parts Catalog CRUD + rate comparison
+- [x] Parts + Units Catalog CRUD (Manager-only write) + rate comparison
+- [ ] Bulk CSV upload for Parts/Units (template download, upsert, preview-before-commit)
 - [ ] Customers CRUD
 - [ ] Enquiries CRUD
-- [ ] Quotation builder + history + Lost Reasons dropdown
+- [ ] Quotation builder (with Add Spare Part / Add Unit toggle) + history + Lost Reasons dropdown
 - [ ] Orders (dispatch/payment tracking)
 - [ ] Credit control on dispatch
 - [ ] Dashboard

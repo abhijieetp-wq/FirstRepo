@@ -123,3 +123,12 @@ function deleteRowById_(sheetName, idField, idValue) {
 function generateId_(prefix) {
   return (prefix || '') + Utilities.getUuid().slice(0, 8);
 }
+
+/** Removes the internal `_row` bookkeeping field before a row is sent to the client. */
+function stripRow_(obj) {
+  var copy = {};
+  for (var k in obj) {
+    if (k !== '_row') copy[k] = obj[k];
+  }
+  return copy;
+}

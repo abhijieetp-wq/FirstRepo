@@ -46,8 +46,25 @@
     </div>
 
     <div class="view" id="view-catalog">
-      <div class="page-head"><div><h2>Parts Catalog</h2><p>Master list of spares with List / Special / Alternate rates.</p></div></div>
-      <div class="empty">Not built yet — this is the next module we'll build.</div>
+      <div class="page-head">
+        <div><h2>Catalog</h2><p>Master list of spare parts and machine units, with List / Special / Alternate rate comparison.</p></div>
+        <button class="btn btn-amber" id="btn-new-catalog-item" style="display:none;">+ Add</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:14px;">
+        <button class="btn btn-sm" id="subtab-parts">Spare Parts</button>
+        <button class="btn btn-sm" id="subtab-units">Units</button>
+      </div>
+      <div class="search-bar">
+        <input id="catalog-search" placeholder="Search…" />
+        <button class="btn btn-sm" id="btn-compare-selected">Compare Selected</button>
+      </div>
+      <div id="compare-strip-zone"></div>
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead id="catalog-thead"></thead>
+          <tbody id="catalog-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="view" id="view-quote">
@@ -73,6 +90,72 @@
   <div class="card">
     <h3 style="margin-bottom:10px; color:var(--red);">Can't open the app</h3>
     <p id="error-text" style="color:var(--ink-soft); font-size:13px;"></p>
+  </div>
+</div>
+
+<!-- Add / Edit Part Modal -->
+<div class="modal-backdrop" id="part-modal-backdrop">
+  <div class="modal">
+    <h3 id="part-modal-title" style="margin-bottom:16px;">Add Part</h3>
+    <input type="hidden" id="pm-id" />
+    <div class="grid grid-2">
+      <div class="field"><label>Part No. *</label><input id="pm-partno" /></div>
+      <div class="field"><label>Category</label><input id="pm-category" placeholder="e.g. Filter, Belt, Valve" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;"><label>Description *</label><input id="pm-description" /></div>
+    <div class="grid grid-4" style="margin-top:12px;">
+      <div class="field"><label>Unit</label><input id="pm-unit" placeholder="Nos / Set" value="Nos" /></div>
+      <div class="field"><label>List Rate (₹) *</label><input id="pm-listrate" type="number" min="0" /></div>
+      <div class="field"><label>Special Rate (₹)</label><input id="pm-specialrate" type="number" min="0" /></div>
+      <div class="field"><label>System Stock</label><input id="pm-stock" type="number" min="0" value="0" /></div>
+    </div>
+    <div class="card-title" style="margin-top:18px;">Alternate / Compatible Part (optional)</div>
+    <div class="grid grid-3">
+      <div class="field"><label>Alt. Part No.</label><input id="pm-altpartno" /></div>
+      <div class="field"><label>Alt. Description</label><input id="pm-altdescription" /></div>
+      <div class="field"><label>Alt. Rate (₹)</label><input id="pm-altrate" type="number" min="0" /></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
+      <button class="btn btn-danger" id="btn-delete-part" style="display:none;">Delete Part</button>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-cancel-part">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-part">Save Part</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add / Edit Unit Modal -->
+<div class="modal-backdrop" id="unit-modal-backdrop">
+  <div class="modal">
+    <h3 id="unit-modal-title" style="margin-bottom:16px;">Add Unit</h3>
+    <input type="hidden" id="um-id" />
+    <div class="grid grid-2">
+      <div class="field"><label>Model Code *</label><input id="um-modelcode" /></div>
+      <div class="field"><label>Model Name *</label><input id="um-modelname" /></div>
+    </div>
+    <div class="grid grid-3" style="margin-top:12px;">
+      <div class="field"><label>Category</label><input id="um-category" placeholder="Screw / Reciprocating / Oil-free / Piston" /></div>
+      <div class="field"><label>HP Rating</label><input id="um-hprating" /></div>
+      <div class="field"><label>Working Pressure</label><input id="um-workingpressure" /></div>
+    </div>
+    <div class="grid grid-4" style="margin-top:12px;">
+      <div class="field"><label>FAD</label><input id="um-fad" /></div>
+      <div class="field"><label>List Rate (₹) *</label><input id="um-listrate" type="number" min="0" /></div>
+      <div class="field"><label>Special Rate (₹)</label><input id="um-specialrate" type="number" min="0" /></div>
+      <div class="field"><label>Lead Time (days)</label><input id="um-leadtime" type="number" min="0" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Warranty Period</label><input id="um-warranty" placeholder="e.g. 12 months" /></div>
+      <div class="field"><label>Notes</label><input id="um-notes" /></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
+      <button class="btn btn-danger" id="btn-delete-unit" style="display:none;">Delete Unit</button>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-cancel-unit">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-unit">Save Unit</button>
+      </div>
+    </div>
   </div>
 </div>
 
