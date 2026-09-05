@@ -56,8 +56,24 @@
     </div>
 
     <div class="view" id="view-enquiries">
-      <div class="page-head"><div><h2>Enquiries</h2><p>Requirement capture and follow-up tracker.</p></div></div>
-      <div class="empty">Not built yet — coming in the next step.</div>
+      <div class="page-head">
+        <div><h2>Spare Enquiries</h2><p>Log what the customer asked for, identify the right ELGi part numbers against their machine, and check real availability before quoting.</p></div>
+        <button class="btn btn-amber" id="btn-new-enquiry" style="display:none;">+ Log Enquiry</button>
+      </div>
+      <div class="search-bar">
+        <input id="enquiry-search" placeholder="Search by enquiry no., customer, model or serial…" />
+        <label class="check-line"><input type="checkbox" id="enquiry-mine" /> Only mine</label>
+        <label class="check-line"><input type="checkbox" id="enquiry-closed" /> Include closed</label>
+      </div>
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead><tr>
+            <th>Enquiry No.</th><th>Date</th><th>Customer</th><th>Machine</th>
+            <th>Urgency</th><th class="num">Parts</th><th>Status</th><th>Next Action</th><th></th>
+          </tr></thead>
+          <tbody id="enquiries-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="view" id="view-catalog">
@@ -333,6 +349,86 @@
     </div>
   </div>
 </div>
+
+<!-- Spare Enquiry Modal -->
+<div class="modal-backdrop" id="enquiry-modal-backdrop">
+  <div class="modal" style="max-width:900px;">
+    <h3 id="enquiry-modal-title" style="margin-bottom:4px;">Log Spare Enquiry</h3>
+    <p id="em-no" class="mono" style="font-size:12px; color:var(--steel); margin:0 0 16px;"></p>
+    <input type="hidden" id="em-id" />
+
+    <div class="grid grid-3">
+      <div class="field"><label>Customer *</label><input id="em-customer" list="customers-list" placeholder="Type to search" /></div>
+      <div class="field"><label>Contact Person</label><input id="em-contact" /></div>
+      <div class="field"><label>Source</label><input id="em-source" list="leadsource-list" placeholder="Phone / WhatsApp / Email" /></div>
+    </div>
+    <div class="grid grid-4" style="margin-top:12px;">
+      <div class="field"><label>Machine Model</label><input id="em-model" list="models-list" /></div>
+      <div class="field"><label>Serial No.</label><input id="em-serial" /></div>
+      <div class="field"><label>Urgency</label>
+        <select id="em-urgency"><option>Normal</option><option>Urgent</option><option>Breakdown</option></select>
+      </div>
+      <div class="field"><label>Next Action Date</label><input id="em-nextaction" type="date" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>What did the customer ask for?</label>
+      <textarea id="em-requirement" placeholder="Their words — part names, symptoms, quantities"></textarea>
+    </div>
+    <div class="grid grid-3" style="margin-top:12px;">
+      <div class="field"><label>Owner</label><input id="em-owner" list="users-list" /></div>
+      <div class="field"><label>Status</label>
+        <select id="em-status">
+          <option>New</option><option>Identifying</option><option>Quoted</option>
+          <option>Won</option><option>Lost</option><option>Dropped</option>
+        </select>
+      </div>
+      <div class="field" id="em-lostreason-wrap" style="display:none;">
+        <label>Lost Reason *</label>
+        <select id="em-lostreason"></select>
+      </div>
+    </div>
+
+    <div class="card-title" style="margin-top:22px;">
+      Identified Parts
+      <button class="btn btn-sm" id="btn-identify-part" type="button">+ Identify Part</button>
+    </div>
+
+    <div id="em-identify-panel" class="inline-form" style="display:none;">
+      <div class="grid grid-2">
+        <div class="field">
+          <label>Search the spare catalog</label>
+          <input id="idf-search" placeholder="Part number, description or category" />
+        </div>
+        <div class="field">
+          <label>Quantity</label>
+          <input id="idf-qty" type="number" min="1" value="1" />
+        </div>
+      </div>
+      <p style="font-size:11.5px; color:var(--ink-soft); margin:10px 0 6px;">
+        Parts confirmed to fit this machine model are listed first. Anything marked
+        <b>unverified</b> matched on text only — check it fits before quoting.
+      </p>
+      <div id="idf-results" style="max-height:260px; overflow-y:auto;"></div>
+      <div class="inline-form-actions">
+        <button class="btn btn-sm" id="btn-cancel-identify" type="button">Done</button>
+      </div>
+    </div>
+
+    <div id="em-items"></div>
+
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
+      <div></div>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-cancel-enquiry">Close</button>
+        <button class="btn btn-primary" id="btn-save-enquiry">Save Enquiry</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<datalist id="customers-list"></datalist>
+<datalist id="models-list"></datalist>
+<datalist id="leadsource-list"></datalist>
 
 <?!= include('JavaScript'); ?>
 </body>

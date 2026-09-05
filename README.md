@@ -104,7 +104,8 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       stock derived from the movement ledger, alternates split from model compatibility
 - [x] **Foundation**: customer master with contacts, addresses and commercial terms
       (FR-001/002/003), duplicate detection, admin config lists (FR-074)
-- [ ] **Spare Sales**: enquiry → identification/compatibility → availability → quotation
+- [~] **Spare Sales**: enquiry + part identification with compatibility and live availability
+      done; spare quotation still to come
 - [ ] **Compressor Sales**: lead, activities, site visit, technical requirement, selection,
       opportunity funnel
 - [ ] **Order & Commercial**: PO validation, 8-state sales order (FR-031), credit exposure,

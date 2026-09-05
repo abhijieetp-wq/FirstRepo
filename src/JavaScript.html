@@ -113,7 +113,8 @@
   // ---------------- Tabs ----------------
   var VIEW_INIT = {
     catalog: initCatalogView,
-    customers: initCustomersView
+    customers: initCustomersView,
+    enquiries: initEnquiriesView
   };
 
   function goToTab(view) {
@@ -839,6 +840,305 @@
       isDefault: $("af-default").checked
     });
   });
+
+
+  // ================= SPARE ENQUIRIES =================
+  var enquiriesCache = [];
+  var lostReasonsCache = [];
+  var identifySearchTimer = null;
+
+  function initEnquiriesView() {
+    $("btn-new-enquiry").style.display = canEditEnquiries() ? "inline-flex" : "none";
+    if (!customersLoaded) {
+      google.script.run.withSuccessHandler(function (rows) {
+        customersCache = rows; customersLoaded = true; fillCustomerDatalist();
+      }).withFailureHandler(function () {}).listCustomers();
+    } else {
+      fillCustomerDatalist();
+    }
+    if (!lostReasonsCache.length) {
+      google.script.run.withSuccessHandler(function (rows) {
+        lostReasonsCache = rows;
+      }).withFailureHandler(function () {}).listLostReasons();
+    }
+    google.script.run.withSuccessHandler(function (models) {
+      fillDatalist("models-list", models);
+    }).withFailureHandler(function () {}).listKnownModels();
+    if (!configLists) loadConfigLists();
+    loadEnquiries();
+  }
+
+  function canEditEnquiries() {
+    return ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  function fillCustomerDatalist() {
+    fillDatalist("customers-list", customersCache.map(function (c) { return c.name; }));
+  }
+
+  function loadEnquiries() {
+    google.script.run.withSuccessHandler(function (rows) {
+      enquiriesCache = rows; renderEnquiries();
+    }).withFailureHandler(onServerError).listSpareEnquiries({
+      mineOnly: $("enquiry-mine").checked,
+      includeClosed: $("enquiry-closed").checked
+    });
+  }
+
+  var STATUS_BADGE = {
+    "New": "badge-new", "Identifying": "badge-followup", "Quoted": "badge-quoted",
+    "Won": "badge-won", "Lost": "badge-lost", "Dropped": "badge-draft"
+  };
+
+  function renderEnquiries() {
+    var q = ($("enquiry-search").value || "").toLowerCase();
+    var rows = enquiriesCache.filter(function (e) {
+      return [e.enquiryNo, e.customerName, e.productModel, e.serialNo, e.requirementText]
+        .join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    var tbody = $("enquiries-tbody");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="9"><div class="empty">' +
+        (enquiriesCache.length ? "No enquiries match your search." : "No open enquiries — log the first one.") +
+        "</div></td></tr>";
+      return;
+    }
+
+    tbody.innerHTML = rows.map(function (e) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(e.enquiryNo || "—") + "</td>" +
+        "<td>" + escapeHtml(e.date) + "</td>" +
+        "<td>" + escapeHtml(e.customerName || "—") + "</td>" +
+        "<td>" + escapeHtml(e.productModel || "—") + (e.serialNo ? ' <span class="mono" style="color:var(--steel);">· ' + escapeHtml(e.serialNo) + "</span>" : "") + "</td>" +
+        "<td>" + escapeHtml(e.urgency || "Normal") + "</td>" +
+        '<td class="num">' + e.itemCount + "</td>" +
+        '<td><span class="badge ' + (STATUS_BADGE[e.status] || "badge-draft") + '">' + escapeHtml(e.status) + "</span></td>" +
+        "<td>" + (e.nextActionDate
+          ? (e.overdue ? '<span class="badge badge-overdue">' + escapeHtml(e.nextActionDate) + "</span>" : escapeHtml(e.nextActionDate))
+          : "—") + "</td>" +
+        '<td class="center"><button class="btn-ghost" data-open-enq="' + e.id + '" title="Open">✎</button></td>' +
+        "</tr>";
+    }).join("");
+
+    tbody.querySelectorAll("[data-open-enq]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openEnquiryModal(btn.dataset.openEnq); });
+    });
+  }
+
+  $("enquiry-search").addEventListener("input", renderEnquiries);
+  $("enquiry-mine").addEventListener("change", loadEnquiries);
+  $("enquiry-closed").addEventListener("change", loadEnquiries);
+  $("btn-new-enquiry").addEventListener("click", function () { openEnquiryModal(null); });
+  $("btn-cancel-enquiry").addEventListener("click", function () {
+    $("enquiry-modal-backdrop").classList.remove("show");
+  });
+
+  function currentEnquiry() {
+    var id = $("em-id").value;
+    return id ? enquiriesCache.find(function (e) { return e.id === id; }) : null;
+  }
+
+  function openEnquiryModal(id) {
+    var e = id ? enquiriesCache.find(function (x) { return x.id === id; }) : null;
+    $("enquiry-modal-title").textContent = id ? "Spare Enquiry" : "Log Spare Enquiry";
+    $("em-no").textContent = e ? e.enquiryNo : "An enquiry number is assigned on save.";
+    $("em-id").value = id || "";
+
+    var cust = e ? customersCache.find(function (c) { return c.id === e.customerId; }) : null;
+    $("em-customer").value = cust ? cust.name : (e ? (e.customerName || "") : "");
+    $("em-contact").value = e ? (e.contactName || "") : "";
+    $("em-source").value = e ? (e.source || "") : "";
+    $("em-model").value = e ? (e.productModel || "") : "";
+    $("em-serial").value = e ? (e.serialNo || "") : "";
+    $("em-urgency").value = e ? (e.urgency || "Normal") : "Normal";
+    $("em-nextaction").value = e ? (e.nextActionDate || "") : "";
+    $("em-requirement").value = e ? (e.requirementText || "") : "";
+    $("em-owner").value = e ? (e.ownerEmail || currentUser.email) : currentUser.email;
+    $("em-status").value = e ? e.status : "New";
+
+    $("em-lostreason").innerHTML = '<option value="">—</option>' +
+      lostReasonsCache.map(function (r) {
+        return '<option value="' + r.id + '">' + escapeHtml(r.reasonText) + "</option>";
+      }).join("");
+    if (e && e.lostReasonId) $("em-lostreason").value = e.lostReasonId;
+    toggleLostReason();
+
+    fillDatalist("leadsource-list", ((configLists || {}).LeadSource || []).map(function (i) { return i.label; }));
+
+    hideIdentifyPanel();
+    renderEnquiryItems(e);
+    $("enquiry-modal-backdrop").classList.add("show");
+  }
+
+  function toggleLostReason() {
+    $("em-lostreason-wrap").style.display = $("em-status").value === "Lost" ? "" : "none";
+  }
+  $("em-status").addEventListener("change", toggleLostReason);
+
+  function renderEnquiryItems(e) {
+    var zone = $("em-items");
+    if (!e) {
+      zone.innerHTML = '<div class="empty" style="padding:14px;">Save the enquiry first, then identify parts against it.</div>';
+      $("btn-identify-part").disabled = true;
+      return;
+    }
+    $("btn-identify-part").disabled = !canEditEnquiries();
+    if (!e.items.length) {
+      zone.innerHTML = '<div class="empty" style="padding:14px;">No parts identified yet.</div>';
+      return;
+    }
+    zone.innerHTML = '<table><thead><tr><th>#</th><th>Part No.</th><th>Description</th>' +
+      '<th class="num">Qty</th><th>Fit</th><th>Availability</th><th></th></tr></thead><tbody>' +
+      e.items.map(function (i) {
+        var confirmed = String(i.compatibilityConfirmed).toUpperCase() === "TRUE";
+        return "<tr>" +
+          "<td>" + i.lineNo + "</td>" +
+          '<td class="mono">' + escapeHtml(i.partNo || "—") + "</td>" +
+          "<td>" + escapeHtml(i.description || "—") + "</td>" +
+          '<td class="num">' + i.qty + "</td>" +
+          "<td>" + (confirmed
+            ? '<span class="badge badge-won">Confirmed</span>'
+            : '<span class="badge badge-overdue">Unverified</span>') + "</td>" +
+          "<td>" + escapeHtml(i.availabilityNote || "—") + "</td>" +
+          '<td class="center"><button class="btn-ghost" data-del-item="' + i.id + '" title="Remove">✕</button></td>' +
+          "</tr>";
+      }).join("") + "</tbody></table>";
+
+    zone.querySelectorAll("[data-del-item]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({ title: "Remove this part from the enquiry?", okLabel: "Remove", danger: true },
+          function (ok) {
+            if (ok === null) return;
+            google.script.run.withSuccessHandler(function () {
+              reloadEnquiriesKeepingModal();
+              showMsg("Part removed.", "success");
+            }).withFailureHandler(onServerError).deleteSpareEnquiryItem(btn.dataset.delItem);
+          });
+      });
+    });
+  }
+
+  function reloadEnquiriesKeepingModal() {
+    var openId = $("em-id").value;
+    google.script.run.withSuccessHandler(function (rows) {
+      enquiriesCache = rows;
+      renderEnquiries();
+      if (openId) {
+        var e = enquiriesCache.find(function (x) { return x.id === openId; });
+        if (e) { $("em-status").value = e.status; toggleLostReason(); }
+        renderEnquiryItems(e);
+      }
+    }).withFailureHandler(onServerError).listSpareEnquiries({
+      mineOnly: $("enquiry-mine").checked, includeClosed: true
+    });
+  }
+
+  $("btn-save-enquiry").addEventListener("click", function () {
+    var name = $("em-customer").value.trim();
+    var cust = customersCache.find(function (c) { return c.name.toLowerCase() === name.toLowerCase(); });
+    if (!cust) {
+      showMsg("Pick an existing customer. Add them on the Customers tab first if they are new.", "error");
+      return;
+    }
+    if ($("em-status").value === "Lost" && !$("em-lostreason").value) {
+      showMsg("Pick a lost reason before marking this enquiry Lost.", "error");
+      return;
+    }
+
+    google.script.run.withSuccessHandler(function (saved) {
+      $("em-id").value = saved.id;
+      $("em-no").textContent = saved.enquiryNo || "";
+      $("enquiry-modal-title").textContent = "Spare Enquiry";
+      reloadEnquiriesKeepingModal();
+      showMsg("Enquiry " + (saved.enquiryNo || "") + " saved.", "success");
+    }).withFailureHandler(onServerError).saveSpareEnquiry({
+      id: $("em-id").value || null,
+      customerId: cust.id,
+      customerName: cust.name,
+      contactName: $("em-contact").value.trim(),
+      source: $("em-source").value.trim(),
+      productModel: $("em-model").value.trim(),
+      serialNo: $("em-serial").value.trim(),
+      urgency: $("em-urgency").value,
+      nextActionDate: $("em-nextaction").value,
+      requirementText: $("em-requirement").value.trim(),
+      ownerEmail: $("em-owner").value.trim(),
+      status: $("em-status").value,
+      lostReasonId: $("em-lostreason").value
+    });
+  });
+
+  // ---- Part identification ----
+  function hideIdentifyPanel() {
+    $("em-identify-panel").style.display = "none";
+    $("idf-results").innerHTML = "";
+    $("idf-search").value = "";
+    $("idf-qty").value = 1;
+  }
+
+  $("btn-identify-part").addEventListener("click", function () {
+    if (!currentEnquiry()) return;
+    $("em-identify-panel").style.display = "";
+    $("idf-search").focus();
+    runIdentifySearch();
+  });
+  $("btn-cancel-identify").addEventListener("click", hideIdentifyPanel);
+
+  $("idf-search").addEventListener("input", function () {
+    if (identifySearchTimer) clearTimeout(identifySearchTimer);
+    identifySearchTimer = setTimeout(runIdentifySearch, 250);
+  });
+
+  function runIdentifySearch() {
+    var e = currentEnquiry();
+    if (!e) return;
+    $("idf-results").innerHTML = '<div class="empty" style="padding:14px;">Searching…</div>';
+    google.script.run.withSuccessHandler(renderIdentifyResults)
+      .withFailureHandler(onServerError)
+      .suggestSpares($("idf-search").value.trim(), $("em-model").value.trim());
+  }
+
+  function renderIdentifyResults(rows) {
+    var zone = $("idf-results");
+    if (!rows.length) {
+      zone.innerHTML = '<div class="empty" style="padding:14px;">No matching parts. Try a different term, or check the model on the enquiry.</div>';
+      return;
+    }
+    zone.innerHTML = '<table><thead><tr><th>Part No.</th><th>Description</th><th>Fit</th>' +
+      '<th class="num">List</th><th class="num">Available</th><th></th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return "<tr>" +
+          '<td class="mono">' + escapeHtml(r.partNo) + "</td>" +
+          "<td>" + escapeHtml(r.description) + (r.isServiceKit ? ' <span class="badge badge-active">Kit</span>' : "") + "</td>" +
+          "<td>" + (r.compatibilityConfirmed
+            ? '<span class="badge badge-won">Fits model</span>'
+            : '<span class="badge badge-overdue">Unverified</span>') + "</td>" +
+          '<td class="num mono">' + (r.listPrice ? fmt(r.listPrice) : "—") + "</td>" +
+          '<td class="num mono" style="color:' + (r.available > 0 ? "var(--green)" : "var(--red)") + ';">' + r.available + "</td>" +
+          '<td class="center"><button class="btn btn-sm" data-pick="' + r.id + '">Add</button></td>' +
+          "</tr>";
+      }).join("") + "</tbody></table>";
+
+    zone.querySelectorAll("[data-pick]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var r = rows.find(function (x) { return x.id === btn.dataset.pick; });
+        var qty = Math.max(1, Number($("idf-qty").value) || 1);
+        var note = r.available >= qty
+          ? "In stock (" + r.available + " available)"
+          : (r.available > 0 ? "Short — only " + r.available + " available" : "Out of stock");
+        google.script.run.withSuccessHandler(function () {
+          reloadEnquiriesKeepingModal();
+          showMsg(r.partNo + " added to the enquiry.", "success");
+        }).withFailureHandler(onServerError).saveSpareEnquiryItem({
+          spareEnquiryId: $("em-id").value,
+          spareId: r.id, partNo: r.partNo, description: r.description, qty: qty,
+          compatibilityConfirmed: r.compatibilityConfirmed,
+          availabilityNote: note
+        });
+      });
+    });
+  }
 
   // ---------------- Boot ----------------
   function onBootSuccess(user) {
