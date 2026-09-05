@@ -61,6 +61,7 @@ function setupSheet() {
   migrateUsers_(ss, report);
   migrateLegacyCatalog_(ss, 'Parts', 'Spares', report);
   migrateLegacyCatalog_(ss, 'Units', 'Products', report);
+  backfillIds_(ss, report);
 
   var summary = formatSetupReport_(report);
   Logger.log(summary);
@@ -70,6 +71,45 @@ function setupSheet() {
     // No UI context (e.g. run from the editor without the sheet open) — the log is enough.
   }
   return summary;
+}
+
+/**
+ * Fills in a generated id for any row that has none.
+ *
+ * Rows typed directly into the Sheet usually leave `id` blank, and everything downstream
+ * (editing, pricing, stock, foreign keys) is keyed on it — so a blank id makes a row look
+ * fine but behave badly. This gives every such row a real id.
+ */
+function backfillIds_(ss, report) {
+  var prefixes = { Spares: 'SP-', Products: 'PR-', Customers: 'CUS-', Users: 'USR-' };
+  var filled = [];
+
+  Object.keys(SCHEMA).forEach(function (tabName) {
+    if (SCHEMA[tabName].columns.indexOf('id') !== 0) return;
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+
+    var headers = getHeaders_(sheet);
+    var lastRow = sheet.getLastRow();
+    var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var count = 0;
+
+    for (var i = 0; i < ids.length; i++) {
+      var rowIsBlank = rows[i].every(function (c) { return c === '' || c === null; });
+      if (rowIsBlank) continue;
+      if (String(ids[i][0]).trim() === '') {
+        ids[i][0] = generateId_(prefixes[tabName] || (tabName.slice(0, 3).toUpperCase() + '-'));
+        count++;
+      }
+    }
+    if (count) {
+      sheet.getRange(2, 1, ids.length, 1).setValues(ids);
+      filled.push(tabName + ': ' + count + ' row(s)');
+    }
+  });
+
+  if (filled.length) report.migrated.push('Generated missing ids — ' + filled.join('; '));
 }
 
 /** Rewrites legacy role values and fills in businessStream/id so nobody is locked out. */

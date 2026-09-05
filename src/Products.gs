@@ -9,10 +9,14 @@
  * Write access is Management + ERP Admin (D4).
  */
 
-function listProducts() {
+function listProducts(includeInactive) {
   getCurrentUser();
 
-  var products = readTable_('Products').map(stripRow_);
+  // A blank `active` cell counts as active, so a row typed straight into the Sheet still
+  // shows up without the person having to know about the flag.
+  var products = readTable_('Products')
+    .filter(function (p) { return includeInactive || String(p.active).toUpperCase() !== 'FALSE'; })
+    .map(stripRow_);
   var prices = priceMapFor_('Product');
   var onHand = stockOnHandMap_('Product');
   var reserved = stockReservedMap_('Product');
