@@ -11,7 +11,7 @@ function listParts() {
 
 function savePart(part) {
   var user = getCurrentUser();
-  requireRole_(user, [ROLES.MANAGER]);
+  requireRole_(user, [ROLES.MANAGER, ROLES.ADMIN]);
 
   var partNo = String(part.partNo || '').trim();
   var description = String(part.description || '').trim();
@@ -45,7 +45,7 @@ function savePart(part) {
 
 function deletePart(id) {
   var user = getCurrentUser();
-  requireRole_(user, [ROLES.MANAGER]);
+  requireRole_(user, [ROLES.MANAGER, ROLES.ADMIN]);
   deleteRowById_('Parts', 'id', id);
   return true;
 }

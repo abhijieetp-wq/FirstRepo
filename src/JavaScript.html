@@ -11,15 +11,19 @@
   }
 
   // Which tabs each role can see. Order here is the display order.
+  // Admin can see everything Manager can (per the v2 brief) until the dedicated Settings
+  // tab/page exists — that's separate future work, not built yet.
   var TABS = [
-    { view: "dashboard", label: "Dashboard", roles: ["Coordinator", "Warehouse", "Manager"] },
-    { view: "customers", label: "Customers", roles: ["Coordinator", "Manager"] },
-    { view: "enquiries", label: "Enquiries", roles: ["Coordinator", "Manager"] },
-    { view: "catalog", label: "Catalog", roles: ["Coordinator", "Warehouse", "Manager"] },
-    { view: "quote", label: "New Quotation", roles: ["Coordinator", "Manager"] },
-    { view: "quotations", label: "Quotations", roles: ["Coordinator", "Manager"] },
-    { view: "orders", label: "Orders", roles: ["Coordinator", "Warehouse", "Manager"] }
+    { view: "dashboard", label: "Dashboard", roles: ["Coordinator", "Warehouse", "Manager", "Admin"] },
+    { view: "customers", label: "Customers", roles: ["Coordinator", "Manager", "Admin"] },
+    { view: "enquiries", label: "Enquiries", roles: ["Coordinator", "Manager", "Admin"] },
+    { view: "catalog", label: "Catalog", roles: ["Coordinator", "Warehouse", "Manager", "Admin"] },
+    { view: "quote", label: "New Quotation", roles: ["Coordinator", "Manager", "Admin"] },
+    { view: "quotations", label: "Quotations", roles: ["Coordinator", "Manager", "Admin"] },
+    { view: "orders", label: "Orders", roles: ["Coordinator", "Warehouse", "Manager", "Admin"] }
   ];
+
+  function canEditCatalog() { return currentUser.role === "Manager" || currentUser.role === "Admin"; }
 
   var currentUser = null;
 
@@ -104,7 +108,7 @@
   }
 
   function initCatalogView() {
-    $("btn-new-catalog-item").style.display = currentUser.role === "Manager" ? "inline-flex" : "none";
+    $("btn-new-catalog-item").style.display = canEditCatalog() ? "inline-flex" : "none";
     switchCatalogMode(CATALOG_MODE);
   }
 
@@ -150,7 +154,7 @@
       return;
     }
 
-    var isManager = currentUser.role === "Manager";
+    var isManager = canEditCatalog();
     $("catalog-tbody").innerHTML = filtered.map(function (r) {
       var cells = cols.map(function (c) {
         var v = r[c.key];
