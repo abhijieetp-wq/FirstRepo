@@ -33,12 +33,25 @@ TallyPrime running on a server, used across PMT. Phase 1 requires both direction
 ERP → Tally (sales invoices, I01/FR-050) and Tally → ERP (customer ledger, receipts,
 outstanding — I02/FR-055).
 
-**Open technical question**: Apps Script executes on Google's infrastructure, so it reaches
-Tally *from the public internet*, not from PMT's LAN. TallyPrime's XML/HTTP interface
-(default port 9000) is usually LAN-only. Confirm with whoever administers the Tally server
-whether it is reachable externally. If not, the fallback is a small bridge/relay running on a
-machine inside PMT's network. Do not design the sync as a direct `UrlFetchApp` call until
-this is confirmed.
+**Confirmed delivery model**: TallyPrime is reachable over the internet, but **we will not be
+given access to it**. We build the portal with the integration ready, hand it over, and guide
+PMT's own people to connect it.
+
+That makes the integration a **configuration-driven, untested-by-us** component. It must
+therefore be built so that:
+- connection details (endpoint URL, company name, credentials) live in Script Properties and
+  are editable from the Settings page — never hardcoded, never committed to the repo;
+- a **"Test Connection"** action exists so PMT can verify the link themselves;
+- **every Tally-dependent feature degrades gracefully** when the connection is absent or
+  failing. Invoices still generate and sit at `tallySyncStatus = Pending`; receipts can be
+  entered manually or imported from a CSV export of the Tally ledger, so collections and
+  ageing work with zero Tally connectivity;
+- sync failures are recorded (`tallySyncStatus`, `tallySyncError`) and retryable rather than
+  silently swallowed;
+- **handover documentation** covers exactly what PMT's IT must enable on their side.
+
+We cannot integration-test this ourselves. Treat the Tally sync as "built and documented,
+verified by the client" and say so plainly at handover rather than claiming it works.
 
 ## D4 — Five roles
 
@@ -47,10 +60,10 @@ this is confirmed.
 This collapses the blueprint's 11-role table (Roles & Access sheet). The blueprint's
 Purchase / Stores / Dispatch / Billing / Collection roles are **not** separate users here.
 
-**Working assumption pending confirmation**: Sales Coordinator performs stores, dispatch,
-billing and collection operations; Management approves exceptions (discount, credit, dispatch
-deviation); ERP Admin has full access plus configuration. FR-062 still applies — permissions
-are per-module view/create/edit/approve, and cost/margin fields stay restricted.
+**Confirmed**: Sales Coordinator performs stores, dispatch, billing and collection
+operations; Management approves exceptions (discount, credit, dispatch deviation); ERP Admin
+has full access plus configuration. FR-062 still applies — permissions are per-module
+view/create/edit/approve, and cost/margin fields stay restricted.
 
 **Migration note**: the previous role set (`Coordinator`, `Warehouse`, `Manager`, `Admin`)
 is retired. Existing `Users` rows must be remapped — `Manager` → `Management`,

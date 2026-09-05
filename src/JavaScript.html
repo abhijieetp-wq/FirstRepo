@@ -73,43 +73,56 @@
   }
 
   // ================= CATALOG (Parts + Units) =================
-  var CATALOG_MODE = "parts";
-  var partsCache = [];
-  var unitsCache = [];
+  var CATALOG_MODE = "spares";
+  var sparesCache = [];
+  var productsCache = [];
   var compareSelection = new Set();
-  var catalogLoaded = { parts: false, units: false };
+  var catalogLoaded = { spares: false, products: false };
 
   var CATALOG_COLUMNS = {
-    parts: [
+    spares: [
       { key: "partNo", label: "Part No.", cls: "mono" },
       { key: "description", label: "Description" },
       { key: "category", label: "Category" },
-      { key: "unit", label: "Unit" },
-      { key: "listRate", label: "List Rate", num: true, money: true },
-      { key: "specialRate", label: "Special Rate", num: true, money: true },
-      { key: "altPartNo", label: "Alt. Part" },
-      { key: "altRate", label: "Alt. Rate", num: true, money: true },
-      { key: "systemStock", label: "Stock", num: true }
+      { key: "uom", label: "UoM" },
+      { key: "listPrice", label: "List Price", num: true, money: true },
+      { key: "specialPrice", label: "Special Price", num: true, money: true },
+      { key: "altSummary", label: "Alternate" },
+      { key: "onHand", label: "On Hand", num: true },
+      { key: "reserved", label: "Reserved", num: true },
+      { key: "available", label: "Available", num: true }
     ],
-    units: [
-      { key: "modelCode", label: "Model Code", cls: "mono" },
-      { key: "modelName", label: "Model Name" },
-      { key: "category", label: "Category" },
-      { key: "hpRating", label: "HP Rating" },
-      { key: "workingPressure", label: "Working Pressure" },
+    products: [
+      { key: "productCode", label: "Product Code", cls: "mono" },
+      { key: "model", label: "Model" },
+      { key: "family", label: "Family" },
+      { key: "hpRating", label: "HP" },
+      { key: "workingPressure", label: "Pressure" },
       { key: "fad", label: "FAD" },
-      { key: "listRate", label: "List Rate", num: true, money: true },
-      { key: "specialRate", label: "Special Rate", num: true, money: true },
+      { key: "listPrice", label: "List Price", num: true, money: true },
+      { key: "specialPrice", label: "Special Price", num: true, money: true },
       { key: "leadTimeDays", label: "Lead Time (days)", num: true },
-      { key: "warrantyPeriod", label: "Warranty" }
+      { key: "available", label: "Available", num: true }
     ]
   };
 
-  function currentCatalogRows() { return CATALOG_MODE === "parts" ? partsCache : unitsCache; }
-  function catalogSearchKeys() { return CATALOG_MODE === "parts" ? ["partNo", "description", "category"] : ["modelCode", "modelName", "category"]; }
+  function currentCatalogRows() { return CATALOG_MODE === "spares" ? sparesCache : productsCache; }
+  function catalogSearchKeys() {
+    return CATALOG_MODE === "spares" ? ["partNo", "description", "category"] : ["productCode", "model", "family"];
+  }
+  // Cheapest linked alternate part's own List price, or null when there is none priced.
+  function bestAlternate(r) {
+    var rates = (r.alternates || []).map(function (a) { return a.altRate; }).filter(Boolean);
+    return rates.length ? Math.min.apply(null, rates) : null;
+  }
+
+  // Best of List / Special / the cheapest linked alternate part.
   function bestRate(r) {
-    if (CATALOG_MODE === "parts") return Math.min(r.listRate, r.specialRate || r.listRate, r.altRate || r.listRate);
-    return Math.min(r.listRate, r.specialRate || r.listRate);
+    var candidates = [];
+    if (r.listPrice) candidates.push(r.listPrice);
+    if (r.specialPrice) candidates.push(r.specialPrice);
+    (r.alternates || []).forEach(function (a) { if (a.altRate) candidates.push(a.altRate); });
+    return candidates.length ? Math.min.apply(null, candidates) : 0;
   }
 
   function initCatalogView() {
@@ -122,23 +135,32 @@
     compareSelection = new Set();
     $("compare-strip-zone").innerHTML = "";
     $("catalog-search").value = "";
-    $("subtab-parts").className = "btn btn-sm" + (mode === "parts" ? " btn-primary" : "");
-    $("subtab-units").className = "btn btn-sm" + (mode === "units" ? " btn-primary" : "");
+    $("subtab-parts").className = "btn btn-sm" + (mode === "spares" ? " btn-primary" : "");
+    $("subtab-units").className = "btn btn-sm" + (mode === "products" ? " btn-primary" : "");
     loadCatalog();
   }
 
   function loadCatalog() {
-    if (CATALOG_MODE === "parts") {
-      if (catalogLoaded.parts) { renderCatalogTable(); return; }
+    if (CATALOG_MODE === "spares") {
+      if (catalogLoaded.spares) { renderCatalogTable(); return; }
       google.script.run.withSuccessHandler(function (rows) {
-        partsCache = rows; catalogLoaded.parts = true; renderCatalogTable();
-      }).withFailureHandler(onServerError).listParts();
+        sparesCache = rows.map(decorateSpare); catalogLoaded.spares = true; renderCatalogTable();
+      }).withFailureHandler(onServerError).listSpares();
     } else {
-      if (catalogLoaded.units) { renderCatalogTable(); return; }
+      if (catalogLoaded.products) { renderCatalogTable(); return; }
       google.script.run.withSuccessHandler(function (rows) {
-        unitsCache = rows; catalogLoaded.units = true; renderCatalogTable();
-      }).withFailureHandler(onServerError).listUnits();
+        productsCache = rows; catalogLoaded.products = true; renderCatalogTable();
+      }).withFailureHandler(onServerError).listProducts();
     }
+  }
+
+  // Flattens the alternates array into one readable cell for the table.
+  function decorateSpare(s) {
+    var alts = s.alternates || [];
+    s.altSummary = alts.length
+      ? alts.map(function (a) { return a.altPartNo || a.alternateSpareId; }).join(", ")
+      : "";
+    return s;
   }
 
   function renderCatalogTable() {
@@ -184,8 +206,8 @@
   }
 
   $("catalog-search").addEventListener("input", renderCatalogTable);
-  $("subtab-parts").addEventListener("click", function () { switchCatalogMode("parts"); });
-  $("subtab-units").addEventListener("click", function () { switchCatalogMode("units"); });
+  $("subtab-parts").addEventListener("click", function () { switchCatalogMode("spares"); });
+  $("subtab-units").addEventListener("click", function () { switchCatalogMode("products"); });
 
   $("btn-compare-selected").addEventListener("click", function () {
     var zone = $("compare-strip-zone");
@@ -195,44 +217,50 @@
     }
     var rows = currentCatalogRows().filter(function (r) { return compareSelection.has(r.id); });
     var cheapest = Math.min.apply(null, rows.map(bestRate));
-    var nameKey = CATALOG_MODE === "parts" ? "partNo" : "modelCode";
-    var descKey = CATALOG_MODE === "parts" ? "description" : "modelName";
+    var nameKey = CATALOG_MODE === "spares" ? "partNo" : "productCode";
+    var descKey = CATALOG_MODE === "spares" ? "description" : "model";
     zone.innerHTML = '<div class="compare-strip"><div class="card-title" style="margin-bottom:12px;">Rate Comparison — ' + rows.length + " selected</div>" +
-      "<table><thead><tr><th>" + (CATALOG_MODE === "parts" ? "Part No." : "Model") + "</th><th>Description</th><th class=\"num\">List</th><th class=\"num\">Special</th>" +
-      (CATALOG_MODE === "parts" ? '<th class="num">Alternate</th>' : "") +
+      "<table><thead><tr><th>" + (CATALOG_MODE === "spares" ? "Part No." : "Product Code") + "</th><th>Description</th><th class=\"num\">List</th><th class=\"num\">Special</th>" +
+      (CATALOG_MODE === "spares" ? '<th class="num">Alternate</th>' : "") +
       '<th class="num">Best Rate</th></tr></thead><tbody>' +
       rows.map(function (r) {
         var best = bestRate(r);
         var isBest = best === cheapest;
         return "<tr><td class=\"mono\">" + escapeHtml(r[nameKey]) + "</td><td>" + escapeHtml(r[descKey]) + "</td>" +
-          '<td class="num mono">' + fmt(r.listRate) + "</td>" +
-          '<td class="num mono">' + (r.specialRate ? fmt(r.specialRate) : "—") + "</td>" +
-          (CATALOG_MODE === "parts" ? '<td class="num mono">' + (r.altRate ? fmt(r.altRate) : "—") + "</td>" : "") +
+          '<td class="num mono">' + fmt(r.listPrice) + "</td>" +
+          '<td class="num mono">' + (r.specialPrice ? fmt(r.specialPrice) : "—") + "</td>" +
+          (CATALOG_MODE === "spares" ? '<td class="num mono">' + (bestAlternate(r) ? fmt(bestAlternate(r)) : "—") + "</td>" : "") +
           '<td class="num mono" style="font-weight:700; color:' + (isBest ? "var(--green)" : "var(--navy)") + ';">' + fmt(best) + (isBest ? " ★" : "") + "</td></tr>";
       }).join("") + "</tbody></table></div>";
   });
 
   $("btn-new-catalog-item").addEventListener("click", function () { openCatalogModal(null); });
   function openCatalogModal(id) {
-    if (CATALOG_MODE === "parts") openPartModal(id); else openUnitModal(id);
+    if (CATALOG_MODE === "spares") openSpareModal(id); else openProductModal(id);
   }
 
-  // ---- Part modal ----
-  function openPartModal(id) {
-    var p = id ? partsCache.find(function (x) { return x.id === id; }) : null;
-    $("part-modal-title").textContent = id ? "Edit Part" : "Add Part";
+  // ---- Spare modal ----
+  function openSpareModal(id) {
+    var s = id ? sparesCache.find(function (x) { return x.id === id; }) : null;
+    $("part-modal-title").textContent = id ? "Edit Spare" : "Add Spare";
     $("btn-delete-part").style.display = id ? "inline-flex" : "none";
     $("pm-id").value = id || "";
-    $("pm-partno").value = p ? p.partNo : "";
-    $("pm-category").value = p ? (p.category || "") : "";
-    $("pm-description").value = p ? p.description : "";
-    $("pm-unit").value = p ? (p.unit || "Nos") : "Nos";
-    $("pm-listrate").value = p ? p.listRate : "";
-    $("pm-specialrate").value = p && p.specialRate ? p.specialRate : "";
-    $("pm-stock").value = p ? (p.systemStock || 0) : 0;
-    $("pm-altpartno").value = p ? (p.altPartNo || "") : "";
-    $("pm-altdescription").value = p ? (p.altDescription || "") : "";
-    $("pm-altrate").value = p && p.altRate ? p.altRate : "";
+    $("pm-partno").value = s ? s.partNo : "";
+    $("pm-category").value = s ? (s.category || "") : "";
+    $("pm-description").value = s ? s.description : "";
+    $("pm-unit").value = s ? (s.uom || "Nos") : "Nos";
+    $("pm-listrate").value = s && s.listPrice ? s.listPrice : "";
+    $("pm-specialrate").value = s && s.specialPrice ? s.specialPrice : "";
+    $("pm-minprice").value = s && s.minPrice ? s.minPrice : "";
+    $("pm-gst").value = s && s.gstPct !== "" ? s.gstPct : "";
+    $("pm-reorder").value = s && s.reorderLevel !== "" ? s.reorderLevel : "";
+    $("pm-bin").value = s ? (s.defaultBinId || "") : "";
+    // Opening stock is only meaningful at creation; afterwards stock moves via the ledger.
+    $("pm-opening-row").style.display = id ? "none" : "";
+    $("pm-opening").value = "";
+    $("pm-stock-summary").textContent = s
+      ? "On hand " + s.onHand + " · reserved " + s.reserved + " · available " + s.available
+      : "";
     $("part-modal-backdrop").classList.add("show");
   }
   $("btn-cancel-part").addEventListener("click", function () { $("part-modal-backdrop").classList.remove("show"); });
@@ -242,85 +270,97 @@
       partNo: $("pm-partno").value.trim(),
       description: $("pm-description").value.trim(),
       category: $("pm-category").value.trim(),
-      unit: $("pm-unit").value.trim() || "Nos",
-      listRate: $("pm-listrate").value,
-      specialRate: $("pm-specialrate").value,
-      systemStock: $("pm-stock").value,
-      altPartNo: $("pm-altpartno").value.trim(),
-      altDescription: $("pm-altdescription").value.trim(),
-      altRate: $("pm-altrate").value
+      uom: $("pm-unit").value.trim() || "Nos",
+      gstPct: $("pm-gst").value,
+      reorderLevel: $("pm-reorder").value,
+      defaultBinId: $("pm-bin").value.trim(),
+      listPrice: $("pm-listrate").value,
+      specialPrice: $("pm-specialrate").value,
+      minPrice: $("pm-minprice").value,
+      openingStock: $("pm-opening").value
     };
     google.script.run.withSuccessHandler(function (saved) {
-      catalogLoaded.parts = false;
+      catalogLoaded.spares = false;
       $("part-modal-backdrop").classList.remove("show");
       loadCatalog();
-      showMsg("Part " + saved.partNo + " saved to the catalog.", "success");
-    }).withFailureHandler(onServerError).savePart(obj);
+      showMsg("Spare " + saved.partNo + " saved.", "success");
+    }).withFailureHandler(onServerError).saveSpare(obj);
   });
   $("btn-delete-part").addEventListener("click", function () {
     var id = $("pm-id").value;
     if (!id) return;
-    if (!confirm("Remove this part from the catalog? This cannot be undone.")) return;
+    var reason = prompt("Deactivate this spare? It stays in the sheet so past orders still resolve.\n\nReason:");
+    if (reason === null) return;
     google.script.run.withSuccessHandler(function () {
-      catalogLoaded.parts = false;
+      catalogLoaded.spares = false;
       $("part-modal-backdrop").classList.remove("show");
       loadCatalog();
-      showMsg("Part removed from the catalog.", "success");
-    }).withFailureHandler(onServerError).deletePart(id);
+      showMsg("Spare deactivated.", "success");
+    }).withFailureHandler(onServerError).deleteSpare(id, reason);
   });
 
-  // ---- Unit modal ----
-  function openUnitModal(id) {
-    var u = id ? unitsCache.find(function (x) { return x.id === id; }) : null;
-    $("unit-modal-title").textContent = id ? "Edit Unit" : "Add Unit";
+  // ---- Product modal ----
+  function openProductModal(id) {
+    var p = id ? productsCache.find(function (x) { return x.id === id; }) : null;
+    $("unit-modal-title").textContent = id ? "Edit Product" : "Add Product";
     $("btn-delete-unit").style.display = id ? "inline-flex" : "none";
     $("um-id").value = id || "";
-    $("um-modelcode").value = u ? u.modelCode : "";
-    $("um-modelname").value = u ? u.modelName : "";
-    $("um-category").value = u ? (u.category || "") : "";
-    $("um-hprating").value = u ? (u.hpRating || "") : "";
-    $("um-workingpressure").value = u ? (u.workingPressure || "") : "";
-    $("um-fad").value = u ? (u.fad || "") : "";
-    $("um-listrate").value = u ? u.listRate : "";
-    $("um-specialrate").value = u && u.specialRate ? u.specialRate : "";
-    $("um-leadtime").value = u && u.leadTimeDays ? u.leadTimeDays : "";
-    $("um-warranty").value = u ? (u.warrantyPeriod || "") : "";
-    $("um-notes").value = u ? (u.notes || "") : "";
+    $("um-modelcode").value = p ? p.productCode : "";
+    $("um-modelname").value = p ? p.model : "";
+    $("um-family").value = p ? (p.family || "") : "";
+    $("um-category").value = p ? (p.category || "") : "";
+    $("um-hprating").value = p ? (p.hpRating || "") : "";
+    $("um-workingpressure").value = p ? (p.workingPressure || "") : "";
+    $("um-fad").value = p ? (p.fad || "") : "";
+    $("um-listrate").value = p && p.listPrice ? p.listPrice : "";
+    $("um-specialrate").value = p && p.specialPrice ? p.specialPrice : "";
+    $("um-minprice").value = p && p.minPrice ? p.minPrice : "";
+    $("um-gst").value = p && p.gstPct !== "" ? p.gstPct : "";
+    $("um-leadtime").value = p && p.leadTimeDays !== "" ? p.leadTimeDays : "";
+    $("um-warranty").value = p && p.warrantyMonths !== "" ? p.warrantyMonths : "";
+    $("um-notes").value = p ? (p.notes || "") : "";
+    $("um-opening-row").style.display = id ? "none" : "";
+    $("um-opening").value = "";
     $("unit-modal-backdrop").classList.add("show");
   }
   $("btn-cancel-unit").addEventListener("click", function () { $("unit-modal-backdrop").classList.remove("show"); });
   $("btn-save-unit").addEventListener("click", function () {
     var obj = {
       id: $("um-id").value || null,
-      modelCode: $("um-modelcode").value.trim(),
-      modelName: $("um-modelname").value.trim(),
+      productCode: $("um-modelcode").value.trim(),
+      model: $("um-modelname").value.trim(),
+      family: $("um-family").value.trim(),
       category: $("um-category").value.trim(),
       hpRating: $("um-hprating").value.trim(),
       workingPressure: $("um-workingpressure").value.trim(),
       fad: $("um-fad").value.trim(),
-      listRate: $("um-listrate").value,
-      specialRate: $("um-specialrate").value,
+      gstPct: $("um-gst").value,
+      warrantyMonths: $("um-warranty").value,
       leadTimeDays: $("um-leadtime").value,
-      warrantyPeriod: $("um-warranty").value.trim(),
-      notes: $("um-notes").value.trim()
+      notes: $("um-notes").value.trim(),
+      listPrice: $("um-listrate").value,
+      specialPrice: $("um-specialrate").value,
+      minPrice: $("um-minprice").value,
+      openingStock: $("um-opening").value
     };
     google.script.run.withSuccessHandler(function (saved) {
-      catalogLoaded.units = false;
+      catalogLoaded.products = false;
       $("unit-modal-backdrop").classList.remove("show");
       loadCatalog();
-      showMsg("Unit " + saved.modelCode + " saved to the catalog.", "success");
-    }).withFailureHandler(onServerError).saveUnit(obj);
+      showMsg("Product " + saved.productCode + " saved.", "success");
+    }).withFailureHandler(onServerError).saveProduct(obj);
   });
   $("btn-delete-unit").addEventListener("click", function () {
     var id = $("um-id").value;
     if (!id) return;
-    if (!confirm("Remove this unit from the catalog? This cannot be undone.")) return;
+    var reason = prompt("Deactivate this product? It stays in the sheet so past orders still resolve.\n\nReason:");
+    if (reason === null) return;
     google.script.run.withSuccessHandler(function () {
-      catalogLoaded.units = false;
+      catalogLoaded.products = false;
       $("unit-modal-backdrop").classList.remove("show");
       loadCatalog();
-      showMsg("Unit removed from the catalog.", "success");
-    }).withFailureHandler(onServerError).deleteUnit(id);
+      showMsg("Product deactivated.", "success");
+    }).withFailureHandler(onServerError).deleteProduct(id, reason);
   });
 
   // ---------------- Boot ----------------

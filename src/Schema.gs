@@ -122,6 +122,12 @@ var SCHEMA = {
     label: 'Many-to-many spare ↔ compressor model mapping (FR-023)',
     columns: ['id', 'spareId', 'productModel', 'productId', 'isServiceKit', 'notes', 'active']
   },
+  SpareAlternates: {
+    label: 'Substitute/equivalent parts — distinct from model compatibility. Feeds the ' +
+      'List/Special/Alternate rate-comparison chips carried over from the reference UI.',
+    columns: ['id', 'spareId', 'alternateSpareId', 'altPartNo', 'altDescription', 'altSource',
+      'notes', 'active']
+  },
   PriceList: {
     label: 'Effective-dated prices; old quotes keep old prices (FR-016, FR-017)',
     columns: ['id', 'itemType', 'itemId', 'itemCode', 'priceLevel', 'price', 'minPrice',
