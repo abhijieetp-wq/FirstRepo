@@ -114,7 +114,7 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet). S
       audit logging on every write (FR-061), five-role model (D4)
 - [ ] **Stage 0b — catalog cut-over**: move Parts/Units onto Spares/Products + effective-dated
       PriceList + derived stock; update catalog UI
-- [ ] **Foundation**: Customer/Contacts/Addresses, pricing, config lists
+- [x] **Foundation**: Customer/Contacts/Addresses (FR-001/002/003), effective-dated pricing, admin config lists
 - [ ] **Spare Sales**: enquiry → identification/compatibility → availability → quotation
 - [ ] **Compressor Sales**: lead, activities, site visit, technical requirement, selection, opportunity
 - [ ] **Order & Commercial**: PO validation, 8-state sales order, credit exposure, approvals

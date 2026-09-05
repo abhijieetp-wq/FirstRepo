@@ -36,8 +36,23 @@
     </div>
 
     <div class="view" id="view-customers">
-      <div class="page-head"><div><h2>Customers</h2><p>Master customer list.</p></div></div>
-      <div class="empty">Not built yet — coming in the next step.</div>
+      <div class="page-head">
+        <div><h2>Customers</h2><p>One record per company, shared across compressor and spare sales, with contacts, addresses and commercial terms.</p></div>
+        <button class="btn btn-amber" id="btn-new-customer" style="display:none;">+ Add Customer</button>
+      </div>
+      <div class="search-bar">
+        <input id="customer-search" placeholder="Search by name, code, GSTIN, city or salesperson…" />
+      </div>
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead><tr>
+            <th>Code</th><th>Customer</th><th>GSTIN</th><th>City</th>
+            <th>Primary Contact</th><th>Salesperson</th>
+            <th class="num">Credit Limit</th><th class="num">Days</th><th></th>
+          </tr></thead>
+          <tbody id="customers-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="view" id="view-enquiries">
@@ -186,6 +201,71 @@
     </div>
   </div>
 </div>
+
+<!-- Add / Edit Customer Modal -->
+<div class="modal-backdrop" id="customer-modal-backdrop">
+  <div class="modal" style="max-width:820px;">
+    <h3 id="customer-modal-title" style="margin-bottom:4px;">Add Customer</h3>
+    <p id="cm-code" class="mono" style="font-size:12px; color:var(--steel); margin:0 0 16px;"></p>
+    <input type="hidden" id="cm-id" />
+
+    <div id="cm-duplicate-warning"></div>
+
+    <div class="grid grid-2">
+      <div class="field"><label>Customer Name *</label><input id="cm-name" /></div>
+      <div class="field"><label>Legal Name</label><input id="cm-legalname" placeholder="If different from above" /></div>
+    </div>
+    <div class="grid grid-4" style="margin-top:12px;">
+      <div class="field"><label>GSTIN</label><input id="cm-gstin" maxlength="15" placeholder="15 characters" /></div>
+      <div class="field"><label>PAN</label><input id="cm-pan" maxlength="10" /></div>
+      <div class="field"><label>Industry</label><input id="cm-industry" list="industry-list" /></div>
+      <div class="field"><label>Territory</label><input id="cm-territory" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Assigned Salesperson</label><input id="cm-salesperson" list="users-list" placeholder="Email" /></div>
+      <div class="field"><label>Notes</label><input id="cm-notes" /></div>
+    </div>
+
+    <div class="card-title" style="margin-top:20px;">
+      Commercial Terms
+      <span id="cm-commercial-lock" style="text-transform:none; letter-spacing:0; font-weight:400; color:var(--steel);"></span>
+    </div>
+    <div class="grid grid-4" id="cm-commercial-fields">
+      <div class="field"><label>Payment Terms</label><input id="cm-paymentterms" list="paymentterms-list" /></div>
+      <div class="field"><label>Credit Limit (₹)</label><input id="cm-creditlimit" type="number" min="0" /></div>
+      <div class="field"><label>Credit Days</label><input id="cm-creditdays" type="number" min="0" /></div>
+      <div class="field"><label>Risk Status</label>
+        <select id="cm-riskstatus">
+          <option value="">—</option><option>Normal</option><option>Watch</option><option>High Risk</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card-title" style="margin-top:20px;">
+      Contacts
+      <button class="btn btn-sm" id="btn-add-contact" type="button">+ Add Contact</button>
+    </div>
+    <div id="cm-contacts"></div>
+
+    <div class="card-title" style="margin-top:20px;">
+      Addresses
+      <button class="btn btn-sm" id="btn-add-address" type="button">+ Add Address</button>
+    </div>
+    <div id="cm-addresses"></div>
+
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
+      <button class="btn btn-danger" id="btn-deactivate-customer" style="display:none;">Deactivate</button>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-cancel-customer">Close</button>
+        <button class="btn btn-primary" id="btn-save-customer">Save Customer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<datalist id="industry-list"></datalist>
+<datalist id="paymentterms-list"></datalist>
+<datalist id="users-list"></datalist>
 
 <?!= include('JavaScript'); ?>
 </body>

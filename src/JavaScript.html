@@ -64,7 +64,8 @@
 
   // ---------------- Tabs ----------------
   var VIEW_INIT = {
-    catalog: initCatalogView
+    catalog: initCatalogView,
+    customers: initCustomersView
   };
 
   function goToTab(view) {
@@ -379,6 +380,308 @@
       loadCatalog();
       showMsg("Product deactivated.", "success");
     }).withFailureHandler(onServerError).deleteProduct(id, reason);
+  });
+
+
+  // ================= CUSTOMERS =================
+  var customersCache = [];
+  var customersLoaded = false;
+  var configLists = null;
+
+  function initCustomersView() {
+    $("btn-new-customer").style.display = canEditCustomers() ? "inline-flex" : "none";
+    if (!configLists) loadConfigLists();
+    if (customersLoaded) { renderCustomers(); return; }
+    google.script.run.withSuccessHandler(function (rows) {
+      customersCache = rows; customersLoaded = true; renderCustomers();
+    }).withFailureHandler(onServerError).listCustomers();
+  }
+
+  function canEditCustomers() {
+    return ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+  function canEditCommercials() {
+    return currentUser.role === "Management" || currentUser.role === "ERP Admin";
+  }
+
+  function loadConfigLists() {
+    google.script.run.withSuccessHandler(function (lists) {
+      configLists = lists;
+      fillDatalist("industry-list", (lists.Industry || []).map(function (i) { return i.label; }));
+      fillDatalist("paymentterms-list", (lists.PaymentTerms || []).map(function (i) { return i.label; }));
+    }).withFailureHandler(function () { configLists = {}; }).getConfigLists();
+
+    google.script.run.withSuccessHandler(function (users) {
+      fillDatalist("users-list", users.map(function (u) { return u.email; }));
+    }).withFailureHandler(function () {}).listActiveUsers();
+  }
+
+  function fillDatalist(id, values) {
+    $(id).innerHTML = values.map(function (v) { return '<option value="' + escapeHtml(v) + '">'; }).join("");
+  }
+
+  function renderCustomers() {
+    var q = ($("customer-search").value || "").toLowerCase();
+    var rows = customersCache.filter(function (c) {
+      var hay = [c.customerCode, c.name, c.gstin, c.assignedSalesperson, c.territory,
+        (c.addresses[0] || {}).city].join(" ").toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+
+    var tbody = $("customers-tbody");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="9"><div class="empty">' +
+        (customersCache.length ? "No customers match your search." : "No customers yet — add the first one.") +
+        "</div></td></tr>";
+      return;
+    }
+
+    tbody.innerHTML = rows.map(function (c) {
+      var addr = c.addresses.filter(function (a) { return String(a.isDefault).toUpperCase() === "TRUE"; })[0] || c.addresses[0] || {};
+      var contact = c.primaryContact || {};
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(c.customerCode || "—") + "</td>" +
+        "<td>" + escapeHtml(c.name) + "</td>" +
+        '<td class="mono">' + escapeHtml(c.gstin || "—") + "</td>" +
+        "<td>" + escapeHtml(addr.city || "—") + "</td>" +
+        "<td>" + (contact.name ? escapeHtml(contact.name) + (contact.phone ? " · " + escapeHtml(contact.phone) : "") : "—") + "</td>" +
+        "<td>" + escapeHtml(c.assignedSalesperson || "—") + "</td>" +
+        '<td class="num mono">' + (c.creditLimit === "" || c.creditLimit === null ? "—" : fmt(c.creditLimit)) + "</td>" +
+        '<td class="num">' + (c.creditDays === "" || c.creditDays === null ? "—" : c.creditDays) + "</td>" +
+        '<td class="center"><button class="btn-ghost" data-edit-cust="' + c.id + '" title="Open">✎</button></td>' +
+        "</tr>";
+    }).join("");
+
+    tbody.querySelectorAll("[data-edit-cust]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openCustomerModal(btn.dataset.editCust); });
+    });
+  }
+
+  $("customer-search").addEventListener("input", renderCustomers);
+  $("btn-new-customer").addEventListener("click", function () { openCustomerModal(null); });
+  $("btn-cancel-customer").addEventListener("click", function () {
+    $("customer-modal-backdrop").classList.remove("show");
+  });
+
+  function currentCustomer() {
+    var id = $("cm-id").value;
+    return id ? customersCache.find(function (c) { return c.id === id; }) : null;
+  }
+
+  function openCustomerModal(id) {
+    var c = id ? customersCache.find(function (x) { return x.id === id; }) : null;
+    $("customer-modal-title").textContent = id ? "Edit Customer" : "Add Customer";
+    $("cm-code").textContent = c ? c.customerCode : "A customer code is assigned on save.";
+    $("cm-id").value = id || "";
+    $("cm-duplicate-warning").innerHTML = "";
+
+    $("cm-name").value = c ? c.name : "";
+    $("cm-legalname").value = c ? (c.legalName || "") : "";
+    $("cm-gstin").value = c ? (c.gstin || "") : "";
+    $("cm-pan").value = c ? (c.pan || "") : "";
+    $("cm-industry").value = c ? (c.industry || "") : "";
+    $("cm-territory").value = c ? (c.territory || "") : "";
+    $("cm-salesperson").value = c ? (c.assignedSalesperson || "") : "";
+    $("cm-notes").value = c ? (c.notes || "") : "";
+    $("cm-paymentterms").value = c ? (c.paymentTerms || "") : "";
+    $("cm-creditlimit").value = c && c.creditLimit !== "" ? c.creditLimit : "";
+    $("cm-creditdays").value = c && c.creditDays !== "" ? c.creditDays : "";
+    $("cm-riskstatus").value = c ? (c.riskStatus || "") : "";
+
+    // Commercial terms are read-only unless Management/ERP Admin (FR-003).
+    var locked = !canEditCommercials();
+    ["cm-paymentterms", "cm-creditlimit", "cm-creditdays", "cm-riskstatus"].forEach(function (f) {
+      $(f).disabled = locked;
+    });
+    $("cm-commercial-lock").textContent = locked ? "Set by Management only" : "";
+
+    $("btn-deactivate-customer").style.display =
+      (id && (currentUser.role === "Management" || currentUser.role === "ERP Admin")) ? "inline-flex" : "none";
+    $("btn-save-customer").disabled = !canEditCustomers();
+
+    renderContacts(c);
+    renderAddresses(c);
+    $("customer-modal-backdrop").classList.add("show");
+  }
+
+  function renderContacts(c) {
+    var zone = $("cm-contacts");
+    if (!c) {
+      zone.innerHTML = '<div class="empty" style="padding:14px;">Save the customer first, then add contacts.</div>';
+      $("btn-add-contact").disabled = true;
+      return;
+    }
+    $("btn-add-contact").disabled = !canEditCustomers();
+    if (!c.contacts.length) {
+      zone.innerHTML = '<div class="empty" style="padding:14px;">No contacts yet.</div>';
+      return;
+    }
+    zone.innerHTML = '<table><thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Primary</th><th></th></tr></thead><tbody>' +
+      c.contacts.map(function (x) {
+        return "<tr>" +
+          "<td>" + escapeHtml(x.name) + "</td>" +
+          "<td>" + escapeHtml(x.contactRole || "—") + "</td>" +
+          "<td>" + escapeHtml(x.phone || "—") + "</td>" +
+          "<td>" + escapeHtml(x.email || "—") + "</td>" +
+          "<td>" + (String(x.isPrimary).toUpperCase() === "TRUE" ? '<span class="badge badge-active">Primary</span>' : "") + "</td>" +
+          '<td class="center"><button class="btn-ghost" data-del-contact="' + x.id + '" title="Remove">✕</button></td>' +
+          "</tr>";
+      }).join("") + "</tbody></table>";
+
+    zone.querySelectorAll("[data-del-contact]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (!confirm("Remove this contact?")) return;
+        google.script.run.withSuccessHandler(function () {
+          reloadCustomersKeepingModal();
+        }).withFailureHandler(onServerError).deleteCustomerContact(btn.dataset.delContact);
+      });
+    });
+  }
+
+  function renderAddresses(c) {
+    var zone = $("cm-addresses");
+    if (!c) {
+      zone.innerHTML = '<div class="empty" style="padding:14px;">Save the customer first, then add addresses.</div>';
+      $("btn-add-address").disabled = true;
+      return;
+    }
+    $("btn-add-address").disabled = !canEditCustomers();
+    if (!c.addresses.length) {
+      zone.innerHTML = '<div class="empty" style="padding:14px;">No addresses yet.</div>';
+      return;
+    }
+    zone.innerHTML = '<table><thead><tr><th>Type</th><th>Address</th><th>City</th><th>State</th><th>Pincode</th><th>Default</th><th></th></tr></thead><tbody>' +
+      c.addresses.map(function (a) {
+        return "<tr>" +
+          "<td>" + escapeHtml(a.addressType) + "</td>" +
+          "<td>" + escapeHtml([a.line1, a.line2].filter(Boolean).join(", ")) + "</td>" +
+          "<td>" + escapeHtml(a.city || "—") + "</td>" +
+          "<td>" + escapeHtml(a.state || "—") + "</td>" +
+          "<td>" + escapeHtml(a.pincode || "—") + "</td>" +
+          "<td>" + (String(a.isDefault).toUpperCase() === "TRUE" ? '<span class="badge badge-active">Default</span>' : "") + "</td>" +
+          '<td class="center"><button class="btn-ghost" data-del-addr="' + a.id + '" title="Remove">✕</button></td>' +
+          "</tr>";
+      }).join("") + "</tbody></table>";
+
+    zone.querySelectorAll("[data-del-addr]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (!confirm("Remove this address?")) return;
+        google.script.run.withSuccessHandler(function () {
+          reloadCustomersKeepingModal();
+        }).withFailureHandler(onServerError).deleteCustomerAddress(btn.dataset.delAddr);
+      });
+    });
+  }
+
+  /** Refreshes the cache and re-renders the open modal, so nested edits appear immediately. */
+  function reloadCustomersKeepingModal() {
+    var openId = $("cm-id").value;
+    google.script.run.withSuccessHandler(function (rows) {
+      customersCache = rows;
+      renderCustomers();
+      if (openId) {
+        var c = customersCache.find(function (x) { return x.id === openId; });
+        renderContacts(c);
+        renderAddresses(c);
+      }
+    }).withFailureHandler(onServerError).listCustomers();
+  }
+
+  $("btn-save-customer").addEventListener("click", function () {
+    var obj = {
+      id: $("cm-id").value || null,
+      name: $("cm-name").value.trim(),
+      legalName: $("cm-legalname").value.trim(),
+      gstin: $("cm-gstin").value.trim(),
+      pan: $("cm-pan").value.trim(),
+      industry: $("cm-industry").value.trim(),
+      territory: $("cm-territory").value.trim(),
+      assignedSalesperson: $("cm-salesperson").value.trim(),
+      notes: $("cm-notes").value.trim(),
+      paymentTerms: $("cm-paymentterms").value.trim(),
+      creditLimit: $("cm-creditlimit").value,
+      creditDays: $("cm-creditdays").value,
+      riskStatus: $("cm-riskstatus").value
+    };
+    if (!obj.name) { showMsg("Customer name is required.", "error"); return; }
+
+    // Advisory duplicate check first — a GSTIN clash is refused server-side regardless.
+    google.script.run.withSuccessHandler(function (dupes) {
+      var advisory = dupes.filter(function (d) { return !d.blocking; });
+      if (advisory.length && !$("cm-id").value) {
+        var names = advisory.map(function (d) { return d.name + " (" + d.reasons + ")"; }).join("\n");
+        if (!confirm("This may already exist:\n\n" + names + "\n\nCreate a new customer anyway?")) return;
+      }
+      commitCustomer(obj);
+    }).withFailureHandler(function () { commitCustomer(obj); })
+      .findDuplicateCustomers(obj, $("cm-id").value || null);
+  });
+
+  function commitCustomer(obj) {
+    google.script.run.withSuccessHandler(function (saved) {
+      customersLoaded = false;
+      google.script.run.withSuccessHandler(function (rows) {
+        customersCache = rows; customersLoaded = true; renderCustomers();
+        // Stay open on a new record so contacts/addresses can be added straight away.
+        $("cm-id").value = saved.id;
+        $("customer-modal-title").textContent = "Edit Customer";
+        $("cm-code").textContent = saved.customerCode || "";
+        var c = customersCache.find(function (x) { return x.id === saved.id; });
+        renderContacts(c);
+        renderAddresses(c);
+        showMsg("Customer " + saved.name + " saved.", "success");
+      }).withFailureHandler(onServerError).listCustomers();
+    }).withFailureHandler(onServerError).saveCustomer(obj);
+  }
+
+  $("btn-deactivate-customer").addEventListener("click", function () {
+    var id = $("cm-id").value;
+    if (!id) return;
+    var reason = prompt("Deactivate this customer? Their history stays intact.\n\nReason:");
+    if (reason === null) return;
+    google.script.run.withSuccessHandler(function () {
+      customersLoaded = false;
+      $("customer-modal-backdrop").classList.remove("show");
+      initCustomersView();
+      showMsg("Customer deactivated.", "success");
+    }).withFailureHandler(onServerError).deactivateCustomer(id, reason);
+  });
+
+  $("btn-add-contact").addEventListener("click", function () {
+    var c = currentCustomer();
+    if (!c) return;
+    var name = prompt("Contact name:");
+    if (!name) return;
+    var role = prompt("Role — Purchase, Maintenance, Accounts, Owner or Other:", "Purchase") || "Other";
+    var phone = prompt("Phone (optional):") || "";
+    var email = prompt("Email (optional):") || "";
+    google.script.run.withSuccessHandler(function () {
+      reloadCustomersKeepingModal();
+      showMsg("Contact added.", "success");
+    }).withFailureHandler(onServerError).saveCustomerContact({
+      customerId: c.id, name: name, contactRole: role, phone: phone, email: email,
+      isPrimary: c.contacts.length === 0
+    });
+  });
+
+  $("btn-add-address").addEventListener("click", function () {
+    var c = currentCustomer();
+    if (!c) return;
+    var type = prompt("Address type — Billing or Shipping:", "Billing");
+    if (!type) return;
+    var line1 = prompt("Address line 1:");
+    if (!line1) return;
+    var city = prompt("City:") || "";
+    var state = prompt("State:") || "";
+    var pincode = prompt("Pincode:") || "";
+    var sameType = c.addresses.filter(function (a) { return a.addressType === type; });
+    google.script.run.withSuccessHandler(function () {
+      reloadCustomersKeepingModal();
+      showMsg("Address added.", "success");
+    }).withFailureHandler(onServerError).saveCustomerAddress({
+      customerId: c.id, addressType: type, line1: line1, city: city, state: state,
+      pincode: pincode, isDefault: sameType.length === 0
+    });
   });
 
   // ---------------- Boot ----------------
