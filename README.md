@@ -1,125 +1,117 @@
-# ELGI Spares ERP
+# ELGI PMT ERP
 
-Internal ERP for the ELGI Spares Sales department. Google Apps Script Web App bound to a
-Google Sheet — no separate database or hosting. See `ELGI-Spares-ERP-Handoff-Brief-v2.md`
-(shared separately) for the full spec. This build covers **Phase 1** only.
+Internal ERP for Punjab Machine Tools' ELGi department, covering **both** business streams —
+compressor sales and spare parts sales — over a shared backbone of customers, quotations,
+orders, credit control, inventory, dispatch, billing and collections.
+
+Google Apps Script Web App bound to a Google Sheet. No separate database or hosting.
+
+## Authoritative specification
+
+`ELGI_PMT_ERP_Detailed_Blueprint.xlsx` (14 sheets) is the spec. It supersedes the earlier
+`ELGI-Spares-ERP-Handoff-Brief-v2.md` and `ELGI-Settings-Page-Spec.md` on scope, data model,
+roles and process; those two remain useful only for UX patterns already locked in.
+
+- `docs/DECISIONS.md` — the five locked decisions (platform, scope, Tally, roles, brands)
+- `docs/ARCHITECTURE.md` — why Sheets for now, the rules that keep a database migration
+  cheap, and the signals that say it's time to move
 
 ## Architecture
 
 - The Sheet is the database. Every tab is a table; row 1 is the header row.
-- `Session.getActiveUser().getEmail()` identifies the caller — the `Users` tab is the
-  authorization list (email → name/role/active).
-- The frontend (`src/Index.html` + `src/JavaScript.html`) talks to the backend `.gs` files
-  only through `google.script.run` — there is no REST API.
+- `Session.getActiveUser().getEmail()` identifies the caller; the `Users` tab is the
+  authorization list (email → name/role/businessStream/active).
+- The frontend (`Index.html` + `JavaScript.html`) reaches the backend only through
+  `google.script.run` — there is no REST API.
+- All storage access goes through `SheetService.gs`. Nothing else touches `SpreadsheetApp`.
+  That single seam is what makes a later move to a real database a swap rather than a rewrite.
+- Prices are effective-dated and stock is an append-only ledger, so history is never
+  overwritten and any current number can be explained by the rows that produced it.
 
-> **Schema setup is now automated.** Do not create tabs or type header rows by hand any
-> more. `src/Schema.gs` declares every tab and column, and running `setupSheet()` once from
-> the Apps Script editor creates/upgrades the whole spreadsheet, seeds reference data and
-> migrates legacy rows. Re-run it after any schema change — it only ever adds, never deletes.
-> The tab list below is kept for reference only.
+## Setting up the Sheet
 
-## One-time manual setup (you)
+`src/Schema.gs` declares every tab and column. **Do not create tabs or type header rows by
+hand.** Run `setupSheet()` once from the Apps Script editor and it creates everything, seeds
+the reference data and migrates legacy rows. It only ever adds tabs and appends columns —
+never reorders, renames or deletes — so it is safe to re-run at any time.
 
-1. **Create the Google Sheet** with these tabs (Phase 1 scope — headers exactly as listed,
-   row 1). Leave them empty except `Users`:
+## Working routine
 
-   - `Users`: `email, name, role, department, active` — pre-fill with real coordinator/
-     warehouse/manager emails, their `role` as exactly `Coordinator`, `Warehouse`, `Manager`,
-     or `Admin`, `department` as `Spares Sales` (blank/ignored for `Admin` rows), and
-     `active` = `TRUE`.
-   - `Departments` *(new)*: `id, name, active` — seed with exactly one row: a `Spares Sales`
-     department, active = `TRUE`.
-   - `Customers`: `id, name, location, contactPerson, phone, email, category, lastOrderDate, notes, billingAddress, creditLimit`
-     — **deliberately no `department` column**, a customer can span multiple departments.
-   - `Enquiries`: `id, enquiryNo, date, customerName, machine, requirement, owner, status, nextActionDate, source, lostReasonId, department`
-   - `LostReasons`: `id, reasonText, active`
-   - `Parts`: `id, partNo, description, category, unit, listRate, specialRate, altPartNo, altDescription, altRate, systemStock`
-   - `Units` *(separate machine/model catalog, distinct from Parts)*: `id, modelCode, modelName, category, hpRating, workingPressure, fad, listRate, specialRate, leadTimeDays, warrantyPeriod, notes`
-   - `Quotations`: `id, quoteNo, date, customer, machine, location, contact, preparedBy, validity, gstPct, subtotal, discountAmt, gstAmt, grand, status, enquiryId, department`
-   - `QuotationItems`: `id, quotationId, partNo, description, rateType, rate, discount, qty, lineTotal`
-   - `Orders`: `id, orderNo, quotationId, quoteNo, customer, grand, poNo, poDate, dispatchStatus, dispatchDate, paymentStatus, received, dueDate, creditOverrideBy, creditOverrideReason, creditOverrideDate, department`
+After any change to this repo:
 
-   Every `department` column defaults to `Spares Sales` for now — it's the only department
-   that exists. Parts/Units catalogs deliberately have no `department` column; whether
-   catalogs become department-owned later is an open question, not built yet.
+```
+git pull
+clasp push
+```
 
-2. **Extensions → Apps Script** from that Sheet. This creates the bound script project.
-3. In the Apps Script editor: gear icon (Project Settings) → copy the **Script ID** → send
-   it over.
-4. On your machine:
-   ```
-   npm install -g @google/clasp
-   clasp login
-   ```
-   `clasp login` opens a browser OAuth flow against your Google account — this has to run
-   on your machine, not in this sandbox.
-5. Once code has been pushed to this repo's branch:
-   ```
-   git pull
-   cp .clasp.json.example .clasp.json   # then paste your real Script ID into it
-   clasp push
-   ```
-6. In the Apps Script editor: **Deploy → New deployment → Web app**.
-   - Execute as: **User accessing the web app**
-   - Who has access: **Anyone within [your domain]**
-7. For later updates, use **Manage deployments → Edit → New version** so the web app URL
-   stays the same.
+then, **if the schema changed**, run `setupSheet()` from the Apps Script editor, and finally
+publish it to the live URL:
+
+**Deploy → Manage deployments → ✎ edit → Version: New version → Deploy**
+
+That last step is the one that's easy to miss: `clasp push` updates the saved code, but the
+deployed web app keeps serving its pinned version until a new one is published.
+
+First-time setup only: `npm install -g @google/clasp` then `clasp login`.
 
 ## Repo layout
 
 ```
 src/
-  appsscript.json     Apps Script manifest (execution/access settings)
-  Code.gs             doGet() entry point, include() helper, bootstrap()
-  Auth.gs             current-user lookup against the Users tab, role checks
-  SheetService.gs      generic read/append/update/delete helpers keyed off tab headers
-  Parts.gs            Parts (spares) catalog CRUD — read: everyone, write: Manager-only
-  Units.gs            Units (machines) catalog CRUD — read: everyone, write: Manager-only
-  Index.html          page shell, tab navigation, catalog view + add/edit modals
-  Stylesheet.html      shared CSS (design reused from the reference prototype)
-  JavaScript.html      client bootstrap, tab switching, catalog module
+  appsscript.json    Apps Script manifest (execute-as-user, domain access)
+  Schema.gs          single source of truth for every tab and column
+  Setup.gs           setupSheet(): idempotent create/upgrade/migrate
+  SheetService.gs    generic read/append/update/delete + audit logging
+  Auth.gs            current-user lookup, the five roles, role gates
+  Config.gs          admin-maintainable dropdown lists (FR-074)
+  Customers.gs       customer master + contacts + addresses
+  Products.gs        compressor product master
+  Spares.gs          spare parts master, alternates, compatibility
+  Pricing.gs         effective-dated price lists (FR-016/017)
+  Stock.gs           append-only stock ledger, availability (FR-036/037)
+  Code.gs            doGet(), include(), bootstrap()
+  Index.html         page shell, views, modals
+  Stylesheet.html    shared CSS
+  JavaScript.html    client bootstrap, tab routing, feature modules
 ```
 
-Feature modules (Customers, Enquiries, Quotations, Orders, Dashboard) are added
-incrementally as `<Module>.gs` on the server side and new sections of `Index.html` /
-`JavaScript.html` on the client side, per the brief's Phase 1 build order.
+## Roles
 
-## Permissions note
+Five roles (decision D4): `Sales Coordinator`, `Sales Engineer`, `Service Engineer`,
+`Management`, `ERP Admin`.
 
-Write access to both the **Parts** and **Units** catalogs (individual add/edit/delete) is
-**Manager-only, no exception**. Coordinator and Warehouse get read-only access (including
-physical stock counts). This is enforced server-side in `Parts.gs`/`Units.gs` via
-`requireRole_`, not just hidden in the UI. **Bulk CSV upload does not live in the Catalog
-module at all** — per `ELGI-Settings-Page-Spec.md` it lives under Settings → Master Upload,
-Admin-only, built as its own separate task.
+Sales Coordinator also performs stores, dispatch, billing and collection work. Management
+approves exceptions and owns commercial terms. ERP Admin adds configuration and user
+management on top.
 
-## Roles & departments
+Enforced server-side via `requireRole_`, never only hidden in the UI:
 
-Four roles: `Coordinator`, `Warehouse`, `Manager`, `Admin`. `Admin` is new — not a rename of
-`Manager` — and is cross-department (ignores the `department` field entirely). `Manager` is
-scoped to their own `department`: their "All Records" view, Dashboard, and Indent approvals
-are meant to only show records whose `department` matches their own (not built into any view
-yet since there's only one department — this scoping gets wired in as each of those views is
-built, per the brief, so no migration is needed later). A full Settings page (brand
-configuration tiles + Admin-only user/role/department management) is specified separately in
-`ELGI-Settings-Page-Spec.md` and is its own future task, not part of Phase 1's core build
-order.
+| Area | Who can write |
+|---|---|
+| Product / Spare masters, pricing | Management, ERP Admin |
+| Customer records | Sales Coordinator, Sales Engineer, Management, ERP Admin |
+| Customer commercial terms (credit limit, days, payment terms, risk) | Management, ERP Admin |
+| Customer deactivation | Management, ERP Admin |
+| Stock movements | Sales Coordinator, Management, ERP Admin |
 
 ## Build status
 
-Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet). See
-`docs/DECISIONS.md` for locked scope and `docs/ARCHITECTURE.md` for platform constraints.
+Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
 
-- [x] **Stage 0a — schema freeze**: `Schema.gs` (35 tabs declared), `setupSheet()` migrator,
-      audit logging on every write (FR-061), five-role model (D4)
-- [ ] **Stage 0b — catalog cut-over**: move Parts/Units onto Spares/Products + effective-dated
-      PriceList + derived stock; update catalog UI
-- [x] **Foundation**: Customer/Contacts/Addresses (FR-001/002/003), effective-dated pricing, admin config lists
+- [x] **Stage 0a — schema freeze**: schema declared in code, `setupSheet()` migrator, audit
+      logging on every write (FR-061), five-role model
+- [x] **Stage 0b — catalog cut-over**: Spares/Products masters, effective-dated PriceList,
+      stock derived from the movement ledger, alternates split from model compatibility
+- [x] **Foundation**: customer master with contacts, addresses and commercial terms
+      (FR-001/002/003), duplicate detection, admin config lists (FR-074)
 - [ ] **Spare Sales**: enquiry → identification/compatibility → availability → quotation
-- [ ] **Compressor Sales**: lead, activities, site visit, technical requirement, selection, opportunity
-- [ ] **Order & Commercial**: PO validation, 8-state sales order, credit exposure, approvals
-- [ ] **Inventory & Inward**: stock states, reservations, serials, bins, GRN
-- [ ] **Dispatch & Billing**: readiness checklist, dispatch docs, invoice, dispatched-not-invoiced
+- [ ] **Compressor Sales**: lead, activities, site visit, technical requirement, selection,
+      opportunity funnel
+- [ ] **Order & Commercial**: PO validation, 8-state sales order (FR-031), credit exposure,
+      approval engine
+- [ ] **Inventory & Inward**: stock states, reservations, serial tracking, bins, GRN
+- [ ] **Dispatch & Billing**: readiness checklist, dispatch docs, invoice from dispatch,
+      dispatched-not-invoiced control
 - [ ] **Collections & Tally**: ageing, follow-ups, commitments, Tally sync both ways
-- [ ] **Management Dashboards**: control tower + compressor/spare/combined dashboards
+- [ ] **Management Dashboards**: control tower, compressor / spare / combined dashboards
 - [ ] **Settings page**: brand tiles + Admin Controls (per `ELGI-Settings-Page-Spec.md`)
