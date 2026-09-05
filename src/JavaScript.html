@@ -62,6 +62,54 @@
     showMsg(err && err.message ? err.message : String(err), "error");
   }
 
+  /**
+   * Replacement for window.prompt/confirm, which the Apps Script sandbox blocks.
+   * askDialog({title, message, input, inputLabel, okLabel, danger}, callback) — the callback
+   * receives the entered text (or "" when no input was requested), or null on cancel.
+   */
+  var askState = null;
+
+  function askDialog(opts, callback) {
+    askState = { callback: callback, requiresInput: !!opts.input, required: opts.required !== false };
+    $("ask-title").textContent = opts.title || "Are you sure?";
+    $("ask-message").textContent = opts.message || "";
+    $("ask-input-wrap").style.display = opts.input ? "" : "none";
+    $("ask-input-label").textContent = opts.inputLabel || "Reason";
+    $("ask-input").value = opts.value || "";
+    $("ask-ok").textContent = opts.okLabel || "Confirm";
+    $("ask-ok").className = "btn " + (opts.danger ? "btn-danger" : "btn-primary");
+    $("ask-modal-backdrop").classList.add("show");
+    if (opts.input) setTimeout(function () { $("ask-input").focus(); }, 50);
+  }
+
+  function closeAsk() {
+    $("ask-modal-backdrop").classList.remove("show");
+    askState = null;
+  }
+
+  $("ask-cancel").addEventListener("click", function () {
+    var cb = askState && askState.callback;
+    closeAsk();
+    if (cb) cb(null);
+  });
+
+  $("ask-ok").addEventListener("click", function () {
+    if (!askState) return;
+    var value = $("ask-input").value.trim();
+    if (askState.requiresInput && askState.required && !value) {
+      $("ask-input").focus();
+      return;
+    }
+    var cb = askState.callback;
+    closeAsk();
+    if (cb) cb(value);
+  });
+
+  $("ask-input").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") $("ask-ok").click();
+  });
+
+
   // ---------------- Tabs ----------------
   var VIEW_INIT = {
     catalog: initCatalogView,
@@ -308,14 +356,19 @@
   $("btn-delete-part").addEventListener("click", function () {
     var id = $("pm-id").value;
     if (!id) return;
-    var reason = prompt("Deactivate this spare? It stays in the sheet so past orders still resolve.\n\nReason:");
-    if (reason === null) return;
-    google.script.run.withSuccessHandler(function () {
-      catalogLoaded.spares = false;
-      $("part-modal-backdrop").classList.remove("show");
-      loadCatalog();
-      showMsg("Spare deactivated.", "success");
-    }).withFailureHandler(onServerError).deleteSpare(id, reason);
+    askDialog({
+      title: "Deactivate this spare?",
+      message: "It stays in the sheet so past orders still resolve.",
+      input: true, inputLabel: "Reason", okLabel: "Deactivate", danger: true
+    }, function (reason) {
+      if (reason === null) return;
+      google.script.run.withSuccessHandler(function () {
+        catalogLoaded.spares = false;
+        $("part-modal-backdrop").classList.remove("show");
+        loadCatalog();
+        showMsg("Spare deactivated.", "success");
+      }).withFailureHandler(onServerError).deleteSpare(id, reason);
+    });
   });
 
   // ---- Product modal ----
@@ -372,14 +425,19 @@
   $("btn-delete-unit").addEventListener("click", function () {
     var id = $("um-id").value;
     if (!id) return;
-    var reason = prompt("Deactivate this product? It stays in the sheet so past orders still resolve.\n\nReason:");
-    if (reason === null) return;
-    google.script.run.withSuccessHandler(function () {
-      catalogLoaded.products = false;
-      $("unit-modal-backdrop").classList.remove("show");
-      loadCatalog();
-      showMsg("Product deactivated.", "success");
-    }).withFailureHandler(onServerError).deleteProduct(id, reason);
+    askDialog({
+      title: "Deactivate this product?",
+      message: "It stays in the sheet so past orders still resolve.",
+      input: true, inputLabel: "Reason", okLabel: "Deactivate", danger: true
+    }, function (reason) {
+      if (reason === null) return;
+      google.script.run.withSuccessHandler(function () {
+        catalogLoaded.products = false;
+        $("unit-modal-backdrop").classList.remove("show");
+        loadCatalog();
+        showMsg("Product deactivated.", "success");
+      }).withFailureHandler(onServerError).deleteProduct(id, reason);
+    });
   });
 
 
@@ -499,6 +557,8 @@
       (id && (currentUser.role === "Management" || currentUser.role === "ERP Admin")) ? "inline-flex" : "none";
     $("btn-save-customer").disabled = !canEditCustomers();
 
+    hideContactForm();
+    hideAddressForm();
     renderContacts(c);
     renderAddresses(c);
     $("customer-modal-backdrop").classList.add("show");
@@ -524,16 +584,28 @@
           "<td>" + escapeHtml(x.phone || "—") + "</td>" +
           "<td>" + escapeHtml(x.email || "—") + "</td>" +
           "<td>" + (String(x.isPrimary).toUpperCase() === "TRUE" ? '<span class="badge badge-active">Primary</span>' : "") + "</td>" +
-          '<td class="center"><button class="btn-ghost" data-del-contact="' + x.id + '" title="Remove">✕</button></td>' +
+          '<td class="center" style="white-space:nowrap;">' +
+            '<button class="btn-ghost" data-edit-contact="' + x.id + '" title="Edit">✎</button>' +
+            '<button class="btn-ghost" data-del-contact="' + x.id + '" title="Remove">✕</button></td>' +
           "</tr>";
       }).join("") + "</tbody></table>";
 
+    zone.querySelectorAll("[data-edit-contact]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        showContactForm(c.contacts.find(function (x) { return x.id === btn.dataset.editContact; }));
+      });
+    });
     zone.querySelectorAll("[data-del-contact]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        if (!confirm("Remove this contact?")) return;
-        google.script.run.withSuccessHandler(function () {
-          reloadCustomersKeepingModal();
-        }).withFailureHandler(onServerError).deleteCustomerContact(btn.dataset.delContact);
+        askDialog({
+          title: "Remove this contact?", okLabel: "Remove", danger: true
+        }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function () {
+            reloadCustomersKeepingModal();
+            showMsg("Contact removed.", "success");
+          }).withFailureHandler(onServerError).deleteCustomerContact(btn.dataset.delContact);
+        });
       });
     });
   }
@@ -559,16 +631,28 @@
           "<td>" + escapeHtml(a.state || "—") + "</td>" +
           "<td>" + escapeHtml(a.pincode || "—") + "</td>" +
           "<td>" + (String(a.isDefault).toUpperCase() === "TRUE" ? '<span class="badge badge-active">Default</span>' : "") + "</td>" +
-          '<td class="center"><button class="btn-ghost" data-del-addr="' + a.id + '" title="Remove">✕</button></td>' +
+          '<td class="center" style="white-space:nowrap;">' +
+            '<button class="btn-ghost" data-edit-addr="' + a.id + '" title="Edit">✎</button>' +
+            '<button class="btn-ghost" data-del-addr="' + a.id + '" title="Remove">✕</button></td>' +
           "</tr>";
       }).join("") + "</tbody></table>";
 
+    zone.querySelectorAll("[data-edit-addr]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        showAddressForm(c.addresses.find(function (x) { return x.id === btn.dataset.editAddr; }));
+      });
+    });
     zone.querySelectorAll("[data-del-addr]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        if (!confirm("Remove this address?")) return;
-        google.script.run.withSuccessHandler(function () {
-          reloadCustomersKeepingModal();
-        }).withFailureHandler(onServerError).deleteCustomerAddress(btn.dataset.delAddr);
+        askDialog({
+          title: "Remove this address?", okLabel: "Remove", danger: true
+        }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function () {
+            reloadCustomersKeepingModal();
+            showMsg("Address removed.", "success");
+          }).withFailureHandler(onServerError).deleteCustomerAddress(btn.dataset.delAddr);
+        });
       });
     });
   }
@@ -609,8 +693,16 @@
     google.script.run.withSuccessHandler(function (dupes) {
       var advisory = dupes.filter(function (d) { return !d.blocking; });
       if (advisory.length && !$("cm-id").value) {
-        var names = advisory.map(function (d) { return d.name + " (" + d.reasons + ")"; }).join("\n");
-        if (!confirm("This may already exist:\n\n" + names + "\n\nCreate a new customer anyway?")) return;
+        var names = advisory.map(function (d) { return "• " + d.name + " (" + d.reasons + ")"; }).join("\n");
+        askDialog({
+          title: "This customer may already exist",
+          message: names + "\n\nCreate a new record anyway?",
+          okLabel: "Create anyway"
+        }, function (ok) {
+          if (ok === null) return;
+          commitCustomer(obj);
+        });
+        return;
       }
       commitCustomer(obj);
     }).withFailureHandler(function () { commitCustomer(obj); })
@@ -637,50 +729,114 @@
   $("btn-deactivate-customer").addEventListener("click", function () {
     var id = $("cm-id").value;
     if (!id) return;
-    var reason = prompt("Deactivate this customer? Their history stays intact.\n\nReason:");
-    if (reason === null) return;
-    google.script.run.withSuccessHandler(function () {
-      customersLoaded = false;
-      $("customer-modal-backdrop").classList.remove("show");
-      initCustomersView();
-      showMsg("Customer deactivated.", "success");
-    }).withFailureHandler(onServerError).deactivateCustomer(id, reason);
+    askDialog({
+      title: "Deactivate this customer?",
+      message: "Their quotations, orders and invoices stay intact.",
+      input: true, inputLabel: "Reason", okLabel: "Deactivate", danger: true
+    }, function (reason) {
+      if (reason === null) return;
+      google.script.run.withSuccessHandler(function () {
+        customersLoaded = false;
+        $("customer-modal-backdrop").classList.remove("show");
+        initCustomersView();
+        showMsg("Customer deactivated.", "success");
+      }).withFailureHandler(onServerError).deactivateCustomer(id, reason);
+    });
   });
+
+  // ---- Inline contact form ----
+  function showContactForm(contact) {
+    $("cf-id").value = contact ? contact.id : "";
+    $("cf-name").value = contact ? contact.name : "";
+    $("cf-role").value = contact ? (contact.contactRole || "Purchase") : "Purchase";
+    $("cf-designation").value = contact ? (contact.designation || "") : "";
+    $("cf-phone").value = contact ? (contact.phone || "") : "";
+    $("cf-email").value = contact ? (contact.email || "") : "";
+    $("cf-primary").checked = contact ? String(contact.isPrimary).toUpperCase() === "TRUE" : false;
+    $("cm-contact-form").style.display = "";
+    $("cf-name").focus();
+  }
+  function hideContactForm() { $("cm-contact-form").style.display = "none"; }
 
   $("btn-add-contact").addEventListener("click", function () {
     var c = currentCustomer();
     if (!c) return;
-    var name = prompt("Contact name:");
-    if (!name) return;
-    var role = prompt("Role — Purchase, Maintenance, Accounts, Owner or Other:", "Purchase") || "Other";
-    var phone = prompt("Phone (optional):") || "";
-    var email = prompt("Email (optional):") || "";
+    showContactForm(null);
+    // First contact for a customer becomes the primary by default.
+    $("cf-primary").checked = c.contacts.length === 0;
+  });
+  $("btn-cancel-contact").addEventListener("click", hideContactForm);
+
+  $("btn-save-contact").addEventListener("click", function () {
+    var c = currentCustomer();
+    if (!c) return;
+    var name = $("cf-name").value.trim();
+    if (!name) { showMsg("Contact name is required.", "error"); $("cf-name").focus(); return; }
+
     google.script.run.withSuccessHandler(function () {
+      hideContactForm();
       reloadCustomersKeepingModal();
-      showMsg("Contact added.", "success");
+      showMsg("Contact saved.", "success");
     }).withFailureHandler(onServerError).saveCustomerContact({
-      customerId: c.id, name: name, contactRole: role, phone: phone, email: email,
-      isPrimary: c.contacts.length === 0
+      id: $("cf-id").value || null,
+      customerId: c.id,
+      name: name,
+      contactRole: $("cf-role").value,
+      designation: $("cf-designation").value.trim(),
+      phone: $("cf-phone").value.trim(),
+      email: $("cf-email").value.trim(),
+      isPrimary: $("cf-primary").checked
     });
   });
+
+  // ---- Inline address form ----
+  function showAddressForm(addr) {
+    $("af-id").value = addr ? addr.id : "";
+    $("af-type").value = addr ? addr.addressType : "Billing";
+    $("af-label").value = addr ? (addr.label || "") : "";
+    $("af-line1").value = addr ? addr.line1 : "";
+    $("af-line2").value = addr ? (addr.line2 || "") : "";
+    $("af-city").value = addr ? (addr.city || "") : "";
+    $("af-state").value = addr ? (addr.state || "") : "";
+    $("af-pincode").value = addr ? (addr.pincode || "") : "";
+    $("af-gstin").value = addr ? (addr.gstin || "") : "";
+    $("af-default").checked = addr ? String(addr.isDefault).toUpperCase() === "TRUE" : false;
+    $("cm-address-form").style.display = "";
+    $("af-line1").focus();
+  }
+  function hideAddressForm() { $("cm-address-form").style.display = "none"; }
 
   $("btn-add-address").addEventListener("click", function () {
     var c = currentCustomer();
     if (!c) return;
-    var type = prompt("Address type — Billing or Shipping:", "Billing");
-    if (!type) return;
-    var line1 = prompt("Address line 1:");
-    if (!line1) return;
-    var city = prompt("City:") || "";
-    var state = prompt("State:") || "";
-    var pincode = prompt("Pincode:") || "";
-    var sameType = c.addresses.filter(function (a) { return a.addressType === type; });
+    showAddressForm(null);
+    // First address of a given type becomes that type's default.
+    $("af-default").checked = !c.addresses.some(function (a) { return a.addressType === "Billing"; });
+  });
+  $("btn-cancel-address").addEventListener("click", hideAddressForm);
+
+  $("btn-save-address").addEventListener("click", function () {
+    var c = currentCustomer();
+    if (!c) return;
+    var line1 = $("af-line1").value.trim();
+    if (!line1) { showMsg("Address line 1 is required.", "error"); $("af-line1").focus(); return; }
+
     google.script.run.withSuccessHandler(function () {
+      hideAddressForm();
       reloadCustomersKeepingModal();
-      showMsg("Address added.", "success");
+      showMsg("Address saved.", "success");
     }).withFailureHandler(onServerError).saveCustomerAddress({
-      customerId: c.id, addressType: type, line1: line1, city: city, state: state,
-      pincode: pincode, isDefault: sameType.length === 0
+      id: $("af-id").value || null,
+      customerId: c.id,
+      addressType: $("af-type").value,
+      label: $("af-label").value.trim(),
+      line1: line1,
+      line2: $("af-line2").value.trim(),
+      city: $("af-city").value.trim(),
+      state: $("af-state").value.trim(),
+      pincode: $("af-pincode").value.trim(),
+      gstin: $("af-gstin").value.trim(),
+      isDefault: $("af-default").checked
     });
   });
 

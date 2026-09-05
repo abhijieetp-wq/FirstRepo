@@ -245,11 +245,61 @@
       Contacts
       <button class="btn btn-sm" id="btn-add-contact" type="button">+ Add Contact</button>
     </div>
+    <div id="cm-contact-form" class="inline-form" style="display:none;">
+      <input type="hidden" id="cf-id" />
+      <div class="grid grid-3">
+        <div class="field"><label>Name *</label><input id="cf-name" /></div>
+        <div class="field"><label>Role</label>
+          <select id="cf-role">
+            <option>Purchase</option><option>Maintenance</option><option>Accounts</option>
+            <option>Owner</option><option>Other</option>
+          </select>
+        </div>
+        <div class="field"><label>Designation</label><input id="cf-designation" /></div>
+      </div>
+      <div class="grid grid-3" style="margin-top:10px;">
+        <div class="field"><label>Phone</label><input id="cf-phone" /></div>
+        <div class="field"><label>Email</label><input id="cf-email" type="email" /></div>
+        <div class="field"><label>Primary contact</label>
+          <label class="check-line"><input type="checkbox" id="cf-primary" /> Mark as primary</label>
+        </div>
+      </div>
+      <div class="inline-form-actions">
+        <button class="btn btn-sm" id="btn-cancel-contact" type="button">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btn-save-contact" type="button">Save Contact</button>
+      </div>
+    </div>
     <div id="cm-contacts"></div>
 
     <div class="card-title" style="margin-top:20px;">
       Addresses
       <button class="btn btn-sm" id="btn-add-address" type="button">+ Add Address</button>
+    </div>
+    <div id="cm-address-form" class="inline-form" style="display:none;">
+      <input type="hidden" id="af-id" />
+      <div class="grid grid-3">
+        <div class="field"><label>Type *</label>
+          <select id="af-type"><option>Billing</option><option>Shipping</option></select>
+        </div>
+        <div class="field"><label>Label</label><input id="af-label" placeholder="e.g. Head Office, Plant 2" /></div>
+        <div class="field"><label>Default for this type</label>
+          <label class="check-line"><input type="checkbox" id="af-default" /> Use by default</label>
+        </div>
+      </div>
+      <div class="grid grid-2" style="margin-top:10px;">
+        <div class="field"><label>Address line 1 *</label><input id="af-line1" /></div>
+        <div class="field"><label>Address line 2</label><input id="af-line2" /></div>
+      </div>
+      <div class="grid grid-4" style="margin-top:10px;">
+        <div class="field"><label>City</label><input id="af-city" /></div>
+        <div class="field"><label>State</label><input id="af-state" /></div>
+        <div class="field"><label>Pincode</label><input id="af-pincode" /></div>
+        <div class="field"><label>GSTIN (if different)</label><input id="af-gstin" maxlength="15" /></div>
+      </div>
+      <div class="inline-form-actions">
+        <button class="btn btn-sm" id="btn-cancel-address" type="button">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btn-save-address" type="button">Save Address</button>
+      </div>
     </div>
     <div id="cm-addresses"></div>
 
@@ -266,6 +316,23 @@
 <datalist id="industry-list"></datalist>
 <datalist id="paymentterms-list"></datalist>
 <datalist id="users-list"></datalist>
+
+<!-- Generic confirm / reason dialog. Native prompt() and confirm() are blocked inside
+     the Apps Script sandbox, so every such interaction uses this instead. -->
+<div class="modal-backdrop" id="ask-modal-backdrop">
+  <div class="modal" style="max-width:480px;">
+    <h3 id="ask-title" style="margin-bottom:10px;"></h3>
+    <p id="ask-message" style="color:var(--ink-soft); font-size:13px; margin:0 0 14px; white-space:pre-line;"></p>
+    <div class="field" id="ask-input-wrap" style="display:none;">
+      <label id="ask-input-label">Reason</label>
+      <input id="ask-input" />
+    </div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+      <button class="btn" id="ask-cancel" type="button">Cancel</button>
+      <button class="btn btn-primary" id="ask-ok" type="button">Confirm</button>
+    </div>
+  </div>
+</div>
 
 <?!= include('JavaScript'); ?>
 </body>
