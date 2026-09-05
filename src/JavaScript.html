@@ -32,12 +32,30 @@
 
   var currentUser = null;
 
+  var msgTimer = null;
+
+  /**
+   * Success messages fade after a few seconds; errors stay until dismissed. An error the
+   * user can miss by looking away is worse than no error at all.
+   */
   function showMsg(text, type) {
     var box = $("msg-box");
-    box.textContent = text;
-    box.className = "msg show " + (type === "error" ? "msg-error" : "msg-success");
+    var isError = type === "error";
+    if (msgTimer) { clearTimeout(msgTimer); msgTimer = null; }
+
+    box.innerHTML = '<span class="msg-text"></span>' +
+      (isError ? '<button class="msg-close" type="button" title="Dismiss">&times;</button>' : "");
+    box.querySelector(".msg-text").textContent = text;
+    box.className = "msg show " + (isError ? "msg-error" : "msg-success");
     window.scrollTo({ top: 0, behavior: "smooth" });
-    setTimeout(function () { box.className = "msg"; }, 4000);
+
+    if (isError) {
+      box.querySelector(".msg-close").addEventListener("click", function () {
+        box.className = "msg";
+      });
+    } else {
+      msgTimer = setTimeout(function () { box.className = "msg"; }, 4000);
+    }
   }
 
   function onServerError(err) {

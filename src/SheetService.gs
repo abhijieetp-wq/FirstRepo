@@ -8,7 +8,12 @@ function getSheet_(name) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
-    throw new Error('Sheet tab "' + name + '" was not found. Check the tab exists and is spelled exactly like this.');
+    // Almost always means the schema moved on but setupSheet() hasn't been re-run yet.
+    var known = SCHEMA && SCHEMA.hasOwnProperty(name);
+    throw new Error('The "' + name + '" tab is missing from the spreadsheet.' +
+      (known
+        ? ' Run setupSheet() from the Apps Script editor to create it — the schema has been updated since this Sheet was last set up.'
+        : ' This tab is not part of the declared schema, which suggests a code error rather than a setup step.'));
   }
   return sheet;
 }

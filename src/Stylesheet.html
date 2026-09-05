@@ -95,7 +95,11 @@
   .totals-row.grand{ border-top:2px solid var(--navy); margin-top:6px; padding-top:10px; font-size:17px; font-weight:700; color:var(--navy); font-family:'IBM Plex Mono', monospace; }
 
   .msg{ padding:10px 14px; border-radius:4px; font-size:13px; margin-bottom:14px; display:none; }
-  .msg.show{ display:block; }
+  .msg.show{ display:flex; align-items:flex-start; gap:12px; }
+  .msg-text{ flex:1; }
+  .msg-close{ background:transparent; border:none; color:inherit; font-size:20px; line-height:1;
+    padding:0 2px; opacity:.6; flex-shrink:0; }
+  .msg-close:hover{ opacity:1; }
   .msg-error{ background:var(--red-bg); color:var(--red); border:1px solid #F3C6C3; }
   .msg-success{ background:var(--green-bg); color:var(--green); border:1px solid #BEE3CC; }
 
