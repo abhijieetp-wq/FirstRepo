@@ -10,20 +10,25 @@
     });
   }
 
-  // Which tabs each role can see. Order here is the display order.
-  // Admin can see everything Manager can (per the v2 brief) until the dedicated Settings
-  // tab/page exists — that's separate future work, not built yet.
+  // Five roles per decision D4. Order here is the display order.
+  var ALL_ROLES = ["Sales Coordinator", "Sales Engineer", "Service Engineer", "Management", "ERP Admin"];
+  var SALES_SIDE = ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"];
+
   var TABS = [
-    { view: "dashboard", label: "Dashboard", roles: ["Coordinator", "Warehouse", "Manager", "Admin"] },
-    { view: "customers", label: "Customers", roles: ["Coordinator", "Manager", "Admin"] },
-    { view: "enquiries", label: "Enquiries", roles: ["Coordinator", "Manager", "Admin"] },
-    { view: "catalog", label: "Catalog", roles: ["Coordinator", "Warehouse", "Manager", "Admin"] },
-    { view: "quote", label: "New Quotation", roles: ["Coordinator", "Manager", "Admin"] },
-    { view: "quotations", label: "Quotations", roles: ["Coordinator", "Manager", "Admin"] },
-    { view: "orders", label: "Orders", roles: ["Coordinator", "Warehouse", "Manager", "Admin"] }
+    { view: "dashboard", label: "Dashboard", roles: ALL_ROLES },
+    { view: "customers", label: "Customers", roles: ALL_ROLES },
+    { view: "enquiries", label: "Enquiries", roles: SALES_SIDE },
+    { view: "catalog", label: "Catalog", roles: ALL_ROLES },
+    { view: "quote", label: "New Quotation", roles: SALES_SIDE },
+    { view: "quotations", label: "Quotations", roles: SALES_SIDE },
+    { view: "orders", label: "Orders", roles: ALL_ROLES }
   ];
 
-  function canEditCatalog() { return currentUser.role === "Manager" || currentUser.role === "Admin"; }
+  // Master data (Products/Spares/pricing) is Management + ERP Admin only — mirrors
+  // MASTER_EDITORS in Auth.gs, which is where the rule is actually enforced.
+  function canEditCatalog() {
+    return currentUser.role === "Management" || currentUser.role === "ERP Admin";
+  }
 
   var currentUser = null;
 

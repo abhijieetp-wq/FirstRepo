@@ -1,0 +1,174 @@
+/**
+ * One-click Sheet setup and upgrade.
+ *
+ * Run `setupSheet()` from the Apps Script editor (Run menu) after any schema change. It is
+ * idempotent and non-destructive:
+ *   - creates any tab declared in SCHEMA that doesn't exist
+ *   - appends any missing column to an existing tab (never reorders, renames or deletes)
+ *   - inserts seed rows only when the tab is empty
+ *   - migrates legacy role names and the legacy department column on Users
+ *   - copies the old Parts/Units catalogs into the new Spares/Products tabs (old tabs are
+ *     left untouched as a backup; nothing is deleted)
+ *
+ * It never removes a column or a row, so running it twice is safe and running it on a live
+ * sheet cannot lose data.
+ */
+
+/** Old role name → new role name (D4). */
+var LEGACY_ROLE_MAP = {
+  'Coordinator': 'Sales Coordinator',
+  'Warehouse': 'Sales Coordinator',
+  'Manager': 'Management',
+  'Admin': 'ERP Admin'
+};
+
+function setupSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var report = { created: [], columnsAdded: [], seeded: [], migrated: [], skipped: [] };
+
+  Object.keys(SCHEMA).forEach(function (tabName) {
+    var def = SCHEMA[tabName];
+    var sheet = ss.getSheetByName(tabName);
+
+    if (!sheet) {
+      sheet = ss.insertSheet(tabName);
+      sheet.getRange(1, 1, 1, def.columns.length).setValues([def.columns]);
+      sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, def.columns.length).setFontWeight('bold');
+      report.created.push(tabName + ' (' + def.columns.length + ' columns)');
+    } else {
+      var existing = getHeaders_(sheet);
+      var missing = def.columns.filter(function (c) { return existing.indexOf(c) === -1; });
+      if (missing.length) {
+        sheet.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
+        sheet.getRange(1, 1, 1, existing.length + missing.length).setFontWeight('bold');
+        report.columnsAdded.push(tabName + ': ' + missing.join(', '));
+      }
+    }
+
+    if (def.seed && def.seed.length && sheet.getLastRow() < 2) {
+      var headers = getHeaders_(sheet);
+      var rows = def.seed.map(function (obj) {
+        return headers.map(function (h) {
+          return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
+        });
+      });
+      sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+      report.seeded.push(tabName + ' (' + rows.length + ' rows)');
+    }
+  });
+
+  migrateUsers_(ss, report);
+  migrateLegacyCatalog_(ss, 'Parts', 'Spares', report);
+  migrateLegacyCatalog_(ss, 'Units', 'Products', report);
+
+  var summary = formatSetupReport_(report);
+  Logger.log(summary);
+  try {
+    SpreadsheetApp.getUi().alert('ERP Sheet Setup', summary, SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    // No UI context (e.g. run from the editor without the sheet open) — the log is enough.
+  }
+  return summary;
+}
+
+/** Rewrites legacy role values and fills in businessStream/id so nobody is locked out. */
+function migrateUsers_(ss, report) {
+  var sheet = ss.getSheetByName('Users');
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  var headers = getHeaders_(sheet);
+  var roleCol = headers.indexOf('role');
+  var streamCol = headers.indexOf('businessStream');
+  var idCol = headers.indexOf('id');
+  var deptCol = headers.indexOf('department');
+  if (roleCol === -1) return;
+
+  var lastRow = sheet.getLastRow();
+  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var changed = 0;
+
+  for (var i = 0; i < values.length; i++) {
+    var row = values[i];
+    if (!row[headers.indexOf('email')]) continue;
+
+    var role = String(row[roleCol]).trim();
+    if (LEGACY_ROLE_MAP[role]) {
+      row[roleCol] = LEGACY_ROLE_MAP[role];
+      changed++;
+    }
+    if (idCol !== -1 && !row[idCol]) row[idCol] = generateId_('USR-');
+    if (streamCol !== -1 && !row[streamCol]) {
+      // Legacy department carried the stream idea; admins/management span all streams.
+      var legacyDept = deptCol !== -1 ? String(row[deptCol]).trim() : '';
+      var newRole = String(row[roleCol]).trim();
+      row[streamCol] = (newRole === 'ERP Admin' || newRole === 'Management')
+        ? 'All'
+        : (legacyDept && legacyDept.toLowerCase().indexOf('compressor') !== -1 ? 'Compressor Sales' : 'Spare Sales');
+    }
+  }
+
+  sheet.getRange(2, 1, values.length, headers.length).setValues(values);
+  if (changed) report.migrated.push('Users: remapped ' + changed + ' legacy role value(s)');
+}
+
+/** Copies rows from a legacy catalog tab into its replacement, matching on column names. */
+function migrateLegacyCatalog_(ss, fromTab, toTab, report) {
+  var src = ss.getSheetByName(fromTab);
+  var dest = ss.getSheetByName(toTab);
+  if (!src || !dest) return;
+  if (src.getLastRow() < 2) return;
+  if (dest.getLastRow() >= 2) {
+    report.skipped.push(toTab + ' already has data — legacy ' + fromTab + ' rows not copied again');
+    return;
+  }
+
+  var srcHeaders = getHeaders_(src);
+  var destHeaders = getHeaders_(dest);
+  var srcRows = src.getRange(2, 1, src.getLastRow() - 1, srcHeaders.length).getValues();
+
+  // Legacy column name → new column name, where they differ.
+  var RENAMES = { modelCode: 'productCode', modelName: 'model', unit: 'uom', systemStock: null,
+    listRate: null, specialRate: null, altPartNo: null, altDescription: null, altRate: null,
+    warrantyPeriod: 'warrantyMonths' };
+
+  var out = [];
+  srcRows.forEach(function (row) {
+    var blank = row.every(function (c) { return c === '' || c === null; });
+    if (blank) return;
+    var obj = {};
+    srcHeaders.forEach(function (h, idx) {
+      var target = RENAMES.hasOwnProperty(h) ? RENAMES[h] : h;
+      if (target) obj[target] = row[idx];
+    });
+    if (!obj.id) obj.id = generateId_(toTab === 'Spares' ? 'SP-' : 'PR-');
+    if (destHeaders.indexOf('brand') !== -1 && !obj.brand) obj.brand = 'ELGI';
+    if (destHeaders.indexOf('active') !== -1 && !obj.active) obj.active = 'TRUE';
+    out.push(destHeaders.map(function (h) {
+      return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
+    }));
+  });
+
+  if (out.length) {
+    dest.getRange(2, 1, out.length, destHeaders.length).setValues(out);
+    report.migrated.push(fromTab + ' → ' + toTab + ': copied ' + out.length + ' row(s). ' +
+      'Rates were NOT copied — they now live in PriceList (FR-016).');
+  }
+}
+
+function formatSetupReport_(report) {
+  var lines = [];
+  function section(title, items) {
+    if (!items.length) return;
+    lines.push(title);
+    items.forEach(function (i) { lines.push('  • ' + i); });
+    lines.push('');
+  }
+  section('Tabs created:', report.created);
+  section('Columns added to existing tabs:', report.columnsAdded);
+  section('Reference data seeded:', report.seeded);
+  section('Data migrated:', report.migrated);
+  section('Skipped:', report.skipped);
+  if (!lines.length) return 'Everything already up to date — no changes made.';
+  return lines.join('\n');
+}

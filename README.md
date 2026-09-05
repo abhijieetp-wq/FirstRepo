@@ -12,6 +12,12 @@ Google Sheet — no separate database or hosting. See `ELGI-Spares-ERP-Handoff-B
 - The frontend (`src/Index.html` + `src/JavaScript.html`) talks to the backend `.gs` files
   only through `google.script.run` — there is no REST API.
 
+> **Schema setup is now automated.** Do not create tabs or type header rows by hand any
+> more. `src/Schema.gs` declares every tab and column, and running `setupSheet()` once from
+> the Apps Script editor creates/upgrades the whole spreadsheet, seeds reference data and
+> migrates legacy rows. Re-run it after any schema change — it only ever adds, never deletes.
+> The tab list below is kept for reference only.
+
 ## One-time manual setup (you)
 
 1. **Create the Google Sheet** with these tabs (Phase 1 scope — headers exactly as listed,
@@ -101,12 +107,19 @@ order.
 
 ## Build status
 
-- [x] Users/roles + Workspace SSO shell (now recognizes 4 roles + department)
-- [x] Parts + Units Catalog CRUD (Manager-only write) + rate comparison
-- [ ] Customers CRUD
-- [ ] Enquiries CRUD
-- [ ] Quotation builder (with Add Spare Part / Add Unit toggle) + history + Lost Reasons dropdown
-- [ ] Orders (dispatch/payment tracking)
-- [ ] Credit control on dispatch (department-scoped "All Records" for Manager)
-- [ ] Dashboard (department-scoped for Manager, cross-department for Admin)
-- [ ] Settings page (brand tiles + Admin Controls: Master Upload, User Management, Role Assignment, Manager Settings) — separate task per `ELGI-Settings-Page-Spec.md`
+Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet). See
+`docs/DECISIONS.md` for locked scope and `docs/ARCHITECTURE.md` for platform constraints.
+
+- [x] **Stage 0a — schema freeze**: `Schema.gs` (35 tabs declared), `setupSheet()` migrator,
+      audit logging on every write (FR-061), five-role model (D4)
+- [ ] **Stage 0b — catalog cut-over**: move Parts/Units onto Spares/Products + effective-dated
+      PriceList + derived stock; update catalog UI
+- [ ] **Foundation**: Customer/Contacts/Addresses, pricing, config lists
+- [ ] **Spare Sales**: enquiry → identification/compatibility → availability → quotation
+- [ ] **Compressor Sales**: lead, activities, site visit, technical requirement, selection, opportunity
+- [ ] **Order & Commercial**: PO validation, 8-state sales order, credit exposure, approvals
+- [ ] **Inventory & Inward**: stock states, reservations, serials, bins, GRN
+- [ ] **Dispatch & Billing**: readiness checklist, dispatch docs, invoice, dispatched-not-invoiced
+- [ ] **Collections & Tally**: ageing, follow-ups, commitments, Tally sync both ways
+- [ ] **Management Dashboards**: control tower + compressor/spare/combined dashboards
+- [ ] **Settings page**: brand tiles + Admin Controls (per `ELGI-Settings-Page-Spec.md`)

@@ -11,7 +11,7 @@ function listUnits() {
 
 function saveUnit(unit) {
   var user = getCurrentUser();
-  requireRole_(user, [ROLES.MANAGER, ROLES.ADMIN]);
+  requireRole_(user, MASTER_EDITORS);
 
   var modelCode = String(unit.modelCode || '').trim();
   var modelName = String(unit.modelName || '').trim();
@@ -46,7 +46,7 @@ function saveUnit(unit) {
 
 function deleteUnit(id) {
   var user = getCurrentUser();
-  requireRole_(user, [ROLES.MANAGER, ROLES.ADMIN]);
+  requireRole_(user, MASTER_EDITORS);
   deleteRowById_('Units', 'id', id);
   return true;
 }

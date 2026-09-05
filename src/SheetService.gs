@@ -52,7 +52,7 @@ function readTable_(sheetName) {
 }
 
 /** Appends one row, taking values from `obj` for each existing header (missing keys become ''). */
-function appendRow_(sheetName, obj) {
+function appendRow_(sheetName, obj, auditReason) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -62,6 +62,7 @@ function appendRow_(sheetName, obj) {
       return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
     });
     sheet.appendRow(row);
+    audit_('Create', sheetName, obj.id || '', '', '', '', auditReason);
     return sheet.getLastRow();
   } finally {
     lock.releaseLock();
@@ -69,7 +70,7 @@ function appendRow_(sheetName, obj) {
 }
 
 /** Merges `patch` onto the row whose `idField` column equals `idValue`. Untouched columns keep their value. */
-function updateRowById_(sheetName, idField, idValue, patch) {
+function updateRowById_(sheetName, idField, idValue, patch, auditReason) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -84,10 +85,18 @@ function updateRowById_(sheetName, idField, idValue, patch) {
       if (String(ids[i][0]) === String(idValue)) {
         var rowNum = i + 2;
         var current = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
+        var changes = [];
         var updated = headers.map(function (h, idx) {
-          return patch.hasOwnProperty(h) ? patch[h] : current[idx];
+          if (!patch.hasOwnProperty(h)) return current[idx];
+          if (String(patch[h]) !== String(current[idx])) {
+            changes.push({ field: h, oldValue: current[idx], newValue: patch[h] });
+          }
+          return patch[h];
         });
         sheet.getRange(rowNum, 1, 1, headers.length).setValues([updated]);
+        changes.forEach(function (c) {
+          audit_('Update', sheetName, idValue, c.field, c.oldValue, c.newValue, auditReason);
+        });
         return true;
       }
     }
@@ -97,7 +106,7 @@ function updateRowById_(sheetName, idField, idValue, patch) {
   }
 }
 
-function deleteRowById_(sheetName, idField, idValue) {
+function deleteRowById_(sheetName, idField, idValue, auditReason) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -110,7 +119,9 @@ function deleteRowById_(sheetName, idField, idValue) {
     var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
     for (var i = 0; i < ids.length; i++) {
       if (String(ids[i][0]) === String(idValue)) {
+        var doomed = sheet.getRange(i + 2, 1, 1, headers.length).getValues()[0].join(' | ');
         sheet.deleteRow(i + 2);
+        audit_('Delete', sheetName, idValue, '', doomed, '', auditReason);
         return true;
       }
     }
@@ -122,6 +133,43 @@ function deleteRowById_(sheetName, idField, idValue) {
 
 function generateId_(prefix) {
   return (prefix || '') + Utilities.getUuid().slice(0, 8);
+}
+
+/**
+ * Writes one AuditLog row (FR-061). Deliberately never throws: an audit failure must not
+ * roll back or block the business action it is recording. Writes straight to the sheet
+ * rather than via appendRow_ so it cannot recurse.
+ */
+function audit_(action, tableName, recordId, fieldName, oldValue, newValue, reason) {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(AUDIT_TAB);
+    if (!sheet) return;
+    var email = '';
+    try { email = Session.getActiveUser().getEmail(); } catch (e) { email = 'unknown'; }
+    var headers = getHeaders_(sheet);
+    var row = {
+      id: generateId_('AUD-'),
+      timestamp: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Etc/UTC', 'yyyy-MM-dd HH:mm:ss'),
+      userEmail: email,
+      action: action,
+      tableName: tableName,
+      recordId: recordId,
+      fieldName: fieldName || '',
+      oldValue: truncateForAudit_(oldValue),
+      newValue: truncateForAudit_(newValue),
+      reason: reason || ''
+    };
+    sheet.appendRow(headers.map(function (h) {
+      return row.hasOwnProperty(h) && row[h] !== undefined && row[h] !== null ? row[h] : '';
+    }));
+  } catch (e) {
+    Logger.log('Audit write failed: ' + e.message);
+  }
+}
+
+function truncateForAudit_(v) {
+  var s = (v === undefined || v === null) ? '' : String(v);
+  return s.length > 500 ? s.slice(0, 497) + '…' : s;
 }
 
 /** Removes the internal `_row` bookkeeping field before a row is sent to the client. */
