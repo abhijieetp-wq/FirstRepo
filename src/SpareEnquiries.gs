@@ -82,7 +82,7 @@ function saveSpareEnquiry(input) {
     status: status,
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
     lostReasonId: String(input.lostReasonId || '').trim(),
-    businessStream: 'Spare Sales',
+    businessStream: STREAM_SPARE,
     brand: String(input.brand || 'ELGI').trim()
   };
 

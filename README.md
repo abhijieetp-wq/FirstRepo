@@ -90,6 +90,14 @@ src/
   JavaScript.html    client bootstrap, tab routing, feature modules
 ```
 
+## Navigation
+
+The two streams are the two front offices (D2) and sit at the same level as each other —
+**Compressor Sales** and **Spare Sales** are separate top-level tabs, never inside a shared
+"Sales" heading. A stream and a document are different kinds of thing, and listing them
+together is what made the earlier grouping read wrong. Quotations span both streams, so they
+are their own group.
+
 ## Roles
 
 Five roles (decision D4): `Sales Coordinator`, `Sales Engineer`, `Service Engineer`,

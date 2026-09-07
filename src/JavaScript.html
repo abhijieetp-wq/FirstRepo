@@ -12,6 +12,10 @@
 
   // Five roles per decision D4. Order here is the display order.
   var ALL_ROLES = ["Sales Coordinator", "Sales Engineer", "Service Engineer", "Management", "ERP Admin"];
+
+  // Must match BUSINESS_STREAMS in Schema.gs exactly — these strings are stored on every
+  // transaction and filtered on by value, so a short form here silently matches nothing.
+  var BUSINESS_STREAMS = ["Compressor Sales", "Spare Sales"];
   var SALES_SIDE = ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"];
 
   /**
@@ -22,11 +26,14 @@
    */
   var NAV = [
     { view: "dashboard", label: "Dashboard", roles: ALL_ROLES },
-    { label: "Sales", children: [
-      { view: "enquiries", label: "Spare Enquiries", roles: SALES_SIDE },
-      { view: "compressor", label: "Compressor Sales", roles: SALES_SIDE },
+    // The two streams are the two front offices (D2) and sit at the same level as each other,
+    // never inside a shared "Sales" heading — a stream and a document are different kinds of
+    // thing, and putting them in one list is what made the old grouping read wrong.
+    { view: "compressor", label: "Compressor Sales", roles: SALES_SIDE },
+    { view: "enquiries", label: "Spare Sales", roles: SALES_SIDE },
+    { label: "Quotations", children: [
       { view: "quote", label: "New Quotation", roles: SALES_SIDE },
-      { view: "quotations", label: "Quotations", roles: SALES_SIDE }
+      { view: "quotations", label: "All Quotations", roles: SALES_SIDE }
     ] },
     { label: "Orders", children: [
       { view: "orders", label: "Sales Orders", roles: ALL_ROLES },
@@ -1511,6 +1518,48 @@
     }).withFailureHandler(onServerError).getQuotation(id);
   }
 
+  /**
+   * The New Quotation screen used to show only an empty state, because a quotation could be
+   * created from an enquiry or an opportunity but never from the screen named after the act.
+   * The picker below fixes that; raising from an enquiry is still the better path and the
+   * panel says so.
+   */
+  function initQuoteStarter() {
+    google.script.run.withSuccessHandler(function (customers) {
+      var active = customers.filter(function (c) {
+        return String(c.active).toUpperCase() !== "FALSE";
+      });
+      $("qs-customer").innerHTML = active.length
+        ? active.map(function (c) {
+            return '<option value="' + c.id + '">' + escapeHtml(c.name) + "</option>";
+          }).join("")
+        : '<option value="">— no customers yet —</option>';
+      $("btn-qs-create").disabled = !active.length;
+    }).withFailureHandler(onServerError).listCustomers(false);
+
+    $("qs-stream").innerHTML = BUSINESS_STREAMS.map(function (st) {
+      return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
+    }).join("");
+  }
+
+  $("btn-qs-create").addEventListener("click", function () {
+    if (!$("qs-customer").value) {
+      showMsg("Add a customer first, on the Customers screen.", "error");
+      return;
+    }
+    google.script.run.withSuccessHandler(function (quote) {
+      openQuote = quote;
+      renderQuoteBuilder();
+      showMsg("Quotation " + quote.quoteNo + " started. Add lines from the catalog.", "success");
+    }).withFailureHandler(onServerError).createBlankQuotation({
+      customerId: $("qs-customer").value,
+      businessStream: $("qs-stream").value,
+      machineModel: $("qs-model").value.trim(),
+      serialNo: $("qs-serial").value.trim(),
+      validityDays: $("qs-validity").value
+    });
+  });
+
   function initQuoteView() {
     if (openQuote) renderQuoteBuilder(); else renderQuoteEmpty();
   }
@@ -1519,8 +1568,9 @@
     $("qb-empty").style.display = "";
     $("qb-body").style.display = "none";
     $("qb-actions").innerHTML = "";
-    $("qb-title").textContent = "Quotation";
-    $("qb-subtitle").textContent = "Open a quotation from the Quotations tab, or raise one from an enquiry.";
+    $("qb-title").textContent = "New Quotation";
+    $("qb-subtitle").textContent = "Raise a quotation for a customer, or open one already in progress.";
+    initQuoteStarter();
   }
 
   function renderQuoteBuilder() {

@@ -30,7 +30,8 @@ var EXCEPTION_SEVERITY = { CRITICAL: 'critical', SERIOUS: 'serious', WARNING: 'w
 function getDashboard(options) {
   var user = getCurrentUser();
   var opts = options || {};
-  var stream = opts.stream === 'Compressor' || opts.stream === 'Spare' ? opts.stream : '';
+  // Must be the stored spelling, not a short form — see BUSINESS_STREAMS in Schema.gs.
+  var stream = BUSINESS_STREAMS.indexOf(opts.stream) !== -1 ? opts.stream : '';
 
   var cache = CacheService.getUserCache();
   var cacheKey = 'dash:' + user.email + ':' + stream;
@@ -113,7 +114,7 @@ function buildDashboard_(stream, user) {
 
   var weightedPipeline = 0;
   opportunities.forEach(function (op) {
-    if (stream === 'Spare') return;
+    if (stream === STREAM_SPARE) return;
     if (['Won', 'Lost'].indexOf(op.stage) !== -1) return;
     var probability = op.probability === '' || op.probability === null
       ? (STAGE_PROBABILITY[op.stage] || 0) : Number(op.probability);
@@ -171,12 +172,12 @@ function buildDashboard_(stream, user) {
       movements: movements, reservations: reservations, today: today
     }),
     orderPipeline: buildOrderPipeline_(streamOrders),
-    funnel: stream === 'Spare' ? [] : buildFunnel_(opportunities),
-    enquiryFunnel: stream === 'Compressor' ? [] : buildEnquiryFunnel_(enquiries),
+    funnel: stream === STREAM_SPARE ? [] : buildFunnel_(opportunities),
+    enquiryFunnel: stream === STREAM_COMPRESSOR ? [] : buildEnquiryFunnel_(enquiries),
     ageing: buildAgeing_(openInvoices),
     trend: buildTrend_(streamInvoices, receipts, invoiceStream, stream),
     topCustomers: buildTopCustomers_(openInvoices, customerName),
-    leadCount: stream === 'Spare' ? 0 : leads.filter(function (l) {
+    leadCount: stream === STREAM_SPARE ? 0 : leads.filter(function (l) {
       return ['New', 'Contacted', 'Qualified'].indexOf(l.status) !== -1;
     }).length
   };
@@ -287,7 +288,7 @@ function buildExceptions_(stream, d) {
     severity: EXCEPTION_SEVERITY.WARNING, view: 'inventory'
   });
 
-  if (stream !== 'Compressor') {
+  if (stream !== STREAM_COMPRESSOR) {
     var onHand = {};
     d.movements.forEach(function (m) {
       if (m.itemType !== 'Spare') return;

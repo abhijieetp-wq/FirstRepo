@@ -90,7 +90,7 @@ function saveLead(input) {
     status: status,
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
     lostReasonId: String(input.lostReasonId || '').trim(),
-    businessStream: 'Compressor Sales',
+    businessStream: STREAM_COMPRESSOR,
     brand: String(input.brand || 'ELGI').trim()
   };
 
@@ -225,7 +225,7 @@ function saveOpportunity(input) {
     lostNotes: String(input.lostNotes || '').trim(),
     ownerEmail: String(input.ownerEmail || user.email).trim(),
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
-    businessStream: 'Compressor Sales',
+    businessStream: STREAM_COMPRESSOR,
     brand: String(input.brand || 'ELGI').trim()
   };
 

@@ -494,8 +494,9 @@ function analyseOpenInvoices_(rows, reader) {
       dueDate = addDays_(invoiceDate, days);
     }
 
-    var stream = get('businessStream');
-    if (['Compressor', 'Spare'].indexOf(stream) === -1) stream = 'Spare';
+    // Accept the short words people actually type in a spreadsheet, store the canonical value.
+    var streamRaw = get('businessStream').toLowerCase();
+    var stream = streamRaw.indexOf('compressor') === 0 ? STREAM_COMPRESSOR : STREAM_SPARE;
 
     totalOutstanding += (amount - received);
     seenInFile[noKey] = true;

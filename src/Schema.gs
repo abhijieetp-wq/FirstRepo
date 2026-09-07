@@ -326,6 +326,18 @@ var SCHEMA = {
   }
 };
 
+/**
+ * The two business streams (D2), spelled exactly as they are stored.
+ *
+ * These strings are written into every transaction and compared against on the way out, so
+ * they have to be one value, not two spellings of the same idea. Filtering for 'Spare' against
+ * rows stored as 'Spare Sales' matches nothing and reports zero — which reads as "no business"
+ * rather than "wrong filter", and is the worst kind of wrong.
+ */
+var STREAM_COMPRESSOR = 'Compressor Sales';
+var STREAM_SPARE = 'Spare Sales';
+var BUSINESS_STREAMS = [STREAM_COMPRESSOR, STREAM_SPARE];
+
 /** Tabs whose rows carry a businessStream value. */
 var STREAMED_TABS = ['Leads', 'Opportunities', 'SpareEnquiries', 'Quotations', 'SalesOrders', 'Invoices'];
 

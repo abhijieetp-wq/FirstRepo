@@ -66,6 +66,83 @@ function listQuotations(options) {
  * Creates a spare quotation from an enquiry, carrying its identified parts across and
  * pricing each at today's selling price (FR-026 — the fast spare quote).
  */
+/**
+ * Starts a quotation from nothing but a customer.
+ *
+ * The two existing creators both need something to come from — an enquiry with identified
+ * parts, or an opportunity with a technical requirement. That is the right default, because a
+ * quote traceable to what the customer actually asked for is a better quote. But it left the
+ * New Quotation screen unable to create a new quotation, which is an odd thing for a screen of
+ * that name to be unable to do: a walk-in asking for two filters has no enquiry behind it, and
+ * making someone log one first is ceremony, not control.
+ *
+ * Lines are added afterwards from the catalog, exactly as on any other quotation.
+ */
+function createBlankQuotation(input) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+
+  var customer = readTable_('Customers').filter(function (c) {
+    return String(c.id) === String(input.customerId);
+  })[0];
+  if (!customer) throw new Error('Pick the customer this quotation is for.');
+
+  var stream = BUSINESS_STREAMS.indexOf(input.businessStream) !== -1
+    ? input.businessStream : STREAM_SPARE;
+
+  var addresses = readTable_('CustomerAddresses').filter(function (a) {
+    return String(a.customerId) === String(customer.id) &&
+      String(a.active).toUpperCase() !== 'FALSE';
+  });
+  var billing = addresses.filter(function (a) {
+    return a.addressType === 'Billing' && String(a.isDefault).toUpperCase() === 'TRUE';
+  })[0] || addresses.filter(function (a) { return a.addressType === 'Billing'; })[0];
+  var shipping = addresses.filter(function (a) {
+    return a.addressType === 'Shipping' && String(a.isDefault).toUpperCase() === 'TRUE';
+  })[0] || billing;
+
+  var contacts = readTable_('CustomerContacts').filter(function (c) {
+    return String(c.customerId) === String(customer.id) &&
+      String(c.active).toUpperCase() !== 'FALSE';
+  });
+  var primary = contacts.filter(function (c) {
+    return String(c.isPrimary).toUpperCase() === 'TRUE';
+  })[0] || contacts[0];
+
+  var validity = Number(input.validityDays) > 0 ? Number(input.validityDays) : 7;
+
+  var quote = {
+    id: generateId_('QT-'),
+    quoteNo: nextQuoteNo_(),
+    revision: 'R0',
+    parentQuotationId: '',
+    date: todayIso_(),
+    businessStream: stream,
+    brand: 'ELGI',
+    customerId: customer.id,
+    contactId: primary ? primary.id : '',
+    billingAddressId: billing ? billing.id : '',
+    shippingAddressId: shipping ? shipping.id : '',
+    opportunityId: '',
+    spareEnquiryId: '',
+    machineModel: String(input.machineModel || '').trim(),
+    serialNo: String(input.serialNo || '').trim(),
+    preparedBy: user.email,
+    validityDays: validity,
+    validUntil: addDays_(todayIso_(), validity),
+    status: 'Draft',
+    paymentTerms: customer.paymentTerms || '',
+    deliveryTerms: '',
+    warrantyTerms: '',
+    notes: String(input.notes || '').trim(),
+    locked: 'FALSE',
+    createdAt: todayIso_(),
+    createdBy: user.email
+  };
+  appendRow_('Quotations', quote, 'Blank quotation started for ' + customer.name);
+  return getQuotation(quote.id);
+}
+
 function createQuotationFromEnquiry(spareEnquiryId) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);
@@ -111,7 +188,7 @@ function createQuotationFromEnquiry(spareEnquiryId) {
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
-    businessStream: 'Spare Sales',
+    businessStream: STREAM_SPARE,
     brand: 'ELGI',
     customerId: enquiry.customerId,
     contactId: primary ? primary.id : '',
@@ -537,7 +614,7 @@ function createQuotationFromOpportunity(opportunityId) {
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
-    businessStream: 'Compressor Sales',
+    businessStream: STREAM_COMPRESSOR,
     brand: 'ELGI',
     customerId: opportunity.customerId,
     contactId: primary ? primary.id : '',
