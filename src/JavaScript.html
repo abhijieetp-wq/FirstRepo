@@ -22,7 +22,8 @@
     { view: "catalog", label: "Catalog", roles: ALL_ROLES },
     { view: "quote", label: "New Quotation", roles: SALES_SIDE },
     { view: "quotations", label: "Quotations", roles: SALES_SIDE },
-    { view: "orders", label: "Orders", roles: ALL_ROLES }
+    { view: "orders", label: "Orders", roles: ALL_ROLES },
+    { view: "inventory", label: "Inventory", roles: ALL_ROLES }
   ];
 
   // Master data (Products/Spares/pricing) is Management + ERP Admin only — mirrors
@@ -143,7 +144,8 @@
     quotations: initQuotationsView,
     quote: initQuoteView,
     compressor: initCompressorView,
-    orders: initOrdersView
+    orders: initOrdersView,
+    inventory: initInventoryView
   };
 
   function goToTab(view) {
@@ -2521,6 +2523,9 @@
     if (o.creditHold && canReleaseCredit()) {
       buttons += '<button class="btn btn-sm btn-amber" id="btn-release-hold">Release Credit Hold</button> ';
     }
+    if (editable && !o.creditHold && ["Draft", "Approval Pending", "Material Pending"].indexOf(o.orderStatus) !== -1) {
+      buttons += '<button class="btn btn-sm btn-amber" id="btn-reserve-stock">Reserve Stock</button> ';
+    }
     if (editable && !o.creditHold) {
       buttons += o.allowedTransitions.map(function (st) {
         return '<button class="btn btn-sm" data-order-status="' + st + '">→ ' + st + "</button>";
@@ -2545,6 +2550,24 @@
         }).withFailureHandler(onServerError).setOrderStatus(o.id, target, "");
       });
     });
+
+    if ($("btn-reserve-stock")) {
+      $("btn-reserve-stock").addEventListener("click", function () {
+        google.script.run.withSuccessHandler(function (res) {
+          openOrderModal(o.id);
+          loadOrders();
+          var msg = res.reserved.length
+            ? "Reserved " + res.reserved.map(function (r) { return r.qty + " × " + r.itemCode; }).join(", ")
+            : "Nothing could be reserved";
+          if (res.shortfalls.length) {
+            msg += ". Short: " + res.shortfalls.map(function (sf) {
+              return sf.itemCode + " (need " + sf.shortBy + " more)";
+            }).join(", ");
+          }
+          showMsg(msg + ".", res.shortfalls.length ? "error" : "success");
+        }).withFailureHandler(onServerError).reserveStockForOrder(o.id);
+      });
+    }
 
     if ($("btn-release-hold")) {
       $("btn-release-hold").addEventListener("click", function () {
@@ -2598,6 +2621,455 @@
       promisedDispatchDate: $("om2-promised").value,
       poAttachmentUrl: $("om2-attachment").value.trim(),
       notes: $("om2-notes").value.trim()
+    });
+  });
+
+
+  // ================= INVENTORY & INWARD =================
+  var INV_MODE = "stock";
+  var inventoryCache = [];
+  var reservationsCache = [];
+  var grnsCache = [];
+  var serialsCache = [];
+  var openGrn = null;
+  var grnSearchTimer = null;
+
+  function canDoStores() {
+    return ["Sales Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  function initInventoryView() {
+    switchInvMode(INV_MODE);
+  }
+
+  function switchInvMode(mode) {
+    INV_MODE = mode;
+    ["stock", "reservations", "inward", "serials"].forEach(function (m) {
+      $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
+    });
+    $("inv-type").style.display = (mode === "stock") ? "" : "none";
+    $("inv-search").placeholder = {
+      stock: "Search by code or description…",
+      reservations: "Search by order no. or item…",
+      inward: "Search by GRN no. or supplier…",
+      serials: "Search by serial or product…"
+    }[mode];
+
+    var actions = [];
+    if (mode === "inward" && canDoStores()) actions.push('<button class="btn btn-amber" id="btn-new-grn">+ New GRN</button>');
+    if (mode === "serials" && canDoStores()) actions.push('<button class="btn btn-amber" id="btn-new-serial">+ Add Serial</button>');
+    $("inv-actions").innerHTML = actions.join("");
+    if ($("btn-new-grn")) $("btn-new-grn").addEventListener("click", function () { openGrnModal(null); });
+    if ($("btn-new-serial")) $("btn-new-serial").addEventListener("click", function () { openSerialModal(null); });
+
+    loadInvRows();
+  }
+
+  ["stock", "reservations", "inward", "serials"].forEach(function (m) {
+    $("subtab-" + m).addEventListener("click", function () { switchInvMode(m); });
+  });
+  $("inv-search").addEventListener("input", renderInvRows);
+  $("inv-type").addEventListener("change", loadInvRows);
+
+  function loadInvRows() {
+    if (INV_MODE === "stock") {
+      google.script.run.withSuccessHandler(function (rows) {
+        inventoryCache = rows; renderInvRows();
+      }).withFailureHandler(onServerError).listInventory($("inv-type").value);
+    } else if (INV_MODE === "reservations") {
+      google.script.run.withSuccessHandler(function (rows) {
+        reservationsCache = rows; renderInvRows();
+      }).withFailureHandler(onServerError).listReservations({});
+    } else if (INV_MODE === "inward") {
+      google.script.run.withSuccessHandler(function (rows) {
+        grnsCache = rows; renderInvRows();
+      }).withFailureHandler(onServerError).listGRNs({ includeVerified: true });
+    } else {
+      google.script.run.withSuccessHandler(function (rows) {
+        serialsCache = rows; renderInvRows();
+      }).withFailureHandler(onServerError).listSerialNumbers({});
+    }
+  }
+
+  function renderInvRows() {
+    if (INV_MODE === "stock") renderStock();
+    else if (INV_MODE === "reservations") renderReservations();
+    else if (INV_MODE === "inward") renderGRNs();
+    else renderSerials();
+  }
+
+  function renderStock() {
+    var q = ($("inv-search").value || "").toLowerCase();
+    var rows = inventoryCache.filter(function (r) {
+      return [r.code, r.description, r.category].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    var lowStock = inventoryCache.filter(function (r) { return r.belowReorder; });
+    var value = inventoryCache.reduce(function (sum, r) { return sum + (r.stockValue || 0); }, 0);
+    $("inv-summary").innerHTML = '<div class="grid grid-4" style="margin-bottom:14px;">' +
+      '<div class="kpi-card"><div class="kpi-label">Items</div><div class="kpi-value">' + inventoryCache.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Total Reserved</div><div class="kpi-value">' +
+        inventoryCache.reduce(function (sum, r) { return sum + r.reserved; }, 0) + "</div></div>" +
+      '<div class="kpi-card' + (lowStock.length ? " alert" : "") + '"><div class="kpi-label">At or Below Reorder</div><div class="kpi-value">' +
+        lowStock.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Stock Value</div><div class="kpi-value" style="font-size:18px;">' +
+        fmt(value) + "</div></div>" +
+      "</div>";
+
+    $("inv-thead").innerHTML = "<tr><th>Code</th><th>Description</th><th>Category</th><th>Bin</th>" +
+      '<th class="num">On Hand</th><th class="num">Reserved</th><th class="num">Available</th>' +
+      '<th class="num">Reorder</th><th class="num">Value</th></tr>';
+
+    if (!rows.length) {
+      $("inv-tbody").innerHTML = '<tr><td colspan="9"><div class="empty">Nothing to show.</div></td></tr>';
+      return;
+    }
+
+    $("inv-tbody").innerHTML = rows.map(function (r) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(r.code) + "</td>" +
+        "<td>" + escapeHtml(r.description || "—") + "</td>" +
+        "<td>" + escapeHtml(r.category || "—") + "</td>" +
+        "<td>" + escapeHtml(r.binId || "—") + "</td>" +
+        '<td class="num">' + r.onHand + "</td>" +
+        '<td class="num">' + r.reserved + "</td>" +
+        '<td class="num" style="font-weight:600; color:' +
+          (r.available > 0 ? "var(--green)" : "var(--red)") + ';">' + r.available + "</td>" +
+        '<td class="num">' + (r.reorderLevel === null ? "—" : r.reorderLevel) +
+          (r.belowReorder ? ' <span class="badge badge-overdue">Low</span>' : "") + "</td>" +
+        '<td class="num mono">' + fmt(r.stockValue) + "</td>" +
+        "</tr>";
+    }).join("");
+  }
+
+  function renderReservations() {
+    var q = ($("inv-search").value || "").toLowerCase();
+    var rows = reservationsCache.filter(function (r) {
+      return [r.orderNo, r.itemCode].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    $("inv-summary").innerHTML = "";
+    $("inv-thead").innerHTML = "<tr><th>Order No.</th><th>Item</th><th>Type</th>" +
+      '<th class="num">Qty Reserved</th><th>Reserved On</th><th>By</th><th></th></tr>';
+
+    if (!rows.length) {
+      $("inv-tbody").innerHTML = '<tr><td colspan="7"><div class="empty">No active reservations. ' +
+        "Reserving happens from an order once it is past credit check.</div></td></tr>";
+      return;
+    }
+
+    $("inv-tbody").innerHTML = rows.map(function (r) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(r.orderNo || "—") + "</td>" +
+        '<td class="mono">' + escapeHtml(r.itemCode || "—") + "</td>" +
+        "<td>" + escapeHtml(r.itemType) + "</td>" +
+        '<td class="num">' + r.qtyReserved + "</td>" +
+        "<td>" + escapeHtml(r.reservedDate) + "</td>" +
+        "<td>" + escapeHtml(r.reservedBy || "—") + "</td>" +
+        '<td class="center">' + (canDoStores()
+          ? '<button class="btn btn-sm" data-release-res="' + r.id + '">Release</button>' : "") + "</td>" +
+        "</tr>";
+    }).join("");
+
+    $("inv-tbody").querySelectorAll("[data-release-res]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({
+          title: "Release this reservation?",
+          message: "The stock returns to available and can be promised to another order.",
+          input: true, inputLabel: "Reason", okLabel: "Release", danger: true
+        }, function (reason) {
+          if (reason === null) return;
+          google.script.run.withSuccessHandler(function () {
+            loadInvRows(); showMsg("Reservation released.", "success");
+          }).withFailureHandler(onServerError).releaseReservation(btn.dataset.releaseRes, reason);
+        });
+      });
+    });
+  }
+
+  function renderGRNs() {
+    var q = ($("inv-search").value || "").toLowerCase();
+    var rows = grnsCache.filter(function (g) {
+      return [g.grnNo, g.supplierName, g.poRef].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    var pending = grnsCache.filter(function (g) { return g.verificationStatus !== "Verified"; });
+    $("inv-summary").innerHTML = '<div class="grid grid-4" style="margin-bottom:14px;">' +
+      '<div class="kpi-card"><div class="kpi-label">Total GRNs</div><div class="kpi-value">' + grnsCache.length + "</div></div>" +
+      '<div class="kpi-card' + (pending.length ? " alert" : "") + '"><div class="kpi-label">Awaiting Verification</div>' +
+        '<div class="kpi-value">' + pending.length + '</div><div class="kpi-sub">Stock is not posted until verified</div></div>' +
+      "</div>";
+
+    $("inv-thead").innerHTML = "<tr><th>GRN No.</th><th>Date</th><th>Supplier</th><th>PO Ref</th>" +
+      '<th class="num">Lines</th><th>Received By</th><th>Status</th><th></th></tr>';
+
+    if (!rows.length) {
+      $("inv-tbody").innerHTML = '<tr><td colspan="8"><div class="empty">No goods received notes yet.</div></td></tr>';
+      return;
+    }
+
+    $("inv-tbody").innerHTML = rows.map(function (g) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(g.grnNo || "—") + "</td>" +
+        "<td>" + escapeHtml(g.grnDate) + "</td>" +
+        "<td>" + escapeHtml(g.supplierName || "—") + "</td>" +
+        "<td>" + escapeHtml(g.poRef || "—") + "</td>" +
+        '<td class="num">' + g.itemCount + "</td>" +
+        "<td>" + escapeHtml(g.receivedBy || "—") + "</td>" +
+        "<td>" + (g.verificationStatus === "Verified"
+          ? '<span class="badge badge-won">Verified</span>'
+          : '<span class="badge badge-pending">Awaiting verification</span>') + "</td>" +
+        '<td class="center"><button class="btn btn-sm" data-open-grn="' + g.id + '">Open</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("inv-tbody").querySelectorAll("[data-open-grn]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openGrnModal(btn.dataset.openGrn); });
+    });
+  }
+
+  function renderSerials() {
+    var q = ($("inv-search").value || "").toLowerCase();
+    var rows = serialsCache.filter(function (sn) {
+      return [sn.serialNo, sn.productCode, sn.productName].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    var byStatus = {};
+    serialsCache.forEach(function (sn) { byStatus[sn.status] = (byStatus[sn.status] || 0) + 1; });
+    $("inv-summary").innerHTML = '<div class="compare-strip" style="margin-bottom:14px;">' +
+      ["In Stock", "Reserved", "Dispatched", "Installed"].map(function (st) {
+        return '<span class="badge badge-draft" style="margin-right:6px;">' + st + ": " + (byStatus[st] || 0) + "</span>";
+      }).join("") + "</div>";
+
+    $("inv-thead").innerHTML = "<tr><th>Serial No.</th><th>Product</th><th>Status</th>" +
+      "<th>GRN</th><th>Order</th><th>Recorded</th><th></th></tr>";
+
+    if (!rows.length) {
+      $("inv-tbody").innerHTML = '<tr><td colspan="7"><div class="empty">No serials recorded. ' +
+        "Verifying a GRN with serial numbers creates them automatically.</div></td></tr>";
+      return;
+    }
+
+    $("inv-tbody").innerHTML = rows.map(function (sn) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(sn.serialNo) + "</td>" +
+        "<td>" + escapeHtml(sn.productName || sn.productCode || "—") + "</td>" +
+        '<td><span class="badge ' + (sn.status === "In Stock" ? "badge-active" : "badge-draft") + '">' +
+          escapeHtml(sn.status) + "</span></td>" +
+        "<td>" + escapeHtml(sn.grnId ? "Yes" : "—") + "</td>" +
+        "<td>" + escapeHtml(sn.salesOrderId ? "Allocated" : "—") + "</td>" +
+        "<td>" + escapeHtml(sn.createdAt || "—") + "</td>" +
+        '<td class="center">' + (canDoStores()
+          ? '<button class="btn-ghost" data-edit-serial="' + sn.id + '" title="Edit">✎</button>' : "") + "</td>" +
+        "</tr>";
+    }).join("");
+
+    $("inv-tbody").querySelectorAll("[data-edit-serial]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openSerialModal(btn.dataset.editSerial); });
+    });
+  }
+
+  // ---- GRN modal ----
+  $("btn-grn-close").addEventListener("click", function () {
+    $("grn-modal-backdrop").classList.remove("show");
+    loadInvRows();
+  });
+
+  function openGrnModal(id) {
+    if (!id) {
+      openGrn = null;
+      $("grn-modal-title").textContent = "New Goods Received Note";
+      $("grn-no").textContent = "A GRN number is assigned on save.";
+      $("grn-id").value = "";
+      $("grn-date").value = new Date().toISOString().slice(0, 10);
+      ["grn-supplier", "grn-poref", "grn-invoice", "grn-checkedby", "grn-notes"].forEach(function (f) { $(f).value = ""; });
+      $("grn-receivedby").value = currentUser.email;
+      renderGrnModal();
+      $("grn-modal-backdrop").classList.add("show");
+      return;
+    }
+    google.script.run.withSuccessHandler(function (g) {
+      openGrn = g;
+      renderGrnModal();
+      $("grn-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).getGRN(id);
+  }
+
+  function renderGrnModal() {
+    var g = openGrn;
+    var verified = g && g.verificationStatus === "Verified";
+
+    if (g) {
+      $("grn-modal-title").textContent = "Goods Received Note";
+      $("grn-no").textContent = g.grnNo + " · " + g.supplierName;
+      $("grn-id").value = g.id;
+      $("grn-date").value = g.grnDate || "";
+      $("grn-supplier").value = g.supplierName || "";
+      $("grn-poref").value = g.poRef || "";
+      $("grn-invoice").value = g.invoiceRef || "";
+      $("grn-receivedby").value = g.receivedBy || "";
+      $("grn-checkedby").value = g.checkedBy || "";
+      $("grn-notes").value = g.notes || "";
+    }
+
+    $("grn-status-banner").innerHTML = verified
+      ? '<div class="msg msg-success show" style="margin-bottom:14px;"><span class="msg-text">' +
+        "<b>Verified</b> by " + escapeHtml(g.verifiedBy) + " on " + escapeHtml(g.verificationDate) +
+        ". Stock has been posted and this GRN can no longer be changed.</span></div>"
+      : (g ? '<div class="compare-strip" style="margin-bottom:14px;">Stock has <b>not</b> been ' +
+        "posted yet. Add what arrived, then verify to move it into stock.</div>" : "");
+
+    ["grn-date", "grn-supplier", "grn-poref", "grn-invoice", "grn-receivedby", "grn-checkedby", "grn-notes"]
+      .forEach(function (f) { $(f).disabled = verified || !canDoStores(); });
+    $("btn-grn-save").style.display = (verified || !canDoStores()) ? "none" : "";
+    $("btn-grn-additem").style.display = (!g || verified || !canDoStores()) ? "none" : "";
+    $("btn-grn-verify").style.display = (g && !verified && canDoStores()) ? "" : "none";
+    $("grn-item-form").style.display = "none";
+
+    renderGrnItems(g, verified);
+  }
+
+  function renderGrnItems(g, verified) {
+    if (!g) {
+      $("grn-items").innerHTML = '<div class="empty" style="padding:14px;">Save the GRN first, then add what arrived.</div>';
+      return;
+    }
+    $("grn-items").innerHTML = g.items.length
+      ? '<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th class="num">Received</th>' +
+        '<th class="num">Accepted</th><th class="num">Rejected</th><th>Condition</th><th>Serials</th><th></th></tr></thead><tbody>' +
+        g.items.map(function (i) {
+          return "<tr><td>" + i.lineNo + '</td><td class="mono">' + escapeHtml(i.itemCode || "—") +
+            "</td><td>" + escapeHtml(i.description || "—") +
+            '</td><td class="num">' + i.qtyReceived +
+            '</td><td class="num">' + i.qtyAccepted +
+            '</td><td class="num">' + (Number(i.qtyRejected) || 0) +
+            "</td><td>" + escapeHtml(i.condition || "—") +
+            "</td><td>" + escapeHtml(i.serialNos || "—") +
+            '</td><td class="center">' + (verified ? "" :
+              '<button class="btn-ghost" data-del-grni="' + i.id + '" title="Remove">✕</button>') +
+            "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="empty" style="padding:14px;">Nothing recorded yet.</div>';
+
+    $("grn-items").querySelectorAll("[data-del-grni]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({ title: "Remove this line?", okLabel: "Remove", danger: true }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function (updated) {
+            openGrn = updated; renderGrnModal();
+          }).withFailureHandler(onServerError).deleteGRNItem(btn.dataset.delGrni);
+        });
+      });
+    });
+  }
+
+  $("btn-grn-save").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (g) {
+      openGrn = g; renderGrnModal(); loadInvRows();
+      showMsg("GRN " + g.grnNo + " saved.", "success");
+    }).withFailureHandler(onServerError).saveGRN({
+      id: $("grn-id").value || null,
+      grnDate: $("grn-date").value,
+      supplierName: $("grn-supplier").value.trim(),
+      poRef: $("grn-poref").value.trim(),
+      invoiceRef: $("grn-invoice").value.trim(),
+      receivedBy: $("grn-receivedby").value.trim(),
+      checkedBy: $("grn-checkedby").value.trim(),
+      notes: $("grn-notes").value.trim()
+    });
+  });
+
+  $("btn-grn-additem").addEventListener("click", function () {
+    $("grn-item-form").style.display = "";
+    $("gi-received").value = "";
+    $("gi-accepted").value = "";
+    $("gi-serials").value = "";
+    $("gi-bin").value = "";
+    runGrnItemSearch();
+  });
+  $("btn-grn-cancelitem").addEventListener("click", function () {
+    $("grn-item-form").style.display = "none";
+  });
+  $("gi-type").addEventListener("change", runGrnItemSearch);
+  $("gi-search").addEventListener("input", function () {
+    if (grnSearchTimer) clearTimeout(grnSearchTimer);
+    grnSearchTimer = setTimeout(runGrnItemSearch, 250);
+  });
+
+  function runGrnItemSearch() {
+    google.script.run.withSuccessHandler(function (items) {
+      $("gi-item").innerHTML = items.map(function (i) {
+        return '<option value="' + i.id + '">' + escapeHtml(i.code + " — " + i.description) + "</option>";
+      }).join("");
+    }).withFailureHandler(onServerError).searchStockItems($("gi-type").value, $("gi-search").value.trim());
+  }
+
+  $("btn-grn-saveitem").addEventListener("click", function () {
+    if (!$("gi-item").value) { showMsg("Pick the item received.", "error"); return; }
+    google.script.run.withSuccessHandler(function (g) {
+      openGrn = g; renderGrnModal();
+      showMsg("Line added.", "success");
+    }).withFailureHandler(onServerError).saveGRNItem({
+      grnId: $("grn-id").value,
+      itemType: $("gi-type").value,
+      itemId: $("gi-item").value,
+      qtyReceived: $("gi-received").value,
+      qtyAccepted: $("gi-accepted").value,
+      condition: $("gi-condition").value,
+      serialNos: $("gi-serials").value.trim(),
+      binId: $("gi-bin").value.trim()
+    });
+  });
+
+  $("btn-grn-verify").addEventListener("click", function () {
+    askDialog({
+      title: "Verify this GRN and post stock?",
+      message: "Accepted quantities move into stock and cannot be un-posted — a correction " +
+        "afterwards is a stock adjustment, not an edit. Rejected material is not posted.",
+      input: true, inputLabel: "Verification notes (optional)", required: false,
+      okLabel: "Verify and post"
+    }, function (notes) {
+      if (notes === null) return;
+      google.script.run.withSuccessHandler(function (g) {
+        openGrn = g; renderGrnModal(); loadInvRows();
+        showMsg("GRN verified — stock posted.", "success");
+      }).withFailureHandler(onServerError).verifyGRN($("grn-id").value, notes);
+    });
+  });
+
+  // ---- Serial modal ----
+  $("btn-cancel-serial").addEventListener("click", function () {
+    $("serial-modal-backdrop").classList.remove("show");
+  });
+
+  function openSerialModal(id) {
+    var sn = id ? serialsCache.find(function (x) { return x.id === id; }) : null;
+    $("sn-id").value = id || "";
+    $("sn-serial").value = sn ? sn.serialNo : "";
+    $("sn-status").value = sn ? sn.status : "In Stock";
+    $("sn-notes").value = sn ? (sn.notes || "") : "";
+
+    google.script.run.withSuccessHandler(function (products) {
+      $("sn-product").innerHTML = products.map(function (p) {
+        return '<option value="' + p.id + '"' + (sn && sn.productId === p.id ? " selected" : "") + ">" +
+          escapeHtml(p.productCode + " — " + (p.model || "")) + "</option>";
+      }).join("");
+      $("serial-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).listProducts();
+  }
+
+  $("btn-save-serial").addEventListener("click", function () {
+    if (!$("sn-serial").value.trim()) { showMsg("Enter the serial number.", "error"); return; }
+    google.script.run.withSuccessHandler(function () {
+      $("serial-modal-backdrop").classList.remove("show");
+      loadInvRows();
+      showMsg("Serial saved.", "success");
+    }).withFailureHandler(onServerError).saveSerialNumber({
+      id: $("sn-id").value || null,
+      productId: $("sn-product").value,
+      serialNo: $("sn-serial").value.trim(),
+      status: $("sn-status").value,
+      notes: $("sn-notes").value.trim()
     });
   });
 

@@ -158,6 +158,40 @@
       </div>
     </div>
 
+
+    <div class="view" id="view-inventory">
+      <div class="page-head">
+        <div>
+          <h2>Inventory &amp; Inward</h2>
+          <p>Live stock position, what is reserved against orders, compressor serials, and goods received. Stock moves only when material is verified.</p>
+        </div>
+        <div style="display:flex; gap:8px;" id="inv-actions"></div>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:14px;">
+        <button class="btn btn-sm" id="subtab-stock">Stock</button>
+        <button class="btn btn-sm" id="subtab-reservations">Reservations</button>
+        <button class="btn btn-sm" id="subtab-inward">Inward (GRN)</button>
+        <button class="btn btn-sm" id="subtab-serials">Serials</button>
+      </div>
+
+      <div class="search-bar">
+        <input id="inv-search" placeholder="Search…" />
+        <select id="inv-type" class="btn btn-sm" style="max-width:200px;">
+          <option value="Spare">Spares</option>
+          <option value="Product">Compressors</option>
+        </select>
+      </div>
+
+      <div id="inv-summary"></div>
+
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead id="inv-thead"></thead>
+          <tbody id="inv-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="view" id="view-quote">
       <div class="page-head">
         <div>
@@ -854,6 +888,97 @@
 
     <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-order">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- GRN Modal -->
+<div class="modal-backdrop" id="grn-modal-backdrop">
+  <div class="modal" style="max-width:940px;">
+    <h3 id="grn-modal-title" style="margin-bottom:4px;">Goods Received Note</h3>
+    <p id="grn-no" class="mono" style="font-size:12px; color:var(--steel); margin:0 0 16px;"></p>
+    <input type="hidden" id="grn-id" />
+
+    <div id="grn-status-banner"></div>
+
+    <div class="grid grid-4">
+      <div class="field"><label>GRN Date</label><input id="grn-date" type="date" /></div>
+      <div class="field"><label>Supplier *</label><input id="grn-supplier" /></div>
+      <div class="field"><label>PO Reference</label><input id="grn-poref" /></div>
+      <div class="field"><label>Supplier Invoice</label><input id="grn-invoice" /></div>
+    </div>
+    <div class="grid grid-3" style="margin-top:12px;">
+      <div class="field"><label>Received By</label><input id="grn-receivedby" list="users-list" /></div>
+      <div class="field"><label>Checked By</label><input id="grn-checkedby" list="users-list" /></div>
+      <div class="field"><label>Notes</label><input id="grn-notes" /></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+      <button class="btn btn-sm" id="btn-grn-save">Save GRN</button>
+    </div>
+
+    <div class="card-title" style="margin-top:20px;">
+      Material Received
+      <button class="btn btn-sm" id="btn-grn-additem" type="button">+ Add Line</button>
+    </div>
+
+    <div id="grn-item-form" class="inline-form" style="display:none;">
+      <div class="grid grid-3">
+        <div class="field"><label>Type</label>
+          <select id="gi-type"><option value="Spare">Spare</option><option value="Product">Compressor</option></select>
+        </div>
+        <div class="field"><label>Search item</label><input id="gi-search" placeholder="Code or description" /></div>
+        <div class="field"><label>Item *</label><select id="gi-item"></select></div>
+      </div>
+      <div class="grid grid-4" style="margin-top:10px;">
+        <div class="field"><label>Qty Received *</label><input id="gi-received" type="number" min="0" step="any" /></div>
+        <div class="field"><label>Qty Accepted</label><input id="gi-accepted" type="number" min="0" step="any" /></div>
+        <div class="field"><label>Condition</label>
+          <select id="gi-condition"><option>Good</option><option>Damaged</option><option>Short</option></select>
+        </div>
+        <div class="field"><label>Bin</label><input id="gi-bin" /></div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Serial Numbers (compressors — comma separated)</label>
+        <input id="gi-serials" placeholder="e.g. SN1001, SN1002" />
+      </div>
+      <div class="inline-form-actions">
+        <button class="btn btn-sm" id="btn-grn-cancelitem" type="button">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btn-grn-saveitem" type="button">Add Line</button>
+      </div>
+    </div>
+
+    <div id="grn-items"></div>
+
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
+      <div></div>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-grn-close">Close</button>
+        <button class="btn btn-amber" id="btn-grn-verify">Verify &amp; Post Stock</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Serial Modal -->
+<div class="modal-backdrop" id="serial-modal-backdrop">
+  <div class="modal" style="max-width:560px;">
+    <h3 style="margin-bottom:16px;">Compressor Serial</h3>
+    <input type="hidden" id="sn-id" />
+    <div class="grid grid-2">
+      <div class="field"><label>Product *</label><select id="sn-product"></select></div>
+      <div class="field"><label>Serial No. *</label><input id="sn-serial" class="mono" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Status</label>
+        <select id="sn-status">
+          <option>In Stock</option><option>Reserved</option><option>Dispatched</option><option>Installed</option>
+        </select>
+      </div>
+      <div class="field"><label>Notes</label><input id="sn-notes" /></div>
+    </div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
+      <button class="btn" id="btn-cancel-serial">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-serial">Save Serial</button>
     </div>
   </div>
 </div>
