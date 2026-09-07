@@ -129,13 +129,93 @@
     </div>
 
     <div class="view" id="view-quote">
-      <div class="page-head"><div><h2>New Quotation</h2><p>Pick a customer, add parts, compare rates, save or print.</p></div></div>
-      <div class="empty">Not built yet — coming in a later step.</div>
+      <div class="page-head">
+        <div>
+          <h2 id="qb-title">Quotation</h2>
+          <p id="qb-subtitle">Open a quotation from the Quotations tab, or raise one from an enquiry.</p>
+        </div>
+        <div style="display:flex; gap:8px;" id="qb-actions"></div>
+      </div>
+
+      <div id="qb-empty" class="empty">
+        No quotation open. Go to <b>Enquiries</b>, open one with identified parts, and choose
+        <b>Create Quotation</b> — or open an existing one from the <b>Quotations</b> tab.
+      </div>
+
+      <div id="qb-body" style="display:none;">
+        <div id="qb-locked-banner"></div>
+
+        <div class="card">
+          <div class="card-title">Customer &amp; Machine</div>
+          <div class="grid grid-4">
+            <div class="field"><label>Customer</label><input id="qb-customer" readonly /></div>
+            <div class="field"><label>GSTIN</label><input id="qb-gstin" class="mono" readonly /></div>
+            <div class="field"><label>Machine Model</label><input id="qb-model" /></div>
+            <div class="field"><label>Serial No.</label><input id="qb-serial" /></div>
+          </div>
+          <div class="grid grid-4" style="margin-top:12px;">
+            <div class="field"><label>Quotation Date</label><input id="qb-date" type="date" /></div>
+            <div class="field"><label>Validity (days)</label><input id="qb-validity" type="number" min="1" /></div>
+            <div class="field"><label>Valid Until</label><input id="qb-validuntil" readonly /></div>
+            <div class="field"><label>Payment Terms</label><input id="qb-paymentterms" list="paymentterms-list" /></div>
+          </div>
+          <div class="grid grid-3" style="margin-top:12px;">
+            <div class="field"><label>Delivery Terms</label><input id="qb-deliveryterms" /></div>
+            <div class="field"><label>Warranty Terms</label><input id="qb-warrantyterms" /></div>
+            <div class="field"><label>Notes</label><input id="qb-notes" /></div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+            <button class="btn btn-sm" id="btn-qb-save-header">Save Details</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            Items
+            <button class="btn btn-sm" id="btn-qb-add-item" type="button">+ Add Item</button>
+          </div>
+
+          <div id="qb-add-panel" class="inline-form" style="display:none;">
+            <div class="grid grid-3">
+              <div class="field"><label>Type</label>
+                <select id="qi-type"><option value="Spare">Spare Part</option><option value="Product">Compressor</option></select>
+              </div>
+              <div class="field"><label>Search the catalog</label><input id="qi-search" placeholder="Code or description" /></div>
+              <div class="field"><label>Quantity</label><input id="qi-qty" type="number" min="1" value="1" /></div>
+            </div>
+            <div id="qi-results" style="max-height:240px; overflow-y:auto; margin-top:10px;"></div>
+            <div class="inline-form-actions">
+              <button class="btn btn-sm" id="btn-qb-close-add" type="button">Done</button>
+            </div>
+          </div>
+
+          <div id="qb-items"></div>
+          <div style="display:flex; margin-top:16px;">
+            <div class="totals-box" id="qb-totals"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="view" id="view-quotations">
-      <div class="page-head"><div><h2>Quotations</h2><p>Every quotation the team has saved.</p></div></div>
-      <div class="empty">Not built yet — coming in a later step.</div>
+      <div class="page-head">
+        <div><h2>Quotations</h2><p>Every quotation, with its revisions. An approved or submitted quotation is locked — revising it creates the next revision rather than changing what the customer received.</p></div>
+      </div>
+      <div class="search-bar">
+        <input id="quotations-search" placeholder="Search by quote no., customer or machine…" />
+        <label class="check-line"><input type="checkbox" id="quotations-mine" /> Only mine</label>
+        <label class="check-line"><input type="checkbox" id="quotations-closed" /> Include won/lost</label>
+      </div>
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead><tr>
+            <th>Quote No.</th><th>Rev</th><th>Date</th><th>Customer</th><th>Machine</th>
+            <th class="num">Items</th><th class="num">Grand Total</th><th>Status</th>
+            <th>Valid Until</th><th></th>
+          </tr></thead>
+          <tbody id="quotations-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="view" id="view-orders">
@@ -369,6 +449,10 @@
       <label id="ask-input-label">Reason</label>
       <input id="ask-input" />
     </div>
+    <div class="field" id="ask-select-wrap" style="display:none;">
+      <label id="ask-select-label">Choose one</label>
+      <select id="ask-select"></select>
+    </div>
     <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
       <button class="btn" id="ask-cancel" type="button">Cancel</button>
       <button class="btn btn-primary" id="ask-ok" type="button">Confirm</button>
@@ -446,6 +530,7 @@
       <div></div>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-cancel-enquiry">Close</button>
+        <button class="btn btn-amber" id="btn-quote-enquiry" style="display:none;">Create Quotation</button>
         <button class="btn btn-primary" id="btn-save-enquiry">Save Enquiry</button>
       </div>
     </div>

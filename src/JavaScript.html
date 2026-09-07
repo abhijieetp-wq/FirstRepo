@@ -64,18 +64,42 @@
 
   /**
    * Replacement for window.prompt/confirm, which the Apps Script sandbox blocks.
-   * askDialog({title, message, input, inputLabel, okLabel, danger}, callback) — the callback
-   * receives the entered text (or "" when no input was requested), or null on cancel.
+   *
+   * askDialog({title, message, input, inputLabel, options, optionsLabel, okLabel, danger},
+   *           callback)
+   *
+   * Pass `input: true` for a text field or `options: [{value,label}]` for a dropdown. The
+   * callback receives the entered text or selected value ("" when neither was requested),
+   * or null on cancel. Both field types live in the markup and are shown or hidden — callers
+   * must never rewrite this dialog's DOM, or the handlers below end up reading fields that
+   * no longer exist.
    */
   var askState = null;
 
   function askDialog(opts, callback) {
-    askState = { callback: callback, requiresInput: !!opts.input, required: opts.required !== false };
+    var usesSelect = !!(opts.options && opts.options.length);
+    askState = {
+      callback: callback,
+      requiresInput: !!opts.input,
+      usesSelect: usesSelect,
+      required: opts.required !== false
+    };
+
     $("ask-title").textContent = opts.title || "Are you sure?";
     $("ask-message").textContent = opts.message || "";
+
     $("ask-input-wrap").style.display = opts.input ? "" : "none";
     $("ask-input-label").textContent = opts.inputLabel || "Reason";
     $("ask-input").value = opts.value || "";
+
+    $("ask-select-wrap").style.display = usesSelect ? "" : "none";
+    $("ask-select-label").textContent = opts.optionsLabel || "Choose one";
+    $("ask-select").innerHTML = usesSelect
+      ? opts.options.map(function (o) {
+          return '<option value="' + escapeHtml(o.value) + '">' + escapeHtml(o.label) + "</option>";
+        }).join("")
+      : "";
+
     $("ask-ok").textContent = opts.okLabel || "Confirm";
     $("ask-ok").className = "btn " + (opts.danger ? "btn-danger" : "btn-primary");
     $("ask-modal-backdrop").classList.add("show");
@@ -95,9 +119,9 @@
 
   $("ask-ok").addEventListener("click", function () {
     if (!askState) return;
-    var value = $("ask-input").value.trim();
-    if (askState.requiresInput && askState.required && !value) {
-      $("ask-input").focus();
+    var value = askState.usesSelect ? $("ask-select").value : $("ask-input").value.trim();
+    if (askState.required && !value && (askState.requiresInput || askState.usesSelect)) {
+      (askState.usesSelect ? $("ask-select") : $("ask-input")).focus();
       return;
     }
     var cb = askState.callback;
@@ -114,7 +138,9 @@
   var VIEW_INIT = {
     catalog: initCatalogView,
     customers: initCustomersView,
-    enquiries: initEnquiriesView
+    enquiries: initEnquiriesView,
+    quotations: initQuotationsView,
+    quote: initQuoteView
   };
 
   function goToTab(view) {
@@ -1101,10 +1127,24 @@
 
     fillDatalist("leadsource-list", ((configLists || {}).LeadSource || []).map(function (i) { return i.label; }));
 
+    $("btn-quote-enquiry").style.display =
+      (e && e.items.length && canEditQuotes()) ? "inline-flex" : "none";
     hideIdentifyPanel();
     renderEnquiryItems(e);
     $("enquiry-modal-backdrop").classList.add("show");
   }
+
+  $("btn-quote-enquiry").addEventListener("click", function () {
+    var e = currentEnquiry();
+    if (!e) return;
+    google.script.run.withSuccessHandler(function (q) {
+      openQuote = q;
+      $("enquiry-modal-backdrop").classList.remove("show");
+      renderQuoteBuilder();
+      goToTab("quote");
+      showMsg("Quotation " + q.quoteNo + " created from " + e.enquiryNo + ".", "success");
+    }).withFailureHandler(onServerError).createQuotationFromEnquiry(e.id);
+  });
 
   function toggleLostReason() {
     $("em-lostreason-wrap").style.display = $("em-status").value === "Lost" ? "" : "none";
@@ -1270,6 +1310,383 @@
           spareId: r.id, partNo: r.partNo, description: r.description, qty: qty,
           compatibilityConfirmed: r.compatibilityConfirmed,
           availabilityNote: note
+        });
+      });
+    });
+  }
+
+
+  // ================= QUOTATIONS =================
+  var quotationsCache = [];
+  var openQuote = null;
+  var quoteSearchTimer = null;
+
+  var QUOTE_BADGE = {
+    "Draft": "badge-draft", "Approved": "badge-active", "Submitted": "badge-sent",
+    "Revised": "badge-followup", "Won": "badge-won", "Lost": "badge-lost", "Expired": "badge-overdue"
+  };
+
+  function canEditQuotes() {
+    return ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  // ---- History list ----
+  function initQuotationsView() {
+    if (!configLists) loadConfigLists();
+    if (!lostReasonsCache.length) {
+      google.script.run.withSuccessHandler(function (rows) { lostReasonsCache = rows; })
+        .withFailureHandler(function () {}).listLostReasons();
+    }
+    loadQuotations();
+  }
+
+  function loadQuotations() {
+    google.script.run.withSuccessHandler(function (rows) {
+      quotationsCache = rows; renderQuotations();
+    }).withFailureHandler(onServerError).listQuotations({
+      mineOnly: $("quotations-mine").checked,
+      includeClosed: $("quotations-closed").checked
+    });
+  }
+
+  function renderQuotations() {
+    var q = ($("quotations-search").value || "").toLowerCase();
+    var rows = quotationsCache.filter(function (r) {
+      return [r.quoteNo, r.customerName, r.machineModel, r.serialNo].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    var tbody = $("quotations-tbody");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="10"><div class="empty">' +
+        (quotationsCache.length ? "No quotations match your search." : "No quotations yet — raise one from an enquiry.") +
+        "</div></td></tr>";
+      return;
+    }
+
+    tbody.innerHTML = rows.map(function (r) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(r.quoteNo) + "</td>" +
+        '<td class="mono">' + escapeHtml(r.revision || "R0") + "</td>" +
+        "<td>" + escapeHtml(r.date) + "</td>" +
+        "<td>" + escapeHtml(r.customerName || "—") + "</td>" +
+        "<td>" + escapeHtml(r.machineModel || "—") + "</td>" +
+        '<td class="num">' + r.itemCount + "</td>" +
+        '<td class="num mono">' + fmt(r.grand) + "</td>" +
+        '<td><span class="badge ' + (QUOTE_BADGE[r.status] || "badge-draft") + '">' + escapeHtml(r.status) +
+          (r.locked ? " 🔒" : "") + "</span></td>" +
+        "<td>" + (r.validUntil
+          ? (r.expired ? '<span class="badge badge-overdue">' + escapeHtml(r.validUntil) + "</span>" : escapeHtml(r.validUntil))
+          : "—") + "</td>" +
+        '<td class="center"><button class="btn btn-sm" data-open-quote="' + r.id + '">Open</button></td>' +
+        "</tr>";
+    }).join("");
+
+    tbody.querySelectorAll("[data-open-quote]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openQuotation(btn.dataset.openQuote); });
+    });
+  }
+
+  $("quotations-search").addEventListener("input", renderQuotations);
+  $("quotations-mine").addEventListener("change", loadQuotations);
+  $("quotations-closed").addEventListener("change", loadQuotations);
+
+  // ---- Builder ----
+  function openQuotation(id) {
+    google.script.run.withSuccessHandler(function (q) {
+      openQuote = q;
+      renderQuoteBuilder();
+      goToTab("quote");
+    }).withFailureHandler(onServerError).getQuotation(id);
+  }
+
+  function initQuoteView() {
+    if (openQuote) renderQuoteBuilder(); else renderQuoteEmpty();
+  }
+
+  function renderQuoteEmpty() {
+    $("qb-empty").style.display = "";
+    $("qb-body").style.display = "none";
+    $("qb-actions").innerHTML = "";
+    $("qb-title").textContent = "Quotation";
+    $("qb-subtitle").textContent = "Open a quotation from the Quotations tab, or raise one from an enquiry.";
+  }
+
+  function renderQuoteBuilder() {
+    var q = openQuote;
+    if (!q) { renderQuoteEmpty(); return; }
+
+    $("qb-empty").style.display = "none";
+    $("qb-body").style.display = "";
+    $("qb-title").textContent = q.quoteNo + " " + (q.revision || "R0");
+    $("qb-subtitle").textContent = q.customerName + (q.machineModel ? " · " + q.machineModel : "");
+
+    // A locked quotation is read-only by design: it is what the customer received.
+    var editable = canEditQuotes() && !q.locked;
+    $("qb-locked-banner").innerHTML = q.locked
+      ? '<div class="compare-strip" style="margin-bottom:16px;">This quotation is <b>' +
+        escapeHtml(q.status) + '</b> and locked. Use <b>Revise</b> to create the next revision — ' +
+        'the version already sent stays untouched.</div>'
+      : "";
+
+    $("qb-customer").value = q.customerName || "";
+    $("qb-gstin").value = q.customerGstin || "";
+    $("qb-model").value = q.machineModel || "";
+    $("qb-serial").value = q.serialNo || "";
+    $("qb-date").value = q.date || "";
+    $("qb-validity").value = q.validityDays || 7;
+    $("qb-validuntil").value = q.validUntil || "";
+    $("qb-paymentterms").value = q.paymentTerms || "";
+    $("qb-deliveryterms").value = q.deliveryTerms || "";
+    $("qb-warrantyterms").value = q.warrantyTerms || "";
+    $("qb-notes").value = q.notes || "";
+
+    ["qb-model", "qb-serial", "qb-date", "qb-validity", "qb-paymentterms",
+     "qb-deliveryterms", "qb-warrantyterms", "qb-notes"].forEach(function (f) {
+      $(f).disabled = !editable;
+    });
+    $("btn-qb-save-header").style.display = editable ? "" : "none";
+    $("btn-qb-add-item").style.display = editable ? "" : "none";
+    if (!editable) $("qb-add-panel").style.display = "none";
+
+    renderQuoteActions(q, editable);
+    renderQuoteItems(q, editable);
+    renderQuoteTotals(q);
+  }
+
+  function renderQuoteActions(q, editable) {
+    var zone = $("qb-actions");
+    var buttons = [];
+    if (editable && q.status === "Draft") {
+      buttons.push('<button class="btn btn-sm" data-qs="Approved">Mark Approved</button>');
+    }
+    if (editable && ["Draft", "Approved"].indexOf(q.status) !== -1) {
+      buttons.push('<button class="btn btn-sm btn-primary" data-qs="Submitted">Mark Submitted</button>');
+    }
+    if (q.locked && ["Won", "Lost"].indexOf(q.status) === -1) {
+      buttons.push('<button class="btn btn-sm" data-qs="Won">Mark Won</button>');
+      buttons.push('<button class="btn btn-sm" data-qs="Lost">Mark Lost</button>');
+    }
+    if (canEditQuotes() && q.locked) {
+      buttons.push('<button class="btn btn-sm btn-amber" id="btn-qb-revise">Revise</button>');
+    }
+    zone.innerHTML = buttons.join("");
+
+    zone.querySelectorAll("[data-qs]").forEach(function (btn) {
+      btn.addEventListener("click", function () { changeQuoteStatus(btn.dataset.qs); });
+    });
+    if ($("btn-qb-revise")) {
+      $("btn-qb-revise").addEventListener("click", function () {
+        askDialog({
+          title: "Create the next revision?",
+          message: "The current version is kept exactly as it is and marked Revised. " +
+            "A copy opens for editing as the next revision.",
+          okLabel: "Revise"
+        }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function (nq) {
+            openQuote = nq;
+            renderQuoteBuilder();
+            showMsg("Now editing " + nq.quoteNo + " " + nq.revision + ".", "success");
+          }).withFailureHandler(onServerError).reviseQuotation(openQuote.id);
+        });
+      });
+    }
+  }
+
+  function changeQuoteStatus(status) {
+    if (status !== "Lost") { applyQuoteStatus(status, ""); return; }
+
+    // A lost quotation must record why, so lost-order analysis has something to work with.
+    if (!lostReasonsCache.length) {
+      showMsg("No lost reasons are configured yet — add them on the LostReasons tab.", "error");
+      return;
+    }
+    askDialog({
+      title: "Mark this quotation Lost?",
+      message: "The reason feeds lost-order analysis.",
+      options: lostReasonsCache.map(function (r) { return { value: r.id, label: r.reasonText }; }),
+      optionsLabel: "Lost reason",
+      okLabel: "Mark Lost",
+      danger: true
+    }, function (reasonId) {
+      if (reasonId === null) return;
+      applyQuoteStatus("Lost", reasonId);
+    });
+  }
+
+  function applyQuoteStatus(status, reasonId) {
+    google.script.run.withSuccessHandler(function (q) {
+      openQuote = q;
+      renderQuoteBuilder();
+      showMsg("Quotation marked " + status + ".", "success");
+    }).withFailureHandler(onServerError).setQuotationStatus(openQuote.id, status, reasonId);
+  }
+
+  $("btn-qb-save-header").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (q) {
+      openQuote = q;
+      renderQuoteBuilder();
+      showMsg("Quotation details saved.", "success");
+    }).withFailureHandler(onServerError).saveQuotationHeader({
+      id: openQuote.id,
+      date: $("qb-date").value,
+      validityDays: $("qb-validity").value,
+      paymentTerms: $("qb-paymentterms").value.trim(),
+      deliveryTerms: $("qb-deliveryterms").value.trim(),
+      warrantyTerms: $("qb-warrantyterms").value.trim(),
+      machineModel: $("qb-model").value.trim(),
+      serialNo: $("qb-serial").value.trim(),
+      notes: $("qb-notes").value.trim()
+    });
+  });
+
+  function renderQuoteItems(q, editable) {
+    var zone = $("qb-items");
+    if (!q.items.length) {
+      zone.innerHTML = '<div class="empty">No items yet.</div>';
+      return;
+    }
+    zone.innerHTML = '<table><thead><tr><th>#</th><th>Code</th><th>Description</th>' +
+      '<th class="num">Qty</th><th class="num">Price</th><th class="num">Disc %</th>' +
+      '<th class="num">Tax %</th><th class="num">Line Total</th><th></th></tr></thead><tbody>' +
+      q.items.map(function (i) {
+        return "<tr>" +
+          "<td>" + i.lineNo + "</td>" +
+          '<td class="mono">' + escapeHtml(i.itemCode || "—") + "</td>" +
+          "<td>" + escapeHtml(i.description || "—") +
+            (i.availabilityNote ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
+              escapeHtml(i.availabilityNote) + "</span>" : "") + "</td>" +
+          '<td class="num">' + i.qty + "</td>" +
+          '<td class="num mono">' + fmt(i.unitPrice) + "</td>" +
+          '<td class="num">' + (Number(i.discountPct) || 0) + "%</td>" +
+          '<td class="num">' + (Number(i.taxPct) || 0) + "%</td>" +
+          '<td class="num mono">' + fmt(i.lineTotal) + "</td>" +
+          '<td class="center">' + (editable
+            ? '<button class="btn-ghost" data-edit-line="' + i.id + '" title="Edit">✎</button>' +
+              '<button class="btn-ghost" data-del-line="' + i.id + '" title="Remove">✕</button>'
+            : "") + "</td>" +
+          "</tr>";
+      }).join("") + "</tbody></table>";
+
+    zone.querySelectorAll("[data-del-line]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({ title: "Remove this line?", okLabel: "Remove", danger: true }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function (nq) {
+            openQuote = nq; renderQuoteBuilder(); showMsg("Line removed.", "success");
+          }).withFailureHandler(onServerError).deleteQuotationItem(btn.dataset.delLine);
+        });
+      });
+    });
+
+    zone.querySelectorAll("[data-edit-line]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var line = q.items.find(function (x) { return x.id === btn.dataset.editLine; });
+        askDialog({
+          title: "Line " + line.lineNo + " — " + (line.itemCode || ""),
+          message: "Catalog price is " + fmt(line.listPrice) + ". Enter quantity, price and " +
+            "discount separated by commas — for example  2, 1450, 5",
+          input: true, inputLabel: "Qty, Price, Discount %",
+          value: line.qty + ", " + line.unitPrice + ", " + (Number(line.discountPct) || 0),
+          okLabel: "Update line"
+        }, function (val) {
+          if (val === null) return;
+          var parts = val.split(",").map(function (x) { return x.trim(); });
+          google.script.run.withSuccessHandler(function (nq) {
+            openQuote = nq; renderQuoteBuilder(); showMsg("Line updated.", "success");
+          }).withFailureHandler(onServerError).saveQuotationItem({
+            id: line.id, quotationId: q.id, lineNo: line.lineNo,
+            itemType: line.itemType, itemId: line.itemId, itemCode: line.itemCode,
+            description: line.description, uom: line.uom,
+            qty: parts[0], unitPrice: parts[1], discountPct: parts[2] || 0, taxPct: line.taxPct
+          });
+        });
+      });
+    });
+  }
+
+  function renderQuoteTotals(q) {
+    $("qb-totals").innerHTML =
+      '<div class="totals-row"><span>Subtotal</span><span class="mono">' + fmt(q.subtotal) + "</span></div>" +
+      '<div class="totals-row"><span>Discount</span><span class="mono">− ' + fmt(q.discountAmt) + "</span></div>" +
+      '<div class="totals-row"><span>Tax</span><span class="mono">' + fmt(q.taxAmt) + "</span></div>" +
+      '<div class="totals-row grand"><span>Grand Total</span><span>' + fmt(q.grand) + "</span></div>";
+  }
+
+  // ---- Adding items to a quotation ----
+  $("btn-qb-add-item").addEventListener("click", function () {
+    $("qb-add-panel").style.display = "";
+    $("qi-search").value = "";
+    $("qi-qty").value = 1;
+    $("qi-search").focus();
+    runQuoteItemSearch();
+  });
+  $("btn-qb-close-add").addEventListener("click", function () {
+    $("qb-add-panel").style.display = "none";
+  });
+  $("qi-type").addEventListener("change", runQuoteItemSearch);
+  $("qi-search").addEventListener("input", function () {
+    if (quoteSearchTimer) clearTimeout(quoteSearchTimer);
+    quoteSearchTimer = setTimeout(runQuoteItemSearch, 250);
+  });
+
+  function runQuoteItemSearch() {
+    var type = $("qi-type").value;
+    $("qi-results").innerHTML = '<div class="empty" style="padding:12px;">Searching…</div>';
+    if (type === "Spare") {
+      google.script.run.withSuccessHandler(function (rows) { renderQuoteItemResults(rows, "Spare"); })
+        .withFailureHandler(onServerError)
+        .suggestSpares($("qi-search").value.trim(), openQuote ? openQuote.machineModel : "");
+    } else {
+      google.script.run.withSuccessHandler(function (rows) {
+        var q = $("qi-search").value.trim().toLowerCase();
+        renderQuoteItemResults(rows.filter(function (p) {
+          return !q || [p.productCode, p.model, p.family].join(" ").toLowerCase().indexOf(q) !== -1;
+        }).slice(0, 50), "Product");
+      }).withFailureHandler(onServerError).listProducts();
+    }
+  }
+
+  function renderQuoteItemResults(rows, type) {
+    var zone = $("qi-results");
+    if (!rows.length) {
+      zone.innerHTML = '<div class="empty" style="padding:12px;">Nothing matched.</div>';
+      return;
+    }
+    zone.innerHTML = '<table><thead><tr><th>Code</th><th>Description</th>' +
+      (type === "Spare" ? "<th>Fit</th>" : "") +
+      '<th class="num">Price</th><th class="num">Available</th><th></th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        var code = type === "Spare" ? r.partNo : r.productCode;
+        var desc = type === "Spare" ? r.description : (r.model || r.description);
+        return "<tr>" +
+          '<td class="mono">' + escapeHtml(code) + "</td>" +
+          "<td>" + escapeHtml(desc) + "</td>" +
+          (type === "Spare" ? "<td>" + (r.compatibilityConfirmed
+            ? '<span class="badge badge-won">Fits model</span>'
+            : '<span class="badge badge-overdue">Unverified</span>') + "</td>" : "") +
+          '<td class="num mono">' + (r.price ? fmt(r.price) : "—") + "</td>" +
+          '<td class="num mono">' + (r.available === undefined ? "—" : r.available) + "</td>" +
+          '<td class="center"><button class="btn btn-sm" data-add-line="' + r.id + '">Add</button></td>' +
+          "</tr>";
+      }).join("") + "</tbody></table>";
+
+    zone.querySelectorAll("[data-add-line]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var r = rows.find(function (x) { return x.id === btn.dataset.addLine; });
+        google.script.run.withSuccessHandler(function (nq) {
+          openQuote = nq;
+          renderQuoteBuilder();
+          showMsg("Added to the quotation.", "success");
+        }).withFailureHandler(onServerError).saveQuotationItem({
+          quotationId: openQuote.id,
+          itemType: type,
+          itemId: r.id,
+          itemCode: type === "Spare" ? r.partNo : r.productCode,
+          description: type === "Spare" ? r.description : (r.model || r.description),
+          qty: Math.max(1, Number($("qi-qty").value) || 1),
+          availabilityNote: r.available !== undefined
+            ? (r.available > 0 ? r.available + " available" : "Out of stock") : ""
         });
       });
     });

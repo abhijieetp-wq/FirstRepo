@@ -72,6 +72,9 @@ src/
   Spares.gs          spare parts master, alternates, compatibility
   Pricing.gs         effective-dated price lists (FR-016/017)
   Stock.gs           append-only stock ledger, availability (FR-036/037)
+  SpareEnquiries.gs  spare enquiry capture and part identification (FR-022/023/025)
+  Quotations.gs      quotations for both streams, revision control (FR-018/019/020)
+  CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
   Index.html         page shell, views, modals
   Stylesheet.html    shared CSS
@@ -111,8 +114,8 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       stock derived from the movement ledger, alternates split from model compatibility
 - [x] **Foundation**: customer master with contacts, addresses and commercial terms
       (FR-001/002/003), duplicate detection, admin config lists (FR-074)
-- [~] **Spare Sales**: enquiry + part identification with compatibility and live availability
-      done; spare quotation still to come
+- [x] **Spare Sales**: enquiry → part identification (compatibility + live availability) →
+      priced quotation with revision control (FR-018/019/020/026)
 - [ ] **Compressor Sales**: lead, activities, site visit, technical requirement, selection,
       opportunity funnel
 - [ ] **Order & Commercial**: PO validation, 8-state sales order (FR-031), credit exposure,
