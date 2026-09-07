@@ -108,15 +108,15 @@ var SCHEMA = {
   // ---------------------------------------------------------------- Product / spare masters
   Products: {
     label: 'Compressor product hierarchy (FR-014) — replaces the old Units tab',
-    columns: ['id', 'productCode', 'brand', 'family', 'series', 'model', 'description', 'category',
-      'hpRating', 'fad', 'workingPressure', 'gstPct', 'warrantyMonths', 'standardAccessories',
-      'leadTimeDays', 'uom', 'notes', 'active', 'createdAt', 'createdBy']
+    columns: ['id', 'productCode', 'hsnCode', 'brand', 'family', 'series', 'model', 'description',
+      'category', 'hpRating', 'fad', 'workingPressure', 'gstPct', 'warrantyMonths',
+      'standardAccessories', 'leadTimeDays', 'uom', 'notes', 'active', 'createdAt', 'createdBy']
   },
   Spares: {
     label: 'ELGI spare master (FR-015) — replaces the old Parts tab',
-    columns: ['id', 'partNo', 'description', 'category', 'brand', 'uom', 'gstPct', 'purchasePrice',
-      'reorderLevel', 'safetyStock', 'defaultWarehouseId', 'defaultBinId', 'notes', 'active',
-      'createdAt', 'createdBy']
+    columns: ['id', 'partNo', 'hsnCode', 'description', 'category', 'brand', 'uom', 'gstPct',
+      'purchasePrice', 'reorderLevel', 'safetyStock', 'defaultWarehouseId', 'defaultBinId',
+      'notes', 'active', 'createdAt', 'createdBy']
   },
   SpareCompatibility: {
     label: 'Many-to-many spare ↔ compressor model mapping (FR-023)',
@@ -129,7 +129,9 @@ var SCHEMA = {
       'notes', 'active']
   },
   PriceList: {
-    label: 'Effective-dated prices; old quotes keep old prices (FR-016, FR-017)',
+    label: 'Effective-dated prices; old quotes keep old prices (FR-016, FR-017). Two levels: ' +
+      'PIE is the buying/cost price, ELGI is the selling price. Quotations use ELGI, shown ' +
+      'simply as "Price". `purchasePrice` on Spares is superseded by the PIE level and unused.',
     columns: ['id', 'itemType', 'itemId', 'itemCode', 'priceLevel', 'price', 'minPrice',
       'maxDiscountPct', 'currency', 'effectiveFrom', 'effectiveTo', 'approvedBy', 'active',
       'createdAt', 'createdBy']

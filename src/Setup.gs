@@ -62,6 +62,7 @@ function setupSheet() {
   migrateLegacyCatalog_(ss, 'Parts', 'Spares', report);
   migrateLegacyCatalog_(ss, 'Units', 'Products', report);
   backfillIds_(ss, report);
+  migratePriceLevels_(ss, report);
 
   var summary = formatSetupReport_(report);
   Logger.log(summary);
@@ -71,6 +72,38 @@ function setupSheet() {
     // No UI context (e.g. run from the editor without the sheet open) — the log is enough.
   }
   return summary;
+}
+
+/**
+ * Moves PriceList rows off the retired List/Standard/Key Account/Special levels onto the
+ * PIE (cost) / ELGI (selling) pair.
+ *
+ * The old "List" price was the selling price, so it becomes ELGI. "Special" was a second
+ * selling price and has no home in the new two-level model — leaving it would produce two
+ * competing ELGI prices, so those rows are deactivated rather than converted, and the audit
+ * trail records why. Nothing is deleted; the rows stay readable in the sheet.
+ */
+function migratePriceLevels_(ss, report) {
+  var sheet = ss.getSheetByName('PriceList');
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  var converted = 0;
+  var retired = 0;
+  readTable_('PriceList').forEach(function (row) {
+    var level = String(row.priceLevel || '').trim();
+    if (level === 'List') {
+      updateRowById_('PriceList', 'id', row.id, { priceLevel: SELLING_PRICE_LEVEL },
+        'Price level List renamed to ELGI (selling price)');
+      converted++;
+    } else if (level === 'Standard' || level === 'Key Account' || level === 'Special') {
+      updateRowById_('PriceList', 'id', row.id, { active: 'FALSE' },
+        'Price level "' + level + '" retired — the model is now PIE (cost) and ELGI (selling)');
+      retired++;
+    }
+  });
+
+  if (converted) report.migrated.push('PriceList: ' + converted + ' List price(s) became ELGI');
+  if (retired) report.migrated.push('PriceList: ' + retired + ' row(s) on retired levels deactivated');
 }
 
 /**

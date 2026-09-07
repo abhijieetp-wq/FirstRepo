@@ -4,16 +4,21 @@
  * The master row holds identity and handling data only. Prices live in PriceList
  * (effective-dated, FR-016) and stock is derived from StockMovements (FR-036), so this
  * module composes those three sources when listing. Substitute parts come from
- * SpareAlternates and feed the List/Special/Alternate rate-comparison chips.
+ * SpareAlternates and feed the rate-comparison chips.
+ *
+ * Two prices: PIE is what PMT buys at, ELGI is what it sells at. The PIE price is cost data,
+ * so it is only returned to Management and ERP Admin (FR-062). Everyone else sees the
+ * selling price, exposed as `price` — quotations use that and never show the internal name.
  *
  * Write access is Management + ERP Admin (D4).
  */
 
 function listSpares(includeInactive) {
-  getCurrentUser();
-
   // A blank `active` cell counts as active, so a row typed straight into the Sheet still
   // shows up without the person having to know about the flag.
+  var user = getCurrentUser();
+  var showCost = canSeeCostPrices_(user);
+
   var spares = readTable_('Spares')
     .filter(function (s) { return includeInactive || String(s.active).toUpperCase() !== 'FALSE'; })
     .map(stripRow_);
@@ -42,15 +47,19 @@ function listSpares(includeInactive) {
     var levels = prices[id] || {};
     var alts = alternatesBySpare[id] || [];
 
-    // An alternate's own List price, so the Alternate chip can show a real number.
+    // An alternate's own selling price, so the Alternate chip can show a real number.
     alts.forEach(function (a) {
       var altLevels = a.alternateSpareId ? (prices[String(a.alternateSpareId)] || {}) : {};
-      a.altRate = altLevels.List ? altLevels.List.price : null;
+      a.altRate = altLevels[SELLING_PRICE_LEVEL] ? altLevels[SELLING_PRICE_LEVEL].price : null;
     });
 
-    s.listPrice = levels.List ? levels.List.price : null;
-    s.specialPrice = levels.Special ? levels.Special.price : null;
-    s.minPrice = levels.List && levels.List.minPrice !== null ? levels.List.minPrice : null;
+    // `price` is the selling (ELGI) price under a neutral name — what quotations use.
+    s.price = levels[SELLING_PRICE_LEVEL] ? levels[SELLING_PRICE_LEVEL].price : null;
+    s.elgiPrice = s.price;
+    if (showCost) {
+      s.piePrice = levels[COST_PRICE_LEVEL] ? levels[COST_PRICE_LEVEL].price : null;
+      s.margin = (s.price !== null && s.piePrice !== null) ? s.price - s.piePrice : null;
+    }
     s.onHand = onHand[id] || 0;
     s.reserved = reserved[id] || 0;
     s.available = (onHand[id] || 0) - (reserved[id] || 0);
@@ -82,12 +91,12 @@ function saveSpare(input) {
 
   var record = {
     partNo: partNo,
+    hsnCode: String(input.hsnCode || '').trim(),
     description: description,
     category: String(input.category || '').trim(),
     brand: String(input.brand || 'ELGI').trim(),
     uom: String(input.uom || 'Nos').trim() || 'Nos',
     gstPct: input.gstPct === '' || input.gstPct === undefined || input.gstPct === null ? '' : Number(input.gstPct),
-    purchasePrice: input.purchasePrice === '' || input.purchasePrice === undefined || input.purchasePrice === null ? '' : Number(input.purchasePrice),
     reorderLevel: input.reorderLevel === '' || input.reorderLevel === undefined || input.reorderLevel === null ? '' : Number(input.reorderLevel),
     safetyStock: input.safetyStock === '' || input.safetyStock === undefined || input.safetyStock === null ? '' : Number(input.safetyStock),
     defaultWarehouseId: String(input.defaultWarehouseId || 'WH-MAIN').trim(),
@@ -196,29 +205,32 @@ function deleteSpareCompatibility(id) {
   return true;
 }
 
+/** Only Management and ERP Admin may see cost prices and margin (FR-062). */
+function canSeeCostPrices_(user) {
+  return MASTER_EDITORS.indexOf(user.role) !== -1;
+}
+
 /**
- * Shared by saveSpare/saveProduct: writes List/Special prices only when the submitted value
- * differs from what is currently effective, so editing a description doesn't create a
- * pointless price revision.
+ * Shared by saveSpare/saveProduct: writes the PIE and ELGI prices, but only when the
+ * submitted value actually differs from what is currently effective — otherwise editing a
+ * description would create a pointless price revision and clutter the price history.
  */
 function applyCatalogPrices_(itemType, itemId, itemCode, input) {
   var current = priceMapFor_(itemType)[String(itemId)] || {};
 
-  function maybeWrite(level, value, minValue) {
+  function maybeWrite(level, value) {
     if (value === '' || value === undefined || value === null) return;
     var num = Number(value);
     if (isNaN(num)) return;
     var existing = current[level];
-    var minChanged = minValue !== undefined && minValue !== '' && minValue !== null &&
-      (!existing || Number(minValue) !== existing.minPrice);
-    if (existing && existing.price === num && !minChanged) return;
+    if (existing && existing.price === num) return;
     savePrice({
       itemType: itemType, itemId: itemId, itemCode: itemCode, priceLevel: level,
-      price: num, minPrice: minValue, effectiveFrom: input.priceEffectiveFrom,
+      price: num, effectiveFrom: input.priceEffectiveFrom,
       reason: input.priceReason || 'Set from the catalog screen'
     });
   }
 
-  maybeWrite('List', input.listPrice, input.minPrice);
-  maybeWrite('Special', input.specialPrice, '');
+  maybeWrite(COST_PRICE_LEVEL, input.piePrice);
+  maybeWrite(SELLING_PRICE_LEVEL, input.elgiPrice);
 }

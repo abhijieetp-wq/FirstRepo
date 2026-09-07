@@ -147,8 +147,9 @@ function suggestSpares(query, productModel) {
       description: s.description,
       category: s.category,
       uom: s.uom,
-      listPrice: levels.List ? levels.List.price : null,
-      specialPrice: levels.Special ? levels.Special.price : null,
+      // The selling price, under a neutral name — this is what the quotation will carry.
+      price: levels[SELLING_PRICE_LEVEL] ? levels[SELLING_PRICE_LEVEL].price : null,
+      hsnCode: s.hsnCode,
       onHand: onHand[id] || 0,
       reserved: reserved[id] || 0,
       available: (onHand[id] || 0) - (reserved[id] || 0),

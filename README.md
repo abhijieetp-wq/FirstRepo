@@ -27,6 +27,9 @@ roles and process; those two remain useful only for UX patterns already locked i
   That single seam is what makes a later move to a real database a swap rather than a rewrite.
 - Prices are effective-dated and stock is an append-only ledger, so history is never
   overwritten and any current number can be explained by the rows that produced it.
+- Two price levels: **PIE** is the buying price, **ELGI** the selling price. Quotations use
+  the ELGI price and label it simply "Price". PIE is cost data and is returned only to
+  Management and ERP Admin (FR-062).
 
 ## Setting up the Sheet
 
@@ -93,6 +96,10 @@ Enforced server-side via `requireRole_`, never only hidden in the UI:
 | Customer commercial terms (credit limit, days, payment terms, risk) | Management, ERP Admin |
 | Customer deactivation | Management, ERP Admin |
 | Stock movements | Sales Coordinator, Management, ERP Admin |
+| Bulk catalog upload | Management, ERP Admin |
+
+PIE (cost) prices and margin are visible only to Management and ERP Admin — the server omits
+those fields for everyone else rather than merely hiding the column.
 
 ## Build status
 

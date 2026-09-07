@@ -6,11 +6,21 @@
  * raised last month therefore still resolves to the price that was in force last month,
  * which is the whole point of the requirement.
  *
- * `minPrice` and `maxDiscountPct` carry the minimum selling price / discount threshold that
- * quotations get checked against (FR-017, approval A02).
+ * FR-017's minimum-price control now has a natural floor: the PIE (cost) price. The
+ * minPrice/maxDiscountPct columns remain in the schema for when that approval rule is
+ * built with the quotation module, but nothing writes them today.
  */
 
-var PRICE_LEVELS = ['List', 'Standard', 'Key Account', 'Special'];
+/**
+ * Two price levels, and the distinction matters:
+ *   PIE  — what PMT buys the item at (cost). Margin-sensitive: only Management and ERP Admin
+ *          see it, per FR-062's "restrict cost/margin data".
+ *   ELGI — what PMT sells it at. Quotations always use this one, and label it just "Price"
+ *          so the customer-facing document never exposes the internal naming.
+ */
+var PRICE_LEVELS = ['PIE', 'ELGI'];
+var COST_PRICE_LEVEL = 'PIE';
+var SELLING_PRICE_LEVEL = 'ELGI';
 
 function todayIso_() {
   return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Etc/UTC', 'yyyy-MM-dd');
@@ -27,7 +37,7 @@ function priceRowActiveOn_(row, asOf) {
 }
 
 /**
- * Builds { itemId: { List: {...}, Special: {...} } } for one item type in a single read.
+ * Builds { itemId: { PIE: {...}, ELGI: {...} } } for one item type in a single read.
  * Callers that need prices for a whole catalog page use this rather than querying per row.
  */
 function priceMapFor_(itemType, asOf) {
@@ -69,7 +79,7 @@ function savePrice(input) {
 
   var itemType = String(input.itemType || '').trim();
   var itemId = String(input.itemId || '').trim();
-  var priceLevel = String(input.priceLevel || 'List').trim();
+  var priceLevel = String(input.priceLevel || SELLING_PRICE_LEVEL).trim();
   var price = Number(input.price);
   if (['Product', 'Spare'].indexOf(itemType) === -1) throw new Error('itemType must be Product or Spare.');
   if (!itemId) throw new Error('itemId is required.');

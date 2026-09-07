@@ -4,13 +4,19 @@
  * Same shape as Spares.gs: identity and specification on the master row, prices from
  * PriceList (effective-dated), stock derived from StockMovements. Compressors are
  * serial-tracked (FR-038), so on-hand here is a count of units held; individual serials live
- * in the SerialNumbers tab and are attached at inward/dispatch.
+ * in the SerialNumbers tab and are attached at inward/dispatch. There is deliberately no
+ * opening-stock entry here — compressor units enter stock through inward/GRN against a
+ * serial number, never as a typed opening figure.
+ *
+ * PIE is the buying price and ELGI the selling price; PIE is cost data and is returned only
+ * to Management and ERP Admin (FR-062).
  *
  * Write access is Management + ERP Admin (D4).
  */
 
 function listProducts(includeInactive) {
-  getCurrentUser();
+  var user = getCurrentUser();
+  var showCost = canSeeCostPrices_(user);
 
   // A blank `active` cell counts as active, so a row typed straight into the Sheet still
   // shows up without the person having to know about the flag.
@@ -24,9 +30,13 @@ function listProducts(includeInactive) {
   return products.map(function (p) {
     var id = String(p.id);
     var levels = prices[id] || {};
-    p.listPrice = levels.List ? levels.List.price : null;
-    p.specialPrice = levels.Special ? levels.Special.price : null;
-    p.minPrice = levels.List && levels.List.minPrice !== null ? levels.List.minPrice : null;
+    // `price` is the selling (ELGI) price under a neutral name — what quotations use.
+    p.price = levels[SELLING_PRICE_LEVEL] ? levels[SELLING_PRICE_LEVEL].price : null;
+    p.elgiPrice = p.price;
+    if (showCost) {
+      p.piePrice = levels[COST_PRICE_LEVEL] ? levels[COST_PRICE_LEVEL].price : null;
+      p.margin = (p.price !== null && p.piePrice !== null) ? p.price - p.piePrice : null;
+    }
     p.onHand = onHand[id] || 0;
     p.reserved = reserved[id] || 0;
     p.available = (onHand[id] || 0) - (reserved[id] || 0);
@@ -50,6 +60,7 @@ function saveProduct(input) {
 
   var record = {
     productCode: productCode,
+    hsnCode: String(input.hsnCode || '').trim(),
     brand: String(input.brand || 'ELGI').trim(),
     family: String(input.family || '').trim(),
     series: String(input.series || '').trim(),
@@ -80,14 +91,6 @@ function saveProduct(input) {
   }
 
   applyCatalogPrices_('Product', record.id, record.productCode, input);
-  if (isNew && input.openingStock !== '' && input.openingStock !== undefined &&
-      input.openingStock !== null && Number(input.openingStock) !== 0) {
-    recordStockMovement({
-      itemType: 'Product', itemId: record.id, itemCode: record.productCode,
-      movementType: 'Opening', qty: Number(input.openingStock),
-      notes: 'Opening balance entered when the product was created'
-    });
-  }
   return record;
 }
 
