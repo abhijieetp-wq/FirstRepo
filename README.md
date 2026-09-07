@@ -75,6 +75,7 @@ src/
   SpareEnquiries.gs  spare enquiry capture and part identification (FR-022/023/025)
   Quotations.gs      quotations for both streams, revision control (FR-018/019/020)
   CompressorSales.gs leads, opportunities, site visits, technical selection (M02/M03/M04)
+  Orders.gs          sales orders, PO validation, credit control, approvals (M09/M10/M20)
   CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
   Index.html         page shell, views, modals
@@ -101,6 +102,8 @@ Enforced server-side via `requireRole_`, never only hidden in the UI:
 | Customer deactivation | Management, ERP Admin |
 | Stock movements | Sales Coordinator, Management, ERP Admin |
 | Bulk catalog upload | Management, ERP Admin |
+| Sales orders and status changes | Sales Coordinator, Management, ERP Admin |
+| Releasing a credit hold | Management, ERP Admin |
 
 PIE (cost) prices and margin are visible only to Management and ERP Admin — the server omits
 those fields for everyone else rather than merely hiding the column.
@@ -120,8 +123,9 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
 - [x] **Compressor Sales**: lead capture and conversion, activity log, site visits, technical
       requirement sheet (gating the quote, FR-009), compressor selection, 7-stage funnel with
       weighted pipeline (FR-011/012/013)
-- [ ] **Order & Commercial**: PO validation, 8-state sales order (FR-031), credit exposure,
-      approval engine
+- [x] **Order & Commercial**: PO validation against the quote (FR-030), 8-state order
+      lifecycle as a validated state machine (FR-031), credit exposure across invoices and
+      open orders with automatic hold and logged Management release (FR-032/033/034/035)
 - [ ] **Inventory & Inward**: stock states, reservations, serial tracking, bins, GRN
 - [ ] **Dispatch & Billing**: readiness checklist, dispatch docs, invoice from dispatch,
       dispatched-not-invoiced control

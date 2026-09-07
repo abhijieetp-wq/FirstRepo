@@ -142,7 +142,8 @@
     enquiries: initEnquiriesView,
     quotations: initQuotationsView,
     quote: initQuoteView,
-    compressor: initCompressorView
+    compressor: initCompressorView,
+    orders: initOrdersView
   };
 
   function goToTab(view) {
@@ -2277,6 +2278,327 @@
       goToTab("quote");
       showMsg("Quotation " + q.quoteNo + " created.", "success");
     }).withFailureHandler(onServerError).createQuotationFromOpportunity(openOpportunity.id);
+  });
+
+
+  // ================= SALES ORDERS =================
+  var ordersCache = [];
+  var openOrder = null;
+
+  var ORDER_BADGE = {
+    "Draft": "badge-draft", "Approval Pending": "badge-pending", "Credit Hold": "badge-lost",
+    "Material Pending": "badge-followup", "Ready for Dispatch": "badge-active",
+    "Dispatched": "badge-dispatched", "Invoiced": "badge-quoted", "Closed": "badge-won"
+  };
+
+  function canEditOrders() {
+    return ["Sales Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+  function canReleaseCredit() {
+    return ["Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  function initOrdersView() {
+    $("btn-new-order").style.display = canEditOrders() ? "inline-flex" : "none";
+    loadOrders();
+  }
+
+  function loadOrders() {
+    google.script.run.withSuccessHandler(function (rows) {
+      ordersCache = rows; renderOrders();
+    }).withFailureHandler(onServerError).listSalesOrders({
+      mineOnly: $("orders-mine").checked,
+      includeClosed: $("orders-closed").checked,
+      creditHoldOnly: $("orders-hold").checked
+    });
+  }
+
+  $("orders-search").addEventListener("input", renderOrders);
+  $("orders-mine").addEventListener("change", loadOrders);
+  $("orders-hold").addEventListener("change", loadOrders);
+  $("orders-closed").addEventListener("change", loadOrders);
+
+  function renderOrders() {
+    var q = ($("orders-search").value || "").toLowerCase();
+    var rows = ordersCache.filter(function (o) {
+      return [o.orderNo, o.poNo, o.customerName].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    var holds = ordersCache.filter(function (o) { return o.creditHold || o.orderStatus === "Credit Hold"; });
+    var ready = ordersCache.filter(function (o) { return o.orderStatus === "Ready for Dispatch"; });
+    var late = ordersCache.filter(function (o) { return o.overdueDispatch; });
+    $("orders-summary").innerHTML = '<div class="grid grid-4" style="margin-bottom:14px;">' +
+      '<div class="kpi-card"><div class="kpi-label">Open Orders</div><div class="kpi-value">' + ordersCache.length + "</div></div>" +
+      '<div class="kpi-card' + (holds.length ? " alert" : "") + '"><div class="kpi-label">Credit Holds</div><div class="kpi-value">' + holds.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Ready for Dispatch</div><div class="kpi-value">' + ready.length + "</div></div>" +
+      '<div class="kpi-card' + (late.length ? " alert" : "") + '"><div class="kpi-label">Past Promised Date</div><div class="kpi-value">' + late.length + "</div></div>" +
+      "</div>";
+
+    if (!rows.length) {
+      $("orders-tbody").innerHTML = '<tr><td colspan="8"><div class="empty">' +
+        (ordersCache.length ? "No orders match your search." : "No orders yet — convert a won quotation.") +
+        "</div></td></tr>";
+      return;
+    }
+
+    $("orders-tbody").innerHTML = rows.map(function (o) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(o.orderNo) + "</td>" +
+        "<td>" + escapeHtml(o.date) + "</td>" +
+        "<td>" + escapeHtml(o.customerName || "—") + "</td>" +
+        '<td class="mono">' + escapeHtml(o.poNo || "—") +
+          (String(o.poVerified).toUpperCase() === "FALSE" ? ' <span class="badge badge-overdue">PO variance</span>' : "") + "</td>" +
+        '<td class="num mono">' + fmt(o.grand) + "</td>" +
+        '<td><span class="badge ' + (ORDER_BADGE[o.orderStatus] || "badge-draft") + '">' +
+          escapeHtml(o.orderStatus) + "</span></td>" +
+        "<td>" + (o.promisedDispatchDate
+          ? (o.overdueDispatch ? '<span class="badge badge-overdue">' + escapeHtml(o.promisedDispatchDate) + "</span>" : escapeHtml(o.promisedDispatchDate))
+          : "—") + "</td>" +
+        '<td class="center"><button class="btn btn-sm" data-open-order="' + o.id + '">Open</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("orders-tbody").querySelectorAll("[data-open-order]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openOrderModal(btn.dataset.openOrder); });
+    });
+  }
+
+  // ---- Create from quotation ----
+  $("btn-new-order").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (quotes) {
+      if (!quotes.length) {
+        showMsg("No won quotations are waiting to be converted. Mark a quotation Won first.", "error");
+        return;
+      }
+      $("no-quotation").innerHTML = quotes.map(function (q) {
+        return '<option value="' + q.id + '" data-grand="' + q.grand + '">' +
+          escapeHtml(q.quoteNo + " " + (q.revision || "") + " · " + q.customerName + " · " + fmt(q.grand)) +
+          "</option>";
+      }).join("");
+      $("no-pono").value = "";
+      $("no-podate").value = new Date().toISOString().slice(0, 10);
+      $("no-povalue").value = quotes[0].grand;
+      $("no-advance").value = "";
+      $("no-promised").value = "";
+      $("no-attachment").value = "";
+      $("neworder-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).listConvertibleQuotations();
+  });
+
+  // Default the PO value to the quoted total, so a variance is a deliberate act.
+  $("no-quotation").addEventListener("change", function () {
+    var opt = $("no-quotation").selectedOptions[0];
+    if (opt) $("no-povalue").value = opt.dataset.grand;
+  });
+
+  $("btn-cancel-neworder").addEventListener("click", function () {
+    $("neworder-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-neworder").addEventListener("click", function () {
+    if (!$("no-pono").value.trim()) { showMsg("Enter the customer's PO number.", "error"); return; }
+    google.script.run.withSuccessHandler(function (order) {
+      $("neworder-modal-backdrop").classList.remove("show");
+      loadOrders();
+      openOrder = order;
+      renderOrderModal();
+      $("order-modal-backdrop").classList.add("show");
+      showMsg("Order " + order.orderNo + " created.", "success");
+    }).withFailureHandler(onServerError).createOrderFromQuotation({
+      quotationId: $("no-quotation").value,
+      poNo: $("no-pono").value.trim(),
+      poDate: $("no-podate").value,
+      poValue: $("no-povalue").value,
+      advanceRequired: $("no-advance").value,
+      promisedDispatchDate: $("no-promised").value,
+      poAttachmentUrl: $("no-attachment").value.trim()
+    });
+  });
+
+  // ---- Order detail ----
+  $("btn-cancel-order").addEventListener("click", function () {
+    $("order-modal-backdrop").classList.remove("show");
+    loadOrders();
+  });
+
+  function openOrderModal(id) {
+    google.script.run.withSuccessHandler(function (o) {
+      openOrder = o;
+      renderOrderModal();
+      $("order-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).getSalesOrder(id);
+  }
+
+  function renderOrderModal() {
+    var o = openOrder;
+    if (!o) return;
+    var editable = canEditOrders() && o.orderStatus !== "Closed";
+
+    $("order-modal-title").textContent = o.orderNo + " — " + (o.customerName || "");
+    $("om2-sub").textContent = o.businessStream + " · " + o.orderStatus + " · " + fmt(o.grand);
+    $("om2-id").value = o.id;
+
+    $("om2-credit-banner").innerHTML = o.creditHold
+      ? '<div class="msg msg-error show" style="margin-bottom:14px;"><span class="msg-text">' +
+        "<b>On credit hold.</b> " + escapeHtml(o.creditHoldReason || "") +
+        (canReleaseCredit()
+          ? " You can release it below."
+          : " Management must release it before dispatch.") +
+        "</span></div>"
+      : "";
+
+    $("om2-variance-banner").innerHTML = String(o.poVerified).toUpperCase() === "FALSE"
+      ? '<div class="compare-strip" style="margin-bottom:14px;"><b>PO variance:</b> ' +
+        escapeHtml(o.poVarianceNotes || "") + "</div>"
+      : "";
+
+    $("om2-pono").value = o.poNo || "";
+    $("om2-podate").value = o.poDate || "";
+    $("om2-povalue").value = o.poValue !== "" ? o.poValue : "";
+    $("om2-paymentterms").value = o.paymentTerms || "";
+    $("om2-advreq").value = o.advanceRequired !== "" ? o.advanceRequired : "";
+    $("om2-advrec").value = o.advanceReceived !== "" ? o.advanceReceived : "";
+    $("om2-promised").value = o.promisedDispatchDate || "";
+    $("om2-attachment").value = o.poAttachmentUrl || "";
+    $("om2-notes").value = o.notes || "";
+
+    ["om2-pono", "om2-podate", "om2-povalue", "om2-paymentterms", "om2-advreq",
+     "om2-advrec", "om2-promised", "om2-attachment", "om2-notes"].forEach(function (f) {
+      $(f).disabled = !editable;
+    });
+    $("btn-om2-save").style.display = editable ? "" : "none";
+
+    renderCreditPanel(o);
+    renderOrderItems(o);
+    renderStatusPanel(o, editable);
+    renderCreditChecks(o);
+  }
+
+  function renderCreditPanel(o) {
+    var latest = o.creditChecks[0];
+    if (!latest) {
+      $("om2-credit-panel").innerHTML = '<div class="empty" style="padding:14px;">No credit check run yet.</div>';
+      return;
+    }
+    var limit = latest.creditLimit === "" ? null : Number(latest.creditLimit);
+    $("om2-credit-panel").innerHTML = '<div class="grid grid-4">' +
+      '<div class="kpi-card"><div class="kpi-label">Credit Limit</div><div class="kpi-value" style="font-size:18px;">' +
+        (limit === null ? "Not set" : fmt(limit)) + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Outstanding Invoices</div><div class="kpi-value" style="font-size:18px;">' +
+        fmt(latest.outstandingAmt) + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Open Orders</div><div class="kpi-value" style="font-size:18px;">' +
+        fmt(latest.openOrderExposure) + "</div></div>" +
+      '<div class="kpi-card' + (latest.result === "Hold" ? " alert" : "") + '">' +
+        '<div class="kpi-label">Total Exposure</div><div class="kpi-value" style="font-size:18px;">' +
+        fmt(latest.totalExposure) + "</div>" +
+        '<div class="kpi-sub">' + (latest.availableCredit === ""
+          ? "No limit set"
+          : "Available: " + fmt(latest.availableCredit)) + "</div></div>" +
+      "</div>";
+  }
+
+  function renderOrderItems(o) {
+    $("om2-items").innerHTML = o.items.length
+      ? '<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th class="num">Qty</th>' +
+        '<th class="num">Price</th><th class="num">Line Total</th>' +
+        '<th class="num">Reserved</th><th class="num">Dispatched</th></tr></thead><tbody>' +
+        o.items.map(function (i) {
+          return "<tr><td>" + i.lineNo + '</td><td class="mono">' + escapeHtml(i.itemCode || "—") +
+            "</td><td>" + escapeHtml(i.description || "—") +
+            '</td><td class="num">' + i.qty +
+            '</td><td class="num mono">' + fmt(i.unitPrice) +
+            '</td><td class="num mono">' + fmt(i.lineTotal) +
+            '</td><td class="num">' + (i.qtyReserved || 0) +
+            '</td><td class="num">' + (i.qtyDispatched || 0) + "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="empty" style="padding:14px;">No items.</div>';
+  }
+
+  function renderStatusPanel(o, editable) {
+    var zone = $("om2-status-panel");
+    var buttons = "";
+
+    if (o.creditHold && canReleaseCredit()) {
+      buttons += '<button class="btn btn-sm btn-amber" id="btn-release-hold">Release Credit Hold</button> ';
+    }
+    if (editable && !o.creditHold) {
+      buttons += o.allowedTransitions.map(function (st) {
+        return '<button class="btn btn-sm" data-order-status="' + st + '">→ ' + st + "</button>";
+      }).join(" ");
+    }
+    if (!buttons) {
+      buttons = '<span style="color:var(--ink-soft); font-size:13px;">' +
+        (o.orderStatus === "Closed" ? "This order is closed." : "No status change available to you.") +
+        "</span>";
+    }
+
+    zone.innerHTML = '<p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px;">Current: <b>' +
+      escapeHtml(o.orderStatus) + "</b>. Moving to Ready for Dispatch or Dispatched re-runs the " +
+      "credit check automatically.</p>" + buttons;
+
+    zone.querySelectorAll("[data-order-status]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var target = btn.dataset.orderStatus;
+        google.script.run.withSuccessHandler(function (updated) {
+          openOrder = updated; renderOrderModal(); loadOrders();
+          showMsg("Order moved to " + target + ".", "success");
+        }).withFailureHandler(onServerError).setOrderStatus(o.id, target, "");
+      });
+    });
+
+    if ($("btn-release-hold")) {
+      $("btn-release-hold").addEventListener("click", function () {
+        askDialog({
+          title: "Release this credit hold?",
+          message: "The reason is recorded against the order, the credit check and the " +
+            "approvals register. This is a logged commercial exception.",
+          input: true, inputLabel: "Reason for release", okLabel: "Release hold", danger: true
+        }, function (reason) {
+          if (reason === null) return;
+          google.script.run.withSuccessHandler(function (updated) {
+            openOrder = updated; renderOrderModal(); loadOrders();
+            showMsg("Credit hold released.", "success");
+          }).withFailureHandler(onServerError).releaseCreditHold(o.id, reason, "Material Pending");
+        });
+      });
+    }
+  }
+
+  function renderCreditChecks(o) {
+    $("om2-checks").innerHTML = o.creditChecks.length
+      ? '<table><thead><tr><th>Date</th><th class="num">Exposure</th><th class="num">Limit</th>' +
+        "<th>Result</th><th>Reason / Release</th></tr></thead><tbody>" +
+        o.creditChecks.map(function (c) {
+          return "<tr><td>" + escapeHtml(c.checkDate) +
+            '</td><td class="num mono">' + fmt(c.totalExposure) +
+            '</td><td class="num mono">' + (c.creditLimit === "" ? "—" : fmt(c.creditLimit)) +
+            "</td><td>" + (c.result === "Hold"
+              ? '<span class="badge badge-lost">Hold</span>'
+              : '<span class="badge badge-won">Pass</span>') +
+            "</td><td>" + escapeHtml(c.holdReason || "—") +
+              (c.releasedBy ? '<br><span style="font-size:11px; color:var(--ink-soft);">Released by ' +
+                escapeHtml(c.releasedBy) + ": " + escapeHtml(c.releaseNotes || "") + "</span>" : "") +
+            "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="empty" style="padding:14px;">No checks recorded.</div>';
+  }
+
+  $("btn-om2-save").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (updated) {
+      openOrder = updated; renderOrderModal(); loadOrders();
+      showMsg("Order details saved. Credit check re-run.", "success");
+    }).withFailureHandler(onServerError).saveOrderDetails({
+      id: openOrder.id,
+      poNo: $("om2-pono").value.trim(),
+      poDate: $("om2-podate").value,
+      poValue: $("om2-povalue").value,
+      paymentTerms: $("om2-paymentterms").value.trim(),
+      advanceRequired: $("om2-advreq").value,
+      advanceReceived: $("om2-advrec").value,
+      promisedDispatchDate: $("om2-promised").value,
+      poAttachmentUrl: $("om2-attachment").value.trim(),
+      notes: $("om2-notes").value.trim()
+    });
   });
 
   // ---------------- Boot ----------------
