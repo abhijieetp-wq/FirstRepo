@@ -88,6 +88,17 @@
     }
   }
 
+  /**
+   * Clears the banner. An error belongs to the action that raised it: once that action
+   * succeeds on a retry, or the user moves to another screen, the old message is no longer
+   * telling the truth and must go. Leaving it up produced a screen showing a loaded
+   * dashboard under an error saying the dashboard could not load.
+   */
+  function clearMsg() {
+    if (msgTimer) { clearTimeout(msgTimer); msgTimer = null; }
+    $("msg-box").className = "msg";
+  }
+
   function onServerError(err) {
     showMsg(err && err.message ? err.message : String(err), "error");
   }
@@ -186,6 +197,7 @@
 
   function goToTab(view) {
     closeNavMenus();
+    clearMsg();
 
     document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
     $("view-" + view).classList.add("active");
@@ -4430,6 +4442,7 @@
     $("dash-stamp").textContent = "Loading…";
     google.script.run.withSuccessHandler(function (data) {
       dashData = data;
+      clearMsg();
       renderDashboard();
     }).withFailureHandler(function (err) {
       $("dash-body").innerHTML = '<div class="empty">Could not load the dashboard.</div>';
