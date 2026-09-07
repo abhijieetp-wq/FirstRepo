@@ -30,7 +30,8 @@
     ] },
     { label: "Orders", children: [
       { view: "orders", label: "Sales Orders", roles: ALL_ROLES },
-      { view: "dispatch", label: "Dispatch & Billing", roles: ALL_ROLES }
+      { view: "dispatch", label: "Dispatch & Billing", roles: ALL_ROLES },
+      { view: "collections", label: "Collections", roles: ALL_ROLES }
     ] },
     { view: "inventory", label: "Inventory", roles: ALL_ROLES },
     { label: "Masters", children: [
@@ -173,7 +174,8 @@
     compressor: initCompressorView,
     orders: initOrdersView,
     inventory: initInventoryView,
-    dispatch: initDispatchView
+    dispatch: initDispatchView,
+    collections: initCollectionsView
   };
 
   function closeNavMenus() {
@@ -3876,6 +3878,523 @@
         showMsg("Marked as entered in Tally.", "success");
       }).withFailureHandler(onServerError).markInvoiceSyncedManually(openInvoice.id, ref);
     });
+  });
+
+  // ================= COLLECTIONS =================
+  var COL_SUBTABS = ["ageing", "receivables", "followups", "receipts"];
+  var colMode = "ageing";
+  var colCache = [];
+  var colSummary = null;
+  var riPreview = null;
+
+  var BUCKET_LABELS = [
+    { key: "notDue", label: "Not Due" },
+    { key: "d0_30", label: "1–30" },
+    { key: "d31_60", label: "31–60" },
+    { key: "d61_90", label: "61–90" },
+    { key: "d90plus", label: "90+" }
+  ];
+
+  var RECEIPT_MODE_OPTIONS = ["NEFT/RTGS", "Cheque", "Cash", "UPI", "Adjustment", "Other"];
+
+  function canCollect() {
+    return ["Sales Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  function initCollectionsView() {
+    $("col-actions").innerHTML = canCollect()
+      ? '<button class="btn btn-primary" id="btn-new-receipt">+ Record Receipt</button>' +
+        '<button class="btn btn-amber" id="btn-import-receipts">Import Receipts</button>'
+      : "";
+    if (canCollect()) {
+      $("btn-new-receipt").addEventListener("click", startReceipt);
+      $("btn-import-receipts").addEventListener("click", startReceiptImport);
+    }
+    setColMode(colMode);
+  }
+
+  COL_SUBTABS.forEach(function (mode) {
+    $("subtab-" + mode).addEventListener("click", function () { setColMode(mode); });
+  });
+
+  function setColMode(mode) {
+    colMode = mode;
+    COL_SUBTABS.forEach(function (m) {
+      $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
+    });
+    loadCollections();
+  }
+
+  $("col-search").addEventListener("input", function () { renderColTable(); });
+  $("col-overdue").addEventListener("change", loadCollections);
+
+  function loadCollections() {
+    // The ageing strip is the same for every sub-tab, so it is fetched once alongside the rows.
+    google.script.run.withSuccessHandler(function (summary) {
+      colSummary = summary;
+      renderColSummary();
+    }).withFailureHandler(onServerError).getAgeingSummary();
+
+    var done = function (rows) { colCache = rows; renderColTable(); };
+    var overdue = $("col-overdue").checked;
+
+    if (colMode === "ageing") {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).getAgeingByCustomer();
+    } else if (colMode === "receivables") {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError)
+        .getReceivables({ overdueOnly: overdue });
+    } else if (colMode === "followups") {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError)
+        .listFollowups({ openOnly: true });
+    } else {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listReceipts({});
+    }
+  }
+
+  function renderColSummary() {
+    if (!colSummary) return;
+    var s = colSummary;
+    $("col-summary").innerHTML =
+      '<div class="grid grid-2" style="margin-bottom:12px;">' +
+        '<div class="kpi-card"><div class="kpi-label">Total Outstanding</div>' +
+          '<div class="kpi-value">' + fmt(s.totalOutstanding) + "</div>" +
+          '<div class="kpi-sub">' + s.invoiceCount + " open invoice(s)</div></div>" +
+        '<div class="kpi-card' + (s.overdueAmount > 0 ? " alert" : "") + '">' +
+          '<div class="kpi-label">Overdue</div><div class="kpi-value">' + fmt(s.overdueAmount) + "</div>" +
+          '<div class="kpi-sub">past the agreed due date</div></div>' +
+      "</div>" +
+      '<div class="grid grid-5" style="margin-bottom:14px;">' +
+        s.buckets.map(function (b) {
+          var bad = b.key !== "notDue" && b.amount > 0;
+          return '<div class="kpi-card' + (b.key === "d90plus" && b.amount > 0 ? " alert" : "") + '">' +
+            '<div class="kpi-label">' + escapeHtml(b.label) + "</div>" +
+            '<div class="kpi-value" style="font-size:17px;' + (bad ? " color:var(--red);" : "") + '">' +
+              fmt(b.amount) + "</div>" +
+            '<div class="kpi-sub">' + b.count + " invoice(s)</div></div>";
+        }).join("") +
+      "</div>";
+  }
+
+  function colEmpty(cols, text) {
+    $("col-tbody").innerHTML = '<tr><td colspan="' + cols + '"><div class="empty">' +
+      escapeHtml(text) + "</div></td></tr>";
+  }
+
+  function renderColTable() {
+    var q = ($("col-search").value || "").toLowerCase();
+    var rows = colCache.filter(function (r) {
+      return [r.customerName, r.invoiceNo, r.receiptNo, r.reference].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+    if (colMode === "ageing") renderAgeingTable(rows);
+    else if (colMode === "receivables") renderReceivablesTable(rows);
+    else if (colMode === "followups") renderFollowupsTable(rows);
+    else renderReceiptsTable(rows);
+  }
+
+  function renderAgeingTable(rows) {
+    $("col-thead").innerHTML = "<tr><th>Customer</th>" +
+      BUCKET_LABELS.map(function (b) { return '<th class="num">' + b.label + "</th>"; }).join("") +
+      '<th class="num">Total</th><th class="num">Oldest</th><th></th></tr>';
+
+    if (!rows.length) { colEmpty(9, "Nothing outstanding. Every issued invoice is paid."); return; }
+
+    $("col-tbody").innerHTML = rows.map(function (r) {
+      return "<tr>" +
+        "<td><b>" + escapeHtml(r.customerName || "—") + "</b>" +
+          (r.overLimit ? ' <span class="badge badge-overdue">Over limit</span>' : "") +
+          (r.brokenCommitments ? ' <span class="badge badge-lost">' + r.brokenCommitments +
+            " broken promise(s)</span>" : "") +
+          '<br><span style="font-size:11px; color:var(--ink-soft);">' + r.invoiceCount +
+          " invoice(s)" + (r.creditLimit !== null && r.creditLimit !== undefined
+            ? " · limit " + fmt(r.creditLimit) : "") + "</span></td>" +
+        BUCKET_LABELS.map(function (b) {
+          var v = r[b.key] || 0;
+          var bad = b.key === "d61_90" || b.key === "d90plus";
+          return '<td class="num mono"' + (bad && v > 0 ? ' style="color:var(--red);"' : "") + ">" +
+            (v ? fmt(v) : "—") + "</td>";
+        }).join("") +
+        '<td class="num mono"><b>' + fmt(r.totalOutstanding) + "</b></td>" +
+        '<td class="num">' + (r.oldestOverdueDays > 0
+          ? '<span class="badge badge-overdue">' + r.oldestOverdueDays + "d</span>" : "—") + "</td>" +
+        '<td class="center"><button class="btn btn-sm" data-statement="' + r.customerId + '">Statement</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("col-tbody").querySelectorAll("[data-statement]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openStatement(btn.dataset.statement); });
+    });
+  }
+
+  function renderReceivablesTable(rows) {
+    $("col-thead").innerHTML = "<tr><th>Invoice No.</th><th>Customer</th><th>Invoiced</th><th>Due</th>" +
+      '<th class="num">Value</th><th class="num">Received</th><th class="num">Balance</th>' +
+      "<th>Ageing</th><th>Commitment</th><th></th></tr>";
+
+    if (!rows.length) { colEmpty(10, "No open invoices match."); return; }
+
+    $("col-tbody").innerHTML = rows.map(function (r) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(r.invoiceNo) + "</td>" +
+        "<td>" + escapeHtml(r.customerName || "—") + "</td>" +
+        "<td>" + escapeHtml(r.invoiceDate) + "</td>" +
+        "<td>" + escapeHtml(r.dueDate || "—") + "</td>" +
+        '<td class="num mono">' + fmt(r.grand) + "</td>" +
+        '<td class="num mono">' + fmt(r.receivedAmt) + "</td>" +
+        '<td class="num mono"><b>' + fmt(r.balanceAmt) + "</b></td>" +
+        "<td>" + (r.overdueDays > 0
+          ? '<span class="badge badge-overdue">' + r.overdueDays + " days</span>"
+          : '<span class="badge badge-active">Not due</span>') + "</td>" +
+        "<td>" + (r.commitmentAmount
+          ? (r.commitmentOverdue
+              ? '<span class="badge badge-lost">' + fmt(r.commitmentAmount) + " by " + escapeHtml(r.commitmentDate) + "</span>"
+              : '<span class="badge badge-followup">' + fmt(r.commitmentAmount) + " by " + escapeHtml(r.commitmentDate) + "</span>")
+          : "—") + "</td>" +
+        '<td class="center" style="white-space:nowrap;">' +
+          '<button class="btn btn-sm" data-followup="' + r.invoiceId + '">Follow up</button> ' +
+          '<button class="btn btn-sm btn-primary" data-receipt="' + r.invoiceId + '">Receipt</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("col-tbody").querySelectorAll("[data-followup]").forEach(function (btn) {
+      btn.addEventListener("click", function () { startFollowup(btn.dataset.followup); });
+    });
+    $("col-tbody").querySelectorAll("[data-receipt]").forEach(function (btn) {
+      btn.addEventListener("click", function () { startReceipt(btn.dataset.receipt); });
+    });
+  }
+
+  function renderFollowupsTable(rows) {
+    $("col-thead").innerHTML = "<tr><th>Date</th><th>Customer</th><th>Invoice</th><th>Discussion</th>" +
+      '<th class="num">Balance</th><th>Commitment</th><th>Next</th><th>Status</th><th></th></tr>';
+
+    if (!rows.length) { colEmpty(9, "No open follow-ups. Log one from an open invoice."); return; }
+
+    $("col-tbody").innerHTML = rows.map(function (f) {
+      return "<tr>" +
+        "<td>" + escapeHtml(f.contactDate) + "</td>" +
+        "<td>" + escapeHtml(f.customerName || "—") + "</td>" +
+        '<td class="mono">' + escapeHtml(f.invoiceNo || "—") + "</td>" +
+        '<td style="max-width:280px;">' + escapeHtml(f.discussion || "") +
+          (f.contactPerson ? '<br><span style="font-size:11px; color:var(--ink-soft);">with ' +
+            escapeHtml(f.contactPerson) + "</span>" : "") + "</td>" +
+        '<td class="num mono">' + fmt(f.balanceAmt) + "</td>" +
+        "<td>" + (f.commitmentAmount
+          ? (f.commitmentOverdue
+              ? '<span class="badge badge-lost">' + fmt(f.commitmentAmount) + " — broken</span>"
+              : '<span class="badge badge-followup">' + fmt(f.commitmentAmount) + " by " + escapeHtml(f.commitmentDate) + "</span>")
+          : "—") + "</td>" +
+        "<td>" + (f.nextFollowupDate
+          ? (f.followupDue ? '<span class="badge badge-overdue">' + escapeHtml(f.nextFollowupDate) + "</span>"
+                           : escapeHtml(f.nextFollowupDate))
+          : "—") + "</td>" +
+        '<td><span class="badge ' + (f.status === "Broken" ? "badge-lost"
+          : f.status === "Closed" ? "badge-won" : "badge-followup") + '">' +
+          escapeHtml(f.status || "Open") + "</span></td>" +
+        '<td class="center"><button class="btn btn-sm" data-editfu="' + f.id + '">Edit</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("col-tbody").querySelectorAll("[data-editfu]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var f = colCache.filter(function (x) { return String(x.id) === String(btn.dataset.editfu); })[0];
+        if (f) startFollowup(f.invoiceId, f);
+      });
+    });
+  }
+
+  function renderReceiptsTable(rows) {
+    $("col-thead").innerHTML = "<tr><th>Receipt No.</th><th>Date</th><th>Customer</th><th>Invoice</th>" +
+      '<th>Mode</th><th>Reference</th><th class="num">Amount</th><th></th></tr>';
+
+    if (!rows.length) { colEmpty(8, "No receipts recorded yet."); return; }
+
+    $("col-tbody").innerHTML = rows.map(function (r) {
+      var reversal = (Number(r.amount) || 0) < 0;
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(r.receiptNo || "—") +
+          (r.importedDate ? ' <span class="badge badge-dormant">imported</span>' : "") + "</td>" +
+        "<td>" + escapeHtml(r.receiptDate) + "</td>" +
+        "<td>" + escapeHtml(r.customerName || "—") + "</td>" +
+        '<td class="mono">' + escapeHtml(r.invoiceNo || "—") + "</td>" +
+        "<td>" + escapeHtml(r.mode || "—") + "</td>" +
+        '<td class="mono" style="font-size:11.5px;">' + escapeHtml(r.reference || r.tallyRef || "—") + "</td>" +
+        '<td class="num mono"' + (reversal ? ' style="color:var(--red);"' : "") + ">" + fmt(r.amount) + "</td>" +
+        '<td class="center">' + (!reversal && canOverrideDispatch()
+          ? '<button class="btn btn-sm btn-danger" data-reverse="' + r.id + '">Reverse</button>' : "") + "</td>" +
+        "</tr>";
+    }).join("");
+
+    $("col-tbody").querySelectorAll("[data-reverse]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({
+          title: "Reverse this receipt?",
+          message: "The original stays in the ledger and an offsetting entry is added, so the " +
+            "history of what was believed and when survives.",
+          input: true, inputLabel: "Reason *", okLabel: "Reverse Receipt", danger: true
+        }, function (reason) {
+          if (reason === null) return;
+          google.script.run.withSuccessHandler(function () {
+            loadCollections();
+            showMsg("Receipt reversed.", "success");
+          }).withFailureHandler(onServerError).reverseReceipt(btn.dataset.reverse, reason);
+        });
+      });
+    });
+  }
+
+  // ---- Record a receipt ----
+  var receivablesForPicker = [];
+
+  function startReceipt(invoiceId) {
+    google.script.run.withSuccessHandler(function (rows) {
+      receivablesForPicker = rows;
+      if (!rows.length) {
+        showMsg("There are no unpaid invoices to receipt against.", "error");
+        return;
+      }
+      $("rcp-invoice").innerHTML = rows.map(function (r) {
+        return '<option value="' + r.invoiceId + '">' +
+          escapeHtml(r.invoiceNo + " · " + r.customerName + " · balance " + fmt(r.balanceAmt)) +
+          "</option>";
+      }).join("");
+      if (typeof invoiceId === "string" && invoiceId) $("rcp-invoice").value = invoiceId;
+
+      $("rcp-mode").innerHTML = RECEIPT_MODE_OPTIONS.map(function (m) {
+        return "<option>" + escapeHtml(m) + "</option>";
+      }).join("");
+      $("rcp-date").value = new Date().toISOString().slice(0, 10);
+      ["rcp-reference", "rcp-tallyref", "rcp-notes"].forEach(function (f) { $(f).value = ""; });
+      onReceiptInvoiceChange();
+      $("receipt-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).getReceivables({});
+  }
+
+  // Default the amount to the full balance — part payments are the exception, not the rule.
+  function onReceiptInvoiceChange() {
+    var row = receivablesForPicker.filter(function (r) {
+      return String(r.invoiceId) === String($("rcp-invoice").value);
+    })[0];
+    if (!row) { $("rcp-balance").textContent = ""; return; }
+    $("rcp-balance").textContent = "Outstanding on " + row.invoiceNo + ": " + fmt(row.balanceAmt) +
+      (row.overdueDays > 0 ? "  ·  " + row.overdueDays + " days overdue" : "  ·  not yet due");
+    $("rcp-amount").value = row.balanceAmt;
+  }
+
+  $("rcp-invoice").addEventListener("change", onReceiptInvoiceChange);
+
+  $("btn-cancel-receipt").addEventListener("click", function () {
+    $("receipt-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-receipt").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function () {
+      $("receipt-modal-backdrop").classList.remove("show");
+      loadCollections();
+      showMsg("Receipt recorded.", "success");
+    }).withFailureHandler(onServerError).saveReceipt({
+      invoiceId: $("rcp-invoice").value,
+      receiptDate: $("rcp-date").value,
+      amount: $("rcp-amount").value,
+      mode: $("rcp-mode").value,
+      reference: $("rcp-reference").value.trim(),
+      tallyRef: $("rcp-tallyref").value.trim(),
+      notes: $("rcp-notes").value.trim()
+    });
+  });
+
+  // ---- Follow-ups ----
+  function startFollowup(invoiceId, existing) {
+    $("fu-id").value = existing ? existing.id : "";
+    $("fu-invoiceid").value = invoiceId;
+    $("followup-modal-title").textContent = existing ? "Edit Follow-up" : "Log a Follow-up";
+
+    var row = colCache.filter(function (r) {
+      return String(r.invoiceId) === String(invoiceId);
+    })[0];
+    $("fu-context").textContent = existing
+      ? (existing.invoiceNo || "") + " · " + (existing.customerName || "")
+      : (row ? row.invoiceNo + " · " + row.customerName + " · balance " + fmt(row.balanceAmt) : "");
+
+    $("fu-date").value = existing ? existing.contactDate : new Date().toISOString().slice(0, 10);
+    $("fu-person").value = existing ? existing.contactPerson || "" : "";
+    $("fu-discussion").value = existing ? existing.discussion || "" : "";
+    $("fu-commitamount").value = existing && existing.commitmentAmount ? existing.commitmentAmount : "";
+    $("fu-commitdate").value = existing ? existing.commitmentDate || "" : "";
+    $("fu-next").value = existing ? existing.nextFollowupDate || "" : "";
+    $("fu-status").value = existing ? existing.status || "Open" : "Open";
+    $("followup-modal-backdrop").classList.add("show");
+  }
+
+  $("btn-cancel-followup").addEventListener("click", function () {
+    $("followup-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-followup").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function () {
+      $("followup-modal-backdrop").classList.remove("show");
+      loadCollections();
+      showMsg("Follow-up saved.", "success");
+    }).withFailureHandler(onServerError).saveFollowup({
+      id: $("fu-id").value || null,
+      invoiceId: $("fu-invoiceid").value,
+      contactDate: $("fu-date").value,
+      contactPerson: $("fu-person").value.trim(),
+      discussion: $("fu-discussion").value.trim(),
+      commitmentAmount: $("fu-commitamount").value,
+      commitmentDate: $("fu-commitdate").value,
+      nextFollowupDate: $("fu-next").value,
+      status: $("fu-status").value
+    });
+  });
+
+  // ---- Receipt import ----
+  function startReceiptImport() {
+    riPreview = null;
+    $("ri-csv").value = "";
+    $("ri-preview").innerHTML = "";
+    $("btn-ri-commit").style.display = "none";
+    google.script.run.withSuccessHandler(function (tpl) {
+      $("ri-header").textContent = tpl.split("\n")[0];
+    }).withFailureHandler(onServerError).getReceiptImportTemplate();
+    $("rcpimport-modal-backdrop").classList.add("show");
+  }
+
+  $("btn-cancel-rcpimport").addEventListener("click", function () {
+    $("rcpimport-modal-backdrop").classList.remove("show");
+    loadCollections();
+  });
+
+  $("btn-ri-preview").addEventListener("click", function () {
+    if (!$("ri-csv").value.trim()) { showMsg("Paste the CSV first.", "error"); return; }
+    google.script.run.withSuccessHandler(renderImportPreview)
+      .withFailureHandler(onServerError).previewReceiptImport($("ri-csv").value);
+  });
+
+  $("btn-ri-pull").addEventListener("click", function () {
+    askDialog({
+      title: "Pull receipts from Tally",
+      message: "This asks Tally for its receipt vouchers and shows them as a preview — nothing " +
+        "is written yet. It only works once PMT's IT have made Tally reachable.",
+      input: true, inputLabel: "From date (YYYY-MM-DD)",
+      value: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+      okLabel: "Pull"
+    }, function (from) {
+      if (from === null) return;
+      google.script.run.withSuccessHandler(renderImportPreview)
+        .withFailureHandler(onServerError)
+        .pullReceiptsFromTally(from, new Date().toISOString().slice(0, 10));
+    });
+  });
+
+  function renderImportPreview(result) {
+    riPreview = result;
+    var ok = result.valid.length;
+
+    $("ri-preview").innerHTML =
+      '<div class="grid grid-3" style="margin:14px 0;">' +
+        '<div class="kpi-card"><div class="kpi-label">Rows Read</div><div class="kpi-value">' + result.totalRows + "</div></div>" +
+        '<div class="kpi-card"><div class="kpi-label">Will Import</div><div class="kpi-value">' + ok + "</div>" +
+          '<div class="kpi-sub">' + fmt(result.totalAmount) + "</div></div>" +
+        '<div class="kpi-card' + (result.errors.length ? " alert" : "") + '">' +
+          '<div class="kpi-label">Rejected</div><div class="kpi-value">' + result.errors.length + "</div></div>" +
+      "</div>" +
+      (ok ? '<div class="card" style="padding:0; overflow-x:auto; max-height:260px;"><table>' +
+        "<thead><tr><th>Line</th><th>Invoice</th><th>Date</th>" +
+        '<th class="num">Amount</th><th class="num">New Balance</th><th>Tally Ref</th></tr></thead><tbody>' +
+        result.valid.map(function (r) {
+          return "<tr><td>" + r.line + "</td>" +
+            '<td class="mono">' + escapeHtml(r.invoiceNo) + "</td>" +
+            "<td>" + escapeHtml(r.receiptDate) + "</td>" +
+            '<td class="num mono">' + fmt(r.amount) + "</td>" +
+            '<td class="num mono">' + fmt(r.newBalance) + "</td>" +
+            '<td class="mono" style="font-size:11.5px;">' + escapeHtml(r.tallyRef || "—") + "</td></tr>";
+        }).join("") + "</tbody></table></div>" : "") +
+      (result.errors.length ? '<div class="card-title" style="margin-top:16px;">Rejected rows</div>' +
+        '<div class="card" style="padding:0; overflow-x:auto; max-height:200px;"><table>' +
+        "<thead><tr><th>Line</th><th>Invoice</th><th>Why</th></tr></thead><tbody>" +
+        result.errors.map(function (e) {
+          return "<tr><td>" + e.line + "</td>" +
+            '<td class="mono">' + escapeHtml(e.invoiceNo || "—") + "</td>" +
+            '<td style="color:var(--red);">' + escapeHtml(e.message) + "</td></tr>";
+        }).join("") + "</tbody></table></div>" : "");
+
+    $("btn-ri-commit").style.display = ok ? "" : "none";
+  }
+
+  $("btn-ri-commit").addEventListener("click", function () {
+    if (!riPreview || !riPreview.valid.length) return;
+    google.script.run.withSuccessHandler(function (result) {
+      $("rcpimport-modal-backdrop").classList.remove("show");
+      loadCollections();
+      showMsg(result.imported + " receipt(s) imported" +
+        (result.rejected ? ", " + result.rejected + " rejected." : "."), "success");
+    }).withFailureHandler(onServerError).commitReceiptImport($("ri-csv").value);
+  });
+
+  // ---- Customer statement ----
+  function openStatement(customerId) {
+    google.script.run.withSuccessHandler(function (st) {
+      $("statement-modal-title").textContent = st.customerName;
+      $("st-sub").textContent = (st.paymentTerms || "No terms set") +
+        (st.creditDays !== null ? " · " + st.creditDays + " days credit" : "") +
+        (st.creditLimit !== null ? " · limit " + fmt(st.creditLimit) : "");
+
+      $("st-summary").innerHTML = '<div class="grid grid-2">' +
+        '<div class="kpi-card' + (st.creditLimit !== null && st.totalOutstanding > st.creditLimit ? " alert" : "") +
+          '"><div class="kpi-label">Outstanding</div><div class="kpi-value">' + fmt(st.totalOutstanding) + "</div></div>" +
+        '<div class="kpi-card"><div class="kpi-label">Received to Date</div><div class="kpi-value">' +
+          fmt(st.totalReceived) + "</div></div></div>";
+
+      $("st-invoices").innerHTML = st.invoices.length
+        ? '<div class="card" style="padding:0; overflow-x:auto;"><table><thead><tr>' +
+          "<th>Invoice</th><th>Date</th><th>Due</th>" +
+          '<th class="num">Value</th><th class="num">Balance</th><th>Ageing</th></tr></thead><tbody>' +
+          st.invoices.map(function (i) {
+            return "<tr>" +
+              '<td class="mono">' + escapeHtml(i.invoiceNo) + "</td>" +
+              "<td>" + escapeHtml(i.invoiceDate) + "</td>" +
+              "<td>" + escapeHtml(i.dueDate || "—") + "</td>" +
+              '<td class="num mono">' + fmt(i.grand) + "</td>" +
+              '<td class="num mono">' + fmt(i.balanceAmt) + "</td>" +
+              "<td>" + (i.balanceAmt <= 0.5 ? '<span class="badge badge-paid">Paid</span>'
+                : i.overdueDays > 0 ? '<span class="badge badge-overdue">' + i.overdueDays + "d</span>"
+                : '<span class="badge badge-active">Not due</span>') + "</td></tr>";
+          }).join("") + "</tbody></table></div>"
+        : '<div class="empty">No invoices.</div>';
+
+      $("st-receipts").innerHTML = st.receipts.length
+        ? '<div class="card" style="padding:0; overflow-x:auto;"><table><thead><tr>' +
+          '<th>Receipt</th><th>Date</th><th>Mode</th><th>Reference</th><th class="num">Amount</th>' +
+          "</tr></thead><tbody>" +
+          st.receipts.map(function (r) {
+            return "<tr>" +
+              '<td class="mono">' + escapeHtml(r.receiptNo || "—") + "</td>" +
+              "<td>" + escapeHtml(r.receiptDate) + "</td>" +
+              "<td>" + escapeHtml(r.mode || "—") + "</td>" +
+              '<td class="mono" style="font-size:11.5px;">' + escapeHtml(r.reference || r.tallyRef || "—") + "</td>" +
+              '<td class="num mono">' + fmt(r.amount) + "</td></tr>";
+          }).join("") + "</tbody></table></div>"
+        : '<div class="empty">No receipts.</div>';
+
+      $("st-followups").innerHTML = st.followups.length
+        ? '<div class="card" style="padding:0; overflow-x:auto;"><table><thead><tr>' +
+          "<th>Date</th><th>Invoice</th><th>Discussion</th><th>Commitment</th><th>Status</th>" +
+          "</tr></thead><tbody>" +
+          st.followups.map(function (f) {
+            return "<tr><td>" + escapeHtml(f.contactDate) + "</td>" +
+              '<td class="mono">' + escapeHtml(f.invoiceNo || "—") + "</td>" +
+              "<td>" + escapeHtml(f.discussion || "") + "</td>" +
+              "<td>" + (f.commitmentAmount ? fmt(f.commitmentAmount) + " by " + escapeHtml(f.commitmentDate) : "—") + "</td>" +
+              "<td>" + escapeHtml(f.status || "") + "</td></tr>";
+          }).join("") + "</tbody></table></div>"
+        : '<div class="empty">No follow-ups logged.</div>';
+
+      $("statement-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).getCustomerStatement(customerId);
+  }
+
+  $("btn-st-close").addEventListener("click", function () {
+    $("statement-modal-backdrop").classList.remove("show");
   });
 
   // ---------------- Boot ----------------

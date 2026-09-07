@@ -335,6 +335,37 @@
       </div>
     </div>
 
+
+    <div class="view" id="view-collections">
+      <div class="page-head">
+        <div>
+          <h2>Collections</h2>
+          <p>Ageing is calculated from issued invoices minus receipts — never typed in, so it cannot drift.</p>
+        </div>
+        <div style="display:flex; gap:8px;" id="col-actions"></div>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:14px;">
+        <button class="btn btn-sm" id="subtab-ageing">Ageing by Customer</button>
+        <button class="btn btn-sm" id="subtab-receivables">Open Invoices</button>
+        <button class="btn btn-sm" id="subtab-followups">Follow-ups</button>
+        <button class="btn btn-sm" id="subtab-receipts">Receipts</button>
+      </div>
+
+      <div class="search-bar">
+        <input id="col-search" placeholder="Search by customer or invoice number…" />
+        <label class="check-line"><input type="checkbox" id="col-overdue" /> Overdue only</label>
+      </div>
+
+      <div id="col-summary"></div>
+
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead id="col-thead"></thead>
+          <tbody id="col-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <footer class="hint">ELGI Spares Sales ERP — internal tool.</footer>
   </div>
 </div>
@@ -1174,6 +1205,129 @@
         <button class="btn" id="btn-im-close">Close</button>
         <button class="btn btn-primary" id="btn-im-issue">Issue Invoice</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Record Receipt Modal -->
+<div class="modal-backdrop" id="receipt-modal-backdrop">
+  <div class="modal">
+    <h3 style="margin-bottom:6px;">Record a Receipt</h3>
+    <p style="font-size:12px; color:var(--ink-soft); margin:0 0 16px;">
+      Receipts are never edited. A wrong one is reversed with an offsetting entry, so the trail
+      of what was believed and when survives.
+    </p>
+    <div class="field"><label>Invoice *</label><select id="rcp-invoice"></select></div>
+    <p id="rcp-balance" class="mono" style="font-size:12px; color:var(--ink-soft); margin:8px 0 0;"></p>
+
+    <div class="grid grid-3" style="margin-top:14px;">
+      <div class="field"><label>Receipt Date</label><input id="rcp-date" type="date" /></div>
+      <div class="field"><label>Amount (₹) *</label><input id="rcp-amount" type="number" min="0" step="any" /></div>
+      <div class="field"><label>Mode</label><select id="rcp-mode"></select></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Reference (UTR / cheque no.)</label><input id="rcp-reference" class="mono" /></div>
+      <div class="field"><label>Tally Voucher Ref</label><input id="rcp-tallyref" class="mono" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;"><label>Notes</label><input id="rcp-notes" /></div>
+
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
+      <button class="btn" id="btn-cancel-receipt">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-receipt">Record Receipt</button>
+    </div>
+  </div>
+</div>
+
+<!-- Follow-up Modal -->
+<div class="modal-backdrop" id="followup-modal-backdrop">
+  <div class="modal">
+    <h3 id="followup-modal-title" style="margin-bottom:6px;">Log a Follow-up</h3>
+    <p id="fu-context" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;"></p>
+    <input type="hidden" id="fu-id" />
+    <input type="hidden" id="fu-invoiceid" />
+
+    <div class="grid grid-2">
+      <div class="field"><label>Contact Date</label><input id="fu-date" type="date" /></div>
+      <div class="field"><label>Spoke To</label><input id="fu-person" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>What was discussed *</label>
+      <input id="fu-discussion" placeholder="e.g. Payment held pending GRN at their end" />
+    </div>
+
+    <div class="card-title" style="margin-top:18px;">Commitment</div>
+    <p style="font-size:11.5px; color:var(--ink-soft); margin:0 0 10px;">
+      A commitment needs both an amount and a date, or neither. It is marked met automatically
+      once that much money arrives.
+    </p>
+    <div class="grid grid-3">
+      <div class="field"><label>Amount Promised (₹)</label><input id="fu-commitamount" type="number" min="0" step="any" /></div>
+      <div class="field"><label>Promised By</label><input id="fu-commitdate" type="date" /></div>
+      <div class="field"><label>Next Follow-up</label><input id="fu-next" type="date" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Status</label>
+      <select id="fu-status">
+        <option>Open</option><option>Promised</option><option>Broken</option><option>Closed</option>
+      </select>
+    </div>
+
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
+      <button class="btn" id="btn-cancel-followup">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-followup">Save Follow-up</button>
+    </div>
+  </div>
+</div>
+
+<!-- Receipt Import Modal -->
+<div class="modal-backdrop" id="rcpimport-modal-backdrop">
+  <div class="modal" style="max-width:860px;">
+    <h3 style="margin-bottom:6px;">Import Receipts</h3>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 14px;">
+      Paste a CSV export of the Tally receipt ledger. Nothing is written until you have seen
+      the preview — and a row already imported (matched on its Tally voucher reference) is
+      rejected rather than posted twice.
+    </p>
+
+    <div class="compare-strip" style="margin-bottom:12px;">
+      <b>Expected header:</b>
+      <span class="mono" id="ri-header"></span>
+    </div>
+
+    <div class="field">
+      <label>CSV Text</label>
+      <textarea id="ri-csv" rows="8" class="mono"
+        style="width:100%; font-size:12px; padding:10px; border:1px solid var(--border); border-radius:var(--radius);"></textarea>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <button class="btn btn-sm" id="btn-ri-preview">Preview</button>
+      <button class="btn btn-sm btn-ghost" id="btn-ri-pull">Pull from Tally</button>
+    </div>
+
+    <div id="ri-preview"></div>
+
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
+      <button class="btn" id="btn-cancel-rcpimport">Close</button>
+      <button class="btn btn-primary" id="btn-ri-commit" style="display:none;">Import Receipts</button>
+    </div>
+  </div>
+</div>
+
+<!-- Customer Statement Modal -->
+<div class="modal-backdrop" id="statement-modal-backdrop">
+  <div class="modal" style="max-width:900px;">
+    <h3 id="statement-modal-title" style="margin-bottom:4px;">Customer Statement</h3>
+    <p id="st-sub" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;"></p>
+    <div id="st-summary"></div>
+    <div class="card-title" style="margin-top:20px;">Invoices</div>
+    <div id="st-invoices"></div>
+    <div class="card-title" style="margin-top:20px;">Receipts</div>
+    <div id="st-receipts"></div>
+    <div class="card-title" style="margin-top:20px;">Follow-ups</div>
+    <div id="st-followups"></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
+      <button class="btn" id="btn-st-close">Close</button>
     </div>
   </div>
 </div>

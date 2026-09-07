@@ -79,6 +79,7 @@ src/
   Inventory.gs       stock position, reservations, serials, GRN and verification (M12/M13)
   Dispatch.gs        readiness checklist, dispatch docs, posting stock out (M14)
   Billing.gs         invoice from actual dispatch, Tally handoff (M15, FR-048/049/050)
+  Collections.gs     ageing, follow-ups, commitments, receipts, Tally pull (M16, FR-051..055)
   CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
   Index.html         page shell, views, modals
@@ -109,6 +110,8 @@ Enforced server-side via `requireRole_`, never only hidden in the UI:
 | Releasing a credit hold | Management, ERP Admin |
 | Stock reservations, GRN, serials | Sales Coordinator, Management, ERP Admin |
 | Dispatch, posting stock out, invoicing | Sales Coordinator, Management, ERP Admin |
+| Receipts, follow-ups, receipt import | Sales Coordinator, Management, ERP Admin |
+| Reversing a receipt | Management, ERP Admin |
 | Overriding the dispatch checklist, cancelling an invoice | Management, ERP Admin |
 
 PIE (cost) prices and margin are visible only to Management and ERP Admin — the server omits
@@ -139,8 +142,10 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       Management override (FR-045), dispatch documents and POD (FR-046/047), posting that moves
       stock, reservations, serials and order status together, invoice raised from what actually
       shipped (FR-048), dispatched-not-invoiced control (FR-049), Tally sync status (FR-050)
-- [ ] **Collections & Tally**: ageing, follow-ups, commitments, receipts import (the invoice
-      side of the Tally sync is built; see the note below)
+- [x] **Collections & Tally**: ageing derived from issued invoices minus receipts, never
+      stored (FR-051), follow-ups with commitments judged against what actually arrived
+      (FR-052), append-only receipts with reversal rather than edit, idempotent CSV import of
+      the Tally receipt ledger and a Tally pull that reuses the same reviewed path (FR-055)
 - [ ] **Management Dashboards**: control tower, compressor / spare / combined dashboards
 - [ ] **Settings page**: brand tiles + Admin Controls (per `ELGI-Settings-Page-Spec.md`)
 
@@ -162,6 +167,15 @@ What this means in practice:
   Tally's masters are named differently, the voucher is rejected and the reason is stored on
   the invoice in `tallySyncError` — nothing is lost.
 
+`testTallyConnection()` asks Tally for its company list and returns a readable result instead
+of throwing, so PMT's IT can check their own progress without reading logs.
+
 **Nothing else depends on Tally being reachable.** Invoices generate and sit at
 `tallySyncStatus = Pending`; anyone can mark one entered manually with its Tally reference; and
 the ageing, collections and dispatched-not-invoiced controls all work with zero connectivity.
+
+Receipts come in three ways, in descending order of how much the connection is trusted:
+pulled from Tally, imported from a CSV export of the Tally ledger, or typed in. The import is
+idempotent — a row whose Tally voucher reference is already in the ledger is rejected, not
+posted twice — so re-running the same export is safe, and the CSV path needs no connectivity
+at all.

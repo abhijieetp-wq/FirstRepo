@@ -79,10 +79,12 @@
 
   .grid{ display:grid; gap:14px; }
   .grid-4{ grid-template-columns:repeat(4,1fr); }
+  .grid-5{ grid-template-columns:repeat(5,1fr); }
   .grid-3{ grid-template-columns:repeat(3,1fr); }
   .grid-2{ grid-template-columns:repeat(2,1fr); }
-  @media (max-width:800px){ .grid-4,.grid-3,.grid-2{ grid-template-columns:1fr 1fr; } }
-  @media (max-width:520px){ .grid-4,.grid-3,.grid-2{ grid-template-columns:1fr; } }
+  @media (max-width:1080px){ .grid-5{ grid-template-columns:repeat(3,1fr); } }
+  @media (max-width:800px){ .grid-5,.grid-4,.grid-3,.grid-2{ grid-template-columns:1fr 1fr; } }
+  @media (max-width:520px){ .grid-5,.grid-4,.grid-3,.grid-2{ grid-template-columns:1fr; } }
 
   .field label{ display:block; font-size:11.5px; font-weight:600; color:var(--ink-soft); margin-bottom:5px; text-transform:uppercase; letter-spacing:.4px; }
   .field input, .field select, .field textarea{ width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:4px; font-size:13.5px; color:var(--ink); background:#fff; }
@@ -171,7 +173,7 @@
   .inline-form-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
   .check-line{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink);
     text-transform:none; letter-spacing:0; font-weight:400; padding:8px 0; }
-  .check-line input{ width:auto; }
+  .check-line input[type=checkbox]{ width:auto; flex:none; min-width:0; margin:0; }
 
   footer.hint{ text-align:center; color:var(--steel); font-size:11.5px; padding:30px 0 10px; }
 
