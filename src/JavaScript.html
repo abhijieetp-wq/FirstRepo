@@ -14,18 +14,44 @@
   var ALL_ROLES = ["Sales Coordinator", "Sales Engineer", "Service Engineer", "Management", "ERP Admin"];
   var SALES_SIDE = ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"];
 
-  var TABS = [
+  /**
+   * Navigation. Screens are grouped behind a handful of headings rather than laid out as one
+   * long strip of tabs — a flat bar was already wrapping onto a second row at ten screens, and
+   * dashboards, collections and settings are still to come. A group with a single visible
+   * child collapses into a plain link, so role filtering never leaves an empty menu.
+   */
+  var NAV = [
     { view: "dashboard", label: "Dashboard", roles: ALL_ROLES },
-    { view: "customers", label: "Customers", roles: ALL_ROLES },
-    { view: "enquiries", label: "Spare Enquiries", roles: SALES_SIDE },
-    { view: "compressor", label: "Compressor Sales", roles: SALES_SIDE },
-    { view: "catalog", label: "Catalog", roles: ALL_ROLES },
-    { view: "quote", label: "New Quotation", roles: SALES_SIDE },
-    { view: "quotations", label: "Quotations", roles: SALES_SIDE },
-    { view: "orders", label: "Orders", roles: ALL_ROLES },
+    { label: "Sales", children: [
+      { view: "enquiries", label: "Spare Enquiries", roles: SALES_SIDE },
+      { view: "compressor", label: "Compressor Sales", roles: SALES_SIDE },
+      { view: "quote", label: "New Quotation", roles: SALES_SIDE },
+      { view: "quotations", label: "Quotations", roles: SALES_SIDE }
+    ] },
+    { label: "Orders", children: [
+      { view: "orders", label: "Sales Orders", roles: ALL_ROLES },
+      { view: "dispatch", label: "Dispatch & Billing", roles: ALL_ROLES }
+    ] },
     { view: "inventory", label: "Inventory", roles: ALL_ROLES },
-    { view: "dispatch", label: "Dispatch & Billing", roles: ALL_ROLES }
+    { label: "Masters", children: [
+      { view: "customers", label: "Customers", roles: ALL_ROLES },
+      { view: "catalog", label: "Catalog", roles: ALL_ROLES }
+    ] }
   ];
+
+  /** Every leaf screen, flattened — used for role checks and for the default landing tab. */
+  function navLeaves() {
+    var out = [];
+    NAV.forEach(function (n) {
+      if (n.children) { n.children.forEach(function (c) { out.push(c); }); }
+      else out.push(n);
+    });
+    return out;
+  }
+
+  function visibleLeaves() {
+    return navLeaves().filter(function (t) { return t.roles.indexOf(currentUser.role) !== -1; });
+  }
 
   // Master data (Products/Spares/pricing) is Management + ERP Admin only — mirrors
   // MASTER_EDITORS in Auth.gs, which is where the rule is actually enforced.
@@ -150,28 +176,90 @@
     dispatch: initDispatchView
   };
 
+  function closeNavMenus() {
+    document.querySelectorAll(".nav-menu").forEach(function (m) { m.classList.remove("show"); });
+    document.querySelectorAll(".tab-btn.open").forEach(function (b) { b.classList.remove("open"); });
+  }
+
   function goToTab(view) {
-    document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });
+    closeNavMenus();
+
     document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
-    document.querySelector('.tab-btn[data-view="' + view + '"]').classList.add("active");
     $("view-" + view).classList.add("active");
+
+    // A group heading lights up when the screen you are on lives inside it.
+    document.querySelectorAll("#tabs .tab-btn").forEach(function (b) {
+      var owns = (b.dataset.views || "").split(",").indexOf(view) !== -1;
+      b.classList.toggle("active", owns);
+    });
+    document.querySelectorAll(".nav-menu button").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.view === view);
+    });
+
     if (VIEW_INIT[view]) VIEW_INIT[view]();
   }
 
   function renderTabs() {
-    var visible = TABS.filter(function (t) { return t.roles.indexOf(currentUser.role) !== -1; });
-    $("tabs").innerHTML = visible.map(function (t, i) {
-      return '<button class="tab-btn' + (i === 0 ? " active" : "") + '" data-view="' + t.view + '">' + t.label + "</button>";
-    }).join("");
-    $("tabs").querySelectorAll(".tab-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () { goToTab(btn.dataset.view); });
+    var role = currentUser.role;
+    var html = "";
+
+    NAV.forEach(function (group, gi) {
+      if (!group.children) {
+        if (group.roles.indexOf(role) === -1) return;
+        html += '<button class="tab-btn" data-view="' + group.view +
+          '" data-views="' + group.view + '">' + escapeHtml(group.label) + "</button>";
+        return;
+      }
+
+      var kids = group.children.filter(function (c) { return c.roles.indexOf(role) !== -1; });
+      if (!kids.length) return;
+
+      // One child left after role filtering — show it directly rather than a menu of one.
+      if (kids.length === 1) {
+        html += '<button class="tab-btn" data-view="' + kids[0].view +
+          '" data-views="' + kids[0].view + '">' + escapeHtml(kids[0].label) + "</button>";
+        return;
+      }
+
+      html += '<div class="nav-group">' +
+        '<button class="tab-btn" data-group="' + gi + '" data-views="' +
+          kids.map(function (c) { return c.view; }).join(",") + '">' +
+          escapeHtml(group.label) + '<span class="tab-caret">&#9662;</span></button>' +
+        '<div class="nav-menu" data-menu="' + gi + '">' +
+          kids.map(function (c) {
+            return '<button data-view="' + c.view + '">' + escapeHtml(c.label) + "</button>";
+          }).join("") +
+        "</div></div>";
     });
-    document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
-    if (visible.length) {
-      $("view-" + visible[0].view).classList.add("active");
-      if (VIEW_INIT[visible[0].view]) VIEW_INIT[visible[0].view]();
-    }
+
+    $("tabs").innerHTML = html;
+
+    $("tabs").querySelectorAll("[data-group]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var menu = $("tabs").querySelector('[data-menu="' + btn.dataset.group + '"]');
+        var wasOpen = menu.classList.contains("show");
+        closeNavMenus();
+        if (!wasOpen) { menu.classList.add("show"); btn.classList.add("open"); }
+      });
+    });
+
+    $("tabs").querySelectorAll("[data-view]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        goToTab(btn.dataset.view);
+      });
+    });
+
+    var visible = visibleLeaves();
+    if (visible.length) goToTab(visible[0].view);
   }
+
+  // A menu left hanging open over the page is the classic half-finished dropdown.
+  document.addEventListener("click", closeNavMenus);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeNavMenus();
+  });
 
   // ================= CATALOG (Parts + Units) =================
   var CATALOG_MODE = "spares";
@@ -3793,7 +3881,13 @@
   // ---------------- Boot ----------------
   function onBootSuccess(user) {
     currentUser = user;
-    $("whoami").innerHTML = "Signed in as <b>" + escapeHtml(user.name) + "</b> (" + escapeHtml(user.role) + ")";
+    var initials = String(user.name || user.email || "?").trim().split(/\s+/)
+      .slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join("");
+    $("whoami").innerHTML =
+      '<span class="user-avatar" title="' + escapeHtml(user.name + " — " + user.role) + '">' +
+        escapeHtml(initials) + "</span>" +
+      '<span class="user-meta"><b>' + escapeHtml(user.name) + "</b>" +
+        "<span>" + escapeHtml(user.role) + "</span></span>";
     renderTabs();
     $("boot-screen").style.display = "none";
     $("app").style.display = "block";
