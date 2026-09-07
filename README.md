@@ -82,6 +82,7 @@ src/
   Collections.gs     ageing, follow-ups, commitments, receipts, Tally pull (M16, FR-051..055)
   Dashboard.gs       control tower + stream dashboards in one payload (M17/M18, FR-057)
   Settings.gs        brand tiles, users, lists, warehouses, Tally config (D5, FR-062/074)
+  TallyImport.gs     opening balances from Tally: customers, stock, receivables
   CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
   Index.html         page shell, views, modals
@@ -116,6 +117,7 @@ Enforced server-side via `requireRole_`, never only hidden in the UI:
 | Reversing a receipt | Management, ERP Admin |
 | Settings: users, lists, lost reasons, warehouses, brands, Tally config | Management, ERP Admin |
 | Running setup from the UI | ERP Admin |
+| Opening-balance imports from Tally | Management, ERP Admin |
 | Overriding the dispatch checklist, cancelling an invoice | Management, ERP Admin |
 
 PIE (cost) prices and margin are visible only to Management and ERP Admin — the server omits
@@ -159,6 +161,25 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       warehouses and bins, the Tally connection stored in Script Properties with a Test
       Connection action (D3), and a system panel that can re-run the schema migrator and read
       the audit log (FR-061)
+
+## Getting PMT's existing data in
+
+PMT run Tally Prime, and most of the master data already lives there. Nobody re-types any of
+it: **Settings → Data Import** takes the standard Tally exports for customers, opening stock
+and open receivables, and the Catalog screen takes the item masters. Each shows a preview and
+writes nothing until confirmed, and each reports a total to reconcile against Tally.
+
+The full cut-over procedure is in [docs/TALLY-CUTOVER.md](docs/TALLY-CUTOVER.md).
+
+Two design points worth keeping:
+
+- **One owner per fact.** Tally owns the ledger, the item masters and the statutory data; the
+  ERP owns everything before the invoice — leads, enquiries, quotations, orders, dispatch,
+  reservations, collections. Confirmed with the client: PMT do **not** run inventory in Tally,
+  so stock on hand is the ERP's, opened once from a count.
+- **Opening receivables are not optional.** Without them the credit check waves through orders
+  it should stop and the ageing report is empty, which is worse than an ERP that says it has no
+  data.
 
 ## Tally handover note (decision D3)
 

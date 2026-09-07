@@ -4700,7 +4700,7 @@
 
   // ================= SETTINGS =================
   // "tallyconn", not "tally" — the Dispatch screen already owns a subtab-tally element.
-  var SET_SUBTABS = ["users", "lists", "reasons", "locations", "tallyconn", "system"];
+  var SET_SUBTABS = ["users", "lists", "reasons", "locations", "tallyconn", "dataimport", "system"];
   var setMode = "users";
   var setData = null;
 
@@ -4761,6 +4761,7 @@
     else if (setMode === "reasons") renderReasonsPanel();
     else if (setMode === "locations") renderLocationsPanel();
     else if (setMode === "tallyconn") renderTallyPanel();
+    else if (setMode === "dataimport") renderImportPanel();
     else renderSystemPanel();
   }
 
@@ -5164,6 +5165,178 @@
           escapeHtml(r.sample) + "</pre>" : "") +
         "</div>";
     }).withFailureHandler(onServerError).testTallyConnection();
+  }
+
+  // ---- Opening-balance import from Tally ----
+  //
+  // Three imports, one panel, because they are the same act at three moments of the same
+  // afternoon: bring the masters over, then the stock, then what customers already owe.
+  var importSpecs = null;
+  var importPreview = null;
+
+  function renderImportPanel() {
+    $("set-panel").innerHTML = panelCard(
+      "Data Import",
+      "Bring the opening position over from Tally rather than typing it. Every one of these " +
+        "is a standard Tally report with a built-in export — nothing here needs re-keying.",
+      "",
+      '<div class="compare-strip" style="margin-bottom:14px;">' +
+        "<b>Do these in order.</b> Customers first, then opening stock, then open receivables — " +
+        "each one refers to the one before it. Import the spares and product catalogs from the " +
+        "Catalog screen before the stock." +
+      "</div>" +
+      '<div class="field"><label>What are you importing?</label><select id="ti-kind"></select></div>' +
+      '<p id="ti-source" style="font-size:12px; color:var(--ink-soft); margin:8px 0 0;"></p>' +
+      '<div class="compare-strip" style="margin:12px 0;"><b>Expected header:</b> ' +
+        '<span class="mono" id="ti-header" style="font-size:11.5px;"></span>' +
+        '<div style="margin-top:6px; font-size:11.5px;"><b>Example row:</b> ' +
+        '<span class="mono" id="ti-example"></span></div></div>' +
+      '<div class="field"><label>CSV Text</label>' +
+        '<textarea id="ti-csv" rows="8" class="mono" style="width:100%; font-size:12px; ' +
+        'padding:10px; border:1px solid var(--border); border-radius:var(--radius);"></textarea></div>' +
+      '<div style="display:flex; gap:8px; margin-top:12px;">' +
+        '<button class="btn btn-sm" id="btn-ti-preview">Preview</button>' +
+        '<button class="btn btn-sm btn-primary" id="btn-ti-commit" style="display:none;">Import</button>' +
+      "</div>" +
+      '<div id="ti-preview"></div>');
+
+    var wire = function () {
+      $("ti-kind").innerHTML = importSpecs.map(function (sp) {
+        return '<option value="' + sp.key + '">' + escapeHtml(sp.label) + "</option>";
+      }).join("");
+      onImportKindChange();
+      $("ti-kind").addEventListener("change", onImportKindChange);
+      $("btn-ti-preview").addEventListener("click", previewImport);
+      $("btn-ti-commit").addEventListener("click", commitImport);
+    };
+
+    if (importSpecs) { wire(); return; }
+    google.script.run.withSuccessHandler(function (specs) {
+      importSpecs = specs;
+      wire();
+    }).withFailureHandler(onServerError).getTallyImportSpecs();
+  }
+
+  function currentImportSpec() {
+    return importSpecs.filter(function (sp) { return sp.key === $("ti-kind").value; })[0];
+  }
+
+  function onImportKindChange() {
+    var sp = currentImportSpec();
+    if (!sp) return;
+    $("ti-source").textContent = "Where this comes from — " + sp.source;
+    $("ti-header").textContent = sp.header;
+    $("ti-example").textContent = sp.example;
+    $("ti-csv").value = "";
+    $("ti-preview").innerHTML = "";
+    $("btn-ti-commit").style.display = "none";
+    importPreview = null;
+  }
+
+  function previewImport() {
+    if (!$("ti-csv").value.trim()) { showMsg("Paste the exported CSV first.", "error"); return; }
+    $("ti-preview").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Checking…</p>';
+    google.script.run.withSuccessHandler(function (result) {
+      importPreview = result;
+      renderTallyPreview(result);
+    }).withFailureHandler(function (err) {
+      $("ti-preview").innerHTML = "";
+      onServerError(err);
+    }).previewTallyImport($("ti-kind").value, $("ti-csv").value);
+  }
+
+  function renderTallyPreview(result) {
+    var rec = result.reconciliation;
+    var ok = result.valid.length;
+
+    // Column set differs per import; keep the preview honest to what will actually be written.
+    var head, body;
+    if (result.kind === "Customer") {
+      head = "<tr><th>Line</th><th>Customer</th><th>GSTIN</th>" +
+        '<th class="num">Credit Limit</th><th>Action</th></tr>';
+      body = result.valid.map(function (r) {
+        return "<tr><td>" + r.line + "</td><td>" + escapeHtml(r.name) + "</td>" +
+          '<td class="mono" style="font-size:11.5px;">' + escapeHtml(r.gstin || "—") + "</td>" +
+          '<td class="num mono">' + (r.creditLimit === "" ? "—" : fmt(r.creditLimit)) + "</td>" +
+          '<td><span class="badge ' + (r.action === "Create" ? "badge-new" : "badge-followup") +
+            '">' + r.action + "</span></td></tr>";
+      }).join("");
+    } else if (result.kind === "OpeningStock") {
+      head = "<tr><th>Line</th><th>Item</th><th>Description</th>" +
+        '<th class="num">Qty</th></tr>';
+      body = result.valid.map(function (r) {
+        return "<tr><td>" + r.line + "</td>" +
+          '<td class="mono">' + escapeHtml(r.itemCode) + "</td>" +
+          "<td>" + escapeHtml(r.description || "") + "</td>" +
+          '<td class="num mono">' + escapeHtml(r.qty) + "</td></tr>";
+      }).join("");
+    } else {
+      head = "<tr><th>Line</th><th>Invoice</th><th>Date</th><th>Customer</th>" +
+        '<th class="num">Amount</th><th class="num">Balance</th></tr>';
+      body = result.valid.map(function (r) {
+        return "<tr><td>" + r.line + "</td>" +
+          '<td class="mono">' + escapeHtml(r.invoiceNo) + "</td>" +
+          "<td>" + escapeHtml(r.invoiceDate) + "</td>" +
+          "<td>" + escapeHtml(r.customerName) + "</td>" +
+          '<td class="num mono">' + fmt(r.amount) + "</td>" +
+          '<td class="num mono">' + fmt(r.balance) + "</td></tr>";
+      }).join("");
+    }
+
+    $("ti-preview").innerHTML =
+      '<div class="grid grid-3" style="margin:14px 0;">' +
+        '<div class="kpi-card"><div class="kpi-label">Rows Read</div>' +
+          '<div class="kpi-value">' + result.totalRows + "</div></div>" +
+        '<div class="kpi-card"><div class="kpi-label">Will Import</div>' +
+          '<div class="kpi-value">' + ok + "</div>" +
+          '<div class="kpi-sub">' + escapeHtml(rec.detail || "") + "</div></div>" +
+        '<div class="kpi-card' + (result.errors.length ? " alert" : "") + '">' +
+          '<div class="kpi-label">Rejected</div>' +
+          '<div class="kpi-value">' + result.errors.length + "</div></div>" +
+      "</div>" +
+      (rec.total !== undefined
+        ? '<div class="compare-strip" style="margin-bottom:14px;"><b>' + escapeHtml(rec.label) +
+          ": " + (result.kind === "OpeningStock" ? escapeHtml(String(rec.total)) + " units" : fmt(rec.total)) +
+          "</b> — check this against the same total in Tally before you go live. If the two " +
+          "disagree, something is wrong with the export and it is much cheaper to find out now.</div>"
+        : "") +
+      (ok ? '<div class="card" style="padding:0; overflow-x:auto; max-height:280px;"><table>' +
+        "<thead>" + head + "</thead><tbody>" + body + "</tbody></table></div>" : "") +
+      (result.errors.length
+        ? '<div class="card-title" style="margin-top:16px;">Rejected rows</div>' +
+          '<div class="card" style="padding:0; overflow-x:auto; max-height:220px;"><table>' +
+          "<thead><tr><th>Line</th><th></th><th>Why</th></tr></thead><tbody>" +
+          result.errors.map(function (e) {
+            return "<tr><td>" + e.line + "</td>" +
+              '<td class="mono" style="font-size:11.5px;">' + escapeHtml(e.key || "—") + "</td>" +
+              '<td style="color:var(--st-critical);">' + escapeHtml(e.message) + "</td></tr>";
+          }).join("") + "</tbody></table></div>"
+        : "");
+
+    $("btn-ti-commit").style.display = ok ? "" : "none";
+  }
+
+  function commitImport() {
+    if (!importPreview || !importPreview.valid.length) return;
+    var label = currentImportSpec().label;
+    askDialog({
+      title: "Import " + importPreview.valid.length + " row(s)?",
+      message: "This writes to the sheet. " + label + " can be corrected afterwards, but an " +
+        "opening balance imported twice is a real mess — make sure this file has not already " +
+        "been imported.",
+      okLabel: "Import"
+    }, function (ok) {
+      if (ok === null) return;
+      google.script.run.withSuccessHandler(function (result) {
+        showMsg(result.imported + " row(s) imported" +
+          (result.rejected ? ", " + result.rejected + " rejected." : "."), "success");
+        $("ti-csv").value = "";
+        $("ti-preview").innerHTML = "";
+        $("btn-ti-commit").style.display = "none";
+        importPreview = null;
+      }).withFailureHandler(onServerError)
+        .commitTallyImport($("ti-kind").value, $("ti-csv").value);
+    });
   }
 
   // ---- System ----
