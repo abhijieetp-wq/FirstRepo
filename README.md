@@ -77,6 +77,8 @@ src/
   CompressorSales.gs leads, opportunities, site visits, technical selection (M02/M03/M04)
   Orders.gs          sales orders, PO validation, credit control, approvals (M09/M10/M20)
   Inventory.gs       stock position, reservations, serials, GRN and verification (M12/M13)
+  Dispatch.gs        readiness checklist, dispatch docs, posting stock out (M14)
+  Billing.gs         invoice from actual dispatch, Tally handoff (M15, FR-048/049/050)
   CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
   Index.html         page shell, views, modals
@@ -106,6 +108,8 @@ Enforced server-side via `requireRole_`, never only hidden in the UI:
 | Sales orders and status changes | Sales Coordinator, Management, ERP Admin |
 | Releasing a credit hold | Management, ERP Admin |
 | Stock reservations, GRN, serials | Sales Coordinator, Management, ERP Admin |
+| Dispatch, posting stock out, invoicing | Sales Coordinator, Management, ERP Admin |
+| Overriding the dispatch checklist, cancelling an invoice | Management, ERP Admin |
 
 PIE (cost) prices and margin are visible only to Management and ERP Admin — the server omits
 those fields for everyone else rather than merely hiding the column.
@@ -131,8 +135,33 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
 - [x] **Inventory & Inward**: live stock position, order reservations that cannot double-promise
       stock (FR-037), compressor serial tracking (FR-038), bins, and GRN where stock posts only
       on verification (FR-043)
-- [ ] **Dispatch & Billing**: readiness checklist, dispatch docs, invoice from dispatch,
-      dispatched-not-invoiced control
-- [ ] **Collections & Tally**: ageing, follow-ups, commitments, Tally sync both ways
+- [x] **Dispatch & Billing**: readiness checklist evaluated from the data with a recorded
+      Management override (FR-045), dispatch documents and POD (FR-046/047), posting that moves
+      stock, reservations, serials and order status together, invoice raised from what actually
+      shipped (FR-048), dispatched-not-invoiced control (FR-049), Tally sync status (FR-050)
+- [ ] **Collections & Tally**: ageing, follow-ups, commitments, receipts import (the invoice
+      side of the Tally sync is built; see the note below)
 - [ ] **Management Dashboards**: control tower, compressor / spare / combined dashboards
 - [ ] **Settings page**: brand tiles + Admin Controls (per `ELGI-Settings-Page-Spec.md`)
+
+## Tally handover note (decision D3)
+
+The invoice push to Tally is **built and documented, but not verified by us** — and it cannot
+be. Apps Script sends HTTP requests from Google's servers, not from a machine on the office
+LAN, so the Tally endpoint has to be reachable from the internet before the sync can be tested.
+That is the client's IT decision, not ours.
+
+What this means in practice:
+
+- Set `TALLY_ENDPOINT` in **Project Settings → Script Properties** to the Tally Prime XML/HTTP
+  endpoint (usually port 9000). Until it is set, `pushInvoiceToTally()` refuses politely and
+  says so rather than failing silently.
+- `buildTallyInvoiceXml(invoiceId)` returns the exact Sales-voucher XML that would be sent, so
+  the client's IT can inspect and test the payload before anything is posted.
+- Ledger and stock-item names in the payload come from our customer name and item code. If
+  Tally's masters are named differently, the voucher is rejected and the reason is stored on
+  the invoice in `tallySyncError` — nothing is lost.
+
+**Nothing else depends on Tally being reachable.** Invoices generate and sit at
+`tallySyncStatus = Pending`; anyone can mark one entered manually with its Tally reference; and
+the ageing, collections and dispatched-not-invoiced controls all work with zero connectivity.

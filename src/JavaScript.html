@@ -23,7 +23,8 @@
     { view: "quote", label: "New Quotation", roles: SALES_SIDE },
     { view: "quotations", label: "Quotations", roles: SALES_SIDE },
     { view: "orders", label: "Orders", roles: ALL_ROLES },
-    { view: "inventory", label: "Inventory", roles: ALL_ROLES }
+    { view: "inventory", label: "Inventory", roles: ALL_ROLES },
+    { view: "dispatch", label: "Dispatch & Billing", roles: ALL_ROLES }
   ];
 
   // Master data (Products/Spares/pricing) is Management + ERP Admin only — mirrors
@@ -145,7 +146,8 @@
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
-    inventory: initInventoryView
+    inventory: initInventoryView,
+    dispatch: initDispatchView
   };
 
   function goToTab(view) {
@@ -3070,6 +3072,721 @@
       serialNo: $("sn-serial").value.trim(),
       status: $("sn-status").value,
       notes: $("sn-notes").value.trim()
+    });
+  });
+
+  // ================= DISPATCH & BILLING =================
+  var DSP_SUBTABS = ["dispatches", "invoices", "uninvoiced", "tally"];
+  var dspMode = "dispatches";
+  var dspCache = [];
+  var openDispatch = null;
+  var openInvoice = null;
+
+  var DISPATCH_BADGE = {
+    "Planned": "badge-draft", "Dispatched": "badge-dispatched", "Cancelled": "badge-lost"
+  };
+  var INVOICE_BADGE = {
+    "Draft": "badge-draft", "Issued": "badge-sent", "Cancelled": "badge-lost"
+  };
+  var TALLY_BADGE = {
+    "Pending": "badge-pending", "Synced": "badge-won", "Failed": "badge-overdue",
+    "Not Required": "badge-dormant"
+  };
+
+  function canDispatch() {
+    return ["Sales Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+  function canOverrideDispatch() {
+    return ["Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  function initDispatchView() {
+    $("dsp-actions").innerHTML = canDispatch()
+      ? '<button class="btn btn-amber" id="btn-new-dispatch">+ New Dispatch</button>' +
+        '<button class="btn btn-primary" id="btn-new-invoice">+ Raise Invoice</button>'
+      : "";
+    if (canDispatch()) {
+      $("btn-new-dispatch").addEventListener("click", startNewDispatch);
+      $("btn-new-invoice").addEventListener("click", startNewInvoice);
+    }
+    setDspMode(dspMode);
+  }
+
+  DSP_SUBTABS.forEach(function (mode) {
+    $("subtab-" + mode).addEventListener("click", function () { setDspMode(mode); });
+  });
+
+  function setDspMode(mode) {
+    dspMode = mode;
+    DSP_SUBTABS.forEach(function (m) {
+      $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
+    });
+    loadDispatchData();
+  }
+
+  $("dsp-search").addEventListener("input", function () { renderDspTable(); });
+
+  function loadDispatchData() {
+    var done = function (rows) { dspCache = rows; renderDspTable(); };
+    if (dspMode === "dispatches") {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listDispatches({});
+    } else if (dspMode === "invoices") {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listInvoices({});
+    } else if (dspMode === "uninvoiced") {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listDispatchedNotInvoiced();
+    } else {
+      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listTallySyncQueue();
+    }
+  }
+
+  function renderDspTable() {
+    var q = ($("dsp-search").value || "").toLowerCase();
+    var rows = dspCache.filter(function (r) {
+      return [r.dispatchNo, r.invoiceNo, r.orderNo, r.customerName].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    if (dspMode === "dispatches") renderDispatchesTable(rows);
+    else if (dspMode === "invoices") renderInvoicesTable(rows);
+    else if (dspMode === "uninvoiced") renderUninvoicedTable(rows);
+    else renderTallyTable(rows);
+  }
+
+  function dspEmpty(cols, text) {
+    $("dsp-tbody").innerHTML = '<tr><td colspan="' + cols + '"><div class="empty">' +
+      escapeHtml(text) + "</div></td></tr>";
+  }
+
+  function renderDispatchesTable(rows) {
+    var planned = dspCache.filter(function (d) { return d.status === "Planned"; });
+    var awaiting = dspCache.filter(function (d) { return d.awaitingInvoice; });
+    var undelivered = dspCache.filter(function (d) {
+      return d.status === "Dispatched" && d.deliveryConfirmed !== "Yes";
+    });
+    $("dsp-summary").innerHTML = '<div class="grid grid-3" style="margin-bottom:14px;">' +
+      '<div class="kpi-card"><div class="kpi-label">Open Dispatches</div><div class="kpi-value">' + planned.length + "</div></div>" +
+      '<div class="kpi-card' + (awaiting.length ? " alert" : "") + '"><div class="kpi-label">Awaiting Invoice</div><div class="kpi-value">' + awaiting.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Delivery Unconfirmed</div><div class="kpi-value">' + undelivered.length + "</div></div>" +
+      "</div>";
+
+    $("dsp-thead").innerHTML = "<tr><th>Dispatch No.</th><th>Date</th><th>Order</th><th>Customer</th>" +
+      '<th class="num">Lines</th><th>LR No.</th><th>Status</th><th>Invoice</th><th></th></tr>';
+
+    if (!rows.length) {
+      dspEmpty(9, dspCache.length ? "No dispatches match your search." : "No dispatches yet — open one from a ready order.");
+      return;
+    }
+
+    $("dsp-tbody").innerHTML = rows.map(function (d) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(d.dispatchNo) + "</td>" +
+        "<td>" + escapeHtml(d.dispatchDate) + "</td>" +
+        '<td class="mono">' + escapeHtml(d.orderNo || "—") + "</td>" +
+        "<td>" + escapeHtml(d.customerName || "—") + "</td>" +
+        '<td class="num">' + (d.itemCount || 0) + "</td>" +
+        '<td class="mono">' + escapeHtml(d.lrNumber || "—") + "</td>" +
+        '<td><span class="badge ' + (DISPATCH_BADGE[d.status] || "badge-draft") + '">' + escapeHtml(d.status) + "</span>" +
+          (String(d.checklistComplete).toUpperCase() === "FALSE" ? ' <span class="badge badge-overdue">Override</span>' : "") + "</td>" +
+        '<td class="mono">' + (d.invoiceNo ? escapeHtml(d.invoiceNo)
+          : (d.awaitingInvoice ? '<span class="badge badge-overdue">Not invoiced</span>' : "—")) + "</td>" +
+        '<td class="center"><button class="btn btn-sm" data-open-dispatch="' + d.id + '">Open</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("dsp-tbody").querySelectorAll("[data-open-dispatch]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openDispatchModal(btn.dataset.openDispatch); });
+    });
+  }
+
+  function renderInvoicesTable(rows) {
+    var outstanding = dspCache.reduce(function (s, i) { return s + (i.balanceAmt > 0 ? i.balanceAmt : 0); }, 0);
+    var overdue = dspCache.filter(function (i) { return i.overdueDays > 0 && i.balanceAmt > 0.5; });
+    var drafts = dspCache.filter(function (i) { return i.status === "Draft"; });
+    $("dsp-summary").innerHTML = '<div class="grid grid-4" style="margin-bottom:14px;">' +
+      '<div class="kpi-card"><div class="kpi-label">Invoices</div><div class="kpi-value">' + dspCache.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Outstanding</div><div class="kpi-value">' + fmt(outstanding) + "</div></div>" +
+      '<div class="kpi-card' + (overdue.length ? " alert" : "") + '"><div class="kpi-label">Overdue</div><div class="kpi-value">' + overdue.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Unissued Drafts</div><div class="kpi-value">' + drafts.length + "</div></div>" +
+      "</div>";
+
+    $("dsp-thead").innerHTML = "<tr><th>Invoice No.</th><th>Date</th><th>Customer</th><th>Order</th>" +
+      '<th class="num">Value</th><th class="num">Balance</th><th>Due</th><th>Status</th><th>Tally</th><th></th></tr>';
+
+    if (!rows.length) {
+      dspEmpty(10, dspCache.length ? "No invoices match your search." : "No invoices yet — raise one from a posted dispatch.");
+      return;
+    }
+
+    $("dsp-tbody").innerHTML = rows.map(function (i) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(i.invoiceNo) + "</td>" +
+        "<td>" + escapeHtml(i.invoiceDate) + "</td>" +
+        "<td>" + escapeHtml(i.customerName || "—") + "</td>" +
+        '<td class="mono">' + escapeHtml(i.orderNo || "—") + "</td>" +
+        '<td class="num mono">' + fmt(i.grand) + "</td>" +
+        '<td class="num mono">' + fmt(i.balanceAmt) + "</td>" +
+        "<td>" + (i.dueDate
+          ? (i.overdueDays > 0 && i.balanceAmt > 0.5
+              ? '<span class="badge badge-overdue">' + escapeHtml(i.dueDate) + " · " + i.overdueDays + "d</span>"
+              : escapeHtml(i.dueDate))
+          : "—") + "</td>" +
+        '<td><span class="badge ' + (INVOICE_BADGE[i.status] || "badge-draft") + '">' + escapeHtml(i.status) + "</span></td>" +
+        '<td><span class="badge ' + (TALLY_BADGE[i.tallySyncStatus] || "badge-pending") + '">' +
+          escapeHtml(i.tallySyncStatus || "Pending") + "</span></td>" +
+        '<td class="center"><button class="btn btn-sm" data-open-invoice="' + i.id + '">Open</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("dsp-tbody").querySelectorAll("[data-open-invoice]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openInvoiceModal(btn.dataset.openInvoice); });
+    });
+  }
+
+  function renderUninvoicedTable(rows) {
+    var value = dspCache.reduce(function (s, r) { return s + (r.uninvoicedValue || 0); }, 0);
+    var stale = dspCache.filter(function (r) { return r.daysPending > 7; });
+    $("dsp-summary").innerHTML = '<div class="grid grid-3" style="margin-bottom:14px;">' +
+      '<div class="kpi-card' + (dspCache.length ? " alert" : "") + '"><div class="kpi-label">Dispatched, Not Invoiced</div><div class="kpi-value">' + dspCache.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Value at Risk</div><div class="kpi-value">' + fmt(value) + "</div></div>" +
+      '<div class="kpi-card' + (stale.length ? " alert" : "") + '"><div class="kpi-label">Over 7 Days</div><div class="kpi-value">' + stale.length + "</div></div>" +
+      "</div>";
+
+    $("dsp-thead").innerHTML = "<tr><th>Dispatch No.</th><th>Dispatched</th><th>Days</th><th>Order</th>" +
+      '<th>Customer</th><th class="num">Uninvoiced Value</th><th></th></tr>';
+
+    if (!rows.length) {
+      dspEmpty(7, "Nothing has gone out without a bill. This is the state you want.");
+      return;
+    }
+
+    $("dsp-tbody").innerHTML = rows.map(function (r) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(r.dispatchNo) + "</td>" +
+        "<td>" + escapeHtml(r.dispatchDate) + "</td>" +
+        "<td>" + (r.daysPending > 7
+          ? '<span class="badge badge-overdue">' + r.daysPending + "</span>"
+          : r.daysPending) + "</td>" +
+        '<td class="mono">' + escapeHtml(r.orderNo || "—") + "</td>" +
+        "<td>" + escapeHtml(r.customerName || "—") + "</td>" +
+        '<td class="num mono">' + fmt(r.uninvoicedValue) + "</td>" +
+        '<td class="center"><button class="btn btn-sm" data-open-dispatch="' + r.dispatchId + '">Open</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("dsp-tbody").querySelectorAll("[data-open-dispatch]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openDispatchModal(btn.dataset.openDispatch); });
+    });
+  }
+
+  function renderTallyTable(rows) {
+    var failed = dspCache.filter(function (i) { return i.tallySyncStatus === "Failed"; });
+    $("dsp-summary").innerHTML = '<div class="grid grid-3" style="margin-bottom:14px;">' +
+      '<div class="kpi-card"><div class="kpi-label">Awaiting Tally</div><div class="kpi-value">' + dspCache.length + "</div></div>" +
+      '<div class="kpi-card' + (failed.length ? " alert" : "") + '"><div class="kpi-label">Failed</div><div class="kpi-value">' + failed.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Value</div><div class="kpi-value">' +
+        fmt(dspCache.reduce(function (s, i) { return s + (i.grand || 0); }, 0)) + "</div></div>" +
+      "</div>";
+
+    $("dsp-thead").innerHTML = "<tr><th>Invoice No.</th><th>Date</th><th>Customer</th>" +
+      '<th class="num">Value</th><th>Sync</th><th>Last Error</th><th></th></tr>';
+
+    if (!rows.length) {
+      dspEmpty(7, "Every issued invoice is accounted for in Tally.");
+      return;
+    }
+
+    $("dsp-tbody").innerHTML = rows.map(function (i) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(i.invoiceNo) + "</td>" +
+        "<td>" + escapeHtml(i.invoiceDate) + "</td>" +
+        "<td>" + escapeHtml(i.customerName || "—") + "</td>" +
+        '<td class="num mono">' + fmt(i.grand) + "</td>" +
+        '<td><span class="badge ' + (TALLY_BADGE[i.tallySyncStatus] || "badge-pending") + '">' +
+          escapeHtml(i.tallySyncStatus || "Pending") + "</span></td>" +
+        '<td style="font-size:11.5px; color:var(--ink-soft);">' + escapeHtml(i.tallySyncError || "—") + "</td>" +
+        '<td class="center"><button class="btn btn-sm" data-open-invoice="' + i.id + '">Open</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("dsp-tbody").querySelectorAll("[data-open-invoice]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openInvoiceModal(btn.dataset.openInvoice); });
+    });
+  }
+
+  // ---- Readiness checklist rendering (FR-045) ----
+  function readinessHtml(readiness) {
+    if (!readiness) return "";
+    var rows = readiness.checks.map(function (c) {
+      return '<div style="display:flex; gap:10px; align-items:baseline; padding:5px 0;">' +
+        '<span class="badge ' + (c.pass ? "badge-won" : "badge-overdue") + '">' + (c.pass ? "OK" : "BLOCKED") + "</span>" +
+        "<span><b>" + escapeHtml(c.label) + "</b><br>" +
+        '<span style="font-size:11.5px; color:var(--ink-soft);">' + escapeHtml(c.detail || "") + "</span></span>" +
+        "</div>";
+    }).join("");
+    return '<div class="card" style="padding:12px;">' +
+      '<div class="card-title" style="margin-top:0;">Dispatch Readiness</div>' + rows + "</div>";
+  }
+
+  // ---- New dispatch ----
+  var newDispatchOrders = [];
+
+  function startNewDispatch() {
+    google.script.run.withSuccessHandler(function (orders) {
+      newDispatchOrders = orders;
+      if (!orders.length) {
+        showMsg("No orders are at Material Pending or Ready for Dispatch yet.", "error");
+        return;
+      }
+      $("nd-order").innerHTML = orders.map(function (o) {
+        return '<option value="' + o.id + '">' +
+          escapeHtml(o.orderNo + " · " + o.customerName + " · " + o.orderStatus +
+            (o.ready ? " · ready" : " · blocked")) + "</option>";
+      }).join("");
+      $("nd-date").value = new Date().toISOString().slice(0, 10);
+      ["nd-transporter", "nd-challan", "nd-lr", "nd-lrdate", "nd-eway", "nd-packing",
+       "nd-certs", "nd-override"].forEach(function (f) { $(f).value = ""; });
+      refreshNewDispatchReadiness();
+      $("newdispatch-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).listDispatchableOrders();
+  }
+
+  function refreshNewDispatchReadiness() {
+    var id = $("nd-order").value;
+    google.script.run.withSuccessHandler(function (readiness) {
+      $("nd-readiness").innerHTML = readinessHtml(readiness);
+      var blocked = !readiness.ready;
+      $("nd-override-wrap").style.display = blocked && canOverrideDispatch() ? "" : "none";
+      $("btn-save-newdispatch").disabled = blocked && !canOverrideDispatch();
+      $("btn-save-newdispatch").textContent = blocked && canOverrideDispatch()
+        ? "Override and Open" : "Open Dispatch";
+    }).withFailureHandler(onServerError).getDispatchReadiness(id);
+  }
+
+  $("nd-order").addEventListener("change", refreshNewDispatchReadiness);
+
+  $("btn-cancel-newdispatch").addEventListener("click", function () {
+    $("newdispatch-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-newdispatch").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (dispatch) {
+      $("newdispatch-modal-backdrop").classList.remove("show");
+      openDispatch = dispatch;
+      renderDispatchModal();
+      $("dispatch-modal-backdrop").classList.add("show");
+      showMsg("Dispatch " + dispatch.dispatchNo + " opened. Check the quantities before posting.", "success");
+      loadDispatchData();
+    }).withFailureHandler(onServerError).createDispatch({
+      salesOrderId: $("nd-order").value,
+      dispatchDate: $("nd-date").value,
+      transporterName: $("nd-transporter").value.trim(),
+      deliveryChallanNo: $("nd-challan").value.trim(),
+      lrNumber: $("nd-lr").value.trim(),
+      lrDate: $("nd-lrdate").value,
+      ewayBillNo: $("nd-eway").value.trim(),
+      packingListRef: $("nd-packing").value.trim(),
+      certificatesRef: $("nd-certs").value.trim(),
+      overrideReason: $("nd-override-wrap").style.display === "none" ? "" : $("nd-override").value.trim()
+    });
+  });
+
+  // ---- Dispatch detail ----
+  function openDispatchModal(id) {
+    google.script.run.withSuccessHandler(function (d) {
+      openDispatch = d;
+      renderDispatchModal();
+      $("dispatch-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).getDispatch(id);
+  }
+
+  function renderDispatchModal() {
+    var d = openDispatch;
+    if (!d) return;
+    var posted = d.status === "Dispatched";
+    var editable = canDispatch() && !posted;
+
+    $("dispatch-modal-title").textContent = d.dispatchNo + " — " + (d.customerName || "");
+    $("dm-sub").textContent = "Order " + (d.orderNo || "—") + " · " + d.status +
+      (d.invoiceNo ? " · invoiced as " + d.invoiceNo : "");
+    $("dm-id").value = d.id;
+
+    if (String(d.checklistComplete).toUpperCase() === "FALSE") {
+      $("dm-readiness").innerHTML = '<div class="compare-strip"><b>Opened against an incomplete checklist.</b> ' +
+        escapeHtml(d.checklistNotes || "") + "</div>";
+    } else {
+      $("dm-readiness").innerHTML = "";
+    }
+
+    $("dm-date").value = d.dispatchDate || "";
+    $("dm-transporter").value = d.transporterName || "";
+    $("dm-challan").value = d.deliveryChallanNo || "";
+    $("dm-lr").value = d.lrNumber || "";
+    $("dm-lrdate").value = d.lrDate || "";
+    $("dm-eway").value = d.ewayBillNo || "";
+    $("dm-packing").value = d.packingListRef || "";
+    $("dm-certs").value = d.certificatesRef || "";
+    ["dm-date", "dm-transporter", "dm-challan", "dm-lr", "dm-lrdate", "dm-eway",
+     "dm-packing", "dm-certs"].forEach(function (f) { $(f).disabled = !editable; });
+    $("btn-dm-savedetails").style.display = editable ? "" : "none";
+
+    renderDispatchItems();
+    $("dm-line-form").style.display = "none";
+
+    $("btn-dm-post").style.display = editable ? "" : "none";
+    $("btn-dm-invoice").style.display = posted && !d.invoiceNo && canDispatch() ? "" : "none";
+    $("btn-dm-delivered").style.display = posted && d.deliveryConfirmed !== "Yes" && canDispatch() ? "" : "none";
+  }
+
+  function renderDispatchItems() {
+    var d = openDispatch;
+    var posted = d.status === "Dispatched";
+    var editable = canDispatch() && !posted;
+
+    if (!d.items.length) {
+      $("dm-items").innerHTML = '<div class="empty">Nothing on this dispatch. Reserve stock on the order, ' +
+        "then reopen the dispatch.</div>";
+      return;
+    }
+
+    $("dm-items").innerHTML = '<div class="card" style="padding:0; overflow-x:auto;"><table>' +
+      "<thead><tr><th>#</th><th>Item</th><th>Description</th>" +
+      '<th class="num">Qty</th><th>Serials</th><th>Bin</th><th></th></tr></thead><tbody>' +
+      d.items.map(function (it) {
+        return "<tr>" +
+          "<td>" + escapeHtml(it.lineNo) + "</td>" +
+          '<td class="mono">' + escapeHtml(it.itemCode) + "</td>" +
+          "<td>" + escapeHtml(it.description || "") + "</td>" +
+          '<td class="num mono">' + escapeHtml(it.qtyDispatched) + "</td>" +
+          '<td class="mono" style="font-size:11.5px;">' + escapeHtml(it.serialNos || "—") + "</td>" +
+          "<td>" + escapeHtml(it.binId || "—") + "</td>" +
+          '<td class="center">' + (editable
+            ? '<button class="btn btn-sm" data-edit-dline="' + it.id + '">Edit</button> ' +
+              '<button class="btn btn-sm btn-danger" data-del-dline="' + it.id + '">Remove</button>'
+            : "") + "</td>" +
+          "</tr>";
+      }).join("") + "</tbody></table></div>";
+
+    $("dm-items").querySelectorAll("[data-edit-dline]").forEach(function (btn) {
+      btn.addEventListener("click", function () { editDispatchLine(btn.dataset.editDline); });
+    });
+    $("dm-items").querySelectorAll("[data-del-dline]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({
+          title: "Remove this line?",
+          message: "It will not be dispatched or invoiced.",
+          okLabel: "Remove", danger: true
+        }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function (d2) {
+            openDispatch = d2; renderDispatchModal();
+          }).withFailureHandler(onServerError).deleteDispatchItem(btn.dataset.delDline);
+        });
+      });
+    });
+  }
+
+  function editDispatchLine(id) {
+    var line = openDispatch.items.filter(function (i) { return String(i.id) === String(id); })[0];
+    if (!line) return;
+    $("dm-line-id").value = line.id;
+    $("dm-line-item").textContent = line.itemCode + " — " + (line.description || "");
+    $("dm-line-qty").value = line.qtyDispatched;
+    $("dm-line-bin").value = line.binId || "";
+    $("dm-line-serials").value = line.serialNos || "";
+    $("dm-line-notes").value = line.notes || "";
+    $("dm-line-form").style.display = "block";
+  }
+
+  $("btn-dm-cancelline").addEventListener("click", function () {
+    $("dm-line-form").style.display = "none";
+  });
+
+  $("btn-dm-saveline").addEventListener("click", function () {
+    var line = openDispatch.items.filter(function (i) {
+      return String(i.id) === String($("dm-line-id").value);
+    })[0];
+    if (!line) return;
+    google.script.run.withSuccessHandler(function (d) {
+      openDispatch = d; renderDispatchModal();
+      showMsg("Line updated.", "success");
+    }).withFailureHandler(onServerError).saveDispatchItem({
+      id: line.id,
+      dispatchId: openDispatch.id,
+      salesOrderItemId: line.salesOrderItemId,
+      qtyDispatched: $("dm-line-qty").value,
+      binId: $("dm-line-bin").value.trim(),
+      serialNos: $("dm-line-serials").value.trim(),
+      notes: $("dm-line-notes").value.trim()
+    });
+  });
+
+  $("btn-dm-savedetails").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (d) {
+      openDispatch = d; renderDispatchModal();
+      showMsg("Logistics saved.", "success");
+    }).withFailureHandler(onServerError).saveDispatchDetails({
+      id: openDispatch.id,
+      dispatchDate: $("dm-date").value,
+      transporterName: $("dm-transporter").value.trim(),
+      deliveryChallanNo: $("dm-challan").value.trim(),
+      lrNumber: $("dm-lr").value.trim(),
+      lrDate: $("dm-lrdate").value,
+      ewayBillNo: $("dm-eway").value.trim(),
+      packingListRef: $("dm-packing").value.trim(),
+      certificatesRef: $("dm-certs").value.trim()
+    });
+  });
+
+  $("btn-dm-close").addEventListener("click", function () {
+    $("dispatch-modal-backdrop").classList.remove("show");
+    loadDispatchData();
+  });
+
+  $("btn-dm-post").addEventListener("click", function () {
+    askDialog({
+      title: "Post this dispatch?",
+      message: "Stock leaves the books, the reservations are consumed and the order becomes " +
+        "Dispatched. After this the dispatch can only be corrected with a stock adjustment.",
+      okLabel: "Post Dispatch"
+    }, function (ok) {
+      if (ok === null) return;
+      google.script.run.withSuccessHandler(function (d) {
+        openDispatch = d; renderDispatchModal();
+        showMsg("Dispatch " + d.dispatchNo + " posted. Raise the invoice next.", "success");
+      }).withFailureHandler(onServerError).postDispatch(openDispatch.id);
+    });
+  });
+
+  $("btn-dm-delivered").addEventListener("click", function () {
+    askDialog({
+      title: "Confirm delivery",
+      message: "Record the proof of delivery reference from the transporter or the customer.",
+      input: true, inputLabel: "POD Reference", required: false, okLabel: "Confirm Delivery"
+    }, function (ref) {
+      if (ref === null) return;
+      google.script.run.withSuccessHandler(function (d) {
+        openDispatch = d; renderDispatchModal();
+        showMsg("Delivery confirmed.", "success");
+      }).withFailureHandler(onServerError).confirmDelivery(openDispatch.id, { podRef: ref });
+    });
+  });
+
+  $("btn-dm-invoice").addEventListener("click", function () {
+    createInvoiceFor(openDispatch.id, function () {
+      $("dispatch-modal-backdrop").classList.remove("show");
+    });
+  });
+
+  // ---- Raise invoice ----
+  function startNewInvoice() {
+    google.script.run.withSuccessHandler(function (rows) {
+      if (!rows.length) {
+        showMsg("Every posted dispatch is already invoiced.", "error");
+        return;
+      }
+      $("ni-dispatch").innerHTML = rows.map(function (r) {
+        return '<option value="' + r.dispatchId + '">' +
+          escapeHtml(r.dispatchNo + " · " + r.customerName + " · " + r.dispatchDate +
+            " · " + fmt(r.uninvoicedValue)) + "</option>";
+      }).join("");
+      $("ni-date").value = new Date().toISOString().slice(0, 10);
+      $("ni-warranty").value = "";
+      $("ni-notes").value = "";
+      $("newinvoice-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).listInvoiceableDispatches();
+  }
+
+  $("btn-cancel-newinvoice").addEventListener("click", function () {
+    $("newinvoice-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-newinvoice").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (inv) {
+      $("newinvoice-modal-backdrop").classList.remove("show");
+      openInvoice = inv;
+      renderInvoiceModal();
+      $("invoice-modal-backdrop").classList.add("show");
+      showMsg("Draft invoice " + inv.invoiceNo + " created. Check it, then issue it.", "success");
+      loadDispatchData();
+    }).withFailureHandler(onServerError).createInvoiceFromDispatch({
+      dispatchId: $("ni-dispatch").value,
+      invoiceDate: $("ni-date").value,
+      warrantyTerms: $("ni-warranty").value.trim(),
+      notes: $("ni-notes").value.trim()
+    });
+  });
+
+  function createInvoiceFor(dispatchId, before) {
+    google.script.run.withSuccessHandler(function (inv) {
+      if (before) before();
+      openInvoice = inv;
+      renderInvoiceModal();
+      $("invoice-modal-backdrop").classList.add("show");
+      showMsg("Draft invoice " + inv.invoiceNo + " created. Check it, then issue it.", "success");
+      loadDispatchData();
+    }).withFailureHandler(onServerError).createInvoiceFromDispatch({ dispatchId: dispatchId });
+  }
+
+  // ---- Invoice detail ----
+  function openInvoiceModal(id) {
+    google.script.run.withSuccessHandler(function (inv) {
+      openInvoice = inv;
+      renderInvoiceModal();
+      $("invoice-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).getInvoice(id);
+  }
+
+  function renderInvoiceModal() {
+    var inv = openInvoice;
+    if (!inv) return;
+    var editable = canDispatch() && inv.status === "Draft";
+
+    $("invoice-modal-title").textContent = inv.invoiceNo + " — " + (inv.customerName || "");
+    $("im-sub").textContent = inv.status + " · " + fmt(inv.grand) +
+      " · balance " + fmt(inv.balanceAmt);
+    $("im-id").value = inv.id;
+
+    $("im-banner").innerHTML = inv.status === "Cancelled"
+      ? '<div class="compare-strip" style="margin-bottom:12px;"><b>Cancelled.</b> ' +
+        escapeHtml(inv.notes || "") + "</div>"
+      : "";
+
+    $("im-meta").innerHTML = '<div class="card" style="padding:12px; font-size:12.5px;">' +
+      "<div><b>Order:</b> " + escapeHtml(inv.orderNo || "—") +
+        " &nbsp;·&nbsp; <b>PO:</b> " + escapeHtml(inv.poNo || "—") +
+        " &nbsp;·&nbsp; <b>Dispatch:</b> " + escapeHtml(inv.dispatchNo || "—") +
+        (inv.lrNumber ? " (LR " + escapeHtml(inv.lrNumber) + ")" : "") + "</div>" +
+      '<div style="margin-top:6px;"><b>GSTIN:</b> ' + escapeHtml(inv.customerGstin || "—") + "</div>" +
+      '<div style="margin-top:6px;"><b>Bill to:</b> ' + escapeHtml(inv.billingAddress || "—") + "</div>" +
+      "</div>";
+
+    $("im-date").value = inv.invoiceDate || "";
+    $("im-due").value = inv.dueDate || "";
+    $("im-terms").value = inv.paymentTerms || "";
+    $("im-warranty").value = inv.warrantyTerms || "";
+    $("im-notes").value = inv.notes || "";
+    ["im-date", "im-due", "im-terms", "im-warranty", "im-notes"].forEach(function (f) {
+      $(f).disabled = !editable;
+    });
+    $("btn-im-save").style.display = editable ? "" : "none";
+
+    $("im-items").innerHTML = '<div class="card" style="padding:0; overflow-x:auto;"><table>' +
+      "<thead><tr><th>#</th><th>Item</th><th>Description</th>" +
+      '<th class="num">Qty</th><th class="num">Rate</th><th class="num">Disc %</th>' +
+      '<th class="num">GST %</th><th class="num">Line Total</th></tr></thead><tbody>' +
+      inv.items.map(function (l) {
+        return "<tr><td>" + escapeHtml(l.lineNo) + "</td>" +
+          '<td class="mono">' + escapeHtml(l.itemCode) + "</td>" +
+          "<td>" + escapeHtml(l.description || "") + "</td>" +
+          '<td class="num mono">' + escapeHtml(l.qty) + " " + escapeHtml(l.uom || "") + "</td>" +
+          '<td class="num mono">' + fmt(l.unitPrice) + "</td>" +
+          '<td class="num">' + escapeHtml(l.discountPct || 0) + "</td>" +
+          '<td class="num">' + escapeHtml(l.taxPct || 0) + "</td>" +
+          '<td class="num mono">' + fmt(l.lineTotal) + "</td></tr>";
+      }).join("") + "</tbody></table></div>";
+
+    $("im-totals").innerHTML = '<div class="totals-box">' +
+      '<div class="totals-row"><span>Subtotal</span><span class="mono">' + fmt(inv.subtotal) + "</span></div>" +
+      '<div class="totals-row"><span>Discount</span><span class="mono">-' + fmt(inv.discountAmt) + "</span></div>" +
+      '<div class="totals-row"><span>GST</span><span class="mono">' + fmt(inv.taxAmt) + "</span></div>" +
+      '<div class="totals-row"><span>Freight</span><span class="mono">' + fmt(inv.freight) + "</span></div>" +
+      '<div class="totals-row grand"><span>Invoice Total</span><span class="mono">' + fmt(inv.grand) + "</span></div>" +
+      '<div class="totals-row"><span>Received</span><span class="mono">' + fmt(inv.receivedAmt) + "</span></div>" +
+      '<div class="totals-row grand"><span>Balance</span><span class="mono">' + fmt(inv.balanceAmt) + "</span></div>" +
+      "</div>";
+
+    $("im-receipts").innerHTML = inv.receipts.length
+      ? '<div class="card" style="padding:0; overflow-x:auto;"><table>' +
+        "<thead><tr><th>Receipt No.</th><th>Date</th><th>Mode</th><th>Reference</th>" +
+        '<th class="num">Amount</th></tr></thead><tbody>' +
+        inv.receipts.map(function (r) {
+          return "<tr>" +
+            '<td class="mono">' + escapeHtml(r.receiptNo || "—") + "</td>" +
+            "<td>" + escapeHtml(r.receiptDate) + "</td>" +
+            "<td>" + escapeHtml(r.mode || "—") + "</td>" +
+            "<td>" + escapeHtml(r.reference || "—") + "</td>" +
+            '<td class="num mono">' + fmt(r.amount) + "</td></tr>";
+        }).join("") + "</tbody></table></div>"
+      : '<div class="empty">No payments recorded yet. Receipts arrive with the collections module.</div>';
+
+    $("im-tally-state").innerHTML = "Status: <b>" + escapeHtml(inv.tallySyncStatus || "Pending") + "</b>" +
+      (inv.tallySyncDate ? " · last attempt " + escapeHtml(inv.tallySyncDate) : "") +
+      (inv.tallySyncError ? '<br><span style="color:var(--red);">' + escapeHtml(inv.tallySyncError) + "</span>" : "");
+
+    var issued = inv.status === "Issued";
+    $("btn-im-issue").style.display = editable ? "" : "none";
+    $("btn-im-tally").style.display = issued && canDispatch() ? "" : "none";
+    $("btn-im-tallymanual").style.display = issued && canDispatch() &&
+      inv.tallySyncStatus !== "Synced" ? "" : "none";
+    $("btn-im-cancelinvoice").style.display =
+      inv.status !== "Cancelled" && canOverrideDispatch() ? "" : "none";
+  }
+
+  $("btn-im-close").addEventListener("click", function () {
+    $("invoice-modal-backdrop").classList.remove("show");
+    loadDispatchData();
+  });
+
+  $("btn-im-save").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (inv) {
+      openInvoice = inv; renderInvoiceModal();
+      showMsg("Invoice details saved.", "success");
+    }).withFailureHandler(onServerError).saveInvoiceDetails({
+      id: openInvoice.id,
+      invoiceDate: $("im-date").value,
+      dueDate: $("im-due").value,
+      paymentTerms: $("im-terms").value.trim(),
+      warrantyTerms: $("im-warranty").value.trim(),
+      notes: $("im-notes").value.trim()
+    });
+  });
+
+  $("btn-im-issue").addEventListener("click", function () {
+    askDialog({
+      title: "Issue this invoice?",
+      message: "The document becomes final and the order moves to Invoiced. An issued invoice " +
+        "can only be cancelled, not edited.",
+      okLabel: "Issue Invoice"
+    }, function (ok) {
+      if (ok === null) return;
+      google.script.run.withSuccessHandler(function (inv) {
+        openInvoice = inv; renderInvoiceModal();
+        showMsg("Invoice " + inv.invoiceNo + " issued.", "success");
+      }).withFailureHandler(onServerError).issueInvoice(openInvoice.id);
+    });
+  });
+
+  $("btn-im-cancelinvoice").addEventListener("click", function () {
+    askDialog({
+      title: "Cancel this invoice?",
+      message: "The number stays in the register with your reason, so the series has no silent gaps.",
+      input: true, inputLabel: "Reason *", okLabel: "Cancel Invoice", danger: true
+    }, function (reason) {
+      if (reason === null) return;
+      google.script.run.withSuccessHandler(function (inv) {
+        openInvoice = inv; renderInvoiceModal();
+        showMsg("Invoice cancelled.", "success");
+      }).withFailureHandler(onServerError).cancelInvoice(openInvoice.id, reason);
+    });
+  });
+
+  $("btn-im-tally").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (inv) {
+      openInvoice = inv; renderInvoiceModal();
+      showMsg("Invoice sent to Tally.", "success");
+    }).withFailureHandler(onServerError).pushInvoiceToTally(openInvoice.id);
+  });
+
+  $("btn-im-tallymanual").addEventListener("click", function () {
+    askDialog({
+      title: "Entered in Tally by hand?",
+      message: "Record the Tally voucher reference so the two systems can be reconciled later.",
+      input: true, inputLabel: "Tally Reference", required: false, okLabel: "Mark as Synced"
+    }, function (ref) {
+      if (ref === null) return;
+      google.script.run.withSuccessHandler(function (inv) {
+        openInvoice = inv; renderInvoiceModal();
+        showMsg("Marked as entered in Tally.", "success");
+      }).withFailureHandler(onServerError).markInvoiceSyncedManually(openInvoice.id, ref);
     });
   });
 
