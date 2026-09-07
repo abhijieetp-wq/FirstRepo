@@ -31,8 +31,28 @@
     <div id="msg-box" class="msg"></div>
 
     <div class="view active" id="view-dashboard">
-      <div class="page-head"><div><h2>Dashboard</h2><p>Live snapshot across enquiries, quotations, orders, payments and stock.</p></div></div>
-      <div class="empty">Dashboard is built after the other modules (Phase 1, step 8) — coming soon.</div>
+      <div class="page-head">
+        <div>
+          <h2>Control Tower</h2>
+          <p>What has stopped moving, and who has to unblock it.</p>
+        </div>
+      </div>
+
+      <div class="dash-head">
+        <div class="stream-switch" id="dash-stream">
+          <button data-stream="" class="active">Combined</button>
+          <button data-stream="Compressor">Compressor</button>
+          <button data-stream="Spare">Spares</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="dash-stamp" id="dash-stamp"></span>
+          <button class="btn btn-sm" id="btn-dash-refresh">Refresh</button>
+        </div>
+      </div>
+
+      <div id="dash-body">
+        <div class="empty">Loading…</div>
+      </div>
     </div>
 
     <div class="view" id="view-customers">

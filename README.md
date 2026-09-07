@@ -80,6 +80,7 @@ src/
   Dispatch.gs        readiness checklist, dispatch docs, posting stock out (M14)
   Billing.gs         invoice from actual dispatch, Tally handoff (M15, FR-048/049/050)
   Collections.gs     ageing, follow-ups, commitments, receipts, Tally pull (M16, FR-051..055)
+  Dashboard.gs       control tower + stream dashboards in one payload (M17/M18, FR-057)
   CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
   Index.html         page shell, views, modals
@@ -146,7 +147,10 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       stored (FR-051), follow-ups with commitments judged against what actually arrived
       (FR-052), append-only receipts with reversal rather than edit, idempotent CSV import of
       the Tally receipt ledger and a Tally pull that reuses the same reviewed path (FR-055)
-- [ ] **Management Dashboards**: control tower, compressor / spare / combined dashboards
+- [x] **Management Dashboards**: control tower of exceptions ranked by severity with
+      click-through, order pipeline, ageing, six-month invoiced-vs-collected trend, both
+      funnels and the customers holding the most money — combined / compressor / spare as one
+      dashboard with a stream filter (FR-057)
 - [ ] **Settings page**: brand tiles + Admin Controls (per `ELGI-Settings-Page-Spec.md`)
 
 ## Tally handover note (decision D3)
@@ -179,3 +183,25 @@ pulled from Tally, imported from a CSV export of the Tally ledger, or typed in. 
 idempotent — a row whose Tally voucher reference is already in the ledger is rejected, not
 posted twice — so re-running the same export is safe, and the CSV path needs no connectivity
 at all.
+
+## Dashboard notes
+
+**One call, not eight.** Every figure on the dashboard comes from the same seventeen tables,
+so eight endpoints would re-read the same sheets eight times. `getDashboard()` reads each
+table once, derives everything in memory, and returns a single payload cached for two minutes.
+The Refresh button bypasses the cache.
+
+**Three dashboards, one screen.** The blueprint asks for compressor, spare and combined
+dashboards. They are the same dashboard with a stream filter rather than three screens to keep
+in step — a metric that means one thing on the combined page and something subtly different on
+the spare page is how dashboards start lying.
+
+**No margin figure, deliberately.** Margin needs cost-at-the-time-of-sale, and the only honest
+source is the effective-dated PIE price on the day the line was quoted. Approximating it from
+today's cost would produce a number that looks precise and is not, so it is absent rather than
+wrong. It can be added properly once there is quoted-line cost history to read.
+
+**Chart colours are validated, not chosen by eye.** The ordinal blue ramp and the two trend
+series were run through a contrast/CVD validator against the surface they actually sit on.
+Exception severities use a reserved status palette that is never reused as a series colour,
+and every bar carries a visible label, so nothing on the screen depends on colour alone.
