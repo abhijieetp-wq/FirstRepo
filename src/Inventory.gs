@@ -495,31 +495,9 @@ function listWarehouses() {
     .map(stripRow_);
 }
 
-function saveWarehouse(input) {
-  var user = getCurrentUser();
-  requireRole_(user, MASTER_EDITORS);
-  var code = String(input.code || '').trim();
-  var name = String(input.name || '').trim();
-  if (!code || !name) throw new Error('A warehouse or bin needs a code and a name.');
-
-  var record = {
-    code: code,
-    name: name,
-    type: String(input.type || 'Warehouse').trim(),
-    parentId: String(input.parentId || '').trim(),
-    address: String(input.address || '').trim(),
-    active: 'TRUE'
-  };
-
-  if (input.id) {
-    record.id = input.id;
-    updateRowById_('Warehouses', 'id', input.id, record, 'Location updated');
-  } else {
-    record.id = generateId_('WH-');
-    appendRow_('Warehouses', record, 'Location added');
-  }
-  return record;
-}
+// saveWarehouse() lives in Settings.gs, which owns warehouse maintenance and adds the
+// duplicate-code check and the active flag. Apps Script shares one global scope, so a second
+// definition here would silently win or lose depending on file order.
 
 /** Items for the inward and adjustment pickers, kept small on purpose. */
 function searchStockItems(itemType, query) {

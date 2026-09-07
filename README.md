@@ -81,6 +81,7 @@ src/
   Billing.gs         invoice from actual dispatch, Tally handoff (M15, FR-048/049/050)
   Collections.gs     ageing, follow-ups, commitments, receipts, Tally pull (M16, FR-051..055)
   Dashboard.gs       control tower + stream dashboards in one payload (M17/M18, FR-057)
+  Settings.gs        brand tiles, users, lists, warehouses, Tally config (D5, FR-062/074)
   CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
   Index.html         page shell, views, modals
@@ -113,6 +114,8 @@ Enforced server-side via `requireRole_`, never only hidden in the UI:
 | Dispatch, posting stock out, invoicing | Sales Coordinator, Management, ERP Admin |
 | Receipts, follow-ups, receipt import | Sales Coordinator, Management, ERP Admin |
 | Reversing a receipt | Management, ERP Admin |
+| Settings: users, lists, lost reasons, warehouses, brands, Tally config | Management, ERP Admin |
+| Running setup from the UI | ERP Admin |
 | Overriding the dispatch checklist, cancelling an invoice | Management, ERP Admin |
 
 PIE (cost) prices and margin are visible only to Management and ERP Admin — the server omits
@@ -151,7 +154,11 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       click-through, order pipeline, ageing, six-month invoiced-vs-collected trend, both
       funnels and the customers holding the most money — combined / compressor / spare as one
       dashboard with a stream filter (FR-057)
-- [ ] **Settings page**: brand tiles + Admin Controls (per `ELGI-Settings-Page-Spec.md`)
+- [x] **Settings page**: brand tiles (ELGI live, Cumi/Champion planned — D5) plus Admin
+      Controls: users with lockout guards (FR-062), dropdown lists (FR-074), lost reasons,
+      warehouses and bins, the Tally connection stored in Script Properties with a Test
+      Connection action (D3), and a system panel that can re-run the schema migrator and read
+      the audit log (FR-061)
 
 ## Tally handover note (decision D3)
 
@@ -205,3 +212,20 @@ wrong. It can be added properly once there is quoted-line cost history to read.
 series were run through a contrast/CVD validator against the surface they actually sit on.
 Exception severities use a reserved status palette that is never reused as a series colour,
 and every bar carries a visible label, so nothing on the screen depends on colour alone.
+
+## Settings notes
+
+**Role gating is the real control, not the hidden tab.** The web app runs as the *user
+accessing it*, so any signed-in person could call a settings function directly from the
+browser console. Hiding the tab stops the honest; `requireRole_` on every server function is
+what actually stops the rest.
+
+**Two guards keep the Settings page from locking everyone out of the Settings page**: you
+cannot deactivate your own account or drop your own ERP Admin role, and the last active ERP
+Admin cannot be demoted or switched off. Both are recoverable by editing the Users tab in the
+Sheet by hand — but recovering from the Sheet is a bad afternoon, so the app refuses first.
+
+**Tally connection details live in Script Properties**, never in the spreadsheet and never in
+the repo, so they cannot ride along in an export or a commit. A stored credential is never
+read back out: the screen can report that one exists and replace or clear it, nothing more,
+and the audit entry records the endpoint but not the credential.

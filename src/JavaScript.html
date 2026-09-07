@@ -37,7 +37,8 @@
     { label: "Masters", children: [
       { view: "customers", label: "Customers", roles: ALL_ROLES },
       { view: "catalog", label: "Catalog", roles: ALL_ROLES }
-    ] }
+    ] },
+    { view: "settings", label: "Settings", roles: ["Management", "ERP Admin"] }
   ];
 
   /** Every leaf screen, flattened — used for role checks and for the default landing tab. */
@@ -187,7 +188,8 @@
     inventory: initInventoryView,
     dispatch: initDispatchView,
     collections: initCollectionsView,
-    dashboard: initDashboardView
+    dashboard: initDashboardView,
+    settings: initSettingsView
   };
 
   function closeNavMenus() {
@@ -4693,6 +4695,556 @@
   function wireDashboardLinks() {
     $("dash-body").querySelectorAll("[data-goto]").forEach(function (btn) {
       btn.addEventListener("click", function () { goToTab(btn.dataset.goto); });
+    });
+  }
+
+  // ================= SETTINGS =================
+  // "tallyconn", not "tally" — the Dispatch screen already owns a subtab-tally element.
+  var SET_SUBTABS = ["users", "lists", "reasons", "locations", "tallyconn", "system"];
+  var setMode = "users";
+  var setData = null;
+
+  function canAdminister() {
+    return ["Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  function initSettingsView() { loadSettings(); }
+
+  function loadSettings() {
+    google.script.run.withSuccessHandler(function (data) {
+      setData = data;
+      clearMsg();
+      renderBrandTiles();
+      setSetMode(setMode);
+    }).withFailureHandler(onServerError).getSettings();
+  }
+
+  SET_SUBTABS.forEach(function (mode) {
+    $("subtab-" + mode).addEventListener("click", function () { setSetMode(mode); });
+  });
+
+  function setSetMode(mode) {
+    setMode = mode;
+    SET_SUBTABS.forEach(function (m) {
+      $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
+    });
+    renderSetPanel();
+  }
+
+  // ---- Brand tiles (D5) ----
+  function renderBrandTiles() {
+    if (!setData) return;
+    $("set-brands").innerHTML = setData.brands.map(function (b) {
+      var live = String(b.active).toUpperCase() !== "FALSE";
+      return '<div class="brand-tile' + (live ? "" : " dim") + '" style="--tile-accent:' +
+          escapeHtml(b.accentColor || "#DCE2EB") + ';">' +
+        '<div class="brand-tile-name">' + escapeHtml(b.name) + "</div>" +
+        '<div style="font-size:12px; color:var(--ink-soft);">' +
+          (live ? "Live — this is the ERP you are in." : "Not yet built. Same pattern, when its turn comes.") +
+        "</div>" +
+        '<div class="brand-tile-foot">' +
+          '<span class="badge ' + (live ? "badge-won" : "badge-dormant") + '">' +
+            (live ? "Live" : "Planned") + "</span>" +
+          '<button class="btn btn-sm" data-brand="' + b.id + '">Edit</button>' +
+        "</div></div>";
+    }).join("");
+
+    $("set-brands").querySelectorAll("[data-brand]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openBrandModal(btn.dataset.brand); });
+    });
+  }
+
+  function renderSetPanel() {
+    if (!setData) return;
+    if (setMode === "users") renderUsersPanel();
+    else if (setMode === "lists") renderListsPanel();
+    else if (setMode === "reasons") renderReasonsPanel();
+    else if (setMode === "locations") renderLocationsPanel();
+    else if (setMode === "tallyconn") renderTallyPanel();
+    else renderSystemPanel();
+  }
+
+  function panelCard(title, blurb, actionHtml, bodyHtml) {
+    return '<div class="card">' +
+      '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">' +
+        "<div><div class=\"card-title\" style=\"margin-top:0;\">" + escapeHtml(title) + "</div>" +
+        '<p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">' + blurb + "</p></div>" +
+        (actionHtml || "") +
+      "</div>" + bodyHtml + "</div>";
+  }
+
+  // ---- Users (FR-062) ----
+  function renderUsersPanel() {
+    var rows = setData.users;
+    var body = rows.length
+      ? '<div style="overflow-x:auto;"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th>' +
+        "<th>Stream</th><th>Status</th><th></th></tr></thead><tbody>" +
+        rows.map(function (u) {
+          var active = String(u.active).toUpperCase() !== "FALSE";
+          return "<tr>" +
+            "<td><b>" + escapeHtml(u.name) + "</b>" +
+              (u.isSelf ? ' <span class="badge badge-dormant">you</span>' : "") + "</td>" +
+            '<td class="mono" style="font-size:12px;">' + escapeHtml(u.email) + "</td>" +
+            "<td>" + escapeHtml(u.role) + "</td>" +
+            "<td>" + escapeHtml(u.businessStream || "All") + "</td>" +
+            '<td><span class="badge ' + (active ? "badge-won" : "badge-lost") + '">' +
+              (active ? "Active" : "Inactive") + "</span></td>" +
+            '<td class="center"><button class="btn btn-sm" data-user="' + u.id + '">Edit</button></td>' +
+            "</tr>";
+        }).join("") + "</tbody></table></div>"
+      : '<div class="empty">No users yet.</div>';
+
+    $("set-panel").innerHTML = panelCard(
+      "Users",
+      "Sign-in is by Google account — there are no passwords here. This list decides who gets " +
+        "in and what they may do.",
+      '<button class="btn btn-primary btn-sm" id="btn-add-user">+ Add User</button>',
+      body);
+
+    $("btn-add-user").addEventListener("click", function () { openUserModal(null); });
+    $("set-panel").querySelectorAll("[data-user]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openUserModal(btn.dataset.user); });
+    });
+  }
+
+  function openUserModal(id) {
+    var u = id ? setData.users.filter(function (x) { return String(x.id) === String(id); })[0] : null;
+    $("user-modal-title").textContent = u ? "Edit User" : "Add User";
+    $("usr-id").value = u ? u.id : "";
+    $("usr-email").value = u ? u.email : "";
+    $("usr-email").disabled = !!u;   // the email is the identity; changing it makes a new person
+    $("usr-name").value = u ? u.name : "";
+    $("usr-role").innerHTML = setData.roles.map(function (r) {
+      return '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + "</option>";
+    }).join("");
+    $("usr-role").value = u ? u.role : "Sales Coordinator";
+    $("usr-stream").value = u && u.businessStream ? u.businessStream : "All";
+    $("usr-active").checked = !u || String(u.active).toUpperCase() !== "FALSE";
+    $("usr-note").textContent = u && u.isSelf
+      ? "This is your own account. You cannot deactivate it or drop your own ERP Admin role."
+      : (u ? "" : "The email must match the Google account they sign in with.");
+    $("user-modal-backdrop").classList.add("show");
+  }
+
+  $("btn-cancel-user").addEventListener("click", function () {
+    $("user-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-user").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (data) {
+      setData = data;
+      $("user-modal-backdrop").classList.remove("show");
+      renderBrandTiles(); renderSetPanel();
+      showMsg("User saved.", "success");
+    }).withFailureHandler(onServerError).saveUser({
+      id: $("usr-id").value || null,
+      email: $("usr-email").value.trim(),
+      name: $("usr-name").value.trim(),
+      role: $("usr-role").value,
+      businessStream: $("usr-stream").value,
+      active: $("usr-active").checked
+    });
+  });
+
+  // ---- Dropdown lists (FR-074) ----
+  /** "PaymentTerms" is a code, "Payment Terms" is a heading. */
+  function humanCategory(name) {
+    return String(name || "").replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  }
+
+  function renderListsPanel() {
+    var byCategory = {};
+    setData.configLists.forEach(function (r) {
+      (byCategory[r.category] = byCategory[r.category] || []).push(r);
+    });
+    var categories = Object.keys(byCategory).sort();
+
+    var body = categories.length
+      ? categories.map(function (cat) {
+          return '<div style="margin-top:14px;">' +
+            '<div style="font-size:12px; font-weight:700; color:var(--navy); text-transform:uppercase; ' +
+              'letter-spacing:.5px; margin-bottom:6px;">' + escapeHtml(humanCategory(cat)) + "</div>" +
+            '<div style="display:flex; flex-wrap:wrap; gap:6px;">' +
+              byCategory[cat].map(function (r) {
+                var active = String(r.active).toUpperCase() !== "FALSE";
+                return '<button class="btn btn-sm" data-listitem="' + r.id + '" style="' +
+                  (active ? "" : "opacity:.5; text-decoration:line-through;") + '">' +
+                  escapeHtml(r.label) + "</button>";
+              }).join("") +
+            "</div></div>";
+        }).join("")
+      : '<div class="empty">No lists configured.</div>';
+
+    $("set-panel").innerHTML = panelCard(
+      "Dropdown Lists",
+      "Lead sources, industries, payment terms, urgency levels. Change them here and every " +
+        "dropdown in the app follows — no developer needed. Struck-through items are switched off.",
+      '<button class="btn btn-primary btn-sm" id="btn-add-listitem">+ Add Item</button>',
+      body);
+
+    $("btn-add-listitem").addEventListener("click", function () { openListItemModal(null); });
+    $("set-panel").querySelectorAll("[data-listitem]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openListItemModal(btn.dataset.listitem); });
+    });
+  }
+
+  function openListItemModal(id) {
+    var r = id ? setData.configLists.filter(function (x) { return String(x.id) === String(id); })[0] : null;
+    $("listitem-modal-title").textContent = r ? "Edit List Item" : "Add List Item";
+    $("cli-id").value = r ? r.id : "";
+    $("cli-category").value = r ? r.category : "";
+    $("cli-label").value = r ? r.label : "";
+    $("cli-code").value = r ? r.code : "";
+    $("cli-sort").value = r && r.sortOrder !== "" ? r.sortOrder : "";
+    $("cli-active").checked = !r || String(r.active).toUpperCase() !== "FALSE";
+
+    var cats = {};
+    setData.configLists.forEach(function (x) { cats[x.category] = true; });
+    $("cli-categories").innerHTML = Object.keys(cats).sort().map(function (c) {
+      return '<option value="' + escapeHtml(c) + '"></option>';
+    }).join("");
+    $("listitem-modal-backdrop").classList.add("show");
+  }
+
+  $("btn-cancel-listitem").addEventListener("click", function () {
+    $("listitem-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-listitem").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function () {
+      $("listitem-modal-backdrop").classList.remove("show");
+      loadSettings();
+      showMsg("List item saved.", "success");
+    }).withFailureHandler(onServerError).saveConfigListItem({
+      id: $("cli-id").value || null,
+      category: $("cli-category").value.trim(),
+      label: $("cli-label").value.trim(),
+      code: $("cli-code").value.trim(),
+      sortOrder: $("cli-sort").value,
+      active: $("cli-active").checked
+    });
+  });
+
+  // ---- Lost reasons ----
+  function renderReasonsPanel() {
+    var rows = setData.lostReasons;
+    var body = rows.length
+      ? '<div style="overflow-x:auto;"><table><thead><tr><th>Reason</th><th>Applies To</th>' +
+        "<th>Status</th><th></th></tr></thead><tbody>" +
+        rows.map(function (r) {
+          var active = String(r.active).toUpperCase() !== "FALSE";
+          return "<tr><td>" + escapeHtml(r.reasonText) + "</td>" +
+            "<td>" + escapeHtml(r.appliesTo || "All") + "</td>" +
+            '<td><span class="badge ' + (active ? "badge-won" : "badge-lost") + '">' +
+              (active ? "Active" : "Off") + "</span></td>" +
+            '<td class="center"><button class="btn btn-sm" data-reason="' + r.id + '">Edit</button></td></tr>';
+        }).join("") + "</tbody></table></div>"
+      : '<div class="empty">No lost reasons configured.</div>';
+
+    $("set-panel").innerHTML = panelCard(
+      "Lost Reasons",
+      "The managed list offered when a lead, opportunity or quotation is marked Lost. A " +
+        "controlled list is the only version of this that can ever be reported on.",
+      '<button class="btn btn-primary btn-sm" id="btn-add-reason">+ Add Reason</button>',
+      body);
+
+    $("btn-add-reason").addEventListener("click", function () { openReasonModal(null); });
+    $("set-panel").querySelectorAll("[data-reason]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openReasonModal(btn.dataset.reason); });
+    });
+  }
+
+  function openReasonModal(id) {
+    var r = id ? setData.lostReasons.filter(function (x) { return String(x.id) === String(id); })[0] : null;
+    $("reason-modal-title").textContent = r ? "Edit Lost Reason" : "Add Lost Reason";
+    $("lr-id").value = r ? r.id : "";
+    $("lr-text").value = r ? r.reasonText : "";
+    $("lr-appliesto").value = r && r.appliesTo ? r.appliesTo : "All";
+    $("lr-active").checked = !r || String(r.active).toUpperCase() !== "FALSE";
+    $("reason-modal-backdrop").classList.add("show");
+  }
+
+  $("btn-cancel-reason").addEventListener("click", function () {
+    $("reason-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-reason").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (data) {
+      setData = data;
+      $("reason-modal-backdrop").classList.remove("show");
+      renderSetPanel();
+      showMsg("Lost reason saved.", "success");
+    }).withFailureHandler(onServerError).saveLostReason({
+      id: $("lr-id").value || null,
+      reasonText: $("lr-text").value.trim(),
+      appliesTo: $("lr-appliesto").value,
+      active: $("lr-active").checked
+    });
+  });
+
+  // ---- Warehouses and bins ----
+  function renderLocationsPanel() {
+    var rows = setData.warehouses;
+    var names = {};
+    rows.forEach(function (w) { names[String(w.id)] = w.name; });
+
+    var body = rows.length
+      ? '<div style="overflow-x:auto;"><table><thead><tr><th>Code</th><th>Name</th><th>Type</th>' +
+        "<th>Inside</th><th>Status</th><th></th></tr></thead><tbody>" +
+        rows.map(function (w) {
+          var active = String(w.active).toUpperCase() !== "FALSE";
+          return "<tr>" +
+            '<td class="mono">' + escapeHtml(w.code) + "</td>" +
+            "<td>" + escapeHtml(w.name) + "</td>" +
+            "<td>" + escapeHtml(w.type || "Warehouse") + "</td>" +
+            "<td>" + escapeHtml(names[String(w.parentId)] || "—") + "</td>" +
+            '<td><span class="badge ' + (active ? "badge-won" : "badge-lost") + '">' +
+              (active ? "Active" : "Off") + "</span></td>" +
+            '<td class="center"><button class="btn btn-sm" data-wh="' + w.id + '">Edit</button></td></tr>';
+        }).join("") + "</tbody></table></div>"
+      : '<div class="empty">No locations yet.</div>';
+
+    $("set-panel").innerHTML = panelCard(
+      "Warehouses & Bins",
+      "Where stock physically sits. Bins can be nested inside a warehouse so picking " +
+        "instructions can be specific.",
+      '<button class="btn btn-primary btn-sm" id="btn-add-wh">+ Add Location</button>',
+      body);
+
+    $("btn-add-wh").addEventListener("click", function () { openWarehouseModal(null); });
+    $("set-panel").querySelectorAll("[data-wh]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openWarehouseModal(btn.dataset.wh); });
+    });
+  }
+
+  function openWarehouseModal(id) {
+    var w = id ? setData.warehouses.filter(function (x) { return String(x.id) === String(id); })[0] : null;
+    $("warehouse-modal-title").textContent = w ? "Edit Location" : "Add Location";
+    $("wh-id").value = w ? w.id : "";
+    $("wh-code").value = w ? w.code : "";
+    $("wh-name").value = w ? w.name : "";
+    $("wh-type").value = w && w.type ? w.type : "Warehouse";
+    $("wh-address").value = w ? w.address || "" : "";
+    $("wh-active").checked = !w || String(w.active).toUpperCase() !== "FALSE";
+
+    $("wh-parent").innerHTML = '<option value="">— none —</option>' +
+      setData.warehouses.filter(function (x) {
+        return (!w || String(x.id) !== String(w.id)) && x.type === "Warehouse";
+      }).map(function (x) {
+        return '<option value="' + x.id + '">' + escapeHtml(x.name) + "</option>";
+      }).join("");
+    $("wh-parent").value = w ? w.parentId || "" : "";
+    $("warehouse-modal-backdrop").classList.add("show");
+  }
+
+  $("btn-cancel-warehouse").addEventListener("click", function () {
+    $("warehouse-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-warehouse").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (data) {
+      setData = data;
+      $("warehouse-modal-backdrop").classList.remove("show");
+      renderSetPanel();
+      showMsg("Location saved.", "success");
+    }).withFailureHandler(onServerError).saveWarehouse({
+      id: $("wh-id").value || null,
+      code: $("wh-code").value.trim(),
+      name: $("wh-name").value.trim(),
+      type: $("wh-type").value,
+      parentId: $("wh-parent").value,
+      address: $("wh-address").value.trim(),
+      active: $("wh-active").checked
+    });
+  });
+
+  // ---- Brands ----
+  function openBrandModal(id) {
+    var b = setData.brands.filter(function (x) { return String(x.id) === String(id); })[0];
+    if (!b) return;
+    $("brand-modal-title").textContent = b.name;
+    $("br-id").value = b.id;
+    $("br-name").value = b.name;
+    $("br-color").value = /^#[0-9a-f]{6}$/i.test(b.accentColor || "") ? b.accentColor : "#E8871E";
+    $("br-active").checked = String(b.active).toUpperCase() !== "FALSE";
+    $("brand-modal-backdrop").classList.add("show");
+  }
+
+  $("btn-cancel-brand").addEventListener("click", function () {
+    $("brand-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-brand").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (data) {
+      setData = data;
+      $("brand-modal-backdrop").classList.remove("show");
+      renderBrandTiles();
+      showMsg("Brand saved.", "success");
+    }).withFailureHandler(onServerError).saveBrand({
+      id: $("br-id").value,
+      name: $("br-name").value.trim(),
+      accentColor: $("br-color").value,
+      active: $("br-active").checked
+    });
+  });
+
+  // ---- Tally connection (D3) ----
+  function renderTallyPanel() {
+    var t = setData.tally;
+    $("set-panel").innerHTML = panelCard(
+      "Tally Connection",
+      "These details are stored in the script's own properties — never in the spreadsheet and " +
+        "never in the code repository, so they cannot ride along in an export.",
+      "",
+      '<div class="compare-strip" style="margin-bottom:14px;">' +
+        "<b>Built by us, verified by you.</b> The app sends requests from Google's servers, " +
+        "not from a machine inside your office, so Tally has to be reachable over the internet " +
+        "before this can work. Nothing else in the ERP depends on it — invoices sit at " +
+        '"Pending" and can be marked entered by hand.' +
+      "</div>" +
+      '<div class="grid grid-2">' +
+        '<div class="field"><label>Tally Endpoint URL</label>' +
+          '<input id="tly-endpoint" class="mono" placeholder="http://tally.yourdomain.com:9000" /></div>' +
+        '<div class="field"><label>Company Name in Tally</label><input id="tly-company" /></div>' +
+      "</div>" +
+      '<div class="field" style="margin-top:12px;"><label>Credential (optional)</label>' +
+        '<input id="tly-credential" type="password" autocomplete="new-password" /></div>' +
+      '<p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">' +
+        (t.hasCredential
+          ? "A credential is stored. Leave this blank to keep it, type a new one to replace it, " +
+            "or use Clear to remove it. It is never shown again."
+          : "No credential stored. Most Tally setups do not need one.") + "</p>" +
+      '<div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">' +
+        '<button class="btn btn-primary btn-sm" id="btn-save-tally">Save Connection</button>' +
+        '<button class="btn btn-sm" id="btn-test-tally">Test Connection</button>' +
+        (t.hasCredential ? '<button class="btn btn-sm btn-danger" id="btn-clear-tally">Clear Credential</button>' : "") +
+      "</div>" +
+      '<div id="tly-result"></div>');
+
+    $("tly-endpoint").value = t.endpoint || "";
+    $("tly-company").value = t.company || "";
+
+    $("btn-save-tally").addEventListener("click", function () { saveTally(false); });
+    $("btn-test-tally").addEventListener("click", testTally);
+    if ($("btn-clear-tally")) {
+      $("btn-clear-tally").addEventListener("click", function () {
+        askDialog({
+          title: "Clear the stored credential?",
+          message: "It cannot be recovered — it would have to be typed in again.",
+          okLabel: "Clear", danger: true
+        }, function (ok) { if (ok !== null) saveTally(true); });
+      });
+    }
+  }
+
+  function saveTally(clearCredential) {
+    google.script.run.withSuccessHandler(function (data) {
+      setData = data;
+      renderSetPanel();
+      showMsg(clearCredential ? "Credential cleared." : "Tally connection saved.", "success");
+    }).withFailureHandler(onServerError).saveTallySettings({
+      endpoint: $("tly-endpoint").value.trim(),
+      company: $("tly-company").value.trim(),
+      credential: $("tly-credential").value,
+      clearCredential: !!clearCredential
+    });
+  }
+
+  function testTally() {
+    $("tly-result").innerHTML = '<p style="font-size:12.5px; color:var(--ink-soft); margin-top:14px;">Testing…</p>';
+    google.script.run.withSuccessHandler(function (r) {
+      $("tly-result").innerHTML =
+        '<div class="card" style="margin:14px 0 0; border-color:' +
+          (r.ok ? "var(--st-good)" : "var(--st-critical)") + ';">' +
+        '<div style="font-weight:700; color:' + (r.ok ? "var(--st-good)" : "var(--st-critical)") + ';">' +
+          (r.ok ? "Connected" : "Not connected") + "</div>" +
+        '<div style="font-size:12.5px; margin-top:6px;">' + escapeHtml(r.message) + "</div>" +
+        (r.sample ? '<pre class="mono" style="font-size:11px; background:var(--paper); padding:10px; ' +
+          'border-radius:4px; margin-top:10px; overflow-x:auto; max-height:150px;">' +
+          escapeHtml(r.sample) + "</pre>" : "") +
+        "</div>";
+    }).withFailureHandler(onServerError).testTallyConnection();
+  }
+
+  // ---- System ----
+  function renderSystemPanel() {
+    var sys = setData.system;
+    $("set-panel").innerHTML = panelCard(
+      "System",
+      "The spreadsheet behind the app, and the tools for keeping its structure in step with " +
+        "the code.",
+      "",
+      '<div class="grid grid-3" style="margin-bottom:16px;">' +
+        '<div class="kpi-card"><div class="kpi-label">Spreadsheet</div>' +
+          '<div style="font-size:14px; font-weight:600; color:var(--navy); margin-top:4px;">' +
+          escapeHtml(sys.spreadsheetName) + "</div></div>" +
+        '<div class="kpi-card"><div class="kpi-label">Tabs Declared</div>' +
+          '<div class="kpi-value">' + sys.declaredTabs + "</div></div>" +
+        '<div class="kpi-card"><div class="kpi-label">Time Zone</div>' +
+          '<div style="font-size:14px; font-weight:600; color:var(--navy); margin-top:4px;">' +
+          escapeHtml(sys.timeZone) + "</div></div>" +
+      "</div>" +
+      '<div class="compare-strip" style="margin-bottom:14px;">' +
+        "<b>Run Setup</b> creates any tab or column the code expects and the sheet does not " +
+        "yet have. It only ever adds — it never reorders, renames or deletes — so it is safe " +
+        "to run whenever something looks missing." +
+      "</div>" +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+        (currentUser.role === "ERP Admin"
+          ? '<button class="btn btn-amber btn-sm" id="btn-run-setup">Run Setup</button>' : "") +
+        '<button class="btn btn-sm" id="btn-view-audit">View Audit Log</button>' +
+      "</div>" +
+      '<div id="sys-result"></div>');
+
+    if ($("btn-run-setup")) {
+      $("btn-run-setup").addEventListener("click", function () {
+        askDialog({
+          title: "Run setup now?",
+          message: "Missing tabs and columns are added. Nothing existing is renamed, reordered " +
+            "or deleted, and no data is touched.",
+          okLabel: "Run Setup"
+        }, function (ok) {
+          if (ok === null) return;
+          $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Running…</p>';
+          google.script.run.withSuccessHandler(function (report) {
+            var line = function (label, arr) {
+              return arr && arr.length
+                ? "<div><b>" + label + ":</b> " + escapeHtml(arr.join(", ")) + "</div>" : "";
+            };
+            $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +
+              "<b>Setup complete.</b>" +
+              line("Tabs created", report.created) +
+              line("Columns added", report.columnsAdded) +
+              line("Seeded", report.seeded) +
+              line("Migrated", report.migrated) +
+              (!(report.created || []).length && !(report.columnsAdded || []).length
+                ? "<div>Nothing was missing — the sheet already matches the code.</div>" : "") +
+              "</div>";
+            showMsg("Setup complete.", "success");
+          }).withFailureHandler(onServerError).runSetupFromSettings();
+        });
+      });
+    }
+
+    $("btn-view-audit").addEventListener("click", function () {
+      $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Loading…</p>';
+      google.script.run.withSuccessHandler(function (rows) {
+        $("sys-result").innerHTML = rows.length
+          ? '<div class="card" style="padding:0; overflow-x:auto; max-height:420px; margin-top:14px;">' +
+            "<table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Table</th>" +
+            "<th>Field</th><th>Old</th><th>New</th></tr></thead><tbody>" +
+            rows.map(function (a) {
+              return "<tr>" +
+                '<td style="font-size:11.5px; white-space:nowrap;">' + escapeHtml(a.timestamp) + "</td>" +
+                '<td style="font-size:11.5px;">' + escapeHtml(a.userEmail) + "</td>" +
+                "<td>" + escapeHtml(a.action) + "</td>" +
+                "<td>" + escapeHtml(a.tableName) + "</td>" +
+                "<td>" + escapeHtml(a.fieldName || "—") + "</td>" +
+                '<td style="font-size:11.5px; color:var(--ink-soft);">' + escapeHtml(a.oldValue || "—") + "</td>" +
+                '<td style="font-size:11.5px;">' + escapeHtml(a.newValue || "—") + "</td></tr>";
+            }).join("") + "</tbody></table></div>"
+          : '<div class="empty">Nothing logged yet.</div>';
+      }).withFailureHandler(onServerError).listAuditLog({ limit: 100 });
     });
   }
 
