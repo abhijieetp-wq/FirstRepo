@@ -76,6 +76,36 @@
       </div>
     </div>
 
+
+    <div class="view" id="view-compressor">
+      <div class="page-head">
+        <div>
+          <h2>Compressor Sales</h2>
+          <p>Leads through to a qualified pipeline: capture the requirement, visit the site, size the machine, then quote.</p>
+        </div>
+        <button class="btn btn-amber" id="btn-new-lead" style="display:none;">+ Log Lead</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:14px;">
+        <button class="btn btn-sm" id="subtab-leads">Leads</button>
+        <button class="btn btn-sm" id="subtab-pipeline">Pipeline</button>
+      </div>
+
+      <div class="search-bar">
+        <input id="cs-search" placeholder="Search…" />
+        <label class="check-line"><input type="checkbox" id="cs-mine" /> Only mine</label>
+        <label class="check-line"><input type="checkbox" id="cs-closed" /> Include closed</label>
+      </div>
+
+      <div id="pipeline-summary" style="display:none;"></div>
+
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead id="cs-thead"></thead>
+          <tbody id="cs-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="view" id="view-catalog">
       <div class="page-head">
         <div><h2>Catalog</h2><p>Spare and compressor masters. Prices are effective-dated; stock is derived from the movement ledger.</p></div>
@@ -540,6 +570,195 @@
 <datalist id="customers-list"></datalist>
 <datalist id="models-list"></datalist>
 <datalist id="leadsource-list"></datalist>
+
+<!-- Lead Modal -->
+<div class="modal-backdrop" id="lead-modal-backdrop">
+  <div class="modal" style="max-width:820px;">
+    <h3 id="lead-modal-title" style="margin-bottom:4px;">Log Lead</h3>
+    <p id="lm-no" class="mono" style="font-size:12px; color:var(--steel); margin:0 0 16px;"></p>
+    <input type="hidden" id="lm-id" />
+
+    <div class="grid grid-3">
+      <div class="field"><label>Customer *</label><input id="lm-customer" list="customers-list" /></div>
+      <div class="field"><label>Contact Person</label><input id="lm-contact" /></div>
+      <div class="field"><label>Phone</label><input id="lm-phone" /></div>
+    </div>
+    <div class="grid grid-3" style="margin-top:12px;">
+      <div class="field"><label>Source</label><input id="lm-source" list="leadsource-list" /></div>
+      <div class="field"><label>Industry</label><input id="lm-industry" list="industry-list" /></div>
+      <div class="field"><label>Application</label><input id="lm-application" placeholder="What the air is used for" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Requirement Summary</label>
+      <textarea id="lm-requirement" placeholder="What the customer is asking for"></textarea>
+    </div>
+    <div class="grid grid-4" style="margin-top:12px;">
+      <div class="field"><label>Urgency</label>
+        <select id="lm-urgency"><option>Normal</option><option>Urgent</option><option>Immediate</option></select>
+      </div>
+      <div class="field"><label>Indicative Budget (₹)</label><input id="lm-budget" type="number" min="0" /></div>
+      <div class="field"><label>Owner</label><input id="lm-owner" list="users-list" /></div>
+      <div class="field"><label>Next Action Date *</label><input id="lm-nextaction" type="date" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Status</label>
+        <select id="lm-status">
+          <option>New</option><option>Contacted</option><option>Qualified</option>
+          <option>Converted</option><option>Disqualified</option>
+        </select>
+      </div>
+      <div class="field" id="lm-lostreason-wrap" style="display:none;">
+        <label>Disqualified Reason *</label><select id="lm-lostreason"></select>
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
+      <div></div>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-cancel-lead">Close</button>
+        <button class="btn btn-amber" id="btn-convert-lead" style="display:none;">Convert to Opportunity</button>
+        <button class="btn btn-primary" id="btn-save-lead">Save Lead</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Opportunity Modal -->
+<div class="modal-backdrop" id="opp-modal-backdrop">
+  <div class="modal" style="max-width:920px;">
+    <h3 id="opp-modal-title" style="margin-bottom:4px;">Opportunity</h3>
+    <p id="om-no" class="mono" style="font-size:12px; color:var(--steel); margin:0 0 16px;"></p>
+    <input type="hidden" id="om-id" />
+
+    <div class="grid grid-3">
+      <div class="field"><label>Customer</label><input id="om-customer" readonly /></div>
+      <div class="field"><label>Title</label><input id="om-title" /></div>
+      <div class="field"><label>Owner</label><input id="om-owner" list="users-list" /></div>
+    </div>
+    <div class="grid grid-4" style="margin-top:12px;">
+      <div class="field"><label>Stage</label><select id="om-stage"></select></div>
+      <div class="field"><label>Expected Value (₹)</label><input id="om-value" type="number" min="0" /></div>
+      <div class="field"><label>Probability %</label><input id="om-probability" type="number" min="0" max="100" /></div>
+      <div class="field"><label>Expected Close</label><input id="om-close" type="date" /></div>
+    </div>
+    <div class="grid grid-3" style="margin-top:12px;">
+      <div class="field"><label>Competitor</label><input id="om-competitor" /></div>
+      <div class="field"><label>Next Action Date</label><input id="om-nextaction" type="date" /></div>
+      <div class="field" id="om-lostreason-wrap" style="display:none;">
+        <label>Lost Reason *</label><select id="om-lostreason"></select>
+      </div>
+    </div>
+    <p id="om-weighted" class="mono" style="font-size:12px; color:var(--ink-soft); margin:10px 0 0;"></p>
+
+    <div class="card-title" style="margin-top:22px;">
+      Technical Requirement
+      <button class="btn btn-sm" id="btn-tech-form" type="button">Capture / Edit</button>
+    </div>
+    <div id="om-tech-summary"></div>
+    <div id="om-tech-form" class="inline-form" style="display:none;">
+      <div class="grid grid-3">
+        <div class="field"><label>Application *</label><input id="tr-application" placeholder="e.g. Paint shop, packaging line" /></div>
+        <div class="field"><label>Required FAD *</label><input id="tr-fad" placeholder="e.g. 6.2 m³/min" /></div>
+        <div class="field"><label>Working Pressure *</label><input id="tr-pressure" placeholder="e.g. 7.5 bar" /></div>
+      </div>
+      <div class="grid grid-3" style="margin-top:10px;">
+        <div class="field"><label>Duty Cycle</label><input id="tr-duty" /></div>
+        <div class="field"><label>Operating Hours</label><input id="tr-hours" /></div>
+        <div class="field"><label>Air Quality</label><input id="tr-airquality" placeholder="Oil-free / ISO class" /></div>
+      </div>
+      <div class="grid grid-3" style="margin-top:10px;">
+        <div class="field"><label>Power Supply</label><input id="tr-power" /></div>
+        <div class="field"><label>Future Expansion</label><input id="tr-expansion" /></div>
+        <div class="field"><label>Existing Compressor</label><input id="tr-existing" /></div>
+      </div>
+      <div class="field" style="margin-top:10px;"><label>Notes</label><input id="tr-notes" /></div>
+      <div class="inline-form-actions">
+        <button class="btn btn-sm" id="btn-tech-cancel" type="button">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btn-tech-save" type="button">Save Requirement</button>
+      </div>
+    </div>
+
+    <div class="card-title" style="margin-top:20px;">
+      Recommended Compressor
+      <button class="btn btn-sm" id="btn-selection-form" type="button">+ Add Selection</button>
+    </div>
+    <div id="om-selection-form" class="inline-form" style="display:none;">
+      <div class="grid grid-2">
+        <div class="field"><label>Compressor *</label>
+          <select id="sel-product"></select>
+        </div>
+        <div class="field"><label>Dryer</label><input id="sel-dryer" /></div>
+      </div>
+      <div class="grid grid-3" style="margin-top:10px;">
+        <div class="field"><label>Receiver</label><input id="sel-receiver" /></div>
+        <div class="field"><label>Filters</label><input id="sel-filters" /></div>
+        <div class="field"><label>Other Accessories</label><input id="sel-accessories" /></div>
+      </div>
+      <div class="inline-form-actions">
+        <button class="btn btn-sm" id="btn-selection-cancel" type="button">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btn-selection-save" type="button">Save Selection</button>
+      </div>
+    </div>
+    <div id="om-selections"></div>
+
+    <div class="card-title" style="margin-top:20px;">
+      Site Visits
+      <button class="btn btn-sm" id="btn-visit-form" type="button">+ Log Visit</button>
+    </div>
+    <div id="om-visit-form" class="inline-form" style="display:none;">
+      <div class="grid grid-3">
+        <div class="field"><label>Visit Date *</label><input id="sv-date" type="date" /></div>
+        <div class="field"><label>Participants</label><input id="sv-participants" /></div>
+        <div class="field"><label>Objective</label><input id="sv-objective" /></div>
+      </div>
+      <div class="grid grid-2" style="margin-top:10px;">
+        <div class="field"><label>Existing Equipment</label><input id="sv-existing" /></div>
+        <div class="field"><label>Attachment URL</label><input id="sv-attachment" placeholder="Drive link to photos/report" /></div>
+      </div>
+      <div class="grid grid-2" style="margin-top:10px;">
+        <div class="field"><label>Observations</label><input id="sv-observations" /></div>
+        <div class="field"><label>Next Steps</label><input id="sv-nextsteps" /></div>
+      </div>
+      <div class="inline-form-actions">
+        <button class="btn btn-sm" id="btn-visit-cancel" type="button">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btn-visit-save" type="button">Save Visit</button>
+      </div>
+    </div>
+    <div id="om-visits"></div>
+
+    <div class="card-title" style="margin-top:20px;">
+      Activity Log
+      <button class="btn btn-sm" id="btn-activity-form" type="button">+ Log Activity</button>
+    </div>
+    <div id="om-activity-form" class="inline-form" style="display:none;">
+      <div class="grid grid-4">
+        <div class="field"><label>Type</label>
+          <select id="ac-type"><option>Call</option><option>Email</option><option>Meeting</option><option>WhatsApp</option><option>Other</option></select>
+        </div>
+        <div class="field"><label>Date</label><input id="ac-date" type="date" /></div>
+        <div class="field"><label>Contact Person</label><input id="ac-contact" /></div>
+        <div class="field"><label>Next Action Date</label><input id="ac-nextaction" type="date" /></div>
+      </div>
+      <div class="field" style="margin-top:10px;"><label>What happened *</label><input id="ac-notes" /></div>
+      <div class="inline-form-actions">
+        <button class="btn btn-sm" id="btn-activity-cancel" type="button">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btn-activity-save" type="button">Save Activity</button>
+      </div>
+    </div>
+    <div id="om-activities"></div>
+
+    <div id="om-quotations" style="margin-top:20px;"></div>
+
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
+      <div></div>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-cancel-opp">Close</button>
+        <button class="btn btn-amber" id="btn-quote-opp">Create Quotation</button>
+        <button class="btn btn-primary" id="btn-save-opp">Save Opportunity</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <?!= include('JavaScript'); ?>
 </body>

@@ -324,11 +324,20 @@ function setQuotationStatus(id, status, lostReasonId) {
 
   updateRowById_('Quotations', 'id', id, patch, 'Status set to ' + status);
 
-  // Keep the originating enquiry in step, so the desk sees one truth.
-  if (quote.spareEnquiryId && ['Won', 'Lost'].indexOf(status) !== -1) {
-    updateRowById_('SpareEnquiries', 'id', quote.spareEnquiryId,
-      status === 'Lost' ? { status: 'Lost', lostReasonId: lostReasonId } : { status: 'Won' },
-      'Quotation ' + quote.quoteNo + ' marked ' + status);
+  // Keep whatever the quotation came from in step, so there is one truth to read.
+  if (['Won', 'Lost'].indexOf(status) !== -1) {
+    if (quote.spareEnquiryId) {
+      updateRowById_('SpareEnquiries', 'id', quote.spareEnquiryId,
+        status === 'Lost' ? { status: 'Lost', lostReasonId: lostReasonId } : { status: 'Won' },
+        'Quotation ' + quote.quoteNo + ' marked ' + status);
+    }
+    if (quote.opportunityId) {
+      updateRowById_('Opportunities', 'id', quote.opportunityId,
+        status === 'Lost'
+          ? { stage: 'Lost', probability: 0, lostReasonId: lostReasonId }
+          : { stage: 'Won', probability: 100 },
+        'Quotation ' + quote.quoteNo + ' marked ' + status);
+    }
   }
   return getQuotation(id);
 }
@@ -465,4 +474,133 @@ function addDays_(isoDate, days) {
 
 function roundMoney_(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * Creates a compressor quotation from an opportunity, seeded with the selected machine and
+ * its accessories.
+ *
+ * FR-009's control is enforced here rather than left to discipline: without a captured
+ * technical requirement there is nothing to size the machine against, so the quotation is
+ * refused. That is the difference between a spec and a safeguard.
+ */
+function createQuotationFromOpportunity(opportunityId) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+
+  var opportunity = readTable_('Opportunities').filter(function (o) {
+    return String(o.id) === String(opportunityId);
+  })[0];
+  if (!opportunity) throw new Error('That opportunity no longer exists.');
+
+  var tech = readTable_('TechnicalRequirements').filter(function (t) {
+    return String(t.opportunityId) === String(opportunityId);
+  })[0];
+  if (!tech) {
+    throw new Error('Capture the technical requirement first — application, required FAD and ' +
+      'working pressure — so the machine is sized against something real.');
+  }
+
+  var selections = readTable_('CompressorSelections').filter(function (c) {
+    return String(c.opportunityId) === String(opportunityId);
+  });
+  if (!selections.length) {
+    throw new Error('Select the recommended compressor before quoting.');
+  }
+
+  var customer = readTable_('Customers').filter(function (c) {
+    return String(c.id) === String(opportunity.customerId);
+  })[0];
+
+  var addresses = readTable_('CustomerAddresses').filter(function (a) {
+    return String(a.customerId) === String(opportunity.customerId) &&
+      String(a.active).toUpperCase() !== 'FALSE';
+  });
+  var billing = addresses.filter(function (a) {
+    return a.addressType === 'Billing' && String(a.isDefault).toUpperCase() === 'TRUE';
+  })[0] || addresses.filter(function (a) { return a.addressType === 'Billing'; })[0];
+  var shipping = addresses.filter(function (a) {
+    return a.addressType === 'Shipping' && String(a.isDefault).toUpperCase() === 'TRUE';
+  })[0] || billing;
+
+  var contacts = readTable_('CustomerContacts').filter(function (c) {
+    return String(c.customerId) === String(opportunity.customerId) &&
+      String(c.active).toUpperCase() !== 'FALSE';
+  });
+  var primary = contacts.filter(function (c) {
+    return String(c.isPrimary).toUpperCase() === 'TRUE';
+  })[0] || contacts[0];
+
+  var quote = {
+    id: generateId_('QT-'),
+    quoteNo: nextQuoteNo_(),
+    revision: 'R0',
+    parentQuotationId: '',
+    date: todayIso_(),
+    businessStream: 'Compressor Sales',
+    brand: 'ELGI',
+    customerId: opportunity.customerId,
+    contactId: primary ? primary.id : '',
+    billingAddressId: billing ? billing.id : '',
+    shippingAddressId: shipping ? shipping.id : '',
+    opportunityId: opportunityId,
+    spareEnquiryId: '',
+    machineModel: '',
+    serialNo: '',
+    preparedBy: user.email,
+    validityDays: 30,
+    validUntil: addDays_(todayIso_(), 30),
+    status: 'Draft',
+    paymentTerms: customer ? (customer.paymentTerms || '') : '',
+    deliveryTerms: '',
+    warrantyTerms: '',
+    notes: 'Application: ' + tech.application + ' · FAD ' + tech.requiredFad +
+      ' · ' + tech.workingPressure,
+    locked: 'FALSE',
+    createdAt: todayIso_(),
+    createdBy: user.email
+  };
+  appendRow_('Quotations', quote, 'Quotation created from opportunity ' + opportunity.opportunityNo);
+
+  var prices = priceMapFor_('Product', quote.date);
+  var productById = {};
+  readTable_('Products').forEach(function (p) { productById[String(p.id)] = p; });
+
+  selections.forEach(function (sel, idx) {
+    var product = productById[String(sel.productId)] || {};
+    var level = prices[String(sel.productId)] || {};
+    var unitPrice = level[SELLING_PRICE_LEVEL] ? level[SELLING_PRICE_LEVEL].price : 0;
+    var taxPct = product.gstPct === '' || product.gstPct === undefined ? 18 : Number(product.gstPct);
+    var accessories = [sel.dryer, sel.receiver, sel.filters, sel.accessories]
+      .filter(function (x) { return String(x || '').trim(); }).join(', ');
+
+    appendRow_('QuotationItems', {
+      id: generateId_('QI-'),
+      quotationId: quote.id,
+      lineNo: idx + 1,
+      itemType: 'Product',
+      itemId: sel.productId,
+      itemCode: sel.productCode,
+      description: (product.model || sel.productCode) + (accessories ? ' with ' + accessories : ''),
+      qty: 1,
+      uom: product.uom || 'Nos',
+      listPrice: unitPrice,
+      rateType: 'Standard',
+      unitPrice: unitPrice,
+      discountPct: 0,
+      taxPct: taxPct,
+      lineTotal: roundMoney_(unitPrice),
+      availabilityNote: '',
+      leadTimeDays: product.leadTimeDays || ''
+    }, 'Selected compressor carried onto the quotation');
+  });
+
+  recalcQuotation_(quote.id);
+
+  // Reaching the quotation stage is what the funnel calls it, so move the stage with it.
+  if (['Won', 'Lost'].indexOf(opportunity.stage) === -1) {
+    updateRowById_('Opportunities', 'id', opportunityId, { stage: 'Quotation' },
+      'Quotation ' + quote.quoteNo + ' raised');
+  }
+  return getQuotation(quote.id);
 }

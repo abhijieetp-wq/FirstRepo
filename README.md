@@ -74,6 +74,7 @@ src/
   Stock.gs           append-only stock ledger, availability (FR-036/037)
   SpareEnquiries.gs  spare enquiry capture and part identification (FR-022/023/025)
   Quotations.gs      quotations for both streams, revision control (FR-018/019/020)
+  CompressorSales.gs leads, opportunities, site visits, technical selection (M02/M03/M04)
   CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
   Index.html         page shell, views, modals
@@ -116,8 +117,9 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       (FR-001/002/003), duplicate detection, admin config lists (FR-074)
 - [x] **Spare Sales**: enquiry → part identification (compatibility + live availability) →
       priced quotation with revision control (FR-018/019/020/026)
-- [ ] **Compressor Sales**: lead, activities, site visit, technical requirement, selection,
-      opportunity funnel
+- [x] **Compressor Sales**: lead capture and conversion, activity log, site visits, technical
+      requirement sheet (gating the quote, FR-009), compressor selection, 7-stage funnel with
+      weighted pipeline (FR-011/012/013)
 - [ ] **Order & Commercial**: PO validation, 8-state sales order (FR-031), credit exposure,
       approval engine
 - [ ] **Inventory & Inward**: stock states, reservations, serial tracking, bins, GRN

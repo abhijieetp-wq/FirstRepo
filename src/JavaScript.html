@@ -17,7 +17,8 @@
   var TABS = [
     { view: "dashboard", label: "Dashboard", roles: ALL_ROLES },
     { view: "customers", label: "Customers", roles: ALL_ROLES },
-    { view: "enquiries", label: "Enquiries", roles: SALES_SIDE },
+    { view: "enquiries", label: "Spare Enquiries", roles: SALES_SIDE },
+    { view: "compressor", label: "Compressor Sales", roles: SALES_SIDE },
     { view: "catalog", label: "Catalog", roles: ALL_ROLES },
     { view: "quote", label: "New Quotation", roles: SALES_SIDE },
     { view: "quotations", label: "Quotations", roles: SALES_SIDE },
@@ -140,7 +141,8 @@
     customers: initCustomersView,
     enquiries: initEnquiriesView,
     quotations: initQuotationsView,
-    quote: initQuoteView
+    quote: initQuoteView,
+    compressor: initCompressorView
   };
 
   function goToTab(view) {
@@ -1691,6 +1693,591 @@
       });
     });
   }
+
+
+  // ================= COMPRESSOR SALES =================
+  var CS_MODE = "leads";
+  var leadsCache = [];
+  var opportunitiesCache = [];
+  var openOpportunity = null;
+
+  var LEAD_BADGE = {
+    "New": "badge-new", "Contacted": "badge-followup", "Qualified": "badge-quoted",
+    "Converted": "badge-won", "Disqualified": "badge-lost"
+  };
+  var STAGE_BADGE = {
+    "Requirement Identified": "badge-new", "Technical Discussion": "badge-followup",
+    "Quotation": "badge-quoted", "Negotiation": "badge-sent", "PO Expected": "badge-active",
+    "Won": "badge-won", "Lost": "badge-lost"
+  };
+  var STAGES = ["Requirement Identified", "Technical Discussion", "Quotation",
+    "Negotiation", "PO Expected", "Won", "Lost"];
+
+  function canEditLeads() {
+    return ["Sales Engineer", "Sales Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  function initCompressorView() {
+    $("btn-new-lead").style.display = canEditLeads() ? "inline-flex" : "none";
+    if (!customersLoaded) {
+      google.script.run.withSuccessHandler(function (rows) {
+        customersCache = rows; customersLoaded = true; fillCustomerDatalist();
+      }).withFailureHandler(function () {}).listCustomers();
+    } else {
+      fillCustomerDatalist();
+    }
+    if (!lostReasonsCache.length) {
+      google.script.run.withSuccessHandler(function (rows) { lostReasonsCache = rows; })
+        .withFailureHandler(function () {}).listLostReasons();
+    }
+    if (!configLists) loadConfigLists();
+    switchCsMode(CS_MODE);
+  }
+
+  function switchCsMode(mode) {
+    CS_MODE = mode;
+    $("subtab-leads").className = "btn btn-sm" + (mode === "leads" ? " btn-primary" : "");
+    $("subtab-pipeline").className = "btn btn-sm" + (mode === "pipeline" ? " btn-primary" : "");
+    $("cs-search").placeholder = mode === "leads"
+      ? "Search by lead no., customer or requirement…"
+      : "Search by opportunity no., customer or title…";
+    $("pipeline-summary").style.display = mode === "pipeline" ? "" : "none";
+    $("btn-new-lead").style.display = (mode === "leads" && canEditLeads()) ? "inline-flex" : "none";
+    loadCsRows();
+  }
+
+  $("subtab-leads").addEventListener("click", function () { switchCsMode("leads"); });
+  $("subtab-pipeline").addEventListener("click", function () { switchCsMode("pipeline"); });
+  $("cs-search").addEventListener("input", renderCsRows);
+  $("cs-mine").addEventListener("change", loadCsRows);
+  $("cs-closed").addEventListener("change", loadCsRows);
+
+  function loadCsRows() {
+    var opts = { mineOnly: $("cs-mine").checked, includeClosed: $("cs-closed").checked };
+    if (CS_MODE === "leads") {
+      google.script.run.withSuccessHandler(function (rows) {
+        leadsCache = rows; renderCsRows();
+      }).withFailureHandler(onServerError).listLeads(opts);
+    } else {
+      google.script.run.withSuccessHandler(function (rows) {
+        opportunitiesCache = rows; renderCsRows();
+      }).withFailureHandler(onServerError).listOpportunities(opts);
+    }
+  }
+
+  function renderCsRows() {
+    if (CS_MODE === "leads") renderLeads(); else renderPipeline();
+  }
+
+  function renderLeads() {
+    var q = ($("cs-search").value || "").toLowerCase();
+    var rows = leadsCache.filter(function (l) {
+      return [l.leadNo, l.customerName, l.requirementSummary, l.contactName].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    $("cs-thead").innerHTML = "<tr><th>Lead No.</th><th>Date</th><th>Customer</th><th>Requirement</th>" +
+      "<th>Source</th><th>Owner</th><th>Status</th><th>Next Action</th><th></th></tr>";
+
+    if (!rows.length) {
+      $("cs-tbody").innerHTML = '<tr><td colspan="9"><div class="empty">' +
+        (leadsCache.length ? "No leads match your search." : "No open leads — log the first one.") +
+        "</div></td></tr>";
+      return;
+    }
+
+    $("cs-tbody").innerHTML = rows.map(function (l) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(l.leadNo || "—") + "</td>" +
+        "<td>" + escapeHtml(l.date) + "</td>" +
+        "<td>" + escapeHtml(l.customerName || "—") + "</td>" +
+        "<td>" + escapeHtml((l.requirementSummary || "—").slice(0, 60)) + "</td>" +
+        "<td>" + escapeHtml(l.source || "—") + "</td>" +
+        "<td>" + escapeHtml(l.ownerEmail || "—") + "</td>" +
+        '<td><span class="badge ' + (LEAD_BADGE[l.status] || "badge-draft") + '">' + escapeHtml(l.status) + "</span></td>" +
+        "<td>" + (l.nextActionDate
+          ? (l.overdue ? '<span class="badge badge-overdue">' + escapeHtml(l.nextActionDate) + "</span>" : escapeHtml(l.nextActionDate))
+          : "—") + "</td>" +
+        '<td class="center"><button class="btn-ghost" data-open-lead="' + l.id + '" title="Open">✎</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("cs-tbody").querySelectorAll("[data-open-lead]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openLeadModal(btn.dataset.openLead); });
+    });
+  }
+
+  function renderPipeline() {
+    var q = ($("cs-search").value || "").toLowerCase();
+    var rows = opportunitiesCache.filter(function (o) {
+      return [o.opportunityNo, o.customerName, o.title].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    // Weighted pipeline by stage (FR-012) — what the funnel is actually worth.
+    var open = rows.filter(function (o) { return ["Won", "Lost"].indexOf(o.stage) === -1; });
+    var total = open.reduce(function (sum, o) { return sum + (Number(o.expectedValue) || 0); }, 0);
+    var weighted = open.reduce(function (sum, o) { return sum + (Number(o.weightedValue) || 0); }, 0);
+    var byStage = {};
+    open.forEach(function (o) { byStage[o.stage] = (byStage[o.stage] || 0) + 1; });
+
+    $("pipeline-summary").innerHTML = '<div class="grid grid-4" style="margin-bottom:14px;">' +
+      '<div class="kpi-card"><div class="kpi-label">Open Opportunities</div><div class="kpi-value">' + open.length + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Pipeline Value</div><div class="kpi-value" style="font-size:20px;">' + fmt(total) + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Weighted Pipeline</div><div class="kpi-value" style="font-size:20px;">' + fmt(weighted) + "</div></div>" +
+      '<div class="kpi-card"><div class="kpi-label">Needs Follow-up</div><div class="kpi-value" ' +
+        'style="color:' + (open.filter(function (o) { return o.overdue; }).length ? "var(--red)" : "var(--navy)") + ';">' +
+        open.filter(function (o) { return o.overdue; }).length + "</div></div>" +
+      "</div>" +
+      '<div class="compare-strip" style="margin-bottom:14px;">' +
+        STAGES.filter(function (st) { return ["Won", "Lost"].indexOf(st) === -1; }).map(function (st) {
+          return '<span class="badge ' + STAGE_BADGE[st] + '" style="margin-right:6px;">' +
+            escapeHtml(st) + ": " + (byStage[st] || 0) + "</span>";
+        }).join("") +
+      "</div>";
+
+    $("cs-thead").innerHTML = "<tr><th>Opp No.</th><th>Customer</th><th>Title</th><th>Stage</th>" +
+      '<th class="num">Value</th><th class="num">Prob.</th><th class="num">Weighted</th>' +
+      "<th>Expected Close</th><th>Next Action</th><th></th></tr>";
+
+    if (!rows.length) {
+      $("cs-tbody").innerHTML = '<tr><td colspan="10"><div class="empty">' +
+        (opportunitiesCache.length ? "No opportunities match your search." : "No open opportunities — convert a qualified lead.") +
+        "</div></td></tr>";
+      return;
+    }
+
+    $("cs-tbody").innerHTML = rows.map(function (o) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(o.opportunityNo || "—") + "</td>" +
+        "<td>" + escapeHtml(o.customerName || "—") + "</td>" +
+        "<td>" + escapeHtml(o.title || "—") +
+          (o.hasTechnicalRequirement ? "" : ' <span class="badge badge-overdue">No tech sheet</span>') + "</td>" +
+        '<td><span class="badge ' + (STAGE_BADGE[o.stage] || "badge-draft") + '">' + escapeHtml(o.stage) + "</span></td>" +
+        '<td class="num mono">' + (o.expectedValue ? fmt(o.expectedValue) : "—") + "</td>" +
+        '<td class="num">' + o.probability + "%</td>" +
+        '<td class="num mono">' + fmt(o.weightedValue) + "</td>" +
+        "<td>" + escapeHtml(o.expectedCloseDate || "—") + "</td>" +
+        "<td>" + (o.nextActionDate
+          ? (o.overdue ? '<span class="badge badge-overdue">' + escapeHtml(o.nextActionDate) + "</span>" : escapeHtml(o.nextActionDate))
+          : "—") + "</td>" +
+        '<td class="center"><button class="btn-ghost" data-open-opp="' + o.id + '" title="Open">✎</button></td>' +
+        "</tr>";
+    }).join("");
+
+    $("cs-tbody").querySelectorAll("[data-open-opp]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openOpportunityModal(btn.dataset.openOpp); });
+    });
+  }
+
+  // ---- Lead modal ----
+  $("btn-new-lead").addEventListener("click", function () { openLeadModal(null); });
+  $("btn-cancel-lead").addEventListener("click", function () {
+    $("lead-modal-backdrop").classList.remove("show");
+  });
+
+  function openLeadModal(id) {
+    var l = id ? leadsCache.find(function (x) { return x.id === id; }) : null;
+    $("lead-modal-title").textContent = id ? "Lead" : "Log Lead";
+    $("lm-no").textContent = l ? l.leadNo : "A lead number is assigned on save.";
+    $("lm-id").value = id || "";
+
+    var cust = l ? customersCache.find(function (c) { return c.id === l.customerId; }) : null;
+    $("lm-customer").value = cust ? cust.name : "";
+    $("lm-contact").value = l ? (l.contactName || "") : "";
+    $("lm-phone").value = l ? (l.contactPhone || "") : "";
+    $("lm-source").value = l ? (l.source || "") : "";
+    $("lm-industry").value = l ? (l.industry || "") : "";
+    $("lm-application").value = l ? (l.application || "") : "";
+    $("lm-requirement").value = l ? (l.requirementSummary || "") : "";
+    $("lm-urgency").value = l ? (l.urgency || "Normal") : "Normal";
+    $("lm-budget").value = l && l.budget !== "" ? l.budget : "";
+    $("lm-owner").value = l ? (l.ownerEmail || currentUser.email) : currentUser.email;
+    $("lm-nextaction").value = l ? (l.nextActionDate || "") : "";
+    $("lm-status").value = l ? l.status : "New";
+
+    $("lm-lostreason").innerHTML = '<option value="">—</option>' +
+      lostReasonsCache.map(function (r) {
+        return '<option value="' + r.id + '">' + escapeHtml(r.reasonText) + "</option>";
+      }).join("");
+    if (l && l.lostReasonId) $("lm-lostreason").value = l.lostReasonId;
+    toggleLeadLostReason();
+
+    fillDatalist("leadsource-list", ((configLists || {}).LeadSource || []).map(function (i) { return i.label; }));
+    fillDatalist("industry-list", ((configLists || {}).Industry || []).map(function (i) { return i.label; }));
+
+    $("btn-convert-lead").style.display =
+      (l && l.status === "Qualified" && canEditLeads()) ? "inline-flex" : "none";
+    $("lead-modal-backdrop").classList.add("show");
+  }
+
+  function toggleLeadLostReason() {
+    $("lm-lostreason-wrap").style.display = $("lm-status").value === "Disqualified" ? "" : "none";
+  }
+  $("lm-status").addEventListener("change", toggleLeadLostReason);
+
+  $("btn-save-lead").addEventListener("click", function () {
+    var name = $("lm-customer").value.trim();
+    var cust = customersCache.find(function (c) { return c.name.toLowerCase() === name.toLowerCase(); });
+    if (!cust) {
+      showMsg("Pick an existing customer. Add them on the Customers tab first if they are new.", "error");
+      return;
+    }
+    google.script.run.withSuccessHandler(function (saved) {
+      $("lm-id").value = saved.id;
+      $("lm-no").textContent = saved.leadNo || "";
+      $("lead-modal-title").textContent = "Lead";
+      $("btn-convert-lead").style.display = saved.status === "Qualified" ? "inline-flex" : "none";
+      loadCsRows();
+      showMsg("Lead " + (saved.leadNo || "") + " saved.", "success");
+    }).withFailureHandler(onServerError).saveLead({
+      id: $("lm-id").value || null,
+      customerId: cust.id,
+      customerName: cust.name,
+      contactName: $("lm-contact").value.trim(),
+      contactPhone: $("lm-phone").value.trim(),
+      source: $("lm-source").value.trim(),
+      industry: $("lm-industry").value.trim(),
+      application: $("lm-application").value.trim(),
+      requirementSummary: $("lm-requirement").value.trim(),
+      urgency: $("lm-urgency").value,
+      budget: $("lm-budget").value,
+      ownerEmail: $("lm-owner").value.trim(),
+      nextActionDate: $("lm-nextaction").value,
+      status: $("lm-status").value,
+      lostReasonId: $("lm-lostreason").value
+    });
+  });
+
+  $("btn-convert-lead").addEventListener("click", function () {
+    var id = $("lm-id").value;
+    if (!id) return;
+    askDialog({
+      title: "Convert this lead into an opportunity?",
+      message: "The requirement, owner and budget carry across. The lead is marked Converted.",
+      okLabel: "Convert"
+    }, function (ok) {
+      if (ok === null) return;
+      google.script.run.withSuccessHandler(function (opp) {
+        $("lead-modal-backdrop").classList.remove("show");
+        switchCsMode("pipeline");
+        openOpportunity = opp;
+        renderOpportunityModal();
+        $("opp-modal-backdrop").classList.add("show");
+        showMsg("Opportunity " + opp.opportunityNo + " created.", "success");
+      }).withFailureHandler(onServerError).convertLeadToOpportunity(id, {});
+    });
+  });
+
+  // ---- Opportunity modal ----
+  $("btn-cancel-opp").addEventListener("click", function () {
+    $("opp-modal-backdrop").classList.remove("show");
+    loadCsRows();
+  });
+
+  function openOpportunityModal(id) {
+    google.script.run.withSuccessHandler(function (o) {
+      openOpportunity = o;
+      renderOpportunityModal();
+      $("opp-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).getOpportunity(id);
+  }
+
+  function renderOpportunityModal() {
+    var o = openOpportunity;
+    if (!o) return;
+
+    $("opp-modal-title").textContent = o.title || "Opportunity";
+    $("om-no").textContent = o.opportunityNo + " · " + (o.customerName || "");
+    $("om-id").value = o.id;
+    $("om-customer").value = o.customerName || "";
+    $("om-title").value = o.title || "";
+    $("om-owner").value = o.ownerEmail || "";
+    $("om-stage").innerHTML = STAGES.map(function (st) {
+      return '<option value="' + st + '"' + (st === o.stage ? " selected" : "") + ">" + st + "</option>";
+    }).join("");
+    $("om-value").value = o.expectedValue !== "" ? o.expectedValue : "";
+    $("om-probability").value = o.probability;
+    $("om-close").value = o.expectedCloseDate || "";
+    $("om-competitor").value = o.competitor || "";
+    $("om-nextaction").value = o.nextActionDate || "";
+    $("om-lostreason").innerHTML = '<option value="">—</option>' +
+      lostReasonsCache.map(function (r) {
+        return '<option value="' + r.id + '">' + escapeHtml(r.reasonText) + "</option>";
+      }).join("");
+    if (o.lostReasonId) $("om-lostreason").value = o.lostReasonId;
+    toggleOppLostReason();
+    $("om-weighted").textContent = "Weighted value: " + fmt(o.weightedValue);
+
+    renderTechSummary(o);
+    renderSelections(o);
+    renderVisits(o);
+    renderActivities(o);
+    renderOppQuotations(o);
+
+    $("om-tech-form").style.display = "none";
+    $("om-selection-form").style.display = "none";
+    $("om-visit-form").style.display = "none";
+    $("om-activity-form").style.display = "none";
+  }
+
+  function toggleOppLostReason() {
+    $("om-lostreason-wrap").style.display = $("om-stage").value === "Lost" ? "" : "none";
+  }
+  $("om-stage").addEventListener("change", function () {
+    toggleOppLostReason();
+    // Nudge probability to the stage default when the user hasn't set one deliberately.
+    var defaults = { "Requirement Identified": 10, "Technical Discussion": 25, "Quotation": 50,
+      "Negotiation": 70, "PO Expected": 90, "Won": 100, "Lost": 0 };
+    $("om-probability").value = defaults[$("om-stage").value];
+  });
+
+  $("btn-save-opp").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (o) {
+      openOpportunity = o;
+      renderOpportunityModal();
+      loadCsRows();
+      showMsg("Opportunity saved.", "success");
+    }).withFailureHandler(onServerError).saveOpportunity({
+      id: $("om-id").value,
+      customerId: openOpportunity.customerId,
+      leadId: openOpportunity.leadId,
+      title: $("om-title").value.trim(),
+      stage: $("om-stage").value,
+      expectedValue: $("om-value").value,
+      probability: $("om-probability").value,
+      expectedCloseDate: $("om-close").value,
+      competitor: $("om-competitor").value.trim(),
+      nextActionDate: $("om-nextaction").value,
+      ownerEmail: $("om-owner").value.trim(),
+      lostReasonId: $("om-lostreason").value
+    });
+  });
+
+  // ---- Technical requirement ----
+  function renderTechSummary(o) {
+    var t = o.technicalRequirement;
+    $("om-tech-summary").innerHTML = t
+      ? '<table><tbody>' +
+        "<tr><td><b>Application</b></td><td>" + escapeHtml(t.application) +
+        "</td><td><b>Required FAD</b></td><td>" + escapeHtml(t.requiredFad) +
+        "</td><td><b>Pressure</b></td><td>" + escapeHtml(t.workingPressure) + "</td></tr>" +
+        "<tr><td><b>Duty Cycle</b></td><td>" + escapeHtml(t.dutyCycle || "—") +
+        "</td><td><b>Hours</b></td><td>" + escapeHtml(t.operatingHours || "—") +
+        "</td><td><b>Air Quality</b></td><td>" + escapeHtml(t.airQuality || "—") + "</td></tr>" +
+        "</tbody></table>"
+      : '<div class="empty" style="padding:14px;">Not captured yet. A compressor quotation cannot be raised until it is.</div>';
+  }
+
+  $("btn-tech-form").addEventListener("click", function () {
+    var t = openOpportunity.technicalRequirement || {};
+    $("tr-application").value = t.application || "";
+    $("tr-fad").value = t.requiredFad || "";
+    $("tr-pressure").value = t.workingPressure || "";
+    $("tr-duty").value = t.dutyCycle || "";
+    $("tr-hours").value = t.operatingHours || "";
+    $("tr-airquality").value = t.airQuality || "";
+    $("tr-power").value = t.powerSupply || "";
+    $("tr-expansion").value = t.futureExpansion || "";
+    $("tr-existing").value = t.existingCompressor || "";
+    $("tr-notes").value = t.notes || "";
+    $("om-tech-form").style.display = "";
+    $("tr-application").focus();
+  });
+  $("btn-tech-cancel").addEventListener("click", function () {
+    $("om-tech-form").style.display = "none";
+  });
+  $("btn-tech-save").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (o) {
+      openOpportunity = o; renderOpportunityModal(); loadCsRows();
+      showMsg("Technical requirement saved.", "success");
+    }).withFailureHandler(onServerError).saveTechnicalRequirement({
+      opportunityId: openOpportunity.id,
+      application: $("tr-application").value.trim(),
+      requiredFad: $("tr-fad").value.trim(),
+      workingPressure: $("tr-pressure").value.trim(),
+      dutyCycle: $("tr-duty").value.trim(),
+      operatingHours: $("tr-hours").value.trim(),
+      airQuality: $("tr-airquality").value.trim(),
+      powerSupply: $("tr-power").value.trim(),
+      futureExpansion: $("tr-expansion").value.trim(),
+      existingCompressor: $("tr-existing").value.trim(),
+      notes: $("tr-notes").value.trim()
+    });
+  });
+
+  // ---- Compressor selection ----
+  function renderSelections(o) {
+    $("om-selections").innerHTML = o.selections.length
+      ? '<table><thead><tr><th>Product</th><th>HP</th><th>Pressure</th><th>FAD</th>' +
+        "<th>Accessories</th><th></th></tr></thead><tbody>" +
+        o.selections.map(function (sel) {
+          var acc = [sel.dryer, sel.receiver, sel.filters, sel.accessories]
+            .filter(function (x) { return String(x || "").trim(); }).join(", ");
+          return "<tr>" +
+            '<td class="mono">' + escapeHtml(sel.productCode) + "</td>" +
+            "<td>" + escapeHtml(sel.hpRating || "—") + "</td>" +
+            "<td>" + escapeHtml(sel.workingPressure || "—") + "</td>" +
+            "<td>" + escapeHtml(sel.fad || "—") + "</td>" +
+            "<td>" + escapeHtml(acc || "—") + "</td>" +
+            '<td class="center"><button class="btn-ghost" data-del-sel="' + sel.id + '" title="Remove">✕</button></td>' +
+            "</tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="empty" style="padding:14px;">No compressor selected yet.</div>';
+
+    $("om-selections").querySelectorAll("[data-del-sel]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({ title: "Remove this selection?", okLabel: "Remove", danger: true }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function (o2) {
+            openOpportunity = o2; renderOpportunityModal();
+          }).withFailureHandler(onServerError).deleteCompressorSelection(btn.dataset.delSel);
+        });
+      });
+    });
+  }
+
+  $("btn-selection-form").addEventListener("click", function () {
+    $("om-selection-form").style.display = "";
+    google.script.run.withSuccessHandler(function (products) {
+      $("sel-product").innerHTML = products.map(function (p) {
+        return '<option value="' + p.id + '">' + escapeHtml(p.productCode + " — " + (p.model || "")) +
+          (p.price ? " (" + fmt(p.price) + ")" : "") + "</option>";
+      }).join("");
+    }).withFailureHandler(onServerError).listProducts();
+  });
+  $("btn-selection-cancel").addEventListener("click", function () {
+    $("om-selection-form").style.display = "none";
+  });
+  $("btn-selection-save").addEventListener("click", function () {
+    if (!$("sel-product").value) { showMsg("Pick a compressor.", "error"); return; }
+    google.script.run.withSuccessHandler(function (o) {
+      openOpportunity = o; renderOpportunityModal();
+      showMsg("Selection saved.", "success");
+    }).withFailureHandler(onServerError).saveCompressorSelection({
+      opportunityId: openOpportunity.id,
+      productId: $("sel-product").value,
+      dryer: $("sel-dryer").value.trim(),
+      receiver: $("sel-receiver").value.trim(),
+      filters: $("sel-filters").value.trim(),
+      accessories: $("sel-accessories").value.trim()
+    });
+  });
+
+  // ---- Site visits ----
+  function renderVisits(o) {
+    $("om-visits").innerHTML = o.siteVisits.length
+      ? '<table><thead><tr><th>Visit No.</th><th>Date</th><th>Participants</th>' +
+        "<th>Observations</th><th>Next Steps</th></tr></thead><tbody>" +
+        o.siteVisits.map(function (v) {
+          return "<tr>" +
+            '<td class="mono">' + escapeHtml(v.visitNo || "—") + "</td>" +
+            "<td>" + escapeHtml(v.visitDate) + "</td>" +
+            "<td>" + escapeHtml(v.participants || "—") + "</td>" +
+            "<td>" + escapeHtml(v.observations || "—") + "</td>" +
+            "<td>" + escapeHtml(v.nextSteps || "—") + "</td>" +
+            "</tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="empty" style="padding:14px;">No site visits logged.</div>';
+  }
+
+  $("btn-visit-form").addEventListener("click", function () {
+    $("sv-date").value = new Date().toISOString().slice(0, 10);
+    ["sv-participants", "sv-objective", "sv-existing", "sv-attachment", "sv-observations", "sv-nextsteps"]
+      .forEach(function (f) { $(f).value = ""; });
+    $("om-visit-form").style.display = "";
+  });
+  $("btn-visit-cancel").addEventListener("click", function () {
+    $("om-visit-form").style.display = "none";
+  });
+  $("btn-visit-save").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (o) {
+      openOpportunity = o; renderOpportunityModal();
+      showMsg("Site visit logged.", "success");
+    }).withFailureHandler(onServerError).saveSiteVisit({
+      opportunityId: openOpportunity.id,
+      visitDate: $("sv-date").value,
+      participants: $("sv-participants").value.trim(),
+      objective: $("sv-objective").value.trim(),
+      existingEquipment: $("sv-existing").value.trim(),
+      observations: $("sv-observations").value.trim(),
+      nextSteps: $("sv-nextsteps").value.trim(),
+      attachmentUrl: $("sv-attachment").value.trim()
+    });
+  });
+
+  // ---- Activities ----
+  function renderActivities(o) {
+    $("om-activities").innerHTML = o.activities.length
+      ? '<table><thead><tr><th>Date</th><th>Type</th><th>Contact</th><th>What happened</th>' +
+        "<th>Next Action</th></tr></thead><tbody>" +
+        o.activities.slice(0, 10).map(function (a) {
+          return "<tr><td>" + escapeHtml(a.activityDate) + "</td><td>" + escapeHtml(a.activityType) +
+            "</td><td>" + escapeHtml(a.contactPerson || "—") + "</td><td>" + escapeHtml(a.notes) +
+            "</td><td>" + escapeHtml(a.nextActionDate || "—") + "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="empty" style="padding:14px;">Nothing logged yet.</div>';
+  }
+
+  $("btn-activity-form").addEventListener("click", function () {
+    $("ac-date").value = new Date().toISOString().slice(0, 10);
+    $("ac-contact").value = "";
+    $("ac-notes").value = "";
+    $("ac-nextaction").value = "";
+    $("om-activity-form").style.display = "";
+    $("ac-notes").focus();
+  });
+  $("btn-activity-cancel").addEventListener("click", function () {
+    $("om-activity-form").style.display = "none";
+  });
+  $("btn-activity-save").addEventListener("click", function () {
+    if (!$("ac-notes").value.trim()) { showMsg("Write what happened.", "error"); return; }
+    google.script.run.withSuccessHandler(function () {
+      openOpportunityModal(openOpportunity.id);
+      loadCsRows();
+      showMsg("Activity logged.", "success");
+    }).withFailureHandler(onServerError).saveActivity({
+      relatedType: "Opportunity",
+      relatedId: openOpportunity.id,
+      activityType: $("ac-type").value,
+      activityDate: $("ac-date").value,
+      contactPerson: $("ac-contact").value.trim(),
+      notes: $("ac-notes").value.trim(),
+      nextActionDate: $("ac-nextaction").value
+    });
+  });
+
+  // ---- Quotations from an opportunity ----
+  function renderOppQuotations(o) {
+    if (!o.quotations.length) { $("om-quotations").innerHTML = ""; return; }
+    $("om-quotations").innerHTML = '<div class="card-title">Quotations</div>' +
+      '<table><thead><tr><th>Quote No.</th><th>Rev</th><th>Status</th>' +
+      '<th class="num">Grand Total</th><th></th></tr></thead><tbody>' +
+      o.quotations.map(function (q) {
+        return "<tr>" +
+          '<td class="mono">' + escapeHtml(q.quoteNo) + "</td>" +
+          '<td class="mono">' + escapeHtml(q.revision || "R0") + "</td>" +
+          '<td><span class="badge ' + (QUOTE_BADGE[q.status] || "badge-draft") + '">' + escapeHtml(q.status) + "</span></td>" +
+          '<td class="num mono">' + fmt(q.grand) + "</td>" +
+          '<td class="center"><button class="btn btn-sm" data-open-oq="' + q.id + '">Open</button></td>' +
+          "</tr>";
+      }).join("") + "</tbody></table>";
+
+    $("om-quotations").querySelectorAll("[data-open-oq]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        $("opp-modal-backdrop").classList.remove("show");
+        openQuotation(btn.dataset.openOq);
+      });
+    });
+  }
+
+  $("btn-quote-opp").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (q) {
+      openQuote = q;
+      $("opp-modal-backdrop").classList.remove("show");
+      renderQuoteBuilder();
+      goToTab("quote");
+      showMsg("Quotation " + q.quoteNo + " created.", "success");
+    }).withFailureHandler(onServerError).createQuotationFromOpportunity(openOpportunity.id);
+  });
 
   // ---------------- Boot ----------------
   function onBootSuccess(user) {
