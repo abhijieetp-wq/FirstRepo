@@ -23,7 +23,7 @@ var TALLY_IMPORT_ROLES = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 var TALLY_IMPORT_SPECS = {
   Customer: {
     label: 'Customers',
-    source: 'Tally: List of Accounts / Sundry Debtors, exported as CSV',
+    source: 'a Tally export (List of Accounts / Sundry Debtors), or any spreadsheet with these columns',
     columns: ['name', 'gstin', 'creditLimit', 'creditDays', 'paymentTerms', 'industry',
       'territory', 'pan', 'notes'],
     required: ['name'],

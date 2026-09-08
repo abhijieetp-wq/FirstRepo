@@ -729,12 +729,21 @@
 
   function initCustomersView() {
     $("btn-new-customer").style.display = canEditCustomers() ? "inline-flex" : "none";
+    // Bulk upload writes to the master, so it sits with the other master-data privileges.
+    $("btn-customer-bulk").style.display = canEditCatalog() ? "inline-flex" : "none";
     if (!configLists) loadConfigLists();
     if (customersLoaded) { renderCustomers(); return; }
+    loadCustomers();
+  }
+
+  /** Refetches the customer list, bypassing the cache flag — used after a bulk import. */
+  function loadCustomers() {
     google.script.run.withSuccessHandler(function (rows) {
       customersCache = rows; customersLoaded = true; renderCustomers();
     }).withFailureHandler(onServerError).listCustomers();
   }
+
+  $("btn-customer-bulk").addEventListener("click", function () { openImportModal("Customer"); });
 
   function canEditCustomers() {
     return ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
@@ -5217,53 +5226,46 @@
     }).withFailureHandler(onServerError).testTallyConnection();
   }
 
-  // ---- Opening-balance import from Tally ----
+  // ---- Bulk import, shared ----
   //
-  // Three imports, one panel, because they are the same act at three moments of the same
-  // afternoon: bring the masters over, then the stock, then what customers already owe.
+  // One modal serves Settings → Data Import and Customers → Bulk Upload. Two screens want the
+  // same act, and two implementations of "paste a CSV, check it, write it" would drift.
   var importSpecs = null;
   var importPreview = null;
+  var importLockedKind = null;
 
-  function renderImportPanel() {
-    $("set-panel").innerHTML = panelCard(
-      "Data Import",
-      "Bring the opening position over from Tally rather than typing it. Every one of these " +
-        "is a standard Tally report with a built-in export — nothing here needs re-keying.",
-      "",
-      '<div class="compare-strip" style="margin-bottom:14px;">' +
-        "<b>Do these in order.</b> Customers first, then opening stock, then open receivables — " +
-        "each one refers to the one before it. Import the spares and product catalogs from the " +
-        "Catalog screen before the stock." +
-      "</div>" +
-      '<div class="field"><label>What are you importing?</label><select id="ti-kind"></select></div>' +
-      '<p id="ti-source" style="font-size:12px; color:var(--ink-soft); margin:8px 0 0;"></p>' +
-      '<div class="compare-strip" style="margin:12px 0;"><b>Expected header:</b> ' +
-        '<span class="mono" id="ti-header" style="font-size:11.5px;"></span>' +
-        '<div style="margin-top:6px; font-size:11.5px;"><b>Example row:</b> ' +
-        '<span class="mono" id="ti-example"></span></div></div>' +
-      '<div class="field"><label>CSV Text</label>' +
-        '<textarea id="ti-csv" rows="8" class="mono" style="width:100%; font-size:12px; ' +
-        'padding:10px; border:1px solid var(--border); border-radius:var(--radius);"></textarea></div>' +
-      '<div style="display:flex; gap:8px; margin-top:12px;">' +
-        '<button class="btn btn-sm" id="btn-ti-preview">Preview</button>' +
-        '<button class="btn btn-sm btn-primary" id="btn-ti-commit" style="display:none;">Import</button>' +
-      "</div>" +
-      '<div id="ti-preview"></div>');
+  /** Opens the modal. Pass a kind to lock it to one import; omit it to let the user choose. */
+  function openImportModal(lockedKind) {
+    importLockedKind = lockedKind || null;
+    importPreview = null;
 
-    var wire = function () {
-      $("ti-kind").innerHTML = importSpecs.map(function (sp) {
+    var show = function () {
+      var offered = importLockedKind
+        ? importSpecs.filter(function (sp) { return sp.key === importLockedKind; })
+        : importSpecs;
+
+      $("ti-kind").innerHTML = offered.map(function (sp) {
         return '<option value="' + sp.key + '">' + escapeHtml(sp.label) + "</option>";
       }).join("");
+      $("ti-kind-wrap").style.display = importLockedKind ? "none" : "";
+
+      $("ti-title").textContent = importLockedKind
+        ? "Bulk Upload — " + (offered[0] ? offered[0].label : "")
+        : "Data Import";
+      $("ti-blurb").textContent = importLockedKind
+        ? "Paste the exported rows. Nothing is written until you have seen the preview."
+        : "Bring the opening position over from Tally rather than typing it. Do these in " +
+          "order — customers, then opening stock, then open receivables — because each one " +
+          "refers to the one before it.";
+
       onImportKindChange();
-      $("ti-kind").addEventListener("change", onImportKindChange);
-      $("btn-ti-preview").addEventListener("click", previewImport);
-      $("btn-ti-commit").addEventListener("click", commitImport);
+      $("tallyimport-modal-backdrop").classList.add("show");
     };
 
-    if (importSpecs) { wire(); return; }
+    if (importSpecs) { show(); return; }
     google.script.run.withSuccessHandler(function (specs) {
       importSpecs = specs;
-      wire();
+      show();
     }).withFailureHandler(onServerError).getTallyImportSpecs();
   }
 
@@ -5283,7 +5285,13 @@
     importPreview = null;
   }
 
-  function previewImport() {
+  $("ti-kind").addEventListener("change", onImportKindChange);
+
+  $("btn-ti-close").addEventListener("click", function () {
+    $("tallyimport-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-ti-preview").addEventListener("click", function () {
     if (!$("ti-csv").value.trim()) { showMsg("Paste the exported CSV first.", "error"); return; }
     $("ti-preview").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Checking…</p>';
     google.script.run.withSuccessHandler(function (result) {
@@ -5293,7 +5301,7 @@
       $("ti-preview").innerHTML = "";
       onServerError(err);
     }).previewTallyImport($("ti-kind").value, $("ti-csv").value);
-  }
+  });
 
   function renderTallyPreview(result) {
     var rec = result.reconciliation;
@@ -5312,8 +5320,7 @@
             '">' + r.action + "</span></td></tr>";
       }).join("");
     } else if (result.kind === "OpeningStock") {
-      head = "<tr><th>Line</th><th>Item</th><th>Description</th>" +
-        '<th class="num">Qty</th></tr>';
+      head = "<tr><th>Line</th><th>Item</th><th>Description</th><th class=\"num\">Qty</th></tr>";
       body = result.valid.map(function (r) {
         return "<tr><td>" + r.line + "</td>" +
           '<td class="mono">' + escapeHtml(r.itemCode) + "</td>" +
@@ -5366,26 +5373,66 @@
     $("btn-ti-commit").style.display = ok ? "" : "none";
   }
 
-  function commitImport() {
+  $("btn-ti-commit").addEventListener("click", function () {
     if (!importPreview || !importPreview.valid.length) return;
-    var label = currentImportSpec().label;
+    var spec = currentImportSpec();
     askDialog({
       title: "Import " + importPreview.valid.length + " row(s)?",
-      message: "This writes to the sheet. " + label + " can be corrected afterwards, but an " +
-        "opening balance imported twice is a real mess — make sure this file has not already " +
-        "been imported.",
+      message: "This writes to the sheet. " + spec.label + " can be corrected afterwards, but " +
+        "an opening balance imported twice is a real mess — make sure this file has not " +
+        "already been imported.",
       okLabel: "Import"
     }, function (ok) {
       if (ok === null) return;
+      var kind = $("ti-kind").value;
       google.script.run.withSuccessHandler(function (result) {
         showMsg(result.imported + " row(s) imported" +
           (result.rejected ? ", " + result.rejected + " rejected." : "."), "success");
-        $("ti-csv").value = "";
-        $("ti-preview").innerHTML = "";
-        $("btn-ti-commit").style.display = "none";
+        $("tallyimport-modal-backdrop").classList.remove("show");
         importPreview = null;
-      }).withFailureHandler(onServerError)
-        .commitTallyImport($("ti-kind").value, $("ti-csv").value);
+        // Refresh whichever screen asked for the import.
+        if (kind === "Customer" && document.getElementById("view-customers").classList.contains("active")) {
+          loadCustomers();
+        }
+      }).withFailureHandler(onServerError).commitTallyImport(kind, $("ti-csv").value);
+    });
+  });
+
+  /** The Settings panel is now just the three doors into the modal above. */
+  function renderImportPanel() {
+    var doors = [
+      { kind: "Customer", label: "Customers",
+        note: "Names, GSTIN, credit limits from the Tally ledger" },
+      { kind: "OpeningStock", label: "Opening Stock",
+        note: "Quantities on hand at go-live, from a stock count" },
+      { kind: "OpenInvoice", label: "Open Receivables",
+        note: "What customers already owe, from Bills Receivable" }
+    ];
+
+    $("set-panel").innerHTML = panelCard(
+      "Data Import",
+      "Bring the opening position over from Tally rather than typing it. Every one of these " +
+        "is a standard Tally report with a built-in export — nothing here needs re-keying.",
+      "",
+      '<div class="compare-strip" style="margin-bottom:14px;">' +
+        "<b>Do these in order.</b> Customers first, then opening stock, then open receivables — " +
+        "each one refers to the one before it. Import the spares and product catalogs from the " +
+        "Catalog screen before the stock." +
+      "</div>" +
+      '<div class="grid grid-3">' +
+        doors.map(function (d, i) {
+          return '<div class="kpi-card">' +
+            '<div class="kpi-label">Step ' + (i + 1) + "</div>" +
+            '<div style="font-size:15px; font-weight:700; color:var(--navy); margin:4px 0 6px;">' +
+              escapeHtml(d.label) + "</div>" +
+            '<div class="kpi-sub" style="margin-bottom:12px;">' + escapeHtml(d.note) + "</div>" +
+            '<button class="btn btn-sm btn-primary" data-import="' + d.kind + '">Open</button>' +
+            "</div>";
+        }).join("") +
+      "</div>");
+
+    $("set-panel").querySelectorAll("[data-import]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openImportModal(btn.dataset.import); });
     });
   }
 
