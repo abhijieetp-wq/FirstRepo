@@ -90,6 +90,19 @@ src/
   JavaScript.html    client bootstrap, tab routing, feature modules
 ```
 
+## A lead is not a customer
+
+A lead is someone a salesperson has approached who has bought nothing yet. Logging one needs
+only the company name — no Customer record, because filling the master with companies that
+never buy would also drag them into credit and ageing reports where they do not belong. The
+Customer record is created automatically on conversion, which is the moment the prospect
+becomes real, along with the contact you have been dealing with. An existing customer asking
+for another machine can still be linked, which is what the optional customer link is for.
+
+Leads carry requirement lines rather than one type and one number: PMT sell rotary screw and
+reciprocating (piston) machines, and a prospect may want both in different quantities. The
+types come from the admin-editable `CompressorType` list, so a third one needs no code change.
+
 ## Navigation
 
 The two streams are the two front offices (D2) and sit at the same level as each other —
@@ -143,9 +156,11 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       (FR-001/002/003), duplicate detection, admin config lists (FR-074)
 - [x] **Spare Sales**: enquiry → part identification (compatibility + live availability) →
       priced quotation with revision control (FR-018/019/020/026)
-- [x] **Compressor Sales**: lead capture and conversion, activity log, site visits, technical
-      requirement sheet (gating the quote, FR-009), compressor selection, 7-stage funnel with
-      weighted pipeline (FR-011/012/013)
+- [x] **Compressor Sales**: prospect-first lead capture with per-type requirement lines
+      (screw / piston, quantity, capacity), conversion that creates the customer record at
+      the point the prospect becomes real, activity log, site visits, technical requirement
+      sheet (gating the quote, FR-009), compressor selection, 7-stage funnel with weighted
+      pipeline (FR-011/012/013)
 - [x] **Order & Commercial**: PO validation against the quote (FR-030), 8-state order
       lifecycle as a validated state machine (FR-031), credit exposure across invoices and
       open orders with automatic hold and logged Management release (FR-032/033/034/035)

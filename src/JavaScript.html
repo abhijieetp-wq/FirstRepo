@@ -1944,7 +1944,7 @@
       return [l.leadNo, l.customerName, l.requirementSummary, l.contactName].join(" ").toLowerCase().indexOf(q) !== -1;
     });
 
-    $("cs-thead").innerHTML = "<tr><th>Lead No.</th><th>Date</th><th>Customer</th><th>Requirement</th>" +
+    $("cs-thead").innerHTML = "<tr><th>Lead No.</th><th>Date</th><th>Company</th><th>Wants</th>" +
       "<th>Source</th><th>Owner</th><th>Status</th><th>Next Action</th><th></th></tr>";
 
     if (!rows.length) {
@@ -1958,8 +1958,12 @@
       return "<tr>" +
         '<td class="mono">' + escapeHtml(l.leadNo || "—") + "</td>" +
         "<td>" + escapeHtml(l.date) + "</td>" +
-        "<td>" + escapeHtml(l.customerName || "—") + "</td>" +
-        "<td>" + escapeHtml((l.requirementSummary || "—").slice(0, 60)) + "</td>" +
+        "<td>" + escapeHtml(l.customerName || "—") +
+          (l.isProspect ? ' <span class="badge badge-new">prospect</span>' : "") + "</td>" +
+        // What they asked for beats a free-text summary: it is the thing you quote from.
+        "<td>" + (l.requirementText
+          ? escapeHtml(l.requirementText)
+          : escapeHtml((l.requirementSummary || "—").slice(0, 60))) + "</td>" +
         "<td>" + escapeHtml(l.source || "—") + "</td>" +
         "<td>" + escapeHtml(l.ownerEmail || "—") + "</td>" +
         '<td><span class="badge ' + (LEAD_BADGE[l.status] || "badge-draft") + '">' + escapeHtml(l.status) + "</span></td>" +
@@ -2049,10 +2053,28 @@
     $("lm-no").textContent = l ? l.leadNo : "A lead number is assigned on save.";
     $("lm-id").value = id || "";
 
-    var cust = l ? customersCache.find(function (c) { return c.id === l.customerId; }) : null;
-    $("lm-customer").value = cust ? cust.name : "";
+    $("lm-prospect").value = l ? (l.customerName || "") : "";
+    $("lm-linkcustomer").innerHTML = '<option value="">No — new prospect</option>' +
+      customersCache.map(function (c) {
+        return '<option value="' + c.id + '">' + escapeHtml(c.name) + "</option>";
+      }).join("");
+    $("lm-linkcustomer").value = l ? (l.customerId || "") : "";
+
     $("lm-contact").value = l ? (l.contactName || "") : "";
     $("lm-phone").value = l ? (l.contactPhone || "") : "";
+    $("lm-email").value = l ? (l.contactEmail || "") : "";
+    $("lm-city").value = l ? (l.prospectCity || "") : "";
+
+    leadReqs = l && l.requirements ? l.requirements.map(function (r) {
+      return { compressorType: r.compressorType, quantity: r.quantity,
+               capacityHint: r.capacityHint, notes: r.notes };
+    }) : [];
+    $("lm-req-type").innerHTML = ((configLists || {}).CompressorType || []).map(function (i) {
+      return '<option value="' + escapeHtml(i.label) + '">' + escapeHtml(i.label) + "</option>";
+    }).join("");
+    $("lm-req-qty").value = 1;
+    $("lm-req-capacity").value = "";
+    renderLeadReqs();
     $("lm-source").value = l ? (l.source || "") : "";
     $("lm-industry").value = l ? (l.industry || "") : "";
     $("lm-application").value = l ? (l.application || "") : "";
@@ -2078,16 +2100,65 @@
     $("lead-modal-backdrop").classList.add("show");
   }
 
+  // ---- requirement lines, held client-side until the lead is saved ----
+  var leadReqs = [];
+
+  function renderLeadReqs() {
+    if (!leadReqs.length) {
+      $("lm-reqs").innerHTML = '<div class="empty" style="padding:14px;">Nothing added yet. ' +
+        "A lead with no stated requirement is hard to quote later.</div>";
+      return;
+    }
+    $("lm-reqs").innerHTML = '<div class="card" style="padding:0; overflow-x:auto;"><table>' +
+      "<thead><tr><th>Compressor Type</th><th class=\"num\">Qty</th><th>Capacity / Pressure</th>" +
+      "<th></th></tr></thead><tbody>" +
+      leadReqs.map(function (r, i) {
+        return "<tr><td>" + escapeHtml(r.compressorType) + "</td>" +
+          '<td class="num mono">' + escapeHtml(r.quantity) + "</td>" +
+          "<td>" + escapeHtml(r.capacityHint || "—") + "</td>" +
+          '<td class="center"><button class="btn btn-sm btn-danger" data-delreq="' + i +
+            '" type="button">Remove</button></td></tr>';
+      }).join("") + "</tbody></table></div>";
+
+    $("lm-reqs").querySelectorAll("[data-delreq]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        leadReqs.splice(Number(btn.dataset.delreq), 1);
+        renderLeadReqs();
+      });
+    });
+  }
+
+  $("btn-lm-addreq").addEventListener("click", function () {
+    var type = $("lm-req-type").value;
+    if (!type) { showMsg("No compressor types configured. Add them in Settings.", "error"); return; }
+    var qty = Number($("lm-req-qty").value);
+    if (!(qty > 0)) { showMsg("Quantity must be at least 1.", "error"); return; }
+
+    // Same type twice is a correction, not a second line — add the quantities instead.
+    var existing = leadReqs.filter(function (r) { return r.compressorType === type; })[0];
+    if (existing) existing.quantity = Number(existing.quantity) + qty;
+    else leadReqs.push({ compressorType: type, quantity: qty,
+                         capacityHint: $("lm-req-capacity").value.trim(), notes: "" });
+
+    $("lm-req-qty").value = 1;
+    $("lm-req-capacity").value = "";
+    renderLeadReqs();
+  });
+
+  // Linking an existing customer fills the name, so the two can never disagree.
+  $("lm-linkcustomer").addEventListener("change", function () {
+    var c = customersCache.find(function (x) { return x.id === $("lm-linkcustomer").value; });
+    if (c) $("lm-prospect").value = c.name;
+  });
+
   function toggleLeadLostReason() {
     $("lm-lostreason-wrap").style.display = $("lm-status").value === "Disqualified" ? "" : "none";
   }
   $("lm-status").addEventListener("change", toggleLeadLostReason);
 
   $("btn-save-lead").addEventListener("click", function () {
-    var name = $("lm-customer").value.trim();
-    var cust = customersCache.find(function (c) { return c.name.toLowerCase() === name.toLowerCase(); });
-    if (!cust) {
-      showMsg("Pick an existing customer. Add them on the Customers tab first if they are new.", "error");
+    if (!$("lm-prospect").value.trim()) {
+      showMsg("Enter the company name this lead is from.", "error");
       return;
     }
     google.script.run.withSuccessHandler(function (saved) {
@@ -2099,10 +2170,13 @@
       showMsg("Lead " + (saved.leadNo || "") + " saved.", "success");
     }).withFailureHandler(onServerError).saveLead({
       id: $("lm-id").value || null,
-      customerId: cust.id,
-      customerName: cust.name,
+      customerId: $("lm-linkcustomer").value,
+      customerName: $("lm-prospect").value.trim(),
       contactName: $("lm-contact").value.trim(),
       contactPhone: $("lm-phone").value.trim(),
+      contactEmail: $("lm-email").value.trim(),
+      prospectCity: $("lm-city").value.trim(),
+      requirements: leadReqs,
       source: $("lm-source").value.trim(),
       industry: $("lm-industry").value.trim(),
       application: $("lm-application").value.trim(),

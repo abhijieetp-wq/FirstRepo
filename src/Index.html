@@ -765,16 +765,48 @@
     <p id="lm-no" class="mono" style="font-size:12px; color:var(--steel); margin:0 0 16px;"></p>
     <input type="hidden" id="lm-id" />
 
-    <div class="grid grid-3">
-      <div class="field"><label>Customer *</label><input id="lm-customer" list="customers-list" /></div>
+    <div class="grid grid-2">
+      <div class="field">
+        <label>Company / Prospect Name *</label>
+        <input id="lm-prospect" placeholder="Who the salesperson is talking to" />
+      </div>
+      <div class="field">
+        <label>Already a customer?</label>
+        <select id="lm-linkcustomer"></select>
+      </div>
+    </div>
+    <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">
+      A lead is a prospect — they have bought nothing yet, so no customer record is needed.
+      One is created automatically when the lead converts. Link an existing customer only if
+      this is repeat business.
+    </p>
+
+    <div class="grid grid-4" style="margin-top:12px;">
       <div class="field"><label>Contact Person</label><input id="lm-contact" /></div>
       <div class="field"><label>Phone</label><input id="lm-phone" /></div>
+      <div class="field"><label>Email</label><input id="lm-email" type="email" /></div>
+      <div class="field"><label>City</label><input id="lm-city" /></div>
     </div>
     <div class="grid grid-3" style="margin-top:12px;">
       <div class="field"><label>Source</label><input id="lm-source" list="leadsource-list" /></div>
       <div class="field"><label>Industry</label><input id="lm-industry" list="industry-list" /></div>
       <div class="field"><label>Application</label><input id="lm-application" placeholder="What the air is used for" /></div>
     </div>
+
+    <div class="card-title" style="margin-top:20px;">What they want</div>
+    <p style="font-size:11.5px; color:var(--ink-soft); margin:0 0 10px;">
+      Add a line per compressor type. A prospect wanting both screw and piston machines gets
+      two lines, each with its own quantity.
+    </p>
+    <div class="inline-form" style="margin-bottom:10px;">
+      <div class="grid grid-4" style="align-items:end;">
+        <div class="field"><label>Compressor Type</label><select id="lm-req-type"></select></div>
+        <div class="field"><label>Quantity</label><input id="lm-req-qty" type="number" min="1" value="1" /></div>
+        <div class="field"><label>Capacity / Pressure</label><input id="lm-req-capacity" placeholder="e.g. 30 HP, 7 bar" /></div>
+        <div class="field"><button class="btn btn-sm btn-primary" id="btn-lm-addreq" type="button" style="width:100%;">Add Line</button></div>
+      </div>
+    </div>
+    <div id="lm-reqs"></div>
     <div class="field" style="margin-top:12px;">
       <label>Requirement Summary</label>
       <textarea id="lm-requirement" placeholder="What the customer is asking for"></textarea>

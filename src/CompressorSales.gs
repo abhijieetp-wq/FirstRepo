@@ -40,9 +40,23 @@ function listLeads(options) {
   var customerNames = {};
   readTable_('Customers').forEach(function (c) { customerNames[String(c.id)] = c.name; });
 
+  var reqsByLead = {};
+  readTable_('LeadRequirements')
+    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
+    .forEach(function (r) {
+      var key = String(r.leadId);
+      (reqsByLead[key] = reqsByLead[key] || []).push(stripRow_(r));
+    });
+
   var rows = readTable_('Leads').map(function (l) {
     var row = stripRow_(l);
+    // A linked customer's name wins, because it is the one that gets maintained; an
+    // unlinked prospect keeps whatever the salesperson typed.
     row.customerName = customerNames[String(row.customerId)] || row.customerName || '';
+    row.isProspect = !String(row.customerId || '').trim();
+    row.requirements = reqsByLead[String(row.id)] || [];
+    row.requirementText = requirementSummaryText_(row.requirements);
+    row.totalUnits = row.requirements.reduce(function (n, r) { return n + (Number(r.quantity) || 0); }, 0);
     row.overdue = row.nextActionDate && String(row.nextActionDate) < todayIso_() &&
       ['Converted', 'Disqualified'].indexOf(row.status) === -1;
     return row;
@@ -61,7 +75,15 @@ function saveLead(input) {
   var user = getCurrentUser();
   requireRole_(user, LEAD_EDITORS);
 
-  if (!input.customerId) throw new Error('Pick the customer this lead is from.');
+  // A lead is a prospect, not a customer. Someone a salesperson has just approached has
+  // bought nothing yet, and forcing a Customer record for them would fill the master with
+  // companies that never buy — and put them into credit and ageing reports where they do not
+  // belong. The company name is enough here; the Customer record is created on conversion,
+  // which is the moment the prospect becomes real. An existing customer asking for another
+  // machine can still be linked, which is what customerId is for now.
+  var prospectName = String(input.customerName || '').trim();
+  if (!prospectName) throw new Error('Enter the company name this lead is from.');
+
   var status = String(input.status || 'New').trim();
   if (LEAD_STATUSES.indexOf(status) === -1) {
     throw new Error('Status must be one of: ' + LEAD_STATUSES.join(', ') + '.');
@@ -76,10 +98,12 @@ function saveLead(input) {
 
   var record = {
     date: String(input.date || todayIso_()).slice(0, 10),
-    customerId: String(input.customerId),
-    customerName: String(input.customerName || '').trim(),
+    customerId: String(input.customerId || ''),
+    customerName: prospectName,
     contactName: String(input.contactName || '').trim(),
     contactPhone: String(input.contactPhone || '').trim(),
+    contactEmail: String(input.contactEmail || '').trim(),
+    prospectCity: String(input.prospectCity || '').trim(),
     source: String(input.source || '').trim(),
     requirementSummary: String(input.requirementSummary || '').trim(),
     industry: String(input.industry || '').trim(),
@@ -104,7 +128,50 @@ function saveLead(input) {
     record.createdBy = user.email;
     appendRow_('Leads', record, 'Lead captured');
   }
+
+  if (input.requirements) saveLeadRequirements_(record.id, input.requirements);
+  record.requirements = leadRequirementsFor_(record.id);
   return record;
+}
+
+/**
+ * Replaces a lead's requirement lines. A prospect may want screw machines and piston
+ * machines in different quantities, so this is a list rather than one type and one number.
+ */
+function saveLeadRequirements_(leadId, requirements) {
+  readTable_('LeadRequirements')
+    .filter(function (r) { return String(r.leadId) === String(leadId); })
+    .forEach(function (r) { deleteRowById_('LeadRequirements', 'id', r.id); });
+
+  (requirements || []).forEach(function (req, idx) {
+    var type = String(req.compressorType || '').trim();
+    if (!type) return;
+    var qty = Number(req.quantity);
+    appendRow_('LeadRequirements', {
+      id: generateId_('LR'),
+      leadId: leadId,
+      lineNo: idx + 1,
+      compressorType: type,
+      quantity: isNaN(qty) || qty <= 0 ? 1 : qty,
+      capacityHint: String(req.capacityHint || '').trim(),
+      notes: String(req.notes || '').trim()
+    });
+  });
+}
+
+function leadRequirementsFor_(leadId) {
+  return readTable_('LeadRequirements')
+    .filter(function (r) { return String(r.leadId) === String(leadId); })
+    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
+    .map(stripRow_);
+}
+
+/** One line of plain text summarising what a lead asked for — used on lists and on convert. */
+function requirementSummaryText_(requirements) {
+  return (requirements || []).map(function (r) {
+    return r.quantity + ' × ' + r.compressorType +
+      (r.capacityHint ? ' (' + r.capacityHint + ')' : '');
+  }).join(', ');
 }
 
 /** Promotes a qualified lead into the funnel, carrying its context across. */
@@ -119,10 +186,53 @@ function convertLeadToOpportunity(leadId, input) {
   }
 
   var opts = input || {};
+  var requirements = leadRequirementsFor_(lead.id);
+
+  // Converting is the moment a prospect becomes real, so this is where the Customer record
+  // is created — not when the lead was first logged. A lead already linked to a customer
+  // (repeat business) keeps that link.
+  var customerId = String(lead.customerId || '').trim();
+  if (!customerId) {
+    var existing = readTable_('Customers').filter(function (c) {
+      return String(c.name || '').trim().toLowerCase() ===
+        String(lead.customerName || '').trim().toLowerCase();
+    })[0];
+
+    if (existing) {
+      customerId = existing.id;
+    } else {
+      var created = saveCustomer({
+        name: lead.customerName,
+        industry: lead.industry,
+        territory: opts.territory || '',
+        assignedSalesperson: lead.ownerEmail || user.email,
+        notes: 'Created on converting lead ' + lead.leadNo
+      });
+      customerId = created.id;
+
+      // The person we have been talking to becomes the customer's first contact.
+      if (String(lead.contactName || '').trim()) {
+        saveCustomerContact({
+          customerId: customerId,
+          name: lead.contactName,
+          phone: lead.contactPhone,
+          email: lead.contactEmail,
+          contactRole: 'Purchase',
+          isPrimary: true
+        });
+      }
+    }
+    updateRowById_('Leads', 'id', lead.id, { customerId: customerId },
+      'Prospect became a customer on conversion');
+  }
+
+  var title = String(opts.title || requirementSummaryText_(requirements) ||
+    lead.requirementSummary || 'Compressor requirement').trim();
+
   var opportunity = saveOpportunity({
-    customerId: lead.customerId,
+    customerId: customerId,
     leadId: lead.id,
-    title: String(opts.title || lead.requirementSummary || 'Compressor requirement').trim(),
+    title: title,
     stage: 'Requirement Identified',
     expectedValue: opts.expectedValue !== undefined && opts.expectedValue !== '' ? opts.expectedValue : lead.budget,
     expectedCloseDate: opts.expectedCloseDate || addDays_(todayIso_(), 30),

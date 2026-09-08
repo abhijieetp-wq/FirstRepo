@@ -64,6 +64,8 @@ var SCHEMA = {
       { id: 'CL-030', category: 'Urgency', code: 'NORMAL', label: 'Normal', sortOrder: 1, active: 'TRUE' },
       { id: 'CL-031', category: 'Urgency', code: 'URGENT', label: 'Urgent', sortOrder: 2, active: 'TRUE' },
       { id: 'CL-032', category: 'Urgency', code: 'BREAKDOWN', label: 'Breakdown', sortOrder: 3, active: 'TRUE' },
+      { id: 'CL-050', category: 'CompressorType', code: 'SCREW', label: 'Rotary Screw', sortOrder: 1, active: 'TRUE' },
+      { id: 'CL-051', category: 'CompressorType', code: 'PISTON', label: 'Reciprocating (Piston)', sortOrder: 2, active: 'TRUE' },
       { id: 'CL-040', category: 'Industry', code: 'ENGINEERING', label: 'Engineering', sortOrder: 1, active: 'TRUE' },
       { id: 'CL-041', category: 'Industry', code: 'PHARMA', label: 'Pharma', sortOrder: 2, active: 'TRUE' },
       { id: 'CL-042', category: 'Industry', code: 'TEXTILE', label: 'Textile', sortOrder: 3, active: 'TRUE' },
@@ -148,9 +150,14 @@ var SCHEMA = {
   Leads: {
     label: 'Compressor lead capture with source and ownership (FR-005, FR-006)',
     columns: ['id', 'leadNo', 'date', 'customerId', 'customerName', 'contactName', 'contactPhone',
+      'contactEmail', 'prospectCity',
       'source', 'requirementSummary', 'industry', 'application', 'urgency', 'budget',
       'ownerEmail', 'status', 'nextActionDate', 'lostReasonId', 'businessStream', 'brand',
       'createdAt', 'createdBy']
+  },
+  LeadRequirements: {
+    label: 'What the prospect wants, per compressor type — a lead may want both',
+    columns: ['id', 'leadId', 'lineNo', 'compressorType', 'quantity', 'capacityHint', 'notes']
   },
   Activities: {
     label: 'Follow-ups against any record; drives overdue alerts (FR-007, N01, N02)',
