@@ -1535,14 +1535,18 @@
       </div>
     </div>
 
-    <div class="field">
-      <label>CSV Text</label>
-      <textarea id="ti-csv" rows="8" class="mono"
-        style="width:100%; font-size:12px; padding:10px; border:1px solid var(--border); border-radius:var(--radius);"></textarea>
+    <div class="drop-zone" id="ti-drop">
+      <input type="file" id="ti-file" accept=".csv,text/csv" hidden />
+      <div class="drop-icon">CSV</div>
+      <div><b>Choose a CSV file</b> or drag one here</div>
+      <div class="drop-hint">The first row must be the header above. Saved from Excel is fine.</div>
     </div>
 
+    <div id="ti-filecard"></div>
+
     <div style="display:flex; gap:8px; margin-top:12px;">
-      <button class="btn btn-sm" id="btn-ti-preview">Preview</button>
+      <button class="btn btn-sm" id="btn-ti-preview" disabled>Preview</button>
+      <button class="btn btn-sm btn-ghost" id="btn-ti-clear" style="display:none;">Choose a different file</button>
     </div>
 
     <div id="ti-preview"></div>

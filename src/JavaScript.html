@@ -5233,6 +5233,8 @@
   var importSpecs = null;
   var importPreview = null;
   var importLockedKind = null;
+  var importCsvText = null;   // the chosen file's contents, read in the browser
+  var importFileName = "";
 
   /** Opens the modal. Pass a kind to lock it to one import; omit it to let the user choose. */
   function openImportModal(lockedKind) {
@@ -5253,7 +5255,7 @@
         ? "Bulk Upload — " + (offered[0] ? offered[0].label : "")
         : "Data Import";
       $("ti-blurb").textContent = importLockedKind
-        ? "Paste the exported rows. Nothing is written until you have seen the preview."
+        ? "Choose the exported CSV. Nothing is written until you have seen the preview."
         : "Bring the opening position over from Tally rather than typing it. Do these in " +
           "order — customers, then opening stock, then open receivables — because each one " +
           "refers to the one before it.";
@@ -5279,20 +5281,132 @@
     $("ti-source").textContent = "Where this comes from — " + sp.source;
     $("ti-header").textContent = sp.header;
     $("ti-example").textContent = sp.example;
-    $("ti-csv").value = "";
-    $("ti-preview").innerHTML = "";
-    $("btn-ti-commit").style.display = "none";
+    clearImportFile();
+  }
+
+  function clearImportFile() {
+    importCsvText = null;
+    importFileName = "";
     importPreview = null;
+    $("ti-file").value = "";
+    $("ti-filecard").innerHTML = "";
+    $("ti-preview").innerHTML = "";
+    $("btn-ti-preview").disabled = true;
+    $("btn-ti-commit").style.display = "none";
+    $("btn-ti-clear").style.display = "none";
+    $("ti-drop").style.display = "";
   }
 
   $("ti-kind").addEventListener("change", onImportKindChange);
+  $("btn-ti-clear").addEventListener("click", clearImportFile);
+
+  // ---- picking the file ----
+  $("ti-drop").addEventListener("click", function () { $("ti-file").click(); });
+  $("ti-file").addEventListener("change", function (e) {
+    if (e.target.files && e.target.files[0]) readImportFile(e.target.files[0]);
+  });
+
+  ["dragenter", "dragover"].forEach(function (evt) {
+    $("ti-drop").addEventListener(evt, function (e) {
+      e.preventDefault(); e.stopPropagation();
+      $("ti-drop").classList.add("dragging");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (evt) {
+    $("ti-drop").addEventListener(evt, function (e) {
+      e.preventDefault(); e.stopPropagation();
+      $("ti-drop").classList.remove("dragging");
+    });
+  });
+  $("ti-drop").addEventListener("drop", function (e) {
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files[0]) readImportFile(files[0]);
+  });
+
+  /**
+   * Reads the file in the browser and checks its header before anything reaches the server.
+   * A missing column is worth saying plainly here rather than as a server error after an
+   * upload — and Excel's byte-order mark is stripped so a column that is visibly present
+   * does not read as missing.
+   */
+  function readImportFile(file) {
+    if (!/\.csv$/i.test(file.name) && file.type !== "text/csv") {
+      showMsg("That is not a .csv file. Save the sheet as CSV and try again.", "error");
+      return;
+    }
+
+    var reader = new FileReader();
+    reader.onerror = function () {
+      showMsg("The file could not be read. Try saving it again as CSV.", "error");
+    };
+    reader.onload = function (e) {
+      var text = String(e.target.result || "").replace(/^\uFEFF/, "");
+      importFileName = file.name;
+      renderFileCheck(text, file);
+    };
+    reader.readAsText(file);
+  }
+
+  function renderFileCheck(text, file) {
+    var spec = currentImportSpec();
+    var lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")
+      .filter(function (l) { return l.trim() !== ""; });
+
+    if (lines.length < 2) {
+      importCsvText = null;
+      $("ti-filecard").innerHTML = '<div class="file-card bad"><div>' +
+        '<div class="file-name">' + escapeHtml(file.name) + "</div>" +
+        '<div class="file-meta">The file needs a header row and at least one row of data.</div>' +
+        "</div></div>";
+      $("btn-ti-preview").disabled = true;
+      $("btn-ti-clear").style.display = "";
+      $("ti-drop").style.display = "none";
+      return;
+    }
+
+    // Header comparison is by name, not position — column order does not matter.
+    var found = lines[0].split(",").map(function (h) {
+      return h.trim().replace(/^"|"$/g, "");
+    });
+    var expected = spec.header.split(",");
+    var missing = spec.required.filter(function (c) { return found.indexOf(c) === -1; });
+    var extra = found.filter(function (c) { return expected.indexOf(c) === -1 && c !== ""; });
+    var ok = missing.length === 0;
+
+    importCsvText = ok ? text : null;
+    $("btn-ti-preview").disabled = !ok;
+    $("btn-ti-clear").style.display = "";
+    $("ti-drop").style.display = "none";
+
+    var chips = expected.map(function (c) {
+      var present = found.indexOf(c) !== -1;
+      var isRequired = spec.required.indexOf(c) !== -1;
+      var cls = present ? "col-ok" : (isRequired ? "col-missing" : "col-extra");
+      return '<span class="col-chip ' + cls + '">' + escapeHtml(c) +
+        (present ? "" : (isRequired ? " ✕" : " –")) + "</span>";
+    }).join("") +
+      extra.map(function (c) {
+        return '<span class="col-chip col-extra">' + escapeHtml(c) + " (ignored)</span>";
+      }).join("");
+
+    $("ti-filecard").innerHTML = '<div class="file-card' + (ok ? "" : " bad") + '"><div style="flex:1;">' +
+      '<div class="file-name">' + escapeHtml(file.name) + "</div>" +
+      '<div class="file-meta">' + (lines.length - 1) + " data row(s) · " +
+        Math.max(1, Math.round(file.size / 1024)) + " KB" +
+        (ok ? "" : ' · <b style="color:var(--st-critical);">missing required column(s): ' +
+          escapeHtml(missing.join(", ")) + "</b>") + "</div>" +
+      '<div style="margin-top:8px;">' + chips + "</div>" +
+      (ok ? "" : '<div class="file-meta" style="margin-top:8px;">Add the missing column(s) to ' +
+        "the header row and choose the file again. Column order does not matter.</div>") +
+      "</div></div>";
+  }
 
   $("btn-ti-close").addEventListener("click", function () {
     $("tallyimport-modal-backdrop").classList.remove("show");
   });
 
   $("btn-ti-preview").addEventListener("click", function () {
-    if (!$("ti-csv").value.trim()) { showMsg("Paste the exported CSV first.", "error"); return; }
+    if (!importCsvText) { showMsg("Choose a CSV file first.", "error"); return; }
     $("ti-preview").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Checking…</p>';
     google.script.run.withSuccessHandler(function (result) {
       importPreview = result;
@@ -5300,7 +5414,7 @@
     }).withFailureHandler(function (err) {
       $("ti-preview").innerHTML = "";
       onServerError(err);
-    }).previewTallyImport($("ti-kind").value, $("ti-csv").value);
+    }).previewTallyImport($("ti-kind").value, importCsvText);
   });
 
   function renderTallyPreview(result) {
@@ -5386,15 +5500,15 @@
       if (ok === null) return;
       var kind = $("ti-kind").value;
       google.script.run.withSuccessHandler(function (result) {
-        showMsg(result.imported + " row(s) imported" +
+        showMsg(result.imported + " row(s) imported from " + importFileName +
           (result.rejected ? ", " + result.rejected + " rejected." : "."), "success");
         $("tallyimport-modal-backdrop").classList.remove("show");
-        importPreview = null;
+        clearImportFile();
         // Refresh whichever screen asked for the import.
         if (kind === "Customer" && document.getElementById("view-customers").classList.contains("active")) {
           loadCustomers();
         }
-      }).withFailureHandler(onServerError).commitTallyImport(kind, $("ti-csv").value);
+      }).withFailureHandler(onServerError).commitTallyImport(kind, importCsvText);
     });
   });
 

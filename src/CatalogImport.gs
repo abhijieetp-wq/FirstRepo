@@ -249,7 +249,11 @@ function parseCsv_(text) {
   var row = [];
   var field = '';
   var inQuotes = false;
-  var s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  var s = String(text || '')
+    // Excel writes a UTF-8 byte-order mark, which glues itself to the first header name and
+    // makes a visibly present column read as missing. Strip it before anything else looks.
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
   for (var i = 0; i < s.length; i++) {
     var c = s[i];

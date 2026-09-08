@@ -259,6 +259,28 @@
   .brand-tile-foot{ display:flex; justify-content:space-between; align-items:center; gap:8px;
     margin-top:auto; }
 
+
+  /* ---- CSV drop zone ---- */
+  .drop-zone{ border:2px dashed var(--border); border-radius:8px; background:var(--paper);
+    padding:26px 20px; text-align:center; cursor:pointer; transition:border-color .15s, background .15s; }
+  .drop-zone:hover{ border-color:var(--amber); background:#fff; }
+  .drop-zone.dragging{ border-color:var(--amber); background:var(--amberbg); }
+  .drop-icon{ font-family:'IBM Plex Mono', monospace; font-size:11px; font-weight:600;
+    letter-spacing:1px; color:var(--steel); border:1px solid var(--border); border-radius:4px;
+    padding:4px 8px; display:inline-block; margin-bottom:10px; background:#fff; }
+  .drop-hint{ font-size:11.5px; color:var(--ink-soft); margin-top:6px; }
+
+  .file-card{ display:flex; align-items:flex-start; gap:12px; border:1px solid var(--border);
+    border-radius:6px; padding:12px 14px; margin-top:12px; background:#fff; }
+  .file-card.bad{ border-color:var(--st-critical); background:var(--red-bg); }
+  .file-name{ font-weight:600; font-size:13px; color:var(--ink); }
+  .file-meta{ font-size:11.5px; color:var(--ink-soft); margin-top:3px; }
+  .col-chip{ display:inline-block; font-family:'IBM Plex Mono', monospace; font-size:11px;
+    padding:2px 6px; border-radius:3px; margin:2px 3px 0 0; }
+  .col-ok{ background:var(--green-bg); color:var(--green); }
+  .col-missing{ background:var(--red-bg); color:var(--red); }
+  .col-extra{ background:var(--steel-light); color:var(--steel); }
+
   footer.hint{ text-align:center; color:var(--steel); font-size:11.5px; padding:30px 0 10px; }
 
   .boot-screen{ display:flex; align-items:center; justify-content:center; min-height:60vh; text-align:center; padding:20px; }
