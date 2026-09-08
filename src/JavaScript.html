@@ -1888,18 +1888,9 @@
 
   function initCompressorView() {
     $("btn-new-lead").style.display = canEditLeads() ? "inline-flex" : "none";
-    if (!customersLoaded) {
-      google.script.run.withSuccessHandler(function (rows) {
-        customersCache = rows; customersLoaded = true; fillCustomerDatalist();
-      }).withFailureHandler(function () {}).listCustomers();
-    } else {
-      fillCustomerDatalist();
-    }
-    if (!lostReasonsCache.length) {
-      google.script.run.withSuccessHandler(function (rows) { lostReasonsCache = rows; })
-        .withFailureHandler(function () {}).listLostReasons();
-    }
+    if (customersLoaded) fillCustomerDatalist();
     if (!configLists) loadConfigLists();
+    ensureLeadFormData();
     switchCsMode(CS_MODE);
   }
 
@@ -2054,11 +2045,7 @@
     $("lm-id").value = id || "";
 
     $("lm-prospect").value = l ? (l.customerName || "") : "";
-    $("lm-linkcustomer").innerHTML = '<option value="">No — new prospect</option>' +
-      customersCache.map(function (c) {
-        return '<option value="' + c.id + '">' + escapeHtml(c.name) + "</option>";
-      }).join("");
-    $("lm-linkcustomer").value = l ? (l.customerId || "") : "";
+    fillLeadCustomerSelect(l ? l.customerId : "");
 
     $("lm-contact").value = l ? (l.contactName || "") : "";
     $("lm-phone").value = l ? (l.contactPhone || "") : "";
@@ -2069,9 +2056,7 @@
       return { compressorType: r.compressorType, quantity: r.quantity,
                capacityHint: r.capacityHint, notes: r.notes };
     }) : [];
-    $("lm-req-type").innerHTML = ((configLists || {}).CompressorType || []).map(function (i) {
-      return '<option value="' + escapeHtml(i.label) + '">' + escapeHtml(i.label) + "</option>";
-    }).join("");
+    fillLeadTypeSelect();
     $("lm-req-qty").value = 1;
     $("lm-req-capacity").value = "";
     renderLeadReqs();
@@ -2098,6 +2083,65 @@
     $("btn-convert-lead").style.display =
       (l && l.status === "Qualified" && canEditLeads()) ? "inline-flex" : "none";
     $("lead-modal-backdrop").classList.add("show");
+    ensureLeadFormData();
+  }
+
+  /**
+   * Both of the lead form's dropdowns are filled from caches another screen loads, so opening
+   * the form before those arrive used to leave them empty with no explanation — and a
+   * swallowed failure looked exactly the same as "nothing configured". These fill from
+   * whatever is cached now, say plainly when there is nothing, and are called again when a
+   * late load lands.
+   */
+  function fillLeadCustomerSelect(selectId) {
+    var sel = $("lm-linkcustomer");
+    var keep = selectId !== undefined ? selectId : sel.value;
+    sel.innerHTML = '<option value="">No — new prospect</option>' +
+      (customersCache.length
+        ? customersCache.map(function (c) {
+            return '<option value="' + c.id + '">' + escapeHtml(c.name) + "</option>";
+          }).join("")
+        : '<option value="" disabled>— no customers on file yet —</option>');
+    if (keep) sel.value = keep;
+  }
+
+  function fillLeadTypeSelect() {
+    var types = (configLists || {}).CompressorType || [];
+    var sel = $("lm-req-type");
+    var keep = sel.value;
+    sel.innerHTML = types.length
+      ? types.map(function (i) {
+          return '<option value="' + escapeHtml(i.label) + '">' + escapeHtml(i.label) + "</option>";
+        }).join("")
+      : '<option value="">— none set up yet —</option>';
+    if (keep) sel.value = keep;
+    $("btn-lm-addreq").disabled = !types.length;
+    $("lm-req-hint").textContent = types.length
+      ? ""
+      : "No compressor types are configured. An ERP Admin adds them under " +
+        "Settings → Dropdown Lists, category CompressorType — or runs Setup, which seeds " +
+        "Rotary Screw and Reciprocating (Piston).";
+  }
+
+  /** Fetches whatever the form needs and is missing, then refills. */
+  function ensureLeadFormData() {
+    if (!customersCache.length) {
+      google.script.run.withSuccessHandler(function (rows) {
+        customersCache = rows; customersLoaded = true;
+        fillCustomerDatalist(); fillLeadCustomerSelect();
+      }).withFailureHandler(onServerError).listCustomers();
+    }
+    if (!((configLists || {}).CompressorType || []).length) {
+      google.script.run.withSuccessHandler(function (lists) {
+        configLists = lists;
+        fillLeadTypeSelect();
+      }).withFailureHandler(onServerError).getConfigLists();
+    }
+    if (!lostReasonsCache.length) {
+      google.script.run.withSuccessHandler(function (rows) {
+        lostReasonsCache = rows;
+      }).withFailureHandler(onServerError).listLostReasons();
+    }
   }
 
   // ---- requirement lines, held client-side until the lead is saved ----

@@ -5,7 +5,8 @@
  * idempotent and non-destructive:
  *   - creates any tab declared in SCHEMA that doesn't exist
  *   - appends any missing column to an existing tab (never reorders, renames or deletes)
- *   - inserts seed rows only when the tab is empty
+ *   - inserts any seed row whose id is not already present (so values added to SCHEMA
+ *     later reach sheets that already exist)
  *   - migrates legacy role names and the legacy department column on Users
  *   - copies the old Parts/Units catalogs into the new Spares/Products tabs (old tabs are
  *     left untouched as a backup; nothing is deleted)
@@ -46,15 +47,33 @@ function setupSheet() {
       }
     }
 
-    if (def.seed && def.seed.length && sheet.getLastRow() < 2) {
+    // Seed rows are added by id, not only into an empty tab. Seeding only when the tab was
+    // empty meant a value added to SCHEMA later — a new compressor type, a new payment term —
+    // silently never appeared on any sheet that already existed, which is a bug that looks
+    // like an empty dropdown and gives no clue why.
+    if (def.seed && def.seed.length) {
       var headers = getHeaders_(sheet);
-      var rows = def.seed.map(function (obj) {
-        return headers.map(function (h) {
-          return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
-        });
+      var idCol = headers.indexOf('id');
+      var present = {};
+      if (idCol !== -1 && sheet.getLastRow() > 1) {
+        sheet.getRange(2, idCol + 1, sheet.getLastRow() - 1, 1).getValues()
+          .forEach(function (r) { present[String(r[0]).trim()] = true; });
+      }
+
+      var missingSeeds = def.seed.filter(function (obj) {
+        return idCol === -1 ? false : !present[String(obj.id).trim()];
       });
-      sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
-      report.seeded.push(tabName + ' (' + rows.length + ' rows)');
+
+      if (missingSeeds.length) {
+        var rows = missingSeeds.map(function (obj) {
+          return headers.map(function (h) {
+            return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
+          });
+        });
+        sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+        report.seeded.push(tabName + ' (' + rows.length + ' row' +
+          (rows.length === 1 ? '' : 's') + ')');
+      }
     }
   });
 
