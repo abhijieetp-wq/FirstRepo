@@ -1,0 +1,9 @@
+productCode,hsnCode,model,family,series,description,category,hpRating,fad,workingPressure,gstPct,piePrice,elgiPrice,warrantyMonths,leadTimeDays,uom,notes
+EG-15,84144010,EG 15,Screw > EG,EG,"Rotary screw, air cooled",Screw,20,85 CFM,7.5 bar,18,520000,650000,12,30,Nos,
+EG-22,84144010,EG 22,Screw > EG,EG,"Rotary screw, air cooled",Screw,30,125 CFM,7.5 bar,18,712000,890000,12,30,Nos,
+EG-37,84144010,EG 37,Screw > EG,EG,"Rotary screw, air cooled",Screw,50,212 CFM,7.5 bar,18,1064000,1330000,12,45,Nos,
+EG-55,84144010,EG 55,Screw > EG,EG,"Rotary screw, air cooled",Screw,75,318 CFM,7.5 bar,18,1520000,1900000,12,45,Nos,
+EG-75,84144010,EG 75,Screw > EG,EG,"Rotary screw, air cooled",Screw,100,424 CFM,7.5 bar,18,1976000,2470000,12,60,Nos,
+AB-05,84144090,AB 5,Reciprocating > AB,AB,"Two stage piston, belt driven",Reciprocating,5,18 CFM,12 bar,18,96000,120000,12,15,Nos,
+AB-10,84144090,AB 10,Reciprocating > AB,AB,"Two stage piston, belt driven",Reciprocating,10,36 CFM,12 bar,18,152000,190000,12,15,Nos,
+AB-15,84144090,AB 15,Reciprocating > AB,AB,"Two stage piston, belt driven",Reciprocating,15,53 CFM,12 bar,18,208000,260000,12,20,Nos,

@@ -1,0 +1,13 @@
+name,gstin,creditLimit,creditDays,paymentTerms,industry,territory,pan,notes
+Topworth Urja and Metals Ltd,27AABCT4521M1ZR,1500000,30,NET30,Steel,Nagpur,AABCT4521M,
+Bharat Forge Ltd,27AAACB2222C1ZX,2500000,45,NET45,Automotive,Pune,AAACB2222C,
+Kalyani Steels Ltd,27AAACK1234F1ZP,2000000,30,NET30,Steel,Pune,AAACK1234F,
+Sandvik Asia Pvt Ltd,27AAACS9999D1ZQ,1200000,30,NET30,Engineering,Pune,AAACS9999D,
+Thermax Limited,27AAACT3518Q1ZB,1800000,45,NET45,Engineering,Pune,AAACT3518Q,
+Ceat Ltd Nagpur,27AAACC1234R1ZK,900000,30,NET30,Rubber,Nagpur,AAACC1234R,
+Ultratech Cement Ltd,27AAACL6442L1ZM,3000000,45,NET45,Cement,Chandrapur,AAACL6442L,
+Indorama Synthetics,27AAACI5678J1ZT,1100000,30,NET30,Textile,Nagpur,AAACI5678J,
+Ashok Iron Works,27AAAFA7788K1ZV,400000,30,NET30,Engineering,Nagpur,AAAFA7788K,
+Gupta Engineering Works,27AAJFG2211H1ZN,250000,0,ADV100,Engineering,Nagpur,AAJFG2211H,
+Vikram Auto Components,27AACCV3344B1ZG,600000,30,NET30,Automotive,Chakan,AACCV3344B,
+Solar Industries India Ltd,27AAACS4455N1ZD,1400000,45,NET45,Chemicals,Nagpur,AAACS4455N,
