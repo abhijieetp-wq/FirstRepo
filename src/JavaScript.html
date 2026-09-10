@@ -1610,9 +1610,13 @@
     $("qb-deliveryterms").value = q.deliveryTerms || "";
     $("qb-warrantyterms").value = q.warrantyTerms || "";
     $("qb-notes").value = q.notes || "";
+    $("qb-pkgdisc").value = Number(q.packageDiscountPct) || 0;
+    $("qb-pf").value = Number(q.pfAmount) || 0;
+    $("qb-taxmode").value = q.taxMode || "Extra";
 
     ["qb-model", "qb-serial", "qb-date", "qb-validity", "qb-paymentterms",
-     "qb-deliveryterms", "qb-warrantyterms", "qb-notes"].forEach(function (f) {
+     "qb-deliveryterms", "qb-warrantyterms", "qb-notes",
+     "qb-pkgdisc", "qb-pf", "qb-taxmode"].forEach(function (f) {
       $(f).disabled = !editable;
     });
     $("btn-qb-save-header").style.display = editable ? "" : "none";
@@ -1627,6 +1631,9 @@
   function renderQuoteActions(q, editable) {
     var zone = $("qb-actions");
     var buttons = [];
+    // Available at every status, locked included: a sent quotation is exactly the one most
+    // often reprinted.
+    buttons.push('<button class="btn btn-sm" id="btn-qb-print">Print / PDF</button>');
     if (editable && q.status === "Draft") {
       buttons.push('<button class="btn btn-sm" data-qs="Approved">Mark Approved</button>');
     }
@@ -1645,6 +1652,7 @@
     zone.querySelectorAll("[data-qs]").forEach(function (btn) {
       btn.addEventListener("click", function () { changeQuoteStatus(btn.dataset.qs); });
     });
+    $("btn-qb-print").addEventListener("click", openQuoteDocument);
     if ($("btn-qb-revise")) {
       $("btn-qb-revise").addEventListener("click", function () {
         askDialog({
@@ -1707,7 +1715,10 @@
       warrantyTerms: $("qb-warrantyterms").value.trim(),
       machineModel: $("qb-model").value.trim(),
       serialNo: $("qb-serial").value.trim(),
-      notes: $("qb-notes").value.trim()
+      notes: $("qb-notes").value.trim(),
+      packageDiscountPct: $("qb-pkgdisc").value,
+      pfAmount: $("qb-pf").value,
+      taxMode: $("qb-taxmode").value
     });
   });
 
@@ -1776,13 +1787,94 @@
     });
   }
 
+  /**
+   * The same arithmetic the printed offer shows, so the screen and the document never
+   * disagree. When GST is quoted as extra the total genuinely excludes it — the label has to
+   * say so, or a coordinator reads a tax line and a total that does not contain it.
+   */
   function renderQuoteTotals(q) {
-    $("qb-totals").innerHTML =
-      '<div class="totals-row"><span>Subtotal</span><span class="mono">' + fmt(q.subtotal) + "</span></div>" +
-      '<div class="totals-row"><span>Discount</span><span class="mono">− ' + fmt(q.discountAmt) + "</span></div>" +
-      '<div class="totals-row"><span>Tax</span><span class="mono">' + fmt(q.taxAmt) + "</span></div>" +
-      '<div class="totals-row grand"><span>Grand Total</span><span>' + fmt(q.grand) + "</span></div>";
+    var taxExtra = (q.taxMode || "Extra") === "Extra";
+    var pkg = Number(q.packageDiscountPct) || 0;
+    var rows = [
+      ["Total package price", fmt(q.subtotal), ""]
+    ];
+    if (Number(q.discountAmt) > 0) {
+      rows.push([pkg > 0 ? "Discount (incl. " + pkg + "% package)" : "Discount",
+                 "− " + fmt(q.discountAmt), ""]);
+    }
+    if (Number(q.pfAmount) > 0) rows.push(["P&F", fmt(q.pfAmount), ""]);
+    if (Number(q.freight) > 0) rows.push(["Freight", fmt(q.freight), ""]);
+    rows.push([taxExtra ? "GST (charged extra)" : "GST", fmt(q.taxAmt), ""]);
+    rows.push([taxExtra ? "Grand Total (before GST)" : "Grand Total", fmt(q.grand), "grand"]);
+
+    $("qb-totals").innerHTML = rows.map(function (r) {
+      return '<div class="totals-row ' + r[2] + '"><span>' + r[0] +
+        '</span><span class="mono">' + r[1] + "</span></div>";
+    }).join("");
   }
+
+  // ---- The printed quotation ----
+  /**
+   * Renders the offer server-side and shows it in the dialog. The same HTML is what the PDF
+   * converter receives, so the preview is the document rather than an impression of it —
+   * a wrong price is visible here, before it reaches the customer.
+   */
+  function openQuoteDocument() {
+    if (!openQuote) return;
+    $("qd-sub").textContent = "Loading " + openQuote.quoteNo + " " + (openQuote.revision || "R0") + "…";
+    $("qd-result").innerHTML = "";
+    $("qd-frame").srcdoc = "";
+    $("btn-qd-pdf").disabled = true;
+    $("btn-qd-print").disabled = true;
+    $("quotedoc-modal-backdrop").classList.add("show");
+
+    google.script.run.withSuccessHandler(function (html) {
+      $("qd-frame").srcdoc = html;
+      $("qd-sub").textContent = openQuote.quoteNo + " " + (openQuote.revision || "R0") +
+        " for " + openQuote.customerName +
+        " — this is exactly what the PDF will contain.";
+      $("btn-qd-pdf").disabled = false;
+      $("btn-qd-print").disabled = false;
+    }).withFailureHandler(function (err) {
+      $("quotedoc-modal-backdrop").classList.remove("show");
+      onServerError(err);
+    }).buildQuotationHtml(openQuote.id);
+  }
+
+  $("btn-qd-close").addEventListener("click", function () {
+    $("quotedoc-modal-backdrop").classList.remove("show");
+    $("qd-frame").srcdoc = "";
+  });
+
+  // Printing the preview is the quickest route to paper or to a local PDF. It goes through
+  // the browser, so nothing is stored — the Drive copy below is the one that gets kept.
+  $("btn-qd-print").addEventListener("click", function () {
+    try {
+      var frame = $("qd-frame");
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch (e) {
+      showMsg("This browser would not open the print dialog from inside the app. " +
+        "Use Save PDF to Drive and print from there.", "error");
+    }
+  });
+
+  $("btn-qd-pdf").addEventListener("click", function () {
+    $("btn-qd-pdf").disabled = true;
+    $("qd-result").innerHTML = '<div class="empty" style="padding:10px;">Creating the PDF…</div>';
+    google.script.run.withSuccessHandler(function (file) {
+      $("qd-result").innerHTML =
+        '<div class="compare-strip doc-link"><b>' + escapeHtml(file.name) + '</b> saved to your ' +
+        'Drive, in the folder <b>ERP Quotations</b>. ' +
+        '<a href="' + escapeHtml(file.url) + '" target="_blank" rel="noopener">Open it</a> ' +
+        'to download it or attach it to an email.</div>';
+      $("btn-qd-pdf").disabled = false;
+    }).withFailureHandler(function (err) {
+      $("qd-result").innerHTML = "";
+      $("btn-qd-pdf").disabled = false;
+      onServerError(err);
+    }).generateQuotationPdf(openQuote.id);
+  });
 
   // ---- Adding items to a quotation ----
   $("btn-qb-add-item").addEventListener("click", function () {
@@ -4973,7 +5065,8 @@
 
   // ================= SETTINGS =================
   // "tallyconn", not "tally" — the Dispatch screen already owns a subtab-tally element.
-  var SET_SUBTABS = ["users", "lists", "reasons", "locations", "tallyconn", "dataimport", "system"];
+  var SET_SUBTABS = ["users", "lists", "reasons", "locations", "company", "quotetext",
+                     "tallyconn", "dataimport", "system"];
   var setMode = "users";
   var setData = null;
 
@@ -5033,6 +5126,8 @@
     else if (setMode === "lists") renderListsPanel();
     else if (setMode === "reasons") renderReasonsPanel();
     else if (setMode === "locations") renderLocationsPanel();
+    else if (setMode === "company") renderCompanyPanel();
+    else if (setMode === "quotetext") renderQuoteTextPanel();
     else if (setMode === "tallyconn") renderTallyPanel();
     else if (setMode === "dataimport") renderImportPanel();
     else renderSystemPanel();
@@ -5765,6 +5860,172 @@
   }
 
   // ---- System ----
+
+  // ---- Letterhead (the seller, as printed) ----
+  /**
+   * Everything on this panel appears on a document a customer reads, so it is edited here
+   * rather than sitting in the code where a changed phone number would need a developer.
+   */
+  var COMPANY_FIELDS = [
+    ["legalName", "Company Name *", "The name that appears on the letterhead"],
+    ["tradeName", "Trading Name", "If different from the legal name"],
+    ["partnerLine", "Partner Line", "Printed above the name"],
+    ["addressLine1", "Address Line 1", ""],
+    ["addressLine2", "Address Line 2", ""],
+    ["city", "City", ""],
+    ["state", "State", ""],
+    ["pincode", "PIN Code", ""],
+    ["gstin", "GSTIN", "15 characters"],
+    ["pan", "PAN", ""],
+    ["phone", "Phone", ""],
+    ["altPhone", "Alternate Phone", ""],
+    ["email", "Email", ""],
+    ["website", "Website", ""],
+    ["logoUrl", "Logo URL", "A publicly readable image link, printed at the top"],
+    ["bankName", "Bank Name", ""],
+    ["bankAccount", "Bank Account No.", ""],
+    ["bankIfsc", "IFSC", ""],
+    ["quotePrefix", "Quotation Prefix", "Quote numbers are built from this"],
+    ["jurisdiction", "Jurisdiction", "Printed in the terms"]
+  ];
+
+  function renderCompanyPanel() {
+    var co = setData.companyProfile || {};
+    var editable = canAdminister();
+
+    var body = '<div class="grid grid-3">' + COMPANY_FIELDS.map(function (f) {
+      return '<div class="field"><label>' + escapeHtml(f[1]) + "</label>" +
+        '<input id="co-' + f[0] + '" value="' + escapeHtml(co[f[0]] || "") + '"' +
+        (f[2] ? ' placeholder="' + escapeHtml(f[2]) + '"' : "") +
+        (editable ? "" : " disabled") + " /></div>";
+    }).join("") + "</div>" +
+      (editable
+        ? '<div style="display:flex; justify-content:flex-end; margin-top:16px;">' +
+          '<button class="btn btn-primary btn-sm" id="btn-save-company">Save Letterhead</button></div>'
+        : "");
+
+    $("set-panel").innerHTML = panelCard(
+      "Letterhead",
+      "The seller, as it is printed at the top of every quotation. Change it here and every " +
+        "document printed afterwards carries the new details — documents already saved as PDFs " +
+        "keep what they had.",
+      "", body);
+
+    if (editable) {
+      $("btn-save-company").addEventListener("click", function () {
+        var payload = {};
+        COMPANY_FIELDS.forEach(function (f) { payload[f[0]] = $("co-" + f[0]).value.trim(); });
+        google.script.run.withSuccessHandler(function () {
+          loadSettings();
+          showMsg("Letterhead saved.", "success");
+        }).withFailureHandler(onServerError).saveCompanyProfile(payload);
+      });
+    }
+  }
+
+  // ---- Standing quotation text ----
+  var QTPL_SECTION_LABELS = {
+    CoverLetter: "Cover letter",
+    WhyBrand: "Why ELGi",
+    ScopeOfSupply: "Scope of supply",
+    Terms: "Terms & conditions",
+    InstallationNotes: "Installation guidelines"
+  };
+
+  function qtplSectionLabel(section) {
+    return QTPL_SECTION_LABELS[section] || section;
+  }
+
+  function renderQuoteTextPanel() {
+    var rows = setData.quoteTemplates || [];
+    var editable = canAdminister();
+
+    var body = rows.length
+      ? '<div style="overflow-x:auto;"><table><thead><tr><th>Section</th><th>Applies To</th>' +
+        "<th>Heading</th><th>Lines</th><th>Status</th><th></th></tr></thead><tbody>" +
+        rows.map(function (t) {
+          var live = String(t.active).toUpperCase() !== "FALSE";
+          var lines = String(t.body || "").split("\n").filter(function (l) {
+            return l.trim() !== "";
+          }).length;
+          return "<tr>" +
+            "<td><b>" + escapeHtml(qtplSectionLabel(t.section)) + "</b></td>" +
+            "<td>" + escapeHtml(t.businessStream || "Both streams") + "</td>" +
+            "<td>" + escapeHtml(t.title || "—") + "</td>" +
+            '<td class="num">' + lines + "</td>" +
+            '<td><span class="badge ' + (live ? "badge-won" : "badge-lost") + '">' +
+              (live ? "Printed" : "Hidden") + "</span></td>" +
+            '<td class="center">' + (editable
+              ? '<button class="btn btn-sm" data-qtpl="' + escapeHtml(t.id) + '">Edit</button>'
+              : "") + "</td>" +
+            "</tr>";
+        }).join("") + "</tbody></table></div>"
+      : '<div class="empty">Nothing yet. Run Setup on the System tab to install the ' +
+        "standard sections.</div>";
+
+    $("set-panel").innerHTML = panelCard(
+      "Quotation Text",
+      "The wording that is the same on every quotation — the covering letter, why ELGi, the " +
+        "scope of supply, the terms. Reword it here; the next quotation printed uses the new " +
+        "wording. A section left blank for a stream is printed on both.",
+      editable ? '<button class="btn btn-primary btn-sm" id="btn-add-qtpl">+ Add Section</button>' : "",
+      body);
+
+    if (editable) {
+      $("btn-add-qtpl").addEventListener("click", function () { openQtplModal(null); });
+      $("set-panel").querySelectorAll("[data-qtpl]").forEach(function (btn) {
+        btn.addEventListener("click", function () { openQtplModal(btn.dataset.qtpl); });
+      });
+    }
+  }
+
+  function openQtplModal(id) {
+    var t = id
+      ? (setData.quoteTemplates || []).filter(function (x) { return String(x.id) === String(id); })[0]
+      : null;
+
+    $("qtpl-modal-title").textContent = t ? "Edit — " + qtplSectionLabel(t.section) : "Add Section";
+    $("qtpl-id").value = t ? t.id : "";
+    $("qtpl-section").innerHTML = (setData.quoteSections || []).map(function (sec) {
+      return '<option value="' + escapeHtml(sec) + '">' + escapeHtml(qtplSectionLabel(sec)) + "</option>";
+    }).join("");
+    $("qtpl-section").value = t ? t.section : "Terms";
+    $("qtpl-stream").innerHTML = '<option value="">Both streams</option>' +
+      BUSINESS_STREAMS.map(function (st) {
+        return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
+      }).join("");
+    $("qtpl-stream").value = t ? (t.businessStream || "") : "";
+    $("qtpl-sort").value = t ? (Number(t.sortOrder) || 0) : 0;
+    $("qtpl-title").value = t ? (t.title || "") : "";
+    $("qtpl-body").value = t ? (t.body || "") : "";
+    $("qtpl-active").checked = !t || String(t.active).toUpperCase() !== "FALSE";
+    $("qtpl-modal-backdrop").classList.add("show");
+  }
+
+  $("btn-cancel-qtpl").addEventListener("click", function () {
+    $("qtpl-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-save-qtpl").addEventListener("click", function () {
+    if (!$("qtpl-body").value.trim()) {
+      showMsg("The text cannot be empty.", "error");
+      return;
+    }
+    google.script.run.withSuccessHandler(function () {
+      $("qtpl-modal-backdrop").classList.remove("show");
+      loadSettings();
+      showMsg("Quotation text saved.", "success");
+    }).withFailureHandler(onServerError).saveQuoteTemplate({
+      id: $("qtpl-id").value || "",
+      section: $("qtpl-section").value,
+      businessStream: $("qtpl-stream").value,
+      sortOrder: $("qtpl-sort").value,
+      title: $("qtpl-title").value.trim(),
+      body: $("qtpl-body").value,
+      active: $("qtpl-active").checked
+    });
+  });
+
   function renderSystemPanel() {
     var sys = setData.system;
     $("set-panel").innerHTML = panelCard(

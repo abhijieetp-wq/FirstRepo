@@ -82,6 +82,8 @@ src/
   Collections.gs     ageing, follow-ups, commitments, receipts, Tally pull (M16, FR-051..055)
   Dashboard.gs       control tower + stream dashboards in one payload (M17/M18, FR-057)
   Settings.gs        brand tiles, users, lists, warehouses, Tally config (D5, FR-062/074)
+  CompanyProfile.gs  the letterhead and the standing quotation text, edited in Settings
+  QuotationDocument.gs  the printed quotation: preview HTML and the PDF
   TallyImport.gs     opening balances from Tally: customers, stock, receivables
   CatalogImport.gs   bulk CSV upload with preview-before-commit
   Code.gs            doGet(), include(), bootstrap()
@@ -184,6 +186,11 @@ Target is the blueprint's own Phase 1 workstreams (Development Roadmap sheet).
       warehouses and bins, the Tally connection stored in Script Properties with a Test
       Connection action (D3), and a system panel that can re-run the schema migrator and read
       the audit log (FR-061)
+- [x] **The printed quotation**: one template serving both streams, built to the shape of the
+      client's own compressor offer — letterhead, covering letter, why ELGi, the technical
+      specification of each machine, the scope of supply, the price schedule with package
+      pricing, the terms and the installation notes. Previewed on screen and saved as a PDF
+      to Drive
 
 ## Getting PMT's existing data in
 
@@ -273,3 +280,43 @@ Sheet by hand — but recovering from the Sheet is a bad afternoon, so the app r
 the repo, so they cannot ride along in an export or a commit. A stored credential is never
 read back out: the screen can report that one exists and replace or clear it, nothing more,
 and the audit entry records the endpoint but not the credential.
+
+## The printed quotation
+
+**One document, two streams.** The client sent two samples that disagreed in places, and told
+us to follow the compressor offer where they do. A spares offer is therefore the same document
+with the sections that have no content simply left out — there is no second template to drift
+out of step with the first.
+
+**Nothing that reads as boilerplate is written in code.** The letterhead comes from the
+`CompanyProfile` tab (Settings → Letterhead) and every standing paragraph from `QuoteTemplates`
+(Settings → Quotation Text). Terms change more often than software does, so rewording a clause
+is an edit on a screen, not a release.
+
+**Package pricing is how their own offers are priced**: every line is listed at full price and
+one percentage is struck off the total, with GST either quoted as extra or added in. Those
+three fields live on the quotation (Package Discount %, P&F, GST), and the on-screen totals
+box shows the same arithmetic as the printed page — including saying "before GST" when the
+total genuinely excludes it.
+
+**The preview is the document.** Print / PDF on a quotation renders the real HTML and shows it
+in a frame; the PDF converter is handed exactly the same markup. A wrong price is visible
+before it reaches the customer, not after.
+
+**Two things to do on first use.**
+
+1. *Scope of supply is not seeded.* Their compressor offer has one and we did not invent its
+   wording. Paste it in at Settings → Quotation Text → **+ Add Section** → Scope of supply. A
+   line ending in a colon is printed as a heading for the block beneath it. Until it is added,
+   the offer prints without that section and the enclosure list on page one says so honestly.
+2. *Saving a PDF needs Drive permission.* `generateQuotationPdf` writes into a Drive folder
+   named **ERP Quotations**. That is a new OAuth scope, so after deploying this version each
+   user is asked to re-authorise once, and the app must be redeployed as a **new version**
+   before anyone sees the button at all. The file lands in the Drive of whoever clicked —
+   the app never becomes a place documents get stranded.
+
+**The rupee symbol is worth checking on the first PDF.** The preview is rendered by the
+browser and is definitely fine; the PDF goes through Apps Script's own HTML-to-PDF converter,
+which is a basic renderer. That converter is also why the document is built from plain tables
+and rules rather than flexbox — it silently ignores modern layout. If ₹ comes out as a box in
+the PDF, say so and it becomes "Rs." in one edit.

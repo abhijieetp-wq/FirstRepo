@@ -55,6 +55,11 @@ function getSettings() {
     lostReasons: readTable_('LostReasons').map(stripRow_),
     warehouses: readTable_('Warehouses').map(stripRow_),
     roles: ALL_ROLES,
+    // The letterhead and the standing quotation text are edited here, because they change
+    // more often than the software does.
+    companyProfile: getCompanyProfile(),
+    quoteTemplates: listQuoteTemplates({ includeInactive: true }),
+    quoteSections: QUOTE_SECTIONS,
     tally: {
       endpoint: props.getProperty(TALLY_PROPS.ENDPOINT) || '',
       company: props.getProperty(TALLY_PROPS.COMPANY) || '',

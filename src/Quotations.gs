@@ -276,7 +276,25 @@ function saveQuotationHeader(input) {
   var existing = requireUnlockedQuote_(input.id);
 
   var validityDays = Number(input.validityDays);
-  if (isNaN(validityDays) || validityDays <= 0) validityDays = Number(existing.validityDays) || 7;
+  if (isNaN(validityDays) || validityDays <= 0) validityDays = Number(existing.validityDays) || 30;
+
+  // The package discount is the one their printed offer shows: everything listed at full price
+  // with a single percentage struck off the total.
+  var pkgPct = input.packageDiscountPct === undefined || input.packageDiscountPct === ''
+    ? Number(existing.packageDiscountPct) || 0
+    : Number(input.packageDiscountPct);
+  if (isNaN(pkgPct) || pkgPct < 0 || pkgPct > 100) {
+    throw new Error('Package discount must be between 0 and 100.');
+  }
+  var pf = input.pfAmount === undefined || input.pfAmount === ''
+    ? Number(existing.pfAmount) || 0
+    : Number(input.pfAmount);
+  if (isNaN(pf) || pf < 0) throw new Error('P&F must be zero or more.');
+
+  var taxMode = String(input.taxMode || existing.taxMode || 'Extra').trim();
+  if (['Extra', 'Included'].indexOf(taxMode) === -1) {
+    throw new Error('Tax mode must be Extra or Included.');
+  }
 
   updateRowById_('Quotations', 'id', input.id, {
     date: String(input.date || existing.date).slice(0, 10),
@@ -287,8 +305,15 @@ function saveQuotationHeader(input) {
     warrantyTerms: String(input.warrantyTerms || '').trim(),
     machineModel: String(input.machineModel || '').trim(),
     serialNo: String(input.serialNo || '').trim(),
-    notes: String(input.notes || '').trim()
+    notes: String(input.notes || '').trim(),
+    packageDiscountPct: pkgPct,
+    pfAmount: pf,
+    taxMode: taxMode
   }, 'Quotation header updated');
+
+  // Discount, P&F and tax mode all move the totals, so they have to be recomputed here and
+  // not only when a line changes.
+  recalcQuotation_(input.id);
 
   return getQuotation(input.id);
 }

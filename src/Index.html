@@ -273,6 +273,27 @@
             <div class="field"><label>Warranty Terms</label><input id="qb-warrantyterms" /></div>
             <div class="field"><label>Notes</label><input id="qb-notes" /></div>
           </div>
+
+          <div class="grid grid-3" style="margin-top:12px;">
+            <div class="field"><label>Package Discount %</label>
+              <input id="qb-pkgdisc" type="number" min="0" max="100" step="0.01" />
+            </div>
+            <div class="field"><label>P&amp;F Charges</label>
+              <input id="qb-pf" type="number" min="0" step="0.01" />
+            </div>
+            <div class="field"><label>GST</label>
+              <select id="qb-taxmode">
+                <option value="Extra">Extra — offer price excludes GST</option>
+                <option value="Included">Included — offer total includes GST</option>
+              </select>
+            </div>
+          </div>
+          <p style="font-size:12.5px; color:var(--ink-soft); margin:8px 0 0;">
+            The printed offer lists every line at full price and strikes one percentage off the
+            package, the way your compressor quotations do. Leave the discount at 0 to quote line
+            prices as they stand.
+          </p>
+
           <div style="display:flex; justify-content:flex-end; margin-top:14px;">
             <button class="btn btn-sm" id="btn-qb-save-header">Save Details</button>
           </div>
@@ -432,6 +453,8 @@
         <button class="btn btn-sm" id="subtab-lists">Dropdown Lists</button>
         <button class="btn btn-sm" id="subtab-reasons">Lost Reasons</button>
         <button class="btn btn-sm" id="subtab-locations">Warehouses</button>
+        <button class="btn btn-sm" id="subtab-company">Letterhead</button>
+        <button class="btn btn-sm" id="subtab-quotetext">Quotation Text</button>
         <button class="btn btn-sm" id="subtab-tallyconn">Tally Connection</button>
         <button class="btn btn-sm" id="subtab-dataimport">Data Import</button>
         <button class="btn btn-sm" id="subtab-system">System</button>
@@ -658,6 +681,57 @@
 
 <!-- Generic confirm / reason dialog. Native prompt() and confirm() are blocked inside
      the Apps Script sandbox, so every such interaction uses this instead. -->
+<!-- Printed Quotation Preview -->
+<div class="modal-backdrop" id="quotedoc-modal-backdrop">
+  <div class="modal" style="max-width:980px;">
+    <h3 style="margin-bottom:4px;">Printed quotation</h3>
+    <p id="qd-sub" style="color:var(--ink-soft); font-size:12.5px; margin:0 0 14px;"></p>
+
+    <div class="doc-preview"><iframe id="qd-frame" title="Quotation preview"></iframe></div>
+
+    <div id="qd-result" style="margin-top:12px;"></div>
+
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
+      <button class="btn" id="btn-qd-close" type="button">Close</button>
+      <button class="btn" id="btn-qd-print" type="button">Print</button>
+      <button class="btn btn-primary" id="btn-qd-pdf" type="button">Save PDF to Drive</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quotation Text Modal -->
+<div class="modal-backdrop" id="qtpl-modal-backdrop">
+  <div class="modal" style="max-width:760px;">
+    <h3 id="qtpl-modal-title" style="margin-bottom:4px;">Quotation Text</h3>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;">
+      This is printed on the quotation word for word. One item per line — the document turns
+      the lines into a numbered or bulleted list.
+    </p>
+    <input type="hidden" id="qtpl-id" />
+
+    <div class="grid grid-3">
+      <div class="field"><label>Section</label><select id="qtpl-section"></select></div>
+      <div class="field"><label>Applies To</label><select id="qtpl-stream"></select></div>
+      <div class="field"><label>Order</label><input id="qtpl-sort" type="number" min="0" step="1" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Heading</label><input id="qtpl-title" placeholder="Printed above the text" />
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Text</label>
+      <textarea id="qtpl-body" rows="12" style="font-family:'IBM Plex Mono', monospace; font-size:12.5px;"></textarea>
+    </div>
+    <label class="check-line" style="margin-top:12px;">
+      <input type="checkbox" id="qtpl-active" /> Print this section
+    </label>
+
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+      <button class="btn" id="btn-cancel-qtpl" type="button">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-qtpl" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="ask-modal-backdrop">
   <div class="modal" style="max-width:480px;">
     <h3 id="ask-title" style="margin-bottom:10px;"></h3>
