@@ -113,12 +113,12 @@ function createBlankQuotation(input) {
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_('ELGI'),
+    quoteNo: nextQuoteNo_(defaultBrand_()),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
     businessStream: stream,
-    brand: 'ELGI',
+    brand: defaultBrand_(),
     customerId: customer.id,
     contactId: primary ? primary.id : '',
     billingAddressId: billing ? billing.id : '',
@@ -184,12 +184,12 @@ function createQuotationFromEnquiry(spareEnquiryId) {
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_('ELGI'),
+    quoteNo: nextQuoteNo_(defaultBrand_()),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
     businessStream: STREAM_SPARE,
-    brand: 'ELGI',
+    brand: defaultBrand_(),
     customerId: enquiry.customerId,
     contactId: primary ? primary.id : '',
     billingAddressId: billing ? billing.id : '',
@@ -583,7 +583,12 @@ function nextQuoteNo_(brand) {
   })[0];
   var base = String((profile && profile.quotePrefix) || 'PIE/ELGI/QUOT').trim()
     .replace(/\/+$/, '');
-  if (brand) base = base.replace(/\/ELGI\//i, '/' + String(brand).toUpperCase() + '/');
+  // The prefix carries the house brand in the middle; a second brand swaps that segment out.
+  var house = String((profile && profile.defaultBrand) || 'ELGI').trim();
+  if (brand && house && String(brand).toUpperCase() !== house.toUpperCase()) {
+    base = base.replace(new RegExp('/' + house.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/', 'i'),
+      '/' + String(brand).toUpperCase() + '/');
+  }
 
   var prefix = base + '/' + indianFinancialYear_() + '/';
   var highest = 0;
@@ -671,12 +676,12 @@ function createQuotationFromOpportunity(opportunityId) {
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_('ELGI'),
+    quoteNo: nextQuoteNo_(defaultBrand_()),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
     businessStream: STREAM_COMPRESSOR,
-    brand: 'ELGI',
+    brand: defaultBrand_(),
     customerId: opportunity.customerId,
     contactId: primary ? primary.id : '',
     billingAddressId: billing ? billing.id : '',

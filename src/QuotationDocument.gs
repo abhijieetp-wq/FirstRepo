@@ -48,6 +48,26 @@ function quoteTemplate_(section, stream) {
   })[0];
 }
 
+/**
+ * The document's short phrases, one `key = value` per line in the Labels section.
+ *
+ * A column per phrase would have meant twenty columns and a migration every time one more
+ * word turned out to be client-specific. This way the whole vocabulary of the document is one
+ * editable block, and any key left out simply falls back to what the code would have said.
+ */
+function docLabels_(stream) {
+  var tpl = quoteTemplate_('Labels', stream);
+  var out = {};
+  if (!tpl) return out;
+  templateLines_(tpl.body).forEach(function (line) {
+    var eq = line.indexOf('=');
+    if (eq === -1) return;
+    var key = line.slice(0, eq).trim();
+    if (key) out[key] = line.slice(eq + 1).trim();
+  });
+  return out;
+}
+
 function ddmmyyyy_(iso) {
   var p = String(iso || '').slice(0, 10).split('-');
   return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : String(iso || '');
@@ -92,6 +112,12 @@ function buildQuotationHtml(quotationId) {
     return String(u.email).toLowerCase() === String(q.preparedBy).toLowerCase();
   })[0] || {};
 
+  var labels = docLabels_(stream);
+  /** A phrase from the Labels section, or what the code would have said. */
+  var L = function (key, fallback) {
+    return labels[key] === undefined || labels[key] === '' ? fallback : labels[key];
+  };
+
   var out = [];
   var push = function (h) { out.push(h); };
 
@@ -107,18 +133,23 @@ function buildQuotationHtml(quotationId) {
         (co.email ? 'Email: ' + esc_(co.email) : '') +
         (co.phone ? ' &nbsp;|&nbsp; Mobile: ' + esc_(co.phone) : '') +
         (co.website ? ' &nbsp;|&nbsp; ' + esc_(co.website) : '') + '</div>' +
-      '<div class="lh-line"><b>GST No: ' + esc_(co.gstin) + '</b></div>' +
+      (co.gstin ? '<div class="lh-line"><b>' + esc_(L('gstNo', 'GST No')) + ': ' +
+        esc_(co.gstin) + '</b></div>' : '') +
       '</td></tr></table><hr class="rule" />';
   };
 
+  // The seal prints only if one is configured. This client stamps the paper by hand, so the
+  // field is blank and the block simply leaves room for it.
   var signoff = function () {
     return '<div class="signoff">' +
-      '<div>Yours sincerely,</div>' +
+      '<div>' + esc_(co.signOffLine || 'Yours sincerely,') + '</div>' +
       '<div class="for">For ' + esc_(co.legalName) + '</div>' +
-      '<div class="sig-space"></div>' +
+      (co.sealUrl ? '<div><img src="' + esc_(co.sealUrl) + '" class="seal" /></div>'
+                  : '<div class="sig-space"></div>') +
       '<div><b>' + esc_(preparer.name || '') + '</b>' +
-        (preparer.role ? ' | ' + esc_(preparer.role) : '') + '</div>' +
-      (co.phone ? '<div>P: ' + esc_(co.phone) + '</div>' : '') +
+        (preparer.designation || preparer.role
+          ? ' | ' + esc_(preparer.designation || preparer.role) : '') + '</div>' +
+      (co.signOffPhone ? '<div>P: ' + esc_(co.signOffPhone) + '</div>' : '') +
       '</div>';
   };
 
@@ -126,29 +157,34 @@ function buildQuotationHtml(quotationId) {
 
   // ---------------------------------------------------------------- page 1: the letter
   push(letterhead());
-  push('<div class="doc-title">' +
-    (isCompressor ? 'ELGi ELECTRIC POWERED OIL SCREW AIR COMPRESSOR' : 'ELGi GENUINE SPARE PARTS') +
-    '</div>');
-  push('<div class="doc-sub">' + (isCompressor ? 'TECHNICAL OFFER' : 'OFFER') + '</div>');
+  var titleTpl = quoteTemplate_('DocumentTitle', stream);
+  if (titleTpl) {
+    if (titleTpl.title) push('<div class="doc-title">' + esc_(titleTpl.title) + '</div>');
+    if (titleTpl.body) push('<div class="doc-sub">' + esc_(String(titleTpl.body).trim()) + '</div>');
+  }
 
   push('<table class="refbar"><tr>' +
-    '<td><b>Ref No.:</b> ' + esc_(q.quoteNo) +
+    '<td><b>' + esc_(L('refNo', 'Ref No.')) + ':</b> ' + esc_(q.quoteNo) +
       (q.revision && q.revision !== 'R0' ? ' <b>(' + esc_(q.revision) + ')</b>' : '') + '</td>' +
-    '<td class="right"><b>Dated:</b> ' + esc_(ddmmyyyy_(q.date)) + '</td>' +
+    '<td class="right"><b>' + esc_(L('dated', 'Dated')) + ':</b> ' +
+      esc_(ddmmyyyy_(q.date)) + '</td>' +
     '</tr></table>');
 
   push('<div class="to">To,<br />' +
     '<b>M/s. ' + esc_(customer.name) + '</b><br />' +
     (address.line1 ? esc_([address.line1, address.line2, address.city].filter(Boolean).join(', ')) + '<br />' : '') +
-    (contact.name ? 'Kind Attention: ' + esc_(contact.name) + '<br />' : '') +
-    (contact.phone ? 'Mobile No: ' + esc_(contact.phone) + '<br />' : '') +
-    (contact.email ? 'Email Id: ' + esc_(contact.email) : '') +
+    (contact.name ? esc_(L('attention', 'Kind Attention')) + ': ' + esc_(contact.name) + '<br />' : '') +
+    (contact.phone ? esc_(L('mobile', 'Mobile No')) + ': ' + esc_(contact.phone) + '<br />' : '') +
+    (contact.email ? esc_(L('email', 'Email Id')) + ': ' + esc_(contact.email) : '') +
     '</div>');
 
   var cover = quoteTemplate_('CoverLetter', stream);
   if (cover) {
-    push('<div class="subject"><b>Subject:</b> ' + esc_(cover.title) + '</div>');
-    push('<div class="salut">Dear Sir/Madam,</div>');
+    if (cover.title) {
+      push('<div class="subject"><b>' + esc_(L('subject', 'Subject')) + ':</b> ' +
+        esc_(cover.title) + '</div>');
+    }
+    push('<div class="salut">' + esc_(co.salutation || 'Dear Sir/Madam,') + '</div>');
     String(cover.body).split('\n\n').forEach(function (para) {
       if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
     });
@@ -173,27 +209,38 @@ function buildQuotationHtml(quotationId) {
   // is worse than omitting it.
   var scopeTpl = quoteTemplate_('ScopeOfSupply', stream);
   var enclosures = [];
-  if (specced.length && scopeTpl) enclosures.push('Technical specifications and scope of supply');
-  else if (specced.length) enclosures.push('Technical specifications');
-  else if (scopeTpl) enclosures.push('Scope of supply');
-  enclosures.push('Price schedule');
-  if (quoteTemplate_('Terms', stream)) enclosures.push('Commercial terms and conditions');
-  if (isCompressor && quoteTemplate_('InstallationNotes', stream)) enclosures.push('Installation guidelines');
-  push('<div class="h2">Please find enclosed with this offer</div><ul>');
+  if (specced.length && scopeTpl) {
+    enclosures.push(L('enclSpecScope', 'Technical specifications and scope of supply'));
+  } else if (specced.length) {
+    enclosures.push(L('enclSpec', 'Technical specifications'));
+  } else if (scopeTpl) {
+    enclosures.push(L('scopeHeading', 'Scope of supply'));
+  }
+  enclosures.push(L('enclPrice', 'Price schedule'));
+  if (quoteTemplate_('Terms', stream)) enclosures.push(L('enclTerms', 'Commercial terms and conditions'));
+  if (isCompressor && quoteTemplate_('InstallationNotes', stream)) {
+    enclosures.push(L('enclInstall', 'Installation guidelines'));
+  }
+  push('<div class="h2">' + esc_(L('enclosures', 'Please find enclosed with this offer')) +
+    '</div><ul>');
   enclosures.forEach(function (e) { push('<li>' + esc_(e) + '</li>'); });
   push('</ul>');
 
-  push('<p>We hope our offer is in line with your requirement. Should you need any further ' +
-    'clarification, please feel free to contact the undersigned. We look forward to receiving ' +
-    'your valuable order.</p>');
+  var closing = quoteTemplate_('Closing', stream);
+  if (closing) {
+    String(closing.body).split('\n\n').forEach(function (para) {
+      if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
+    });
+  }
   push(signoff());
 
   // ---------------------------------------------------------------- specifications
   if (specced.length) {
     push('<div class="page-break"></div>');
     push(letterhead());
-    push('<div class="h1">Technical specifications</div>');
-    push('<div class="note">At normal working pressure, all data as per ISO 1217, Annex C.</div>');
+    push('<div class="h1">' + esc_(L('specHeading', 'Technical specifications')) + '</div>');
+    var specNote = quoteTemplate_('SpecNote', stream);
+    if (specNote) push('<div class="note">' + esc_(String(specNote.body).trim()) + '</div>');
     specced.forEach(function (i) {
       var p = products[String(i.itemId)];
       var rows = [
@@ -208,7 +255,8 @@ function buildQuotationHtml(quotationId) {
       ].filter(function (r) { return String(r[1] || '').trim() !== ''; });
 
       push('<div class="spec-title">' + esc_(p.model || p.productCode) + '</div>');
-      push('<table class="spec"><tr><th>Description</th><th>Specifications</th></tr>');
+      push('<table class="spec"><tr><th>' + esc_(L('colDescription', 'Description')) +
+        '</th><th>' + esc_(L('colSpecification', 'Specifications')) + '</th></tr>');
       rows.forEach(function (r) {
         push('<tr><td>' + esc_(r[0]) + '</td><td>' + esc_(r[1]) + '</td></tr>');
       });
@@ -217,7 +265,7 @@ function buildQuotationHtml(quotationId) {
   }
 
   if (scopeTpl) {
-    push('<div class="h1">' + esc_(scopeTpl.title || 'Scope of supply') + '</div>');
+    push('<div class="h1">' + esc_(scopeTpl.title || L('scopeHeading', 'Scope of supply')) + '</div>');
     templateLines_(scopeTpl.body).forEach(function (l) {
       // A line ending in a colon is a heading for the block beneath it.
       push(/:$/.test(l) ? '<div class="scope-head">' + esc_(l) + '</div>'
@@ -228,10 +276,14 @@ function buildQuotationHtml(quotationId) {
   // ---------------------------------------------------------------- price schedule
   push('<div class="page-break"></div>');
   push(letterhead());
-  push('<div class="h1">Price schedule</div>');
+  push('<div class="h1">' + esc_(L('priceHeading', 'Price schedule')) + '</div>');
   push('<table class="price"><tr>' +
-    '<th class="w-desc">Description</th><th class="num">Basic price</th><th class="num">Qty</th>' +
-    '<th>Unit</th><th>HSN code</th><th class="num">Tax rate</th></tr>');
+    '<th class="w-desc">' + esc_(L('colDescription', 'Description')) + '</th>' +
+    '<th class="num">' + esc_(L('colBasicPrice', 'Basic price')) + '</th>' +
+    '<th class="num">' + esc_(L('colQty', 'Qty')) + '</th>' +
+    '<th>' + esc_(L('colUnit', 'Unit')) + '</th>' +
+    '<th>' + esc_(L('colHsn', 'HSN code')) + '</th>' +
+    '<th class="num">' + esc_(L('colTaxRate', 'Tax rate')) + '</th></tr>');
 
   var gross = 0;
   items.forEach(function (i) {
@@ -257,19 +309,20 @@ function buildQuotationHtml(quotationId) {
   // both is what the customer pays for goods.
   var netGoods = gross - (Number(q.discountAmt) || 0);
   var totals = [];
-  totals.push(['Total package price', inr_(gross), pkgPct > 0 ? '' : 'strong']);
+  totals.push([esc_(L('packageTotal', 'Total package price')), inr_(gross), pkgPct > 0 ? '' : 'strong']);
   if (pkgPct > 0) {
-    totals.push(['Total discounted price (' + pkgPct + '% less)', inr_(netGoods), 'strong']);
+    totals.push([esc_(L('discountedTotal', 'Total discounted price')) +
+      ' (' + pkgPct + '% less)', inr_(netGoods), 'strong']);
   }
-  totals.push(['P&amp;F', Number(q.pfAmount) > 0 ? inr_(q.pfAmount) : 'NIL', '']);
-  totals.push(['Freight', esc_(q.deliveryTerms || 'Extra at actuals'), '']);
+  totals.push([esc_(L('pf', 'P&F')), Number(q.pfAmount) > 0 ? inr_(q.pfAmount) : 'NIL', '']);
+  totals.push([esc_(L('freight', 'Freight')), esc_(q.deliveryTerms || 'Extra at actuals'), '']);
 
   var taxExtra = String(q.taxMode || 'Extra') === 'Extra';
   if (taxExtra) {
-    totals.push([esc_(headlineTaxRate_(items)) + ' GST', 'EXTRA', '']);
+    totals.push([esc_(headlineTaxRate_(items)) + ' GST', esc_(L('taxExtra', 'EXTRA')), '']);
   } else {
     totals.push([esc_(headlineTaxRate_(items)) + ' GST', inr_(q.taxAmt), '']);
-    totals.push(['Total amount', inr_(q.grand), 'strong']);
+    totals.push([esc_(L('grandTotal', 'Total amount')), inr_(q.grand), 'strong']);
   }
 
   push('<table class="totals">');
@@ -288,7 +341,8 @@ function buildQuotationHtml(quotationId) {
       ' days from the date of offer' +
       (q.validUntil ? ' (until ' + ddmmyyyy_(q.validUntil) + ')' : '') + '.';
     var statedValidity = false;
-    push('<div class="h1">' + esc_(terms.title || 'Terms &amp; conditions') + '</div><ol>');
+    push('<div class="h1">' + esc_(terms.title || L('termsHeading', 'Terms & conditions')) +
+      '</div><ol>');
     templateLines_(terms.body).forEach(function (l) {
       if (/^validity\b/i.test(l)) { statedValidity = true; l = validity; }
       push('<li>' + esc_(l) + '</li>');
@@ -410,6 +464,7 @@ function quotationCss_() {
     '.signoff{margin-top:22px;font-size:10.5pt;}' +
     '.signoff .for{margin-top:4px;font-weight:bold;}' +
     '.sig-space{height:36px;}' +
+    '.seal{max-height:80px;margin:6px 0;}' +
     '.page-break{page-break-before:always;}' +
     '</style>';
 }

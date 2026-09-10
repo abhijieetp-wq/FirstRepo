@@ -153,7 +153,7 @@ function createOrderFromQuotation(input) {
     orderNo: nextSeriesNo_('SalesOrders', 'orderNo', 'SO'),
     date: todayIso_(),
     businessStream: quote.businessStream,
-    brand: quote.brand || 'ELGI',
+    brand: quote.brand || defaultBrand_(),
     customerId: quote.customerId,
     quotationId: quote.id,
     poNo: poNo,

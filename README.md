@@ -320,3 +320,49 @@ browser and is definitely fine; the PDF goes through Apps Script's own HTML-to-P
 which is a basic renderer. That converter is also why the document is built from plain tables
 and rules rather than flexbox — it silently ignores modern layout. If ₹ comes out as a box in
 the PDF, say so and it becomes "Rs." in one edit.
+
+## Setting this up for a different client
+
+The system was written for one company, but nothing about that company is welded into the
+code. Everything a second client would need to change is a field on a screen, and this is the
+list — in the order you would work through it.
+
+**Settings → Letterhead** holds the seller and how the application presents itself:
+
+| What | Field |
+|---|---|
+| Name, address, GSTIN, PAN, phone, email, website | the obvious ones |
+| The line above the name on the letterhead | Partner Line |
+| Logo printed at the top | Logo URL |
+| Seal printed above the signature | Seal Image URL — blank means no seal is printed |
+| The number under the signature | Sign-off Phone (separate from the letterhead number) |
+| "Dear Sir/Madam," and "Yours sincerely," | Salutation, Sign-off Line |
+| The make this house sells | Default Brand — drives quotation numbering and every new record |
+| Quotation numbering | Quotation Prefix |
+| What the header, footer and browser tab say | Application Name, Application Subtitle |
+
+**Settings → Quotation Text** holds every word the document says that isn't a price:
+
+- **Cover letter, Why <brand>, Scope of supply, Terms, Installation guidelines** — the prose.
+- **Document title** — the heading and the line beneath it, per stream.
+- **Closing** — the paragraph before the signature.
+- **Spec note** — the italic line above the specification table.
+- **Labels** — every short phrase on the page, one `key = value` per line: `refNo = Ref No.`,
+  `packageTotal = Total package price`, `colBasicPrice = Basic price`, and so on. A key you
+  leave out falls back to the English default, so you only override what you want to change.
+
+That combination is enough to turn the same code into a different company's document — a
+different letterhead, brand, numbering, vocabulary and seal — with no release. It is worth
+doing once as a test before promising it to anyone.
+
+**The two things that are still this client's, and what they cost to change:**
+
+1. **The seeded quotation text is ELGi's**, taken word for word from their own offers. A new
+   installation starts with it and edits or replaces the nine sections in Settings. That is a
+   morning's typing, not a code change, but it is not automatic.
+2. **The two price levels are named `PIE` and `ELGI`** — Premier India's buying price and its
+   selling price. They are internal, never printed on anything a customer sees, but they are
+   this client's initials sitting in a column of the PriceList tab. Renaming them to something
+   neutral like `Cost` and `Selling` is a small migration, and it would also change the
+   `piePrice` / `elgiPrice` column names on the catalog import file — which is why it hasn't
+   been done unasked.

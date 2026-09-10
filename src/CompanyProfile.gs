@@ -46,7 +46,21 @@ function defaultCompanyProfile_() {
     logoUrl: '',
     bankName: '', bankAccount: '', bankIfsc: '',
     quotePrefix: 'PIE/ELGI/QUOT',
-    jurisdiction: 'Nagpur'
+    jurisdiction: 'Nagpur',
+
+    // Left blank deliberately: this client stamps the seal on the printed page by hand. Set it
+    // and it prints above the signature — which is what the next client will want.
+    sealUrl: '',
+    // The number under the signature. Not the letterhead number: the letterhead is the office,
+    // this is who the customer rings about the offer.
+    signOffPhone: '9158004003',
+    salutation: 'Dear Sir/Madam,',
+    signOffLine: 'Yours sincerely,',
+    // Drives the quotation numbering and the default on new records, so a house selling a
+    // different make does not need the code opened.
+    defaultBrand: 'ELGI',
+    appName: 'ELGI Spares ERP',
+    appSubtitle: 'Spares Sales Department'
   };
 }
 
@@ -81,9 +95,33 @@ function saveCompanyProfile(input) {
   return getCompanyProfile();
 }
 
+/**
+ * The brand this installation sells. Every record that stamps a brand asks here rather than
+ * carrying the answer in the code, so a house selling a different make changes one field.
+ */
+function defaultBrand_() {
+  try {
+    var profile = readTable_('CompanyProfile').filter(function (c) {
+      return String(c.id) === COMPANY_ROW_ID;
+    })[0];
+    return String((profile && profile.defaultBrand) || 'ELGI').trim() || 'ELGI';
+  } catch (err) {
+    // The tab arrives with setupSheet(); until then, saving a record should still work.
+    return 'ELGI';
+  }
+}
+
 // ------------------------------------------------------------------ standing quotation text
 
-var QUOTE_SECTIONS = ['CoverLetter', 'WhyBrand', 'ScopeOfSupply', 'Terms', 'InstallationNotes'];
+/**
+ * The sections a quotation can carry. The first five are blocks of prose; the last three exist
+ * so that none of the document's own wording is trapped in code — the heading it is titled
+ * with, the paragraph it closes on, the note above the specification table, and `Labels`,
+ * which overrides the short phrases (Ref No., Kind Attention, Total package price …) one
+ * `key = value` per line.
+ */
+var QUOTE_SECTIONS = ['CoverLetter', 'WhyBrand', 'ScopeOfSupply', 'Terms', 'InstallationNotes',
+  'DocumentTitle', 'Closing', 'SpecNote', 'Labels'];
 
 function listQuoteTemplates(options) {
   getCurrentUser();
@@ -262,6 +300,69 @@ function defaultQuoteTemplates_() {
         'The compressor base should make full contact with the floor. Do not leave the ' +
         'compressor on the wooden pallet it was supplied on.\n' +
         'Installation and commissioning will be carried out only once the above is in place.'
+    },
+
+    // ---- the document's own wording, kept out of the code ----
+    {
+      id: 'QTPL-COMP-TITLE', section: 'DocumentTitle', brand: 'ELGI',
+      businessStream: STREAM_COMPRESSOR, appliesTo: '',
+      title: 'ELGi ELECTRIC POWERED OIL SCREW AIR COMPRESSOR',
+      sortOrder: 5, active: 'TRUE',
+      body: 'TECHNICAL OFFER'
+    },
+    {
+      id: 'QTPL-SPARE-TITLE', section: 'DocumentTitle', brand: 'ELGI',
+      businessStream: STREAM_SPARE, appliesTo: '',
+      title: 'ELGi GENUINE SPARE PARTS',
+      sortOrder: 5, active: 'TRUE',
+      body: 'OFFER'
+    },
+    {
+      id: 'QTPL-CLOSING', section: 'Closing', brand: 'ELGI',
+      businessStream: '', appliesTo: '', title: '', sortOrder: 6, active: 'TRUE',
+      body: 'We hope our offer is in line with your requirement. Should you need any further ' +
+        'clarification, please feel free to contact the undersigned. We look forward to ' +
+        'receiving your valuable order.'
+    },
+    {
+      id: 'QTPL-SPECNOTE', section: 'SpecNote', brand: 'ELGI',
+      businessStream: '', appliesTo: '', title: '', sortOrder: 7, active: 'TRUE',
+      body: 'At normal working pressure, all data as per ISO 1217, Annex C.'
+    },
+    {
+      id: 'QTPL-LABELS', section: 'Labels', brand: 'ELGI',
+      businessStream: '', appliesTo: '', title: 'Wording used on the document',
+      sortOrder: 8, active: 'TRUE',
+      body: 'refNo = Ref No.\n' +
+        'dated = Dated\n' +
+        'gstNo = GST No\n' +
+        'attention = Kind Attention\n' +
+        'mobile = Mobile No\n' +
+        'email = Email Id\n' +
+        'subject = Subject\n' +
+        'enclosures = Please find enclosed with this offer\n' +
+        'specHeading = Technical specifications\n' +
+        'scopeHeading = Scope of supply\n' +
+        'priceHeading = Price schedule\n' +
+        'colDescription = Description\n' +
+        'colBasicPrice = Basic price\n' +
+        'colQty = Qty\n' +
+        'colUnit = Unit\n' +
+        'colHsn = HSN code\n' +
+        'colTaxRate = Tax rate\n' +
+        'colSpecification = Specifications\n' +
+        'packageTotal = Total package price\n' +
+        'discountedTotal = Total discounted price\n' +
+        'pf = P&F\n' +
+        'freight = Freight\n' +
+        'grandTotal = Total amount\n' +
+        'taxExtra = EXTRA\n' +
+        'termsHeading = Terms & conditions\n' +
+        'enclSpecScope = Technical specifications and scope of supply\n' +
+        'enclSpec = Technical specifications\n' +
+        'enclPrice = Price schedule\n' +
+        'enclTerms = Commercial terms and conditions\n' +
+        'enclInstall = Installation guidelines'
     }
   ];
 }

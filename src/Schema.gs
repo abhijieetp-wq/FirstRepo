@@ -25,13 +25,22 @@ var SCHEMA = {
   // ---------------------------------------------------------------- Foundation / admin
   Users: {
     label: 'People who can sign in, and what they may do (FR-062)',
-    columns: ['id', 'email', 'name', 'role', 'businessStream', 'active', 'createdAt', 'createdBy']
+    // `role` is what they may do; `designation` is what prints under their signature on a
+    // quotation. They are not the same thing and conflating them puts "ERP Admin" on a
+    // document a customer reads.
+    columns: ['id', 'email', 'name', 'role', 'designation', 'businessStream', 'active',
+      'createdAt', 'createdBy']
   },
   CompanyProfile: {
     label: 'The seller as it appears on every printed document — one row, edited in Settings',
     columns: ['id', 'legalName', 'tradeName', 'partnerLine', 'addressLine1', 'addressLine2',
       'city', 'state', 'pincode', 'gstin', 'pan', 'phone', 'altPhone', 'email', 'website',
-      'logoUrl', 'bankName', 'bankAccount', 'bankIfsc', 'quotePrefix', 'jurisdiction']
+      'logoUrl', 'bankName', 'bankAccount', 'bankIfsc', 'quotePrefix', 'jurisdiction',
+      // Everything below exists so a second client is a Settings exercise, not a code change:
+      // the images, the phrases the letter opens and closes with, the number under the
+      // signature, the brand the numbering is built from, and what the app calls itself.
+      'sealUrl', 'signOffPhone', 'salutation', 'signOffLine', 'defaultBrand', 'appName',
+      'appSubtitle']
   },
   QuoteTemplates: {
     label: 'The standing text on a quotation — cover letter, scope of supply, terms',

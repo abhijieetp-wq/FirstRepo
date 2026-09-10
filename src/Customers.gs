@@ -119,7 +119,7 @@ function saveCustomer(input) {
     segment: String(input.segment || '').trim(),
     assignedSalesperson: String(input.assignedSalesperson || '').trim(),
     territory: String(input.territory || '').trim(),
-    brand: String(input.brand || 'ELGI').trim(),
+    brand: String(input.brand || defaultBrand_()).trim(),
     notes: String(input.notes || '').trim(),
     active: input.active === false ? 'FALSE' : 'TRUE'
   };

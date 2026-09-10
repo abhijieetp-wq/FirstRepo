@@ -9,7 +9,7 @@
 
 <div id="boot-screen" class="boot-screen">
   <div class="card">
-    <h3 style="margin-bottom:10px;">Loading ELGI Spares ERP…</h3>
+    <h3 style="margin-bottom:10px;">Loading…</h3>
     <p style="color:var(--ink-soft); font-size:13px;">Checking your account against the Users tab.</p>
   </div>
 </div>
@@ -17,10 +17,10 @@
 <div id="app" style="display:none;">
   <div class="topbar">
     <div class="brand">
-      <div class="brand-mark">EL</div>
+      <div class="brand-mark" id="app-mark"></div>
       <div class="brand-text">
-        <h1>ELGI Spares ERP</h1>
-        <span>Spares Sales Department</span>
+        <h1 id="app-name"></h1>
+        <span id="app-subtitle"></span>
       </div>
     </div>
     <div class="tabs" id="tabs"></div>
@@ -463,7 +463,7 @@
       <div id="set-panel"></div>
     </div>
 
-    <footer class="hint">ELGI Spares Sales ERP — internal tool.</footer>
+    <footer class="hint" id="app-footer"></footer>
   </div>
 </div>
 
@@ -1539,6 +1539,10 @@
     <div class="grid grid-2">
       <div class="field"><label>Email *</label><input id="usr-email" type="email" placeholder="name@company.com" /></div>
       <div class="field"><label>Name *</label><input id="usr-name" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Designation</label>
+      <input id="usr-designation" placeholder="Printed under their signature — e.g. Sales Engineer" />
     </div>
     <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Role *</label><select id="usr-role"></select></div>

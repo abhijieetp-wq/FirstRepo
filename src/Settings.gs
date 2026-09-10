@@ -130,6 +130,9 @@ function saveUser(input) {
     email: email,
     name: String(input.name).trim(),
     role: input.role,
+    // What prints under their signature. Falls back to the role, which is right often enough
+    // to be a sensible default and wrong often enough to be worth its own field.
+    designation: String(input.designation || '').trim(),
     businessStream: String(input.businessStream || 'All').trim(),
     active: goingInactive ? 'FALSE' : 'TRUE'
   };

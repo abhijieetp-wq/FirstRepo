@@ -112,7 +112,7 @@ function commitCatalogImport(itemType, csvText) {
       var newRows = analysis.creates.map(function (c) {
         return headers.map(function (h) {
           if (h === 'id') return c.id;
-          if (h === 'brand') return 'ELGI';
+          if (h === 'brand') return defaultBrand_();
           if (h === 'active') return 'TRUE';
           if (h === 'createdAt') return todayIso_();
           if (h === 'createdBy') return user.email;

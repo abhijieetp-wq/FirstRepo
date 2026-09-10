@@ -5187,6 +5187,7 @@
       return '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + "</option>";
     }).join("");
     $("usr-role").value = u ? u.role : "Sales Coordinator";
+    $("usr-designation").value = u ? (u.designation || "") : "";
     $("usr-stream").value = u && u.businessStream ? u.businessStream : "All";
     $("usr-active").checked = !u || String(u.active).toUpperCase() !== "FALSE";
     $("usr-note").textContent = u && u.isSelf
@@ -5210,6 +5211,7 @@
       email: $("usr-email").value.trim(),
       name: $("usr-name").value.trim(),
       role: $("usr-role").value,
+      designation: $("usr-designation").value.trim(),
       businessStream: $("usr-stream").value,
       active: $("usr-active").checked
     });
@@ -5886,7 +5888,14 @@
     ["bankAccount", "Bank Account No.", ""],
     ["bankIfsc", "IFSC", ""],
     ["quotePrefix", "Quotation Prefix", "Quote numbers are built from this"],
-    ["jurisdiction", "Jurisdiction", "Printed in the terms"]
+    ["jurisdiction", "Jurisdiction", "Printed in the terms"],
+    ["sealUrl", "Seal Image URL", "Leave blank if the seal is stamped by hand"],
+    ["signOffPhone", "Sign-off Phone", "Printed under the signature"],
+    ["salutation", "Salutation", "Dear Sir/Madam,"],
+    ["signOffLine", "Sign-off Line", "Yours sincerely,"],
+    ["defaultBrand", "Default Brand", "The make this business sells"],
+    ["appName", "Application Name", "Shown in the header and the browser tab"],
+    ["appSubtitle", "Application Subtitle", "The small line under the name"]
   ];
 
   function renderCompanyPanel() {
@@ -6110,6 +6119,13 @@
   // ---------------- Boot ----------------
   function onBootSuccess(user) {
     currentUser = user;
+    if (user.appName) {
+      $("app-name").textContent = user.appName;
+      $("app-subtitle").textContent = user.appSubtitle || "";
+      $("app-mark").textContent = user.appMark || "";
+      $("app-footer").textContent = user.appName + " — internal tool.";
+      document.title = user.appName;
+    }
     var initials = String(user.name || user.email || "?").trim().split(/\s+/)
       .slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join("");
     $("whoami").innerHTML =

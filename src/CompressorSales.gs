@@ -115,7 +115,7 @@ function saveLead(input) {
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
     lostReasonId: String(input.lostReasonId || '').trim(),
     businessStream: STREAM_COMPRESSOR,
-    brand: String(input.brand || 'ELGI').trim()
+    brand: String(input.brand || defaultBrand_()).trim()
   };
 
   if (input.id) {
@@ -336,7 +336,7 @@ function saveOpportunity(input) {
     ownerEmail: String(input.ownerEmail || user.email).trim(),
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
     businessStream: STREAM_COMPRESSOR,
-    brand: String(input.brand || 'ELGI').trim()
+    brand: String(input.brand || defaultBrand_()).trim()
   };
 
   if (input.id) {

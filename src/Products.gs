@@ -61,7 +61,7 @@ function saveProduct(input) {
   var record = {
     productCode: productCode,
     hsnCode: String(input.hsnCode || '').trim(),
-    brand: String(input.brand || 'ELGI').trim(),
+    brand: String(input.brand || defaultBrand_()).trim(),
     family: String(input.family || '').trim(),
     series: String(input.series || '').trim(),
     model: model,
