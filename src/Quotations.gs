@@ -109,11 +109,11 @@ function createBlankQuotation(input) {
     return String(c.isPrimary).toUpperCase() === 'TRUE';
   })[0] || contacts[0];
 
-  var validity = Number(input.validityDays) > 0 ? Number(input.validityDays) : 7;
+  var validity = Number(input.validityDays) > 0 ? Number(input.validityDays) : 30;
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_(),
+    quoteNo: nextQuoteNo_('ELGI'),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
@@ -184,7 +184,7 @@ function createQuotationFromEnquiry(spareEnquiryId) {
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_(),
+    quoteNo: nextQuoteNo_('ELGI'),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
@@ -199,8 +199,8 @@ function createQuotationFromEnquiry(spareEnquiryId) {
     machineModel: enquiry.productModel,
     serialNo: enquiry.serialNo,
     preparedBy: user.email,
-    validityDays: 7,
-    validUntil: addDays_(todayIso_(), 7),
+    validityDays: 30,
+    validUntil: addDays_(todayIso_(), 30),
     status: 'Draft',
     paymentTerms: customer ? (customer.paymentTerms || '') : '',
     deliveryTerms: '',
@@ -493,11 +493,27 @@ function recalcQuotation_(quotationId) {
     return String(q.id) === String(quotationId);
   })[0];
   var freight = quote ? (Number(quote.freight) || 0) : 0;
-  var grand = subtotal - discountAmt + taxAmt + freight;
+  var pf = quote ? (Number(quote.pfAmount) || 0) : 0;
+
+  // Their price schedule discounts the package, not the line: everything is listed at full
+  // price and one percentage comes off the total. Line discounts still work, and the package
+  // discount applies after them.
+  var pkgPct = quote ? (Number(quote.packageDiscountPct) || 0) : 0;
+  var afterLines = subtotal - discountAmt;
+  var pkgDiscount = pkgPct > 0 ? afterLines * pkgPct / 100 : 0;
+  var netGoods = afterLines - pkgDiscount;
+
+  // A package discount changes the taxable value, so the line tax has to move with it.
+  if (pkgPct > 0 && afterLines > 0) taxAmt = taxAmt * (netGoods / afterLines);
+
+  // Their compressor offer quotes a pre-tax figure and notes "18% GST EXTRA"; the grand total
+  // then excludes tax. The spares offer added it in. Which one applies is per quotation.
+  var taxIncluded = !quote || String(quote.taxMode || 'Extra') !== 'Extra';
+  var grand = netGoods + pf + freight + (taxIncluded ? taxAmt : 0);
 
   updateRowById_('Quotations', 'id', quotationId, {
     subtotal: roundMoney_(subtotal),
-    discountAmt: roundMoney_(discountAmt),
+    discountAmt: roundMoney_(discountAmt + pkgDiscount),
     taxAmt: roundMoney_(taxAmt),
     grand: roundMoney_(grand)
   }, 'Totals recalculated');
@@ -531,15 +547,35 @@ function masterRecordFor_(itemType, itemId) {
   return readTable_(tab).filter(function (r) { return String(r.id) === String(itemId); })[0] || null;
 }
 
-function nextQuoteNo_() {
-  var yy = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Etc/UTC', 'yyMM');
-  var prefix = 'QT' + yy + '-';
+/**
+ * Their own numbering: PIE/ELGI/QUOT/26-27/383 — company, brand, document, financial year,
+ * serial. The brand sits inside the number, which is exactly what a second brand will need.
+ * The serial runs on across the financial year rather than resetting monthly, as theirs does.
+ */
+function nextQuoteNo_(brand) {
+  var profile = readTable_('CompanyProfile').filter(function (c) {
+    return String(c.id) === 'CO-1';
+  })[0];
+  var base = String((profile && profile.quotePrefix) || 'PIE/ELGI/QUOT').trim()
+    .replace(/\/+$/, '');
+  if (brand) base = base.replace(/\/ELGI\//i, '/' + String(brand).toUpperCase() + '/');
+
+  var prefix = base + '/' + indianFinancialYear_() + '/';
   var highest = 0;
   readTable_('Quotations').forEach(function (q) {
-    var m = new RegExp('^' + prefix + '(\\d+)$').exec(String(q.quoteNo || '').trim());
+    var m = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\d+)$')
+      .exec(String(q.quoteNo || '').trim());
     if (m) highest = Math.max(highest, Number(m[1]));
   });
-  return prefix + String(highest + 1).padStart(3, '0');
+  return prefix + String(highest + 1);
+}
+
+/** India's financial year runs April to March, and is written 26-27. */
+function indianFinancialYear_(date) {
+  var d = date ? new Date(date) : new Date();
+  var y = d.getFullYear();
+  var startYear = d.getMonth() >= 3 ? y : y - 1;   // April is month 3
+  return String(startYear).slice(2) + '-' + String(startYear + 1).slice(2);
 }
 
 function addDays_(isoDate, days) {
@@ -610,7 +646,7 @@ function createQuotationFromOpportunity(opportunityId) {
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_(),
+    quoteNo: nextQuoteNo_('ELGI'),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
