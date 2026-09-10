@@ -1391,7 +1391,7 @@
   <div class="modal" style="max-width:860px;">
     <h3 style="margin-bottom:6px;">Import Receipts</h3>
     <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 14px;">
-      Paste a CSV export of the Tally receipt ledger. Nothing is written until you have seen
+      Bring in a CSV export of the Tally receipt ledger. Nothing is written until you have seen
       the preview — and a row already imported (matched on its Tally voucher reference) is
       rejected rather than posted twice.
     </p>
@@ -1401,15 +1401,33 @@
       <span class="mono" id="ri-header"></span>
     </div>
 
-    <div class="field">
-      <label>CSV Text</label>
-      <textarea id="ri-csv" rows="8" class="mono"
-        style="width:100%; font-size:12px; padding:10px; border:1px solid var(--border); border-radius:var(--radius);"></textarea>
+    <div class="mode-switch" role="group" aria-label="How to supply the data">
+      <button type="button" id="btn-ri-mode-file" class="active">Choose a file</button>
+      <button type="button" id="btn-ri-mode-paste">Paste the text</button>
     </div>
 
-    <div style="display:flex; gap:8px; margin-top:12px;">
+    <div id="ri-file-wrap">
+      <div class="drop-zone" id="ri-drop">
+        <input type="file" id="ri-file" accept=".csv,text/csv" hidden />
+        <div class="drop-icon">CSV</div>
+        <div><b>Choose a CSV file</b> or drag one here</div>
+        <div class="drop-hint">The first row must be the header above. Saved from Excel is fine.</div>
+      </div>
+      <div id="ri-filecard"></div>
+    </div>
+
+    <div id="ri-paste-wrap" style="display:none;">
+      <div class="field">
+        <label>CSV Text — including the header row</label>
+        <textarea id="ri-csv" rows="8" class="mono"
+          style="width:100%; font-size:12px; padding:10px; border:1px solid var(--border); border-radius:var(--radius);"></textarea>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
       <button class="btn btn-sm" id="btn-ri-preview">Preview</button>
       <button class="btn btn-sm btn-ghost" id="btn-ri-pull">Pull from Tally</button>
+      <button class="btn btn-sm btn-ghost" id="btn-ri-clear" style="display:none;">Choose a different file</button>
     </div>
 
     <div id="ri-preview"></div>

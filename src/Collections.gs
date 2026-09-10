@@ -737,8 +737,13 @@ function pullReceiptsFromTally(fromDate, toDate) {
 
   // Tally's voucher register is turned into the same CSV shape the manual import accepts, so
   // both paths land in one reviewed, idempotent place rather than two.
+  //
+  // The CSV goes back with the preview because committing takes the text, not the preview:
+  // without it the caller would be looking at rows it has no way to import.
   var csv = tallyReceiptsToCsv_(response.getContentText());
-  return previewReceiptImport(csv);
+  var preview = previewReceiptImport(csv);
+  preview.csv = csv;
+  return preview;
 }
 
 /** Flattens a Tally voucher-register XML export into the receipt import CSV shape. */

@@ -4440,15 +4440,101 @@
   });
 
   // ---- Receipt import ----
+  // Some people have a file; some have a few rows in a mail from the accounts desk. The modal
+  // takes either, and both end up as the same text going to the same validator.
+  var riMode = "file";
+
   function startReceiptImport() {
     riPreview = null;
     $("ri-csv").value = "";
     $("ri-preview").innerHTML = "";
     $("btn-ri-commit").style.display = "none";
+    setRiMode("file");
+    clearRiFile();
     google.script.run.withSuccessHandler(function (tpl) {
       $("ri-header").textContent = tpl.split("\n")[0];
     }).withFailureHandler(onServerError).getReceiptImportTemplate();
     $("rcpimport-modal-backdrop").classList.add("show");
+  }
+
+  function setRiMode(mode) {
+    riMode = mode;
+    $("btn-ri-mode-file").classList.toggle("active", mode === "file");
+    $("btn-ri-mode-paste").classList.toggle("active", mode === "paste");
+    $("ri-file-wrap").style.display = mode === "file" ? "" : "none";
+    $("ri-paste-wrap").style.display = mode === "paste" ? "" : "none";
+    // A preview built from the other input would no longer match what is on screen.
+    $("ri-preview").innerHTML = "";
+    $("btn-ri-commit").style.display = "none";
+    riPreview = null;
+  }
+
+  $("btn-ri-mode-file").addEventListener("click", function () { setRiMode("file"); });
+  $("btn-ri-mode-paste").addEventListener("click", function () { setRiMode("paste"); });
+
+  function clearRiFile() {
+    riFileText = null;
+    $("ri-file").value = "";
+    $("ri-filecard").innerHTML = "";
+    $("ri-drop").style.display = "";
+    $("btn-ri-clear").style.display = "none";
+  }
+
+  var riFileText = null;
+
+  $("btn-ri-clear").addEventListener("click", function () {
+    clearRiFile();
+    $("ri-preview").innerHTML = "";
+    $("btn-ri-commit").style.display = "none";
+    riPreview = null;
+  });
+
+  $("ri-drop").addEventListener("click", function () { $("ri-file").click(); });
+  $("ri-file").addEventListener("change", function (e) {
+    if (e.target.files && e.target.files[0]) readRiFile(e.target.files[0]);
+  });
+  ["dragenter", "dragover"].forEach(function (evt) {
+    $("ri-drop").addEventListener(evt, function (e) {
+      e.preventDefault(); e.stopPropagation(); $("ri-drop").classList.add("dragging");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (evt) {
+    $("ri-drop").addEventListener(evt, function (e) {
+      e.preventDefault(); e.stopPropagation(); $("ri-drop").classList.remove("dragging");
+    });
+  });
+  $("ri-drop").addEventListener("drop", function (e) {
+    var f = e.dataTransfer && e.dataTransfer.files;
+    if (f && f[0]) readRiFile(f[0]);
+  });
+
+  function readRiFile(file) {
+    if (!/\.csv$/i.test(file.name) && file.type !== "text/csv") {
+      showMsg("That is not a .csv file. Save the sheet as CSV and try again.", "error");
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function () {
+      showMsg("The file could not be read. Try saving it again as CSV.", "error");
+    };
+    reader.onload = function (e) {
+      // Excel prefixes a byte-order mark that would make the first column read as missing.
+      riFileText = String(e.target.result || "").replace(/^\uFEFF/, "");
+      var lines = riFileText.replace(/\r\n/g, "\n").split("\n")
+        .filter(function (l) { return l.trim() !== ""; });
+      $("ri-drop").style.display = "none";
+      $("btn-ri-clear").style.display = "";
+      $("ri-filecard").innerHTML = '<div class="file-card"><div>' +
+        '<div class="file-name">' + escapeHtml(file.name) + "</div>" +
+        '<div class="file-meta">' + Math.max(0, lines.length - 1) + " data row(s) · " +
+        Math.max(1, Math.round(file.size / 1024)) + " KB</div></div></div>";
+    };
+    reader.readAsText(file);
+  }
+
+  /** Whichever input the user chose, the server only ever sees text. */
+  function riCsvText() {
+    return riMode === "file" ? riFileText : $("ri-csv").value;
   }
 
   $("btn-cancel-rcpimport").addEventListener("click", function () {
@@ -4457,9 +4543,13 @@
   });
 
   $("btn-ri-preview").addEventListener("click", function () {
-    if (!$("ri-csv").value.trim()) { showMsg("Paste the CSV first.", "error"); return; }
+    var text = riCsvText();
+    if (!text || !text.trim()) {
+      showMsg(riMode === "file" ? "Choose a CSV file first." : "Paste the CSV first.", "error");
+      return;
+    }
     google.script.run.withSuccessHandler(renderImportPreview)
-      .withFailureHandler(onServerError).previewReceiptImport($("ri-csv").value);
+      .withFailureHandler(onServerError).previewReceiptImport(text);
   });
 
   $("btn-ri-pull").addEventListener("click", function () {
@@ -4472,8 +4562,14 @@
       okLabel: "Pull"
     }, function (from) {
       if (from === null) return;
-      google.script.run.withSuccessHandler(renderImportPreview)
-        .withFailureHandler(onServerError)
+      google.script.run.withSuccessHandler(function (result) {
+        // Importing sends the text, not the preview. Drop what Tally returned into the paste
+        // box and switch to it, so the rows on screen are the rows Import will actually write
+        // — and so anyone can see and correct them before committing.
+        setRiMode("paste");
+        $("ri-csv").value = result.csv || "";
+        renderImportPreview(result);
+      }).withFailureHandler(onServerError)
         .pullReceiptsFromTally(from, new Date().toISOString().slice(0, 10));
     });
   });
@@ -4520,7 +4616,7 @@
       loadCollections();
       showMsg(result.imported + " receipt(s) imported" +
         (result.rejected ? ", " + result.rejected + " rejected." : "."), "success");
-    }).withFailureHandler(onServerError).commitReceiptImport($("ri-csv").value);
+    }).withFailureHandler(onServerError).commitReceiptImport(riCsvText());
   });
 
   // ---- Customer statement ----
