@@ -7,6 +7,7 @@
  *   - appends any missing column to an existing tab (never reorders, renames or deletes)
  *   - inserts any seed row whose id is not already present (so values added to SCHEMA
  *     later reach sheets that already exist)
+ *   - installs the default quotation text, without overwriting reworded clauses
  *   - migrates legacy role names and the legacy department column on Users
  *   - copies the old Parts/Units catalogs into the new Spares/Products tabs (old tabs are
  *     left untouched as a backup; nothing is deleted)
@@ -77,6 +78,7 @@ function setupSheet() {
     }
   });
 
+  installQuoteTemplates_(report);
   migrateUsers_(ss, report);
   migrateLegacyCatalog_(ss, 'Parts', 'Spares', report);
   migrateLegacyCatalog_(ss, 'Units', 'Products', report);

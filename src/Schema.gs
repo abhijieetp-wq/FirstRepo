@@ -27,6 +27,17 @@ var SCHEMA = {
     label: 'People who can sign in, and what they may do (FR-062)',
     columns: ['id', 'email', 'name', 'role', 'businessStream', 'active', 'createdAt', 'createdBy']
   },
+  CompanyProfile: {
+    label: 'The seller as it appears on every printed document — one row, edited in Settings',
+    columns: ['id', 'legalName', 'tradeName', 'partnerLine', 'addressLine1', 'addressLine2',
+      'city', 'state', 'pincode', 'gstin', 'pan', 'phone', 'altPhone', 'email', 'website',
+      'logoUrl', 'bankName', 'bankAccount', 'bankIfsc', 'quotePrefix', 'jurisdiction']
+  },
+  QuoteTemplates: {
+    label: 'The standing text on a quotation — cover letter, scope of supply, terms',
+    columns: ['id', 'section', 'brand', 'businessStream', 'appliesTo', 'title', 'body',
+      'sortOrder', 'active']
+  },
   BusinessStreams: {
     label: 'Compressor vs Spare — the discriminator on every transaction (D2)',
     columns: ['id', 'name', 'active'],
@@ -112,7 +123,10 @@ var SCHEMA = {
     label: 'Compressor product hierarchy (FR-014) — replaces the old Units tab',
     columns: ['id', 'productCode', 'hsnCode', 'brand', 'family', 'series', 'model', 'description',
       'category', 'hpRating', 'fad', 'workingPressure', 'gstPct', 'warrantyMonths',
-      'standardAccessories', 'leadTimeDays', 'uom', 'notes', 'active', 'createdAt', 'createdBy']
+      'standardAccessories', 'leadTimeDays', 'uom', 'notes',
+      // The specification table printed on a compressor offer (ISO 1217 Annex C figures)
+      'capacityCfm', 'maxPressure', 'motorKw', 'starterType', 'dimensionsMm', 'weightKg',
+      'active', 'createdAt', 'createdBy']
   },
   Spares: {
     label: 'ELGI spare master (FR-015) — replaces the old Parts tab',
@@ -212,13 +226,17 @@ var SCHEMA = {
       'spareEnquiryId', 'machineModel', 'serialNo', 'preparedBy', 'validityDays', 'validUntil',
       'status', 'subtotal', 'discountAmt', 'taxAmt', 'freight', 'grand', 'paymentTerms',
       'deliveryTerms', 'warrantyTerms', 'notes', 'approvedBy', 'approvalDate', 'submittedDate',
-      'emailSentDate', 'lostReasonId', 'locked', 'createdAt', 'createdBy']
+      'emailSentDate', 'lostReasonId', 'locked',
+      // A package discount off the total, the way their own offers are priced, plus whether
+      // GST is added into the total or quoted as extra — their two documents differ on this.
+      'packageDiscountPct', 'pfAmount', 'taxMode',
+      'createdAt', 'createdBy']
   },
   QuotationItems: {
     label: 'Quote lines from either catalog (Product or Spare)',
-    columns: ['id', 'quotationId', 'lineNo', 'itemType', 'itemId', 'itemCode', 'description',
-      'qty', 'uom', 'listPrice', 'rateType', 'unitPrice', 'discountPct', 'taxPct', 'lineTotal',
-      'availabilityNote', 'leadTimeDays']
+    columns: ['id', 'quotationId', 'lineNo', 'lineType', 'itemType', 'itemId', 'itemCode',
+      'description', 'qty', 'uom', 'listPrice', 'rateType', 'unitPrice', 'discountPct', 'taxPct',
+      'lineTotal', 'availabilityNote', 'leadTimeDays']
   },
 
   // ---------------------------------------------------------------- Order & commercial control
