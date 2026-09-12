@@ -233,13 +233,21 @@
             identified parts and the requirement across with it.
           </p>
           <div class="grid grid-2">
-            <div class="field"><label>Customer *</label><select id="qs-customer"></select></div>
+            <div class="field">
+              <label>Customer *</label>
+              <div class="field-with-action">
+                <select id="qs-customer"></select>
+                <button class="btn btn-sm" id="btn-qs-new-customer" type="button">+ New</button>
+              </div>
+            </div>
             <div class="field"><label>Business Stream</label><select id="qs-stream"></select></div>
           </div>
           <div class="grid grid-3" style="margin-top:12px;">
             <div class="field"><label>Machine Model</label><input id="qs-model" placeholder="optional" /></div>
             <div class="field"><label>Serial No.</label><input id="qs-serial" class="mono" placeholder="optional" /></div>
-            <div class="field"><label>Validity (days)</label><input id="qs-validity" type="number" min="1" value="7" /></div>
+            <div class="field"><label>Validity (days)</label>
+              <input id="qs-validity" type="number" min="1" max="30" value="30" />
+            </div>
           </div>
           <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
             <button class="btn btn-primary" id="btn-qs-create">Create Quotation</button>
@@ -257,14 +265,25 @@
         <div class="card">
           <div class="card-title">Customer &amp; Machine</div>
           <div class="grid grid-4">
-            <div class="field"><label>Customer</label><input id="qb-customer" readonly /></div>
-            <div class="field"><label>GSTIN</label><input id="qb-gstin" class="mono" readonly /></div>
+            <div class="field">
+              <label>Customer</label>
+              <input id="qb-customer" readonly />
+              <select id="qb-customer-pick" style="display:none;"></select>
+              <div id="qb-customer-note" class="field-note"></div>
+            </div>
+            <div class="field">
+              <label>GSTIN <button class="btn-ghost" id="btn-qb-edit-customer" type="button"
+                title="Open this customer's record">edit customer</button></label>
+              <input id="qb-gstin" class="mono" readonly />
+            </div>
             <div class="field"><label>Machine Model</label><input id="qb-model" /></div>
             <div class="field"><label>Serial No.</label><input id="qb-serial" /></div>
           </div>
           <div class="grid grid-4" style="margin-top:12px;">
             <div class="field"><label>Quotation Date</label><input id="qb-date" type="date" /></div>
-            <div class="field"><label>Validity (days)</label><input id="qb-validity" type="number" min="1" /></div>
+            <div class="field"><label>Validity (days)</label>
+              <input id="qb-validity" type="number" min="1" max="30" />
+            </div>
             <div class="field"><label>Valid Until</label><input id="qb-validuntil" readonly /></div>
             <div class="field"><label>Payment Terms</label><input id="qb-paymentterms" list="paymentterms-list" /></div>
           </div>

@@ -321,6 +321,32 @@ which is a basic renderer. That converter is also why the document is built from
 and rules rather than flexbox — it silently ignores modern layout. If ₹ comes out as a box in
 the PDF, say so and it becomes "Rs." in one edit.
 
+## Who a quotation is addressed to
+
+A quotation stores a pointer to the customer, not their name as text. The printed offer builds
+its "To" block from that customer's address and contact records, the GSTIN comes from their
+master, and conversion to an order, the credit check, the invoice, the ageing and the statement
+all find the customer the same way. A quotation raised against a typed-in name would be an
+orphan the moment it was won, and would print with an empty address block — so the customer has
+to exist first. That threshold is deliberately higher than a lead's, where no record is needed
+at all, because a lead is an approach and a quotation is a priced offer carrying a GST number.
+
+Three things follow from that, and each was a rough edge until it wasn't:
+
+- **A draft can be re-addressed.** Picking the wrong name out of three thousand is an ordinary
+  slip, and the alternative used to be abandoning the quotation and re-keying every line.
+  Changing it moves the contact and the billing address across too, because both belong to the
+  customer being left behind — keeping them would print one company's name above another
+  company's address. Once approved or submitted the quotation is locked and the picker becomes
+  plain text.
+- **The GSTIN stays read-only, with a way in.** It is master data; editing it here would either
+  quietly not save or silently rewrite the customer's record from a quotation screen. The
+  *edit customer* link beside it opens that record, and the quotation refreshes when it closes.
+- **A customer can be added without leaving the screen.** The + New button on the start panel
+  opens the customer dialog and selects the new record on save. It deliberately stays open
+  afterwards, because the offer needs a billing address and a contact and that is the one moment
+  someone has both to hand.
+
 ## Setting this up for a different client
 
 The system was written for one company, but nothing about that company is welded into the

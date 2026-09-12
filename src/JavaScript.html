@@ -808,6 +808,7 @@
   $("customer-search").addEventListener("input", renderCustomers);
   $("btn-new-customer").addEventListener("click", function () { openCustomerModal(null); });
   $("btn-cancel-customer").addEventListener("click", function () {
+    onCustomerSaved = null;
     $("customer-modal-backdrop").classList.remove("show");
   });
 
@@ -999,11 +1000,17 @@
       .findDuplicateCustomers(obj, $("cm-id").value || null);
   });
 
+  // Set by whoever opened the customer dialog from another screen, so that screen can pick up
+  // the new customer instead of the user having to go and find it.
+  var onCustomerSaved = null;
+
   function commitCustomer(obj) {
+    var isNew = !$("cm-id").value;
     google.script.run.withSuccessHandler(function (saved) {
       customersLoaded = false;
       google.script.run.withSuccessHandler(function (rows) {
         customersCache = rows; customersLoaded = true; renderCustomers();
+        if (onCustomerSaved) onCustomerSaved(saved, isNew);
         // Stay open on a new record so contacts/addresses can be added straight away.
         $("cm-id").value = saved.id;
         $("customer-modal-title").textContent = "Edit Customer";
@@ -1533,23 +1540,58 @@
    * The picker below fixes that; raising from an enquiry is still the better path and the
    * panel says so.
    */
-  function initQuoteStarter() {
+  /** Active customers, kept for both the start panel and the change-customer picker. */
+  var quoteCustomers = [];
+
+  function customerOptions(selectedId) {
+    if (!quoteCustomers.length) return '<option value="">— no customers yet —</option>';
+    return quoteCustomers.map(function (c) {
+      return '<option value="' + escapeHtml(c.id) + '"' +
+        (String(c.id) === String(selectedId) ? " selected" : "") + ">" +
+        escapeHtml(c.name) + "</option>";
+    }).join("");
+  }
+
+  function loadQuoteCustomers(then) {
     google.script.run.withSuccessHandler(function (customers) {
-      var active = customers.filter(function (c) {
+      quoteCustomers = customers.filter(function (c) {
         return String(c.active).toUpperCase() !== "FALSE";
       });
-      $("qs-customer").innerHTML = active.length
-        ? active.map(function (c) {
-            return '<option value="' + c.id + '">' + escapeHtml(c.name) + "</option>";
-          }).join("")
-        : '<option value="">— no customers yet —</option>';
-      $("btn-qs-create").disabled = !active.length;
+      if (then) then();
     }).withFailureHandler(onServerError).listCustomers(false);
+  }
+
+  function initQuoteStarter() {
+    loadQuoteCustomers(function () {
+      $("qs-customer").innerHTML = customerOptions(null);
+      $("btn-qs-create").disabled = !quoteCustomers.length;
+    });
 
     $("qs-stream").innerHTML = BUSINESS_STREAMS.map(function (st) {
       return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
     }).join("");
   }
+
+  /**
+   * Adding a customer without leaving the quotation. A walk-in wanting two filters has no
+   * record yet, and sending someone to Masters and back for it was four screens of ceremony
+   * before a single line could be priced.
+   */
+  $("btn-qs-new-customer").addEventListener("click", function () {
+    onCustomerSaved = function (saved, isNew) {
+      if (!isNew) return;
+      onCustomerSaved = null;
+      // The dialog stays open on purpose: the printed offer needs their billing address and a
+      // contact, and this is the one moment someone has both to hand.
+      loadQuoteCustomers(function () {
+        $("qs-customer").innerHTML = customerOptions(saved.id);
+        $("btn-qs-create").disabled = !quoteCustomers.length;
+        showMsg(saved.name + " is selected on the quotation. Add their billing address and a " +
+          "contact below — both print on the offer — then close this box.", "success");
+      });
+    };
+    openCustomerModal(null);
+  });
 
   $("btn-qs-create").addEventListener("click", function () {
     if (!$("qs-customer").value) {
@@ -1599,8 +1641,23 @@
         'the version already sent stays untouched.</div>'
       : "";
 
+    // A draft can still be re-addressed; anything locked shows the name as plain text.
+    var canRepoint = editable;
+    $("qb-customer").style.display = canRepoint ? "none" : "";
+    $("qb-customer-pick").style.display = canRepoint ? "" : "none";
     $("qb-customer").value = q.customerName || "";
+    if (canRepoint) {
+      if (!quoteCustomers.length) {
+        loadQuoteCustomers(function () {
+          $("qb-customer-pick").innerHTML = customerOptions(q.customerId);
+        });
+      } else {
+        $("qb-customer-pick").innerHTML = customerOptions(q.customerId);
+      }
+    }
+    $("qb-customer-note").textContent = "";
     $("qb-gstin").value = q.customerGstin || "";
+    $("btn-qb-edit-customer").style.display = q.customerId ? "" : "none";
     $("qb-model").value = q.machineModel || "";
     $("qb-serial").value = q.serialNo || "";
     $("qb-date").value = q.date || "";
@@ -1616,7 +1673,7 @@
 
     ["qb-model", "qb-serial", "qb-date", "qb-validity", "qb-paymentterms",
      "qb-deliveryterms", "qb-warrantyterms", "qb-notes",
-     "qb-pkgdisc", "qb-pf", "qb-taxmode"].forEach(function (f) {
+     "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-customer-pick"].forEach(function (f) {
       $(f).disabled = !editable;
     });
     $("btn-qb-save-header").style.display = editable ? "" : "none";
@@ -1718,8 +1775,43 @@
       notes: $("qb-notes").value.trim(),
       packageDiscountPct: $("qb-pkgdisc").value,
       pfAmount: $("qb-pf").value,
-      taxMode: $("qb-taxmode").value
+      taxMode: $("qb-taxmode").value,
+      customerId: $("qb-customer-pick").value || openQuote.customerId
     });
+  });
+
+  // Re-addressing a quotation replaces the contact and the billing address too, since both
+  // belong to the customer being left behind. Saying so beforehand beats a surprise on the
+  // printed page.
+  $("qb-customer-pick").addEventListener("change", function () {
+    var note = $("qb-customer-note");
+    if (!openQuote || $("qb-customer-pick").value === openQuote.customerId) {
+      note.textContent = "";
+      return;
+    }
+    var picked = $("qb-customer-pick").options[$("qb-customer-pick").selectedIndex];
+    note.textContent = "Save Details to move this quotation to " +
+      (picked ? picked.textContent : "this customer") +
+      ". Their contact and billing address replace the current ones on the printed offer.";
+  });
+
+  /** Straight to the customer's record — the usual reason to want it is a missing GSTIN. */
+  $("btn-qb-edit-customer").addEventListener("click", function () {
+    if (!openQuote || !openQuote.customerId) return;
+    var quotationId = openQuote.id;
+    onCustomerSaved = function () {
+      onCustomerSaved = null;
+      // Pull the quotation again so a corrected GSTIN shows here without a reload.
+      google.script.run.withSuccessHandler(function (q) {
+        openQuote = q;
+        renderQuoteBuilder();
+      }).withFailureHandler(onServerError).getQuotation(quotationId);
+    };
+    if (customersLoaded) { openCustomerModal(openQuote.customerId); return; }
+    google.script.run.withSuccessHandler(function (rows) {
+      customersCache = rows; customersLoaded = true;
+      openCustomerModal(openQuote.customerId);
+    }).withFailureHandler(onServerError).listCustomers();
   });
 
   function renderQuoteItems(q, editable) {

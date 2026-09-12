@@ -18,6 +18,55 @@
 
 var QUOTE_EDITORS = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 
+/**
+ * How long an offer stands. The client quotes 30 days as standard but asked for short-dated
+ * offers too, so anything from a single day up to a month is allowed and nothing outside that.
+ */
+var QUOTE_VALIDITY_MIN = 1;
+var QUOTE_VALIDITY_MAX = 30;
+var QUOTE_VALIDITY_DEFAULT = 30;
+
+function clampValidity_(days) {
+  var n = Number(days);
+  if (!n || isNaN(n)) return QUOTE_VALIDITY_DEFAULT;
+  return Math.min(QUOTE_VALIDITY_MAX, Math.max(QUOTE_VALIDITY_MIN, Math.round(n)));
+}
+
+/**
+ * The contact and addresses a quotation should point at for a given customer.
+ *
+ * Shared by the three ways a quotation comes into being, and — the reason it exists as a
+ * function — by changing the customer on a draft. A contact and an address belong to one
+ * customer, so moving the quotation to another and keeping the old pointers would print
+ * someone else's address on the offer.
+ */
+function defaultPartiesFor_(customerId) {
+  var addresses = readTable_('CustomerAddresses').filter(function (a) {
+    return String(a.customerId) === String(customerId) &&
+      String(a.active).toUpperCase() !== 'FALSE';
+  });
+  var billing = addresses.filter(function (a) {
+    return a.addressType === 'Billing' && String(a.isDefault).toUpperCase() === 'TRUE';
+  })[0] || addresses.filter(function (a) { return a.addressType === 'Billing'; })[0];
+  var shipping = addresses.filter(function (a) {
+    return a.addressType === 'Shipping' && String(a.isDefault).toUpperCase() === 'TRUE';
+  })[0] || billing;
+
+  var contacts = readTable_('CustomerContacts').filter(function (c) {
+    return String(c.customerId) === String(customerId) &&
+      String(c.active).toUpperCase() !== 'FALSE';
+  });
+  var primary = contacts.filter(function (c) {
+    return String(c.isPrimary).toUpperCase() === 'TRUE';
+  })[0] || contacts[0];
+
+  return {
+    contactId: primary ? primary.id : '',
+    billingAddressId: billing ? billing.id : '',
+    shippingAddressId: shipping ? shipping.id : ''
+  };
+}
+
 /** Statuses after which the quotation is frozen and further edits fork a revision. */
 var LOCKED_QUOTE_STATUSES = ['Approved', 'Submitted', 'Won', 'Lost', 'Expired'];
 
@@ -90,26 +139,9 @@ function createBlankQuotation(input) {
   var stream = BUSINESS_STREAMS.indexOf(input.businessStream) !== -1
     ? input.businessStream : STREAM_SPARE;
 
-  var addresses = readTable_('CustomerAddresses').filter(function (a) {
-    return String(a.customerId) === String(customer.id) &&
-      String(a.active).toUpperCase() !== 'FALSE';
-  });
-  var billing = addresses.filter(function (a) {
-    return a.addressType === 'Billing' && String(a.isDefault).toUpperCase() === 'TRUE';
-  })[0] || addresses.filter(function (a) { return a.addressType === 'Billing'; })[0];
-  var shipping = addresses.filter(function (a) {
-    return a.addressType === 'Shipping' && String(a.isDefault).toUpperCase() === 'TRUE';
-  })[0] || billing;
+  var parties = defaultPartiesFor_(customer.id);
 
-  var contacts = readTable_('CustomerContacts').filter(function (c) {
-    return String(c.customerId) === String(customer.id) &&
-      String(c.active).toUpperCase() !== 'FALSE';
-  });
-  var primary = contacts.filter(function (c) {
-    return String(c.isPrimary).toUpperCase() === 'TRUE';
-  })[0] || contacts[0];
-
-  var validity = Number(input.validityDays) > 0 ? Number(input.validityDays) : 30;
+  var validity = clampValidity_(input.validityDays);
 
   var quote = {
     id: generateId_('QT-'),
@@ -120,9 +152,9 @@ function createBlankQuotation(input) {
     businessStream: stream,
     brand: defaultBrand_(),
     customerId: customer.id,
-    contactId: primary ? primary.id : '',
-    billingAddressId: billing ? billing.id : '',
-    shippingAddressId: shipping ? shipping.id : '',
+    contactId: parties.contactId,
+    billingAddressId: parties.billingAddressId,
+    shippingAddressId: parties.shippingAddressId,
     opportunityId: '',
     spareEnquiryId: '',
     machineModel: String(input.machineModel || '').trim(),
@@ -163,24 +195,7 @@ function createQuotationFromEnquiry(spareEnquiryId) {
     return String(c.id) === String(enquiry.customerId);
   })[0];
 
-  var addresses = readTable_('CustomerAddresses').filter(function (a) {
-    return String(a.customerId) === String(enquiry.customerId) &&
-      String(a.active).toUpperCase() !== 'FALSE';
-  });
-  var billing = addresses.filter(function (a) {
-    return a.addressType === 'Billing' && String(a.isDefault).toUpperCase() === 'TRUE';
-  })[0] || addresses.filter(function (a) { return a.addressType === 'Billing'; })[0];
-  var shipping = addresses.filter(function (a) {
-    return a.addressType === 'Shipping' && String(a.isDefault).toUpperCase() === 'TRUE';
-  })[0] || billing;
-
-  var contacts = readTable_('CustomerContacts').filter(function (c) {
-    return String(c.customerId) === String(enquiry.customerId) &&
-      String(c.active).toUpperCase() !== 'FALSE';
-  });
-  var primary = contacts.filter(function (c) {
-    return String(c.isPrimary).toUpperCase() === 'TRUE';
-  })[0] || contacts[0];
+  var parties = defaultPartiesFor_(enquiry.customerId);
 
   var quote = {
     id: generateId_('QT-'),
@@ -191,16 +206,16 @@ function createQuotationFromEnquiry(spareEnquiryId) {
     businessStream: STREAM_SPARE,
     brand: defaultBrand_(),
     customerId: enquiry.customerId,
-    contactId: primary ? primary.id : '',
-    billingAddressId: billing ? billing.id : '',
-    shippingAddressId: shipping ? shipping.id : '',
+    contactId: parties.contactId,
+    billingAddressId: parties.billingAddressId,
+    shippingAddressId: parties.shippingAddressId,
     opportunityId: '',
     spareEnquiryId: spareEnquiryId,
     machineModel: enquiry.productModel,
     serialNo: enquiry.serialNo,
     preparedBy: user.email,
-    validityDays: 30,
-    validUntil: addDays_(todayIso_(), 30),
+    validityDays: QUOTE_VALIDITY_DEFAULT,
+    validUntil: addDays_(todayIso_(), QUOTE_VALIDITY_DEFAULT),
     status: 'Draft',
     paymentTerms: customer ? (customer.paymentTerms || '') : '',
     deliveryTerms: '',
@@ -275,8 +290,30 @@ function saveQuotationHeader(input) {
   requireRole_(user, QUOTE_EDITORS);
   var existing = requireUnlockedQuote_(input.id);
 
-  var validityDays = Number(input.validityDays);
-  if (isNaN(validityDays) || validityDays <= 0) validityDays = Number(existing.validityDays) || 30;
+  var validityDays = clampValidity_(input.validityDays || existing.validityDays);
+
+  // Changing who the offer is addressed to. Allowed while it is a draft, because picking the
+  // wrong name from a list of three thousand is an ordinary slip and the alternative was
+  // abandoning the quotation and re-keying every line. Once approved or submitted the quote is
+  // locked anyway, so this cannot rewrite what a customer has already received.
+  var patch = {};
+  var newCustomerId = String(input.customerId || '').trim();
+  if (newCustomerId && newCustomerId !== String(existing.customerId)) {
+    var customer = readTable_('Customers').filter(function (c) {
+      return String(c.id) === newCustomerId;
+    })[0];
+    if (!customer) throw new Error('That customer no longer exists.');
+    if (String(customer.active).toUpperCase() === 'FALSE') {
+      throw new Error(customer.name + ' is deactivated. Reactivate them before quoting.');
+    }
+    // The contact and the addresses belonged to the previous customer; carrying them over
+    // would print one company's name above another company's address.
+    var parties = defaultPartiesFor_(newCustomerId);
+    patch.customerId = newCustomerId;
+    patch.contactId = parties.contactId;
+    patch.billingAddressId = parties.billingAddressId;
+    patch.shippingAddressId = parties.shippingAddressId;
+  }
 
   // The package discount is the one their printed offer shows: everything listed at full price
   // with a single percentage struck off the total.
@@ -296,7 +333,7 @@ function saveQuotationHeader(input) {
     throw new Error('Tax mode must be Extra or Included.');
   }
 
-  updateRowById_('Quotations', 'id', input.id, {
+  var record = {
     date: String(input.date || existing.date).slice(0, 10),
     validityDays: validityDays,
     validUntil: addDays_(String(input.date || existing.date).slice(0, 10), validityDays),
@@ -309,7 +346,10 @@ function saveQuotationHeader(input) {
     packageDiscountPct: pkgPct,
     pfAmount: pf,
     taxMode: taxMode
-  }, 'Quotation header updated');
+  };
+  Object.keys(patch).forEach(function (k) { record[k] = patch[k]; });
+
+  updateRowById_('Quotations', 'id', input.id, record, 'Quotation header updated');
 
   // Discount, P&F and tax mode all move the totals, so they have to be recomputed here and
   // not only when a line changes.
@@ -466,7 +506,7 @@ function reviseQuotation(id) {
   copy.revision = nextRevision;
   copy.parentQuotationId = rootId;
   copy.date = todayIso_();
-  copy.validUntil = addDays_(todayIso_(), Number(source.validityDays) || 7);
+  copy.validUntil = addDays_(todayIso_(), clampValidity_(source.validityDays));
   copy.status = 'Draft';
   copy.locked = 'FALSE';
   copy.approvedBy = '';
@@ -655,24 +695,7 @@ function createQuotationFromOpportunity(opportunityId) {
     return String(c.id) === String(opportunity.customerId);
   })[0];
 
-  var addresses = readTable_('CustomerAddresses').filter(function (a) {
-    return String(a.customerId) === String(opportunity.customerId) &&
-      String(a.active).toUpperCase() !== 'FALSE';
-  });
-  var billing = addresses.filter(function (a) {
-    return a.addressType === 'Billing' && String(a.isDefault).toUpperCase() === 'TRUE';
-  })[0] || addresses.filter(function (a) { return a.addressType === 'Billing'; })[0];
-  var shipping = addresses.filter(function (a) {
-    return a.addressType === 'Shipping' && String(a.isDefault).toUpperCase() === 'TRUE';
-  })[0] || billing;
-
-  var contacts = readTable_('CustomerContacts').filter(function (c) {
-    return String(c.customerId) === String(opportunity.customerId) &&
-      String(c.active).toUpperCase() !== 'FALSE';
-  });
-  var primary = contacts.filter(function (c) {
-    return String(c.isPrimary).toUpperCase() === 'TRUE';
-  })[0] || contacts[0];
+  var parties = defaultPartiesFor_(opportunity.customerId);
 
   var quote = {
     id: generateId_('QT-'),
@@ -683,16 +706,16 @@ function createQuotationFromOpportunity(opportunityId) {
     businessStream: STREAM_COMPRESSOR,
     brand: defaultBrand_(),
     customerId: opportunity.customerId,
-    contactId: primary ? primary.id : '',
-    billingAddressId: billing ? billing.id : '',
-    shippingAddressId: shipping ? shipping.id : '',
+    contactId: parties.contactId,
+    billingAddressId: parties.billingAddressId,
+    shippingAddressId: parties.shippingAddressId,
     opportunityId: opportunityId,
     spareEnquiryId: '',
     machineModel: '',
     serialNo: '',
     preparedBy: user.email,
-    validityDays: 30,
-    validUntil: addDays_(todayIso_(), 30),
+    validityDays: QUOTE_VALIDITY_DEFAULT,
+    validUntil: addDays_(todayIso_(), QUOTE_VALIDITY_DEFAULT),
     status: 'Draft',
     paymentTerms: customer ? (customer.paymentTerms || '') : '',
     deliveryTerms: '',
