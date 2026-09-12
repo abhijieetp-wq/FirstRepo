@@ -356,6 +356,19 @@ function defaultQuoteTemplates_() {
       body: 'At normal working pressure, all data as per ISO 1217, Annex C.'
     },
     {
+      id: 'QTPL-SPARE-LABELS', section: 'Labels', brand: 'ELGI',
+      businessStream: STREAM_SPARE, appliesTo: '',
+      title: 'Wording used on a spares offer', sortOrder: 8, active: 'TRUE',
+      // Their spares offer adds the tax in and calls the pre-tax figure "Pre Freight Amount";
+      // their compressor offer quotes before tax and calls it "Total package price". Same
+      // document, two vocabularies, so the stream picks the one it needs.
+      body: 'priceHeading = Annexure-A\n' +
+        'packageTotal = Pre Freight Amount\n' +
+        'grandTotal = Total Amount\n' +
+        'taxRow = Total Tax {rate}%\n' +
+        'termsHeading = Terms & Conditions — Annexure B'
+    },
+    {
       id: 'QTPL-LABELS', section: 'Labels', brand: 'ELGI',
       businessStream: '', appliesTo: '', title: 'Wording used on the document',
       sortOrder: 8, active: 'TRUE',
@@ -376,6 +389,12 @@ function defaultQuoteTemplates_() {
         'colUnit = Unit\n' +
         'colHsn = HSN code\n' +
         'colTaxRate = Tax rate\n' +
+        'colPartNo = Part Number\n' +
+        'colPricePer = Price Per\n' +
+        'colQuantity = Quantity\n' +
+        'colTotalAmount = Total Amount\n' +
+        'fabNo = FAB No\n' +
+        'modelNo = MODEL No\n' +
         'colSpecification = Specifications\n' +
         'packageTotal = Total package price\n' +
         'discountedTotal = Total discounted price\n' +
@@ -383,6 +402,7 @@ function defaultQuoteTemplates_() {
         'freight = Freight\n' +
         'grandTotal = Total amount\n' +
         'taxExtra = EXTRA\n' +
+        'taxRow = {rate}% GST\n' +
         'termsHeading = Terms & conditions\n' +
         'enclSpecScope = Technical specifications and scope of supply\n' +
         'enclSpec = Technical specifications\n' +

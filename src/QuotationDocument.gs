@@ -26,7 +26,9 @@ function inr_(n) {
   var rest = whole.length > 3 ? whole.slice(0, -3) : '';
   if (rest) last3 = ',' + last3;
   rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
-  return (Number(n) < 0 ? '-' : '') + '₹ ' + rest + last3 + '.' + parts[1];
+  // A non-breaking space: in a narrow column the symbol was wrapping onto the line above its
+  // own number.
+  return (Number(n) < 0 ? '-' : '') + '₹\u00A0' + rest + last3 + '.' + parts[1];
 }
 
 function esc_(v) {
@@ -40,12 +42,20 @@ function templateLines_(body) {
     .filter(function (l) { return l !== ''; });
 }
 
+/**
+ * The active template for a section.
+ *
+ * A section can have a row for one stream and a general row for both. The specific one wins —
+ * otherwise which text printed would depend on the order rows happen to sit in the sheet,
+ * which is not a thing anyone should have to know.
+ */
 function quoteTemplate_(section, stream) {
-  return readTable_('QuoteTemplates').filter(function (t) {
+  var rows = readTable_('QuoteTemplates').filter(function (t) {
     if (t.section !== section) return false;
     if (String(t.active).toUpperCase() === 'FALSE') return false;
     return !t.businessStream || t.businessStream === stream;
-  })[0];
+  });
+  return rows.filter(function (t) { return t.businessStream === stream; })[0] || rows[0];
 }
 
 /**
@@ -56,14 +66,24 @@ function quoteTemplate_(section, stream) {
  * editable block, and any key left out simply falls back to what the code would have said.
  */
 function docLabels_(stream) {
-  var tpl = quoteTemplate_('Labels', stream);
   var out = {};
-  if (!tpl) return out;
-  templateLines_(tpl.body).forEach(function (line) {
-    var eq = line.indexOf('=');
-    if (eq === -1) return;
-    var key = line.slice(0, eq).trim();
-    if (key) out[key] = line.slice(eq + 1).trim();
+  // General first, then the stream's own on top: a spares offer needs its four different words
+  // without having to restate the twenty it shares with every other offer.
+  var rows = readTable_('QuoteTemplates').filter(function (t) {
+    if (t.section !== 'Labels') return false;
+    if (String(t.active).toUpperCase() === 'FALSE') return false;
+    return !t.businessStream || t.businessStream === stream;
+  }).sort(function (a, b) {
+    return (a.businessStream ? 1 : 0) - (b.businessStream ? 1 : 0);
+  });
+
+  rows.forEach(function (tpl) {
+    templateLines_(tpl.body).forEach(function (line) {
+      var eq = line.indexOf('=');
+      if (eq === -1) return;
+      var key = line.slice(0, eq).trim();
+      if (key) out[key] = line.slice(eq + 1).trim();
+    });
   });
   return out;
 }
@@ -304,27 +324,75 @@ function buildQuotationHtml(quotationId) {
   // ---------------------------------------------------------------- price schedule
   push('<div class="page-break"></div>');
   push('<div class="h1">' + esc_(L('priceHeading', 'Price schedule')) + '</div>');
+
+  // The machine the parts belong to. A spare part is meaningless without it — their own spares
+  // offer opens the annexure with these two lines, and we were holding both and printing
+  // neither.
+  if (!isCompressor && (q.machineModel || q.serialNo)) {
+    push('<table class="machine">' +
+      (q.serialNo ? '<tr><td>' + esc_(L('fabNo', 'Fab No')) + '</td><td>' +
+        esc_(q.serialNo) + '</td></tr>' : '') +
+      (q.machineModel ? '<tr><td>' + esc_(L('modelNo', 'Model No')) + '</td><td>' +
+        esc_(q.machineModel) + '</td></tr>' : '') +
+      '</table>');
+  }
+
+  /*
+   * The two documents schedule prices differently, and each is right for what it sells.
+   *
+   * A compressor offer lists a handful of machines at a basic price, with the tax rate shown
+   * per line because the package is quoted before tax. A spares offer is a parts list: the
+   * customer checks it against their machine, so the part number leads and each line carries
+   * its own extended total. Following the compressor layout for spares would drop the part
+   * number, which is the one column a storeman actually reads.
+   */
+  var priceCols = isCompressor
+    ? [L('colDescription', 'Description'), L('colBasicPrice', 'Basic price'),
+       L('colQty', 'Qty'), L('colUnit', 'Unit'), L('colHsn', 'HSN code'),
+       L('colTaxRate', 'Tax rate')]
+    : [L('colPartNo', 'Part Number'), L('colDescription', 'Description'),
+       L('colPricePer', 'Price Per'), L('colQuantity', 'Quantity'),
+       L('colTotalAmount', 'Total Amount'), L('colHsn', 'HSN code')];
+
   push('<table class="price"><tr>' +
-    '<th class="w-desc">' + esc_(L('colDescription', 'Description')) + '</th>' +
-    '<th class="num">' + esc_(L('colBasicPrice', 'Basic price')) + '</th>' +
-    '<th class="num">' + esc_(L('colQty', 'Qty')) + '</th>' +
-    '<th>' + esc_(L('colUnit', 'Unit')) + '</th>' +
-    '<th>' + esc_(L('colHsn', 'HSN code')) + '</th>' +
-    '<th class="num">' + esc_(L('colTaxRate', 'Tax rate')) + '</th></tr>');
+    (isCompressor
+      ? '<th class="w-desc">' + esc_(priceCols[0]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[1]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[2]) + '</th>' +
+        '<th>' + esc_(priceCols[3]) + '</th>' +
+        '<th>' + esc_(priceCols[4]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[5]) + '</th>'
+      : '<th class="w-part">' + esc_(priceCols[0]) + '</th>' +
+        '<th class="w-desc">' + esc_(priceCols[1]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[2]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[3]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[4]) + '</th>' +
+        '<th>' + esc_(priceCols[5]) + '</th>') +
+    '</tr>');
 
   var gross = 0;
   items.forEach(function (i) {
     var isCharge = i.lineType === 'Charge';
     var qty = Number(i.qty) || 0;
     var unit = Number(i.unitPrice) || 0;
-    gross += unit * qty;
-    push('<tr>' +
-      '<td>' + esc_(i.description || i.itemCode) + '</td>' +
-      '<td class="num">' + inr_(unit) + '</td>' +
-      '<td class="num">' + esc_(qty) + '</td>' +
-      '<td>' + esc_(i.uom || 'No') + '</td>' +
-      '<td>' + (isCharge ? '—' : esc_(hsnFor_(i, products, spares))) + '</td>' +
-      '<td class="num">' + (isCharge ? '—' : esc_((Number(i.taxPct) || 0).toFixed(2)) + '%') + '</td>' +
+    var lineTotal = unit * qty;
+    gross += lineTotal;
+    var hsn = isCharge ? '' : esc_(hsnFor_(i, products, spares));
+
+    push('<tr>' + (isCompressor
+      ? '<td>' + esc_(i.description || i.itemCode) + '</td>' +
+        '<td class="num">' + inr_(unit) + '</td>' +
+        '<td class="num">' + esc_(qty) + '</td>' +
+        '<td>' + esc_(i.uom || 'No') + '</td>' +
+        '<td>' + (hsn || '—') + '</td>' +
+        '<td class="num">' + (isCharge ? '—' : esc_((Number(i.taxPct) || 0).toFixed(2)) + '%') + '</td>'
+      // A charge has no part number and no extended rate — it is simply an amount.
+      : '<td class="mono">' + (isCharge ? '' : esc_(i.itemCode)) + '</td>' +
+        '<td>' + esc_(i.description || i.itemCode) + '</td>' +
+        '<td class="num">' + (isCharge ? '' : inr_(unit)) + '</td>' +
+        '<td class="num">' + (isCharge ? '' : esc_(qty)) + '</td>' +
+        '<td class="num">' + inr_(lineTotal) + '</td>' +
+        '<td>' + hsn + '</td>') +
       '</tr>');
   });
   push('</table>');
@@ -341,14 +409,24 @@ function buildQuotationHtml(quotationId) {
     totals.push([esc_(L('discountedTotal', 'Total discounted price')) +
       ' (' + pkgPct + '% less)', inr_(netGoods), 'strong']);
   }
-  totals.push([esc_(L('pf', 'P&F')), Number(q.pfAmount) > 0 ? inr_(q.pfAmount) : 'NIL', '']);
-  totals.push([esc_(L('freight', 'Freight')), esc_(q.deliveryTerms || 'Extra at actuals'), '']);
+  // Their compressor offer states P&F and freight even when nil, because those are negotiated
+  // on a machine. Their spares offer omits them entirely and folds carting into a line.
+  if (isCompressor || Number(q.pfAmount) > 0) {
+    totals.push([esc_(L('pf', 'P&F')), Number(q.pfAmount) > 0 ? inr_(q.pfAmount) : 'NIL', '']);
+  }
+  if (isCompressor || q.deliveryTerms) {
+    totals.push([esc_(L('freight', 'Freight')), esc_(q.deliveryTerms || 'Extra at actuals'), '']);
+  }
 
+  // The row reading "18% GST" on a compressor offer and "Total Tax 18%" on a spares one — same
+  // figure, their two documents word it differently, so the wording is a label with the rate
+  // substituted into it.
+  var taxRow = esc_(L('taxRow', '{rate}% GST')).replace('{rate}', esc_(headlineTaxRate_(items)));
   var taxExtra = String(q.taxMode || 'Extra') === 'Extra';
   if (taxExtra) {
-    totals.push([esc_(headlineTaxRate_(items)) + ' GST', esc_(L('taxExtra', 'EXTRA')), '']);
+    totals.push([taxRow, esc_(L('taxExtra', 'EXTRA')), '']);
   } else {
-    totals.push([esc_(headlineTaxRate_(items)) + ' GST', inr_(q.taxAmt), '']);
+    totals.push([taxRow, inr_(q.taxAmt), '']);
     totals.push([esc_(L('grandTotal', 'Total amount')), inr_(q.grand), 'strong']);
   }
 
@@ -393,7 +471,12 @@ function buildQuotationHtml(quotationId) {
   return out.join('\n');
 }
 
-/** The rate to print beside "GST EXTRA" — their offers quote a single headline figure. */
+/**
+ * The single headline rate their offers quote, as a bare number: "18", not "18.00".
+ *
+ * Both their documents write "18% GST"; we were printing "18.00% GST", which is the sort of
+ * detail nobody asks you to fix and everybody notices.
+ */
 function headlineTaxRate_(items) {
   var rates = {};
   items.forEach(function (i) {
@@ -402,9 +485,10 @@ function headlineTaxRate_(items) {
     rates[r] = (rates[r] || 0) + 1;
   });
   var keys = Object.keys(rates);
-  if (!keys.length) return '18.00%';
-  keys.sort(function (a, b) { return rates[b] - rates[a]; });
-  return Number(keys[0]).toFixed(2) + '%';
+  var rate = keys.length
+    ? Number(keys.sort(function (a, b) { return rates[b] - rates[a]; })[0])
+    : 18;
+  return String(Number(rate.toFixed(2)));
 }
 
 /**
@@ -502,6 +586,10 @@ function quotationCss_(co) {
     'table.price th{background:#eee;padding:6px 8px;border:1px solid #999;text-align:left;}' +
     'table.price td{padding:6px 8px;border:1px solid #999;}' +
     '.w-desc{width:42%;}' +
+    '.w-part{width:18%;}' +
+    'table.machine{border-collapse:collapse;margin-bottom:10px;font-size:10pt;}' +
+    'table.machine td{border:1px solid #999;padding:4px 10px;}' +
+    'table.machine td:first-child{font-weight:bold;background:#eee;}' +
     '.num{text-align:right;}' +
     'table.totals{width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:8px;}' +
     'table.totals td{padding:5px 8px;border:1px solid #999;}' +

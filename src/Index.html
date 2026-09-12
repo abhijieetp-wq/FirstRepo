@@ -322,6 +322,32 @@
           <div class="card-title">
             Items
             <button class="btn btn-sm" id="btn-qb-add-item" type="button">+ Add Item</button>
+            <button class="btn btn-sm" id="btn-qb-add-charge" type="button">+ Add Charge</button>
+          </div>
+
+          <div id="qb-charge-panel" class="inline-form" style="display:none;">
+            <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 12px;">
+              A line that is not a catalog item — carting, packing, freight. It is taxed at the
+              same rate as the goods unless you say otherwise, which is how your spares offers
+              treat carting.
+            </p>
+            <input type="hidden" id="qc-id" />
+            <input type="hidden" id="qc-lineno" />
+            <div class="grid grid-3">
+              <div class="field"><label>Description *</label>
+                <input id="qc-description" list="charges-list" placeholder="Carting" />
+              </div>
+              <div class="field"><label>Amount *</label>
+                <input id="qc-amount" type="number" min="0" step="0.01" />
+              </div>
+              <div class="field"><label>Tax %</label>
+                <input id="qc-tax" type="number" min="0" max="100" step="0.01" placeholder="same as goods" />
+              </div>
+            </div>
+            <div class="inline-form-actions">
+              <button class="btn btn-sm" id="btn-qc-cancel" type="button">Cancel</button>
+              <button class="btn btn-sm btn-primary" id="btn-qc-save" type="button">Save Charge</button>
+            </div>
           </div>
 
           <div id="qb-add-panel" class="inline-form" style="display:none;">
@@ -1707,5 +1733,6 @@
 </div>
 
 <?!= include('JavaScript'); ?>
+<datalist id="charges-list"><option value="Carting"></option><option value="Freight"></option><option value="Packing &amp; Forwarding"></option></datalist>
 </body>
 </html>

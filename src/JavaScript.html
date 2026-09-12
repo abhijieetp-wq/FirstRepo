@@ -1678,7 +1678,11 @@
     });
     $("btn-qb-save-header").style.display = editable ? "" : "none";
     $("btn-qb-add-item").style.display = editable ? "" : "none";
-    if (!editable) $("qb-add-panel").style.display = "none";
+    $("btn-qb-add-charge").style.display = editable ? "" : "none";
+    if (!editable) {
+      $("qb-add-panel").style.display = "none";
+      $("qb-charge-panel").style.display = "none";
+    }
 
     renderQuoteActions(q, editable);
     renderQuoteItems(q, editable);
@@ -1824,9 +1828,12 @@
       '<th class="num">Qty</th><th class="num">Price</th><th class="num">Disc %</th>' +
       '<th class="num">Tax %</th><th class="num">Line Total</th><th></th></tr></thead><tbody>' +
       q.items.map(function (i) {
+        var isCharge = i.lineType === "Charge";
         return "<tr>" +
           "<td>" + i.lineNo + "</td>" +
-          '<td class="mono">' + escapeHtml(i.itemCode || "—") + "</td>" +
+          '<td class="mono">' + (isCharge
+            ? '<span class="badge badge-dormant">charge</span>'
+            : escapeHtml(i.itemCode || "—")) + "</td>" +
           "<td>" + escapeHtml(i.description || "—") +
             (i.availabilityNote ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
               escapeHtml(i.availabilityNote) + "</span>" : "") + "</td>" +
@@ -1856,6 +1863,9 @@
     zone.querySelectorAll("[data-edit-line]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var line = q.items.find(function (x) { return x.id === btn.dataset.editLine; });
+        // A charge has no catalog price or discount, so the comma-separated dialog below would
+        // ask three questions of which two are meaningless.
+        if (line.lineType === "Charge") { openChargeForm(line); return; }
         askDialog({
           title: "Line " + line.lineNo + " — " + (line.itemCode || ""),
           message: "Catalog price is " + fmt(line.listPrice) + ". Enter quantity, price and " +
@@ -1968,8 +1978,49 @@
     }).generateQuotationPdf(openQuote.id);
   });
 
+  // ---- Charges: carting, packing, freight ----
+  function openChargeForm(line) {
+    $("qc-id").value = line ? line.id : "";
+    $("qc-lineno").value = line ? line.lineNo : "";
+    $("qc-description").value = line ? (line.description || "") : "";
+    $("qc-amount").value = line ? (Number(line.unitPrice) || 0) : "";
+    $("qc-tax").value = line ? (Number(line.taxPct) || 0) : "";
+    $("qb-add-panel").style.display = "none";
+    $("qb-charge-panel").style.display = "";
+    $("qc-description").focus();
+  }
+
+  $("btn-qb-add-charge").addEventListener("click", function () { openChargeForm(null); });
+  $("btn-qc-cancel").addEventListener("click", function () {
+    $("qb-charge-panel").style.display = "none";
+  });
+
+  $("btn-qc-save").addEventListener("click", function () {
+    if (!$("qc-description").value.trim()) {
+      showMsg("Give the charge a description, for example Carting.", "error");
+      return;
+    }
+    if ($("qc-amount").value === "") {
+      showMsg("Enter the amount for this charge.", "error");
+      return;
+    }
+    google.script.run.withSuccessHandler(function (nq) {
+      openQuote = nq;
+      renderQuoteBuilder();
+      showMsg("Charge saved.", "success");
+    }).withFailureHandler(onServerError).saveQuotationCharge({
+      id: $("qc-id").value || "",
+      lineNo: $("qc-lineno").value || "",
+      quotationId: openQuote.id,
+      description: $("qc-description").value.trim(),
+      amount: $("qc-amount").value,
+      taxPct: $("qc-tax").value
+    });
+  });
+
   // ---- Adding items to a quotation ----
   $("btn-qb-add-item").addEventListener("click", function () {
+    $("qb-charge-panel").style.display = "none";
     $("qb-add-panel").style.display = "";
     $("qi-search").value = "";
     $("qi-qty").value = 1;

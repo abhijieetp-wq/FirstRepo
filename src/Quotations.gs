@@ -359,6 +359,73 @@ function saveQuotationHeader(input) {
 }
 
 /**
+ * A charge line — carting, freight, packing — that is not an item in any catalog.
+ *
+ * Their spares offer lists CARTING among the parts with no part number and no rate, just an
+ * amount, and the tax on the offer is charged on a base that includes it: ₹2,83,343 × 18% is
+ * exactly the ₹51,001.74 they show. So a charge is taxed like everything else, and the default
+ * rate follows the lines already on the quotation rather than being assumed.
+ *
+ * It is a separate function from saveQuotationItem because that one insists on a catalog item
+ * and prices from the price list, and neither applies here.
+ */
+function saveQuotationCharge(input) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+  requireUnlockedQuote_(input.quotationId);
+
+  var description = String(input.description || '').trim();
+  if (!description) throw new Error('Give the charge a description, for example Carting.');
+
+  var amount = Number(input.amount);
+  if (isNaN(amount) || amount < 0) throw new Error('The amount must be a number, zero or more.');
+
+  var existingLines = readTable_('QuotationItems').filter(function (i) {
+    return String(i.quotationId) === String(input.quotationId);
+  });
+
+  var taxPct;
+  if (input.taxPct === '' || input.taxPct === undefined || input.taxPct === null) {
+    // Follow the goods: a charge taxed at a different rate to the order it belongs to is
+    // almost always a slip rather than an intention.
+    var goods = existingLines.filter(function (i) { return i.lineType !== 'Charge'; });
+    taxPct = goods.length ? (Number(goods[0].taxPct) || 0) : 18;
+  } else {
+    taxPct = Number(input.taxPct);
+  }
+  if (isNaN(taxPct) || taxPct < 0 || taxPct > 100) throw new Error('Tax must be between 0 and 100.');
+
+  var record = {
+    quotationId: String(input.quotationId),
+    lineNo: input.id ? Number(input.lineNo) : existingLines.length + 1,
+    lineType: 'Charge',
+    itemType: '',
+    itemId: '',
+    itemCode: '',
+    description: description,
+    qty: 1,
+    uom: 'Lot',
+    listPrice: '',
+    rateType: 'Charge',
+    unitPrice: roundMoney_(amount),
+    discountPct: 0,
+    taxPct: taxPct,
+    lineTotal: roundMoney_(amount),
+    availabilityNote: '',
+    leadTimeDays: ''
+  };
+
+  if (input.id) {
+    updateRowById_('QuotationItems', 'id', input.id, record, 'Charge updated');
+  } else {
+    record.id = generateId_('QI-');
+    appendRow_('QuotationItems', record, 'Charge added: ' + description);
+  }
+  recalcQuotation_(input.quotationId);
+  return getQuotation(input.quotationId);
+}
+
+/**
  * Adds or updates a line. `unitPrice` defaults to the item's selling price on the quotation
  * date, so a coordinator never has to look a price up, but it can be overridden — with the
  * discount that implies recorded explicitly rather than buried in a changed number.
@@ -395,6 +462,7 @@ function saveQuotationItem(input) {
   var record = {
     quotationId: String(input.quotationId),
     lineNo: input.id ? Number(input.lineNo) : existingLines.length + 1,
+    lineType: 'Item',
     itemType: itemType,
     itemId: String(input.itemId || '').trim(),
     itemCode: String(input.itemCode || (master ? (master.partNo || master.productCode) : '')).trim(),

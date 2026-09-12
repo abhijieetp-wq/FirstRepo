@@ -347,6 +347,31 @@ Three things follow from that, and each was a rough edge until it wasn't:
   afterwards, because the offer needs a billing address and a contact and that is the one moment
   someone has both to hand.
 
+## Two streams, two price schedules
+
+Their compressor offer and their spares offer schedule prices differently, and each is right
+for what it sells. The rule stands that the compressor document wins where they contradict —
+letterhead, structure, terms, sign-off are one template — but the price table itself is not a
+contradiction, it is two different jobs:
+
+| | Compressor offer | Spares offer |
+|---|---|---|
+| Columns | Description, Basic price, Qty, Unit, HSN, Tax rate | **Part Number**, Description, Price Per, Quantity, **Total Amount**, HSN |
+| Tax | quoted before tax — "18% GST EXTRA" | added in — "Total Tax 18%", "Total Amount" |
+| P&F and freight | always stated, even at nil | omitted; carting is a line |
+| Machine | — | **FAB No** and **MODEL No** above the table |
+
+A parts list is checked against a machine, so the part number leads and each line carries its
+own extended total; following the compressor layout would drop the one column a storeman
+actually reads. The wording differences ride on the Labels section, which now merges the
+general row with the stream's own — a spares offer states its four different words without
+restating the twenty it shares.
+
+**Carting is taxed.** Their spares offer puts it among the parts with no part number and no
+rate, and the tax is charged on a base that includes it: ₹2,83,343 × 18% is exactly the
+₹51,001.74 they print. So a charge line carries tax like anything else, defaulting to whatever
+the goods on the quotation are charged at. **+ Add Charge** on the quotation raises one.
+
 ## The letterhead is a page frame, not a header
 
 Their document does not put the company details at the top of page one — it puts **the two
