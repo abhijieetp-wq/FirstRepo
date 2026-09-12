@@ -59,8 +59,10 @@ function defaultCompanyProfile_() {
     // Drives the quotation numbering and the default on new records, so a house selling a
     // different make does not need the code opened.
     defaultBrand: 'ELGI',
-    appName: 'ELGI Spares ERP',
-    appSubtitle: 'Spares Sales Department',
+    // Not "Spares" — one installation serves both streams, and a compressor offer printed
+    // under a spares banner invites the obvious question.
+    appName: 'ELGi Sales ERP',
+    appSubtitle: 'Compressor & Spare Sales',
     // Most logos are a wordmark — the company name is already drawn into the image — and
     // printing the text name underneath it says the name twice. Tick this and the letterhead
     // lets the logo speak for itself.

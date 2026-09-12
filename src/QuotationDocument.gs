@@ -228,7 +228,13 @@ function buildQuotationHtml(quotationId) {
       '</div>';
   };
 
-  push('<html><head><meta charset="UTF-8" />' + quotationCss_(co) + '</head><body>');
+  // The document names itself. Browsers stamp the page title into the print margin, and
+  // without one it stamps whatever the application is called — which put "ELGi Spares ERP"
+  // above a compressor offer. The quotation number is what belongs there.
+  var docTitle = String(q.quoteNo || 'Quotation') +
+    (q.revision && q.revision !== 'R0' ? ' ' + q.revision : '');
+  push('<html><head><meta charset="UTF-8" /><title>' + esc_(docTitle) + '</title>' +
+    quotationCss_(co) + '</head><body>');
   push('<table class="page">');
   push(pageHead());
   push(pageFoot());
