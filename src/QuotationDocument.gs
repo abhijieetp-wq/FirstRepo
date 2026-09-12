@@ -125,8 +125,10 @@ function buildQuotationHtml(quotationId) {
   var letterhead = function () {
     return '<table class="lh"><tr><td>' +
       (co.logoUrl ? '<img src="' + esc_(co.logoUrl) + '" class="logo" />' : '') +
-      '<div class="lh-partner">' + esc_(co.partnerLine) + '</div>' +
-      '<div class="lh-name">' + esc_(co.legalName) + '</div>' +
+      (co.partnerLine ? '<div class="lh-partner">' + esc_(co.partnerLine) + '</div>' : '') +
+      // A wordmark already carries the name; setting it again underneath reads as a mistake.
+      (co.logoUrl && String(co.logoShowsName).toUpperCase() === 'TRUE'
+        ? '' : '<div class="lh-name">' + esc_(co.legalName) + '</div>') +
       '<div class="lh-line">' + esc_([co.addressLine1, co.addressLine2, co.city].filter(Boolean).join(', ')) +
         (co.pincode ? ' – ' + esc_(co.pincode) : '') + '</div>' +
       '<div class="lh-line">' +
@@ -429,7 +431,7 @@ function quotationCss_() {
     'body{font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;color:#111;line-height:1.45;margin:0;}' +
     '.lh{width:100%;border-collapse:collapse;margin-bottom:2px;}' +
     '.lh td{padding:0 0 4px;text-align:center;}' +
-    '.logo{max-height:52px;margin-bottom:4px;}' +
+    '.logo{max-height:64px;max-width:280px;margin-bottom:6px;}' +
     '.lh-partner{font-size:8.5pt;letter-spacing:.5px;text-transform:uppercase;color:#444;}' +
     '.lh-name{font-size:13pt;font-weight:bold;letter-spacing:.3px;}' +
     '.lh-line{font-size:8.5pt;color:#333;}' +

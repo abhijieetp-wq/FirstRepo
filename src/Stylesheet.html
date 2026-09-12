@@ -167,6 +167,22 @@
   .doc-link{ font-size:12.5px; }
 
   /* A field whose value is picked, with the escape hatch for "it isn't in the list" beside it. */
+  /* Logo and seal: show the picture, not a path. A chequered ground so a transparent PNG
+     reads as transparent rather than as a white block that will surprise someone later. */
+  .image-field label{ display:block; font-size:11.5px; font-weight:600; color:var(--ink-soft);
+    margin-bottom:5px; text-transform:uppercase; letter-spacing:.4px; }
+  .image-field-row{ display:flex; gap:12px; align-items:flex-start; }
+  .image-preview{ flex:none; width:150px; height:86px; border:1px solid var(--border);
+    border-radius:4px; display:flex; align-items:center; justify-content:center; padding:6px;
+    background-color:#fff;
+    background-image:linear-gradient(45deg,#EEF1F6 25%,transparent 25%,transparent 75%,#EEF1F6 75%),
+                     linear-gradient(45deg,#EEF1F6 25%,transparent 25%,transparent 75%,#EEF1F6 75%);
+    background-size:12px 12px; background-position:0 0, 6px 6px; }
+  .image-preview img{ max-width:100%; max-height:100%; object-fit:contain; }
+  .image-empty{ font-size:11px; color:var(--steel); text-transform:uppercase; letter-spacing:.4px; }
+  .image-actions{ display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start; }
+  .image-hint{ flex-basis:100%; font-size:11.5px; color:var(--ink-soft); line-height:1.35; }
+
   .field-note{ font-size:11.5px; color:var(--amber-dark); margin-top:5px; line-height:1.35; }
   .field-note:empty{ display:none; }
   .field-with-action{ display:flex; gap:6px; align-items:stretch; }

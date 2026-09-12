@@ -5182,6 +5182,7 @@
   });
 
   function setSetMode(mode) {
+    if (setMode === "company" && mode !== "company") { pendingLogo = null; pendingSeal = null; }
     setMode = mode;
     SET_SUBTABS.forEach(function (m) {
       $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
@@ -5975,13 +5976,13 @@
     ["altPhone", "Alternate Phone", ""],
     ["email", "Email", ""],
     ["website", "Website", ""],
-    ["logoUrl", "Logo URL", "A publicly readable image link, printed at the top"],
+
     ["bankName", "Bank Name", ""],
     ["bankAccount", "Bank Account No.", ""],
     ["bankIfsc", "IFSC", ""],
     ["quotePrefix", "Quotation Prefix", "Quote numbers are built from this"],
     ["jurisdiction", "Jurisdiction", "Printed in the terms"],
-    ["sealUrl", "Seal Image URL", "Leave blank if the seal is stamped by hand"],
+
     ["signOffPhone", "Sign-off Phone", "Printed under the signature"],
     ["salutation", "Salutation", "Dear Sir/Madam,"],
     ["signOffLine", "Sign-off Line", "Yours sincerely,"],
@@ -5990,9 +5991,83 @@
     ["appSubtitle", "Application Subtitle", "The small line under the name"]
   ];
 
+  /**
+   * The logo is stored in the sheet as a data URI, not as a link.
+   *
+   * A link has to be publicly readable to survive the trip through Apps Script's PDF
+   * converter, which means either hosting it or opening a Drive file to anyone who has the
+   * address. Embedding the bytes avoids both, and the picture cannot later break because
+   * someone moved a file. The cost is a size limit, which is what the downscale below is for.
+   */
+  var LOGO_MAX_W = 320, LOGO_MAX_H = 160, SEAL_MAX_W = 300, SEAL_MAX_H = 200;
+
+  function readImageAsDataUri(file, maxW, maxH, done, fail) {
+    if (!/^image\//.test(file.type)) {
+      fail("That is not an image. A PNG or JPG is what's wanted here.");
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function () { fail("The file could not be read."); };
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onerror = function () { fail("That image could not be opened — is the file damaged?"); };
+      img.onload = function () {
+        var scale = Math.min(1, maxW / img.width, maxH / img.height);
+        var w = Math.max(1, Math.round(img.width * scale));
+        var h = Math.max(1, Math.round(img.height * scale));
+        var canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        // PNG keeps a transparent background, which a logo dropped onto a letterhead needs.
+        var uri = canvas.toDataURL("image/png");
+        if (uri.length > 48000) {
+          // Fall back to JPEG on a white ground rather than refuse a photographed seal.
+          var flat = document.createElement("canvas");
+          flat.width = w; flat.height = h;
+          var fx = flat.getContext("2d");
+          fx.fillStyle = "#fff"; fx.fillRect(0, 0, w, h);
+          fx.drawImage(img, 0, 0, w, h);
+          uri = flat.toDataURL("image/jpeg", 0.82);
+        }
+        if (uri.length > 48000) {
+          fail("Even after resizing, that image is too large to store. Try a simpler PNG.");
+          return;
+        }
+        done(uri, w, h);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function imageFieldHtml(key, label, blurb, value, editable) {
+    return '<div class="image-field">' +
+      "<label>" + escapeHtml(label) + "</label>" +
+      '<div class="image-field-row">' +
+        '<div class="image-preview">' +
+          (value ? '<img src="' + escapeHtml(value) + '" alt="" />'
+                 : '<span class="image-empty">none</span>') +
+        "</div>" +
+        (editable
+          ? '<div class="image-actions">' +
+              '<input type="file" id="' + key + '-file" accept="image/*" style="display:none;" />' +
+              '<button class="btn btn-sm" data-pick="' + key + '" type="button">' +
+                (value ? "Replace" : "Upload") + "</button>" +
+              (value ? '<button class="btn btn-sm" data-clear="' + key + '" type="button">Remove</button>' : "") +
+              '<div class="image-hint">' + blurb + "</div>" +
+            "</div>"
+          : "") +
+      "</div></div>";
+  }
+
+  // Held between picking a file and pressing Save, so the preview survives the re-render.
+  var pendingLogo = null, pendingSeal = null;
+
   function renderCompanyPanel() {
     var co = setData.companyProfile || {};
     var editable = canAdminister();
+    if (pendingLogo === null) pendingLogo = co.logoUrl || "";
+    if (pendingSeal === null) pendingSeal = co.sealUrl || "";
 
     var body = '<div class="grid grid-3">' + COMPANY_FIELDS.map(function (f) {
       return '<div class="field"><label>' + escapeHtml(f[1]) + "</label>" +
@@ -6000,6 +6075,21 @@
         (f[2] ? ' placeholder="' + escapeHtml(f[2]) + '"' : "") +
         (editable ? "" : " disabled") + " /></div>";
     }).join("") + "</div>" +
+
+      '<div class="card-title" style="margin-top:22px;">Images</div>' +
+      '<div class="grid grid-2">' +
+        imageFieldHtml("logo", "Logo", "PNG or JPG. Resized on upload and stored in the sheet, " +
+          "so it keeps working without hosting it anywhere.", pendingLogo, editable) +
+        imageFieldHtml("seal", "Company Seal",
+          "Leave empty if the seal is stamped on the printed page by hand.", pendingSeal, editable) +
+      "</div>" +
+      '<label class="check-line" style="margin-top:10px;">' +
+        '<input type="checkbox" id="co-logoShowsName"' +
+          (String(co.logoShowsName).toUpperCase() === "TRUE" ? " checked" : "") +
+          (editable ? "" : " disabled") + " /> " +
+        "The logo already includes the company name — don't print the name under it" +
+      "</label>" +
+
       (editable
         ? '<div style="display:flex; justify-content:flex-end; margin-top:16px;">' +
           '<button class="btn btn-primary btn-sm" id="btn-save-company">Save Letterhead</button></div>'
@@ -6012,16 +6102,46 @@
         "keep what they had.",
       "", body);
 
-    if (editable) {
-      $("btn-save-company").addEventListener("click", function () {
-        var payload = {};
-        COMPANY_FIELDS.forEach(function (f) { payload[f[0]] = $("co-" + f[0]).value.trim(); });
-        google.script.run.withSuccessHandler(function () {
-          loadSettings();
-          showMsg("Letterhead saved.", "success");
-        }).withFailureHandler(onServerError).saveCompanyProfile(payload);
+    if (!editable) return;
+
+    var setImage = function (key, uri) {
+      if (key === "logo") pendingLogo = uri; else pendingSeal = uri;
+      renderCompanyPanel();
+    };
+
+    $("set-panel").querySelectorAll("[data-pick]").forEach(function (btn) {
+      var key = btn.dataset.pick;
+      btn.addEventListener("click", function () { $(key + "-file").click(); });
+      $(key + "-file").addEventListener("change", function (ev) {
+        var file = ev.target.files[0];
+        if (!file) return;
+        readImageAsDataUri(file,
+          key === "logo" ? LOGO_MAX_W : SEAL_MAX_W,
+          key === "logo" ? LOGO_MAX_H : SEAL_MAX_H,
+          function (uri, w, h) {
+            setImage(key, uri);
+            showMsg("Image read at " + w + "×" + h + ". Press Save Letterhead to keep it.", "success");
+          },
+          function (msg) { showMsg(msg, "error"); });
       });
-    }
+    });
+
+    $("set-panel").querySelectorAll("[data-clear]").forEach(function (btn) {
+      btn.addEventListener("click", function () { setImage(btn.dataset.clear, ""); });
+    });
+
+    $("btn-save-company").addEventListener("click", function () {
+      var payload = {};
+      COMPANY_FIELDS.forEach(function (f) { payload[f[0]] = $("co-" + f[0]).value.trim(); });
+      payload.logoUrl = pendingLogo;
+      payload.sealUrl = pendingSeal;
+      payload.logoShowsName = $("co-logoShowsName").checked;
+      google.script.run.withSuccessHandler(function () {
+        pendingLogo = null; pendingSeal = null;   // re-read from what was actually stored
+        loadSettings();
+        showMsg("Letterhead saved. Every quotation printed from now on carries it.", "success");
+      }).withFailureHandler(onServerError).saveCompanyProfile(payload);
+    });
   }
 
   // ---- Standing quotation text ----

@@ -40,7 +40,7 @@ var SCHEMA = {
       // the images, the phrases the letter opens and closes with, the number under the
       // signature, the brand the numbering is built from, and what the app calls itself.
       'sealUrl', 'signOffPhone', 'salutation', 'signOffLine', 'defaultBrand', 'appName',
-      'appSubtitle']
+      'appSubtitle', 'logoShowsName']
   },
   QuoteTemplates: {
     label: 'The standing text on a quotation — cover letter, scope of supply, terms',

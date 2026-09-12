@@ -60,9 +60,20 @@ function defaultCompanyProfile_() {
     // different make does not need the code opened.
     defaultBrand: 'ELGI',
     appName: 'ELGI Spares ERP',
-    appSubtitle: 'Spares Sales Department'
+    appSubtitle: 'Spares Sales Department',
+    // Most logos are a wordmark — the company name is already drawn into the image — and
+    // printing the text name underneath it says the name twice. Tick this and the letterhead
+    // lets the logo speak for itself.
+    logoShowsName: 'FALSE'
   };
 }
+
+/**
+ * A Sheets cell holds 50,000 characters. An uploaded logo is stored as a data URI in one, so
+ * an oversized image fails at the moment of saving rather than silently truncating into a
+ * broken picture on every future quotation.
+ */
+var MAX_CELL_CHARS = 48000;
 
 function saveCompanyProfile(input) {
   var user = getCurrentUser();
@@ -81,6 +92,16 @@ function saveCompanyProfile(input) {
     record[k] = String(input[k] === undefined || input[k] === null ? '' : input[k]).trim();
   });
   record.gstin = gstin;
+  record.logoShowsName = input.logoShowsName ? 'TRUE' : 'FALSE';
+
+  ['logoUrl', 'sealUrl'].forEach(function (k) {
+    if (record[k].length > MAX_CELL_CHARS) {
+      throw new Error('That image is too large to store (' +
+        Math.round(record[k].length / 1024) + ' KB, and the limit is ' +
+        Math.round(MAX_CELL_CHARS / 1024) + ' KB). Upload a smaller one, or host it and paste ' +
+        'the link instead.');
+    }
+  });
 
   var existing = readTable_('CompanyProfile').filter(function (c) {
     return String(c.id) === COMPANY_ROW_ID;

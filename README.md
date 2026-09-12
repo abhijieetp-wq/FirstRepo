@@ -347,6 +347,28 @@ Three things follow from that, and each was a rough edge until it wasn't:
   afterwards, because the offer needs a billing address and a contact and that is the one moment
   someone has both to hand.
 
+## The logo and the seal
+
+Both are **uploaded, not linked**. Settings → Letterhead → Images takes a PNG or JPG, shrinks
+it in the browser to something a page actually needs (320×160 for the logo, 300×200 for a
+seal), and stores the result in the sheet as a data URI.
+
+Storing the bytes rather than a link is the point. A linked image has to be publicly readable
+to survive Apps Script's HTML-to-PDF converter, which means either paying to host it or opening
+a Drive file to anyone holding the address — and it can break later because somebody moved a
+file. An embedded image needs no hosting, no sharing, and cannot rot.
+
+The cost is a ceiling: one spreadsheet cell holds 50,000 characters. The upload resizes to stay
+well under it, falls back to JPEG on a white ground if a transparent PNG is still too big, and
+the server refuses anything over 48,000 characters with a message saying so — better than a
+silent truncation that turns into a broken picture on every future quotation. The URL fields
+still exist for anyone who would rather link.
+
+**Tick "the logo already includes the company name"** when the logo is a wordmark. Most are, and
+printing the text name underneath one says the name twice, which reads as a mistake. With it
+ticked the letterhead keeps the partner line, address, contacts and GST number and lets the logo
+carry the name.
+
 ## Setting this up for a different client
 
 The system was written for one company, but nothing about that company is welded into the
@@ -359,8 +381,8 @@ list — in the order you would work through it.
 |---|---|
 | Name, address, GSTIN, PAN, phone, email, website | the obvious ones |
 | The line above the name on the letterhead | Partner Line |
-| Logo printed at the top | Logo URL |
-| Seal printed above the signature | Seal Image URL — blank means no seal is printed |
+| Logo printed at the top | Images → Logo (upload) |
+| Seal printed above the signature | Images → Company Seal — blank means no seal is printed |
 | The number under the signature | Sign-off Phone (separate from the letterhead number) |
 | "Dear Sir/Madam," and "Yours sincerely," | Salutation, Sign-off Line |
 | The make this house sells | Default Brand — drives quotation numbering and every new record |
