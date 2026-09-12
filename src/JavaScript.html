@@ -1928,6 +1928,7 @@
     $("qd-frame").srcdoc = "";
     $("btn-qd-pdf").disabled = true;
     $("btn-qd-print").disabled = true;
+    $("btn-qd-word").disabled = true;
     $("quotedoc-modal-backdrop").classList.add("show");
 
     google.script.run.withSuccessHandler(function (html) {
@@ -1937,6 +1938,7 @@
         " — this is exactly what the PDF will contain.";
       $("btn-qd-pdf").disabled = false;
       $("btn-qd-print").disabled = false;
+      $("btn-qd-word").disabled = false;
     }).withFailureHandler(function (err) {
       $("quotedoc-modal-backdrop").classList.remove("show");
       onServerError(err);
@@ -1959,6 +1961,28 @@
       showMsg("This browser would not open the print dialog from inside the app. " +
         "Use Save PDF to Drive and print from there.", "error");
     }
+  });
+
+  /**
+   * The editable copy. The PDF is what goes to the customer; this exists for the case where a
+   * line has to be changed before it does.
+   */
+  $("btn-qd-word").addEventListener("click", function () {
+    $("btn-qd-word").disabled = true;
+    $("qd-result").innerHTML = '<div class="empty" style="padding:10px;">Creating the Word copy…</div>';
+    google.script.run.withSuccessHandler(function (file) {
+      $("qd-result").innerHTML =
+        '<div class="compare-strip doc-link"><b>' + escapeHtml(file.name) + '</b> saved to your ' +
+        'Drive, in the folder <b>ERP Quotations</b>. ' +
+        '<a href="' + escapeHtml(file.url) + '" target="_blank" rel="noopener">Open it</a> — ' +
+        'download it to edit in Word, or open it with Google Docs to edit in the browser. ' +
+        'Changes you make there stay in that copy; the quotation here is unchanged.</div>';
+      $("btn-qd-word").disabled = false;
+    }).withFailureHandler(function (err) {
+      $("qd-result").innerHTML = "";
+      $("btn-qd-word").disabled = false;
+      onServerError(err);
+    }).generateQuotationWord(openQuote.id);
   });
 
   $("btn-qd-pdf").addEventListener("click", function () {

@@ -391,6 +391,26 @@ rate, and the tax is charged on a base that includes it: ₹2,83,343 × 18% is e
 ₹51,001.74 they print. So a charge line carries tax like anything else, defaulting to whatever
 the goods on the quotation are charged at. **+ Add Charge** on the quotation raises one.
 
+## Three ways out of a quotation
+
+**Print** goes through the browser — quickest route to paper or a local PDF.
+**Save PDF to Drive** is the copy that gets sent.
+**Save Word to Drive** is the editable one, for when a line has to change before it goes.
+
+The Word copy is not a real .docx — Apps Script cannot produce one without a conversion step
+that may or may not be enabled on a given Sheet. It is the HTML that Word has opened natively
+for twenty years: it cannot fail to generate, and it opens editable in Word and in Google Docs
+alike. Word gets proper page furniture rather than the table frame the browser uses, because
+Word repeats a `thead` across pages but has never repeated a `tfoot`, so the letterhead is
+declared as an `mso` header and footer attached to a named page section.
+
+The trade is fidelity: Word re-flows the layout its own way rather than reproducing the PDF
+pixel for pixel. That is the right trade for a file whose whole purpose is to be changed —
+and the PDF remains the thing you send.
+
+Edits made to that copy stay in that copy. The quotation in the system is unchanged, which is
+deliberate: a document someone rewrote by hand is not a record of what the system priced.
+
 ## The letterhead is a page frame, not a header
 
 Their document does not put the company details at the top of page one — it puts **the two

@@ -117,6 +117,16 @@ function docLabels_(stream) {
   return out;
 }
 
+/**
+ * A page break. Word ignores an empty div carrying page-break-before, so it gets the line-break
+ * character it does obey; everything else is happy with the div.
+ */
+function pageBreak_(forWord) {
+  return forWord
+    ? '<br clear="all" style="mso-special-character:line-break;page-break-before:always" />'
+    : '<div class="page-break"></div>';
+}
+
 function ddmmyyyy_(iso) {
   var p = String(iso || '').slice(0, 10).split('-');
   return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : String(iso || '');
@@ -126,8 +136,9 @@ function ddmmyyyy_(iso) {
  * Renders the whole document. Returned to the screen for preview and handed to the PDF
  * converter unchanged, so what is previewed is what is sent.
  */
-function buildQuotationHtml(quotationId) {
+function buildQuotationHtml(quotationId, format) {
   getCurrentUser();
+  var forWord = format === 'word';
 
   var q = readTable_('Quotations').filter(function (r) {
     return String(r.id) === String(quotationId);
@@ -181,21 +192,21 @@ function buildQuotationHtml(quotationId) {
    * A thead and a tfoot on a table wrapping the whole document is the portable way to say
    * "repeat this on every page"; the renderer handles it wherever the text actually breaks.
    */
+  var headInner = function () {
+    return '<table class="lh"><tr>' +
+      '<td class="lh-l">' +
+        (co.logoUrl ? '<img src="' + esc_(co.logoUrl) + '" class="logo" />' : '') + '</td>' +
+      '<td class="lh-r">' +
+        (co.partnerLogoUrl ? '<img src="' + esc_(co.partnerLogoUrl) + '" class="partner-logo" />' : '') +
+      '</td>' +
+      '</tr></table>';
+  };
   var pageHead = function () {
-    return '<thead><tr><td>' +
-      '<table class="lh"><tr>' +
-        '<td class="lh-l">' +
-          (co.logoUrl ? '<img src="' + esc_(co.logoUrl) + '" class="logo" />' : '') + '</td>' +
-        '<td class="lh-r">' +
-          (co.partnerLogoUrl ? '<img src="' + esc_(co.partnerLogoUrl) + '" class="partner-logo" />' : '') +
-        '</td>' +
-      '</tr></table>' +
-      '</td></tr></thead>';
+    return '<thead><tr><td>' + headInner() + '</td></tr></thead>';
   };
 
-  var pageFoot = function () {
-    return '<tfoot><tr><td>' +
-      '<div class="ft">' +
+  var footInner = function () {
+    return '<div class="ft">' +
         (co.partnerLine ? '<div class="ft-partner">' + esc_(co.partnerLine).toUpperCase() + '</div>' : '') +
         // A wordmark already carries the name; setting it again reads as a mistake.
         (co.logoUrl && String(co.logoShowsName).toUpperCase() === 'TRUE'
@@ -209,8 +220,10 @@ function buildQuotationHtml(quotationId) {
           (co.website ? ', ' + esc_(co.website) : '') + '</div>' +
         (co.gstin ? '<div class="ft-line">' + esc_(L('gstNo', 'GST No')) + ': ' +
           esc_(co.gstin) + '</div>' : '') +
-      '</div>' +
-      '</td></tr></tfoot>';
+      '</div>';
+  };
+  var pageFoot = function () {
+    return '<tfoot><tr><td>' + footInner() + '</td></tr></tfoot>';
   };
 
   // The seal prints only if one is configured. This client stamps the paper by hand, so the
@@ -233,12 +246,23 @@ function buildQuotationHtml(quotationId) {
   // above a compressor offer. The quotation number is what belongs there.
   var docTitle = String(q.quoteNo || 'Quotation') +
     (q.revision && q.revision !== 'R0' ? ' ' + q.revision : '');
-  push('<html><head><meta charset="UTF-8" /><title>' + esc_(docTitle) + '</title>' +
-    quotationCss_(co) + '</head><body>');
-  push('<table class="page">');
-  push(pageHead());
-  push(pageFoot());
-  push('<tbody><tr><td>');
+  if (forWord) {
+    // Word wants real page furniture, not a table that repeats its own head and foot. It
+    // honours a thead as a repeating header row but has never repeated a tfoot, so the
+    // letterhead is declared as an mso header and footer and the body is a plain section.
+    push('<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
+      'xmlns:w="urn:schemas-microsoft-com:office:word" ' +
+      'xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8" />' +
+      '<title>' + esc_(docTitle) + '</title>' + quotationCss_(co, true) + '</head><body>');
+    push('<div class="Section1">');
+  } else {
+    push('<html><head><meta charset="UTF-8" /><title>' + esc_(docTitle) + '</title>' +
+      quotationCss_(co) + '</head><body>');
+    push('<table class="page">');
+    push(pageHead());
+    push(pageFoot());
+    push('<tbody><tr><td>');
+  }
 
   // ---------------------------------------------------------------- page 1: the letter
   var titleTpl = quoteTemplate_('DocumentTitle', stream);
@@ -319,7 +343,7 @@ function buildQuotationHtml(quotationId) {
 
   // ---------------------------------------------------------------- specifications
   if (specced.length) {
-    push('<div class="page-break"></div>');
+    push(pageBreak_(forWord));
     push('<div class="h1">' + esc_(L('specHeading', 'Technical specifications')) + '</div>');
     var specNote = quoteTemplate_('SpecNote', stream);
     if (specNote) push('<div class="note">' + esc_(String(specNote.body).trim()) + '</div>');
@@ -356,7 +380,7 @@ function buildQuotationHtml(quotationId) {
   }
 
   // ---------------------------------------------------------------- price schedule
-  push('<div class="page-break"></div>');
+  push(pageBreak_(forWord));
   push('<div class="h1">' + esc_(L('priceHeading', 'Price schedule')) + '</div>');
 
   // The machine the parts belong to. A spare part is meaningless without it — their own spares
@@ -502,12 +526,18 @@ function buildQuotationHtml(quotationId) {
   // ---------------------------------------------------------------- installation
   var install = quoteTemplate_('InstallationNotes', stream);
   if (install && isCompressor) {
-    push('<div class="page-break"></div>');
+    push(pageBreak_(forWord));
     push('<div class="h1">' + esc_(install.title) + '</div>');
     push(bulletList_(templateLines_(install.body), true));
   }
 
-  push('</td></tr></tbody></table>');
+  if (forWord) {
+    push('</div>');
+    push('<div style="mso-element:header" id="h1">' + headInner() + '</div>');
+    push('<div style="mso-element:footer" id="f1">' + footInner() + '</div>');
+  } else {
+    push('</td></tr></tbody></table>');
+  }
   push('</body></html>');
   return out.join('\n');
 }
@@ -575,12 +605,52 @@ function generateQuotationPdf(quotationId) {
   return { name: name, url: file.getUrl(), downloadUrl: file.getDownloadUrl() };
 }
 
+/**
+ * The same offer as an editable Word document.
+ *
+ * The PDF is what gets sent; this is for the times a coordinator needs to change a line before
+ * sending it — add a clause, reword a note, drop a section. Rather than a real .docx, which
+ * Apps Script cannot produce without a conversion step, this is the HTML Word has opened
+ * natively for twenty years: it cannot fail to generate, and it opens editable in Word and in
+ * Google Docs alike. The cost is that Word re-flows the layout its own way rather than
+ * reproducing the PDF exactly — which is the point, since the file exists to be changed.
+ */
+function generateQuotationWord(quotationId) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+
+  var q = readTable_('Quotations').filter(function (r) {
+    return String(r.id) === String(quotationId);
+  })[0];
+  if (!q) throw new Error('Quotation not found.');
+
+  var html = buildQuotationHtml(quotationId, 'word');
+  var safeName = String(q.quoteNo).replace(/[\/\\:*?"<>|]/g, '-');
+  var name = safeName + (q.revision && q.revision !== 'R0' ? ' ' + q.revision : '') + '.doc';
+
+  var blob = Utilities.newBlob(html, 'application/msword', name);
+  var folders = DriveApp.getFoldersByName(QUOTE_PDF_FOLDER);
+  var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(QUOTE_PDF_FOLDER);
+  var file = folder.createFile(blob);
+
+  audit_('Print', 'Quotations', quotationId, 'word', '', name, 'Quotation Word copy generated');
+
+  return { name: name, url: file.getUrl() };
+}
+
 /** Plain CSS on purpose — the PDF converter ignores flexbox, grid and most modern layout. */
 /** Plain CSS on purpose — the PDF converter ignores flexbox, grid and most modern layout. */
-function quotationCss_(co) {
+function quotationCss_(co, forWord) {
   var accent = String((co && co.docAccentColor) || '#C00000').trim() || '#C00000';
   return '<style>' +
-    '@page{size:A4;margin:10mm 14mm;}' +
+    (forWord
+      // Word's page setup lives in a named section, and that is also where the header and
+      // footer defined at the end of the body get attached to the page.
+      ? '@page Section1{size:21cm 29.7cm;margin:2.2cm 1.4cm 2.4cm 1.4cm;' +
+        'mso-header-margin:.6cm;mso-footer-margin:.6cm;mso-paper-source:0;' +
+        'mso-header:h1;mso-footer:f1;}' +
+        'div.Section1{page:Section1;}'
+      : '@page{size:A4;margin:10mm 14mm;}') +
     'body{font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;color:#111;line-height:1.45;margin:0;}' +
 
     // The page frame. thead and tfoot on this table are what repeat on every page.
