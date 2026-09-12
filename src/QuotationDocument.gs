@@ -36,6 +36,35 @@ function esc_(v) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/**
+ * Renders a template body as a list, honouring one level of nesting.
+ *
+ * A line beginning "- " is a sub-point of the line above it. Their Why ELGi has three headings
+ * with bullets beneath each, and their warranty clause has four lettered sub-clauses; flattening
+ * either loses the sense of what belongs to what.
+ */
+function bulletList_(lines, ordered) {
+  var tag = ordered ? 'ol' : 'ul';
+  var out = ['<' + tag + '>'];
+  var open = false;
+  lines.forEach(function (raw) {
+    var sub = /^-\s+/.test(raw);
+    var text = raw.replace(/^-\s+/, '');
+    if (sub) {
+      if (!open) { out.push('<' + tag + ' class="sub">'); open = true; }
+      out.push('<li>' + esc_(text) + '</li>');
+      return;
+    }
+    if (open) { out.push('</' + tag + '></li>'); open = false; }
+    else if (out.length > 1) { out.push('</li>'); }
+    out.push('<li>' + esc_(text));
+  });
+  if (open) out.push('</' + tag + '>');
+  if (out.length > 1) out.push('</li>');
+  out.push('</' + tag + '>');
+  return out.join('');
+}
+
 /** Template bodies are one item per line; blank lines separate paragraphs. */
 function templateLines_(body) {
   return String(body || '').split('\n').map(function (l) { return l.trim(); })
@@ -248,9 +277,8 @@ function buildQuotationHtml(quotationId) {
 
   var why = quoteTemplate_('WhyBrand', stream);
   if (why) {
-    push('<div class="h2">' + esc_(why.title) + '</div><ul>');
-    templateLines_(why.body).forEach(function (l) { push('<li>' + esc_(l) + '</li>'); });
-    push('</ul>');
+    push('<div class="h2">' + esc_(why.title) + '</div>');
+    push(bulletList_(templateLines_(why.body), false));
   }
 
   // What follows, so the reader knows the offer is more than one page. Each entry is listed
@@ -447,13 +475,21 @@ function buildQuotationHtml(quotationId) {
       (q.validUntil ? ' (until ' + ddmmyyyy_(q.validUntil) + ')' : '') + '.';
     var statedValidity = false;
     push('<div class="h1">' + esc_(terms.title || L('termsHeading', 'Terms & conditions')) +
-      '</div><ol>');
-    templateLines_(terms.body).forEach(function (l) {
-      if (/^validity\b/i.test(l)) { statedValidity = true; l = validity; }
-      push('<li>' + esc_(l) + '</li>');
-    });
-    push('</ol>');
+      '</div>');
+    push(bulletList_(templateLines_(terms.body).map(function (l) {
+      if (/^validity\b/i.test(l)) { statedValidity = true; return validity; }
+      return l;
+    }), true));
     if (!statedValidity) push('<div class="note">' + esc_(validity) + '</div>');
+  }
+
+  // They close twice, and differently: the letter ends by inviting questions, the terms end by
+  // asking for a meeting. Printing the first one again in the second place loses that.
+  var closingFinal = quoteTemplate_('ClosingFinal', stream);
+  if (closingFinal) {
+    String(closingFinal.body).split('\n\n').forEach(function (para) {
+      if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
+    });
   }
   push(signoff());
 
@@ -461,9 +497,8 @@ function buildQuotationHtml(quotationId) {
   var install = quoteTemplate_('InstallationNotes', stream);
   if (install && isCompressor) {
     push('<div class="page-break"></div>');
-    push('<div class="h1">' + esc_(install.title) + '</div><ol>');
-    templateLines_(install.body).forEach(function (l) { push('<li>' + esc_(l) + '</li>'); });
-    push('</ol>');
+    push('<div class="h1">' + esc_(install.title) + '</div>');
+    push(bulletList_(templateLines_(install.body), true));
   }
 
   push('</td></tr></tbody></table>');
@@ -573,6 +608,8 @@ function quotationCss_(co) {
     '.h2{font-size:10.5pt;font-weight:bold;color:' + accent + ';margin:14px 0 6px;}' +
     'ul,ol{margin:0 0 10px;padding-left:26px;}' +   // 18px clipped the '10.' on a two-digit list
     'li{margin-bottom:4px;text-align:justify;}' +
+    'ul.sub,ol.sub{margin:4px 0 4px;padding-left:22px;}' +
+    'ol.sub{list-style-type:lower-alpha;}' +
     '.note{font-size:9pt;color:#444;margin:8px 0 12px;font-style:italic;}' +
 
     '.spec-title{font-weight:bold;margin:14px 0 5px;}' +

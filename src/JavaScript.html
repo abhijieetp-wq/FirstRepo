@@ -6260,11 +6260,41 @@
       "The wording that is the same on every quotation — the covering letter, why ELGi, the " +
         "scope of supply, the terms. Reword it here; the next quotation printed uses the new " +
         "wording. A section left blank for a stream is printed on both.",
-      editable ? '<button class="btn btn-primary btn-sm" id="btn-add-qtpl">+ Add Section</button>' : "",
+      editable
+        ? '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+          '<button class="btn btn-sm" id="btn-restore-qtpl">Restore Standard Wording</button>' +
+          '<button class="btn btn-primary btn-sm" id="btn-add-qtpl">+ Add Section</button></div>'
+        : "",
       body);
 
     if (editable) {
       $("btn-add-qtpl").addEventListener("click", function () { openQtplModal(null); });
+
+      // Setup only ever adds sections that are missing, so a correction to the standard text
+      // cannot reach a Sheet that has already been set up. This is how you take it deliberately.
+      $("btn-restore-qtpl").addEventListener("click", function () {
+        askDialog({
+          title: "Restore the standard wording?",
+          message: "The sections that ship with the system go back to their standard text — " +
+            "the covering letter, why ELGi, the terms and the installation guidelines. Any " +
+            "rewording you have done to those is lost. Sections you added yourself are left alone.",
+          okLabel: "Restore",
+          danger: true
+        }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function (res) {
+            loadSettings();
+            if (res.unchanged) {
+              showMsg("Nothing to change — the standard wording is already in place.", "success");
+            } else {
+              var bits = [];
+              if (res.restored.length) bits.push(res.restored.length + " restored");
+              if (res.added.length) bits.push(res.added.length + " added");
+              showMsg("Quotation text updated (" + bits.join(", ") + ").", "success");
+            }
+          }).withFailureHandler(onServerError).restoreQuoteTemplates();
+        });
+      });
       $("set-panel").querySelectorAll("[data-qtpl]").forEach(function (btn) {
         btn.addEventListener("click", function () { openQtplModal(btn.dataset.qtpl); });
       });

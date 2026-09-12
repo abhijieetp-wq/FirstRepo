@@ -147,7 +147,7 @@ function defaultBrand_() {
  * `key = value` per line.
  */
 var QUOTE_SECTIONS = ['CoverLetter', 'WhyBrand', 'ScopeOfSupply', 'Terms', 'InstallationNotes',
-  'DocumentTitle', 'Closing', 'SpecNote', 'Labels'];
+  'DocumentTitle', 'Closing', 'ClosingFinal', 'SpecNote', 'Labels'];
 
 function listQuoteTemplates(options) {
   getCurrentUser();
@@ -193,6 +193,42 @@ function saveQuoteTemplate(input) {
 }
 
 /**
+ * Puts the standard wording back, overwriting whatever those sections currently say.
+ *
+ * installQuoteTemplates_ only ever adds sections that are absent, so that a reworded clause is
+ * never silently reverted by a later setup run. That is the right default and it is also why a
+ * correction to the standard text can never reach a Sheet that has already been set up. This is
+ * the deliberate way to take it: it touches only the sections that ship with the system, leaves
+ * anything the business added alone, and says how many it changed.
+ */
+function restoreQuoteTemplates() {
+  var user = getCurrentUser();
+  requireRole_(user, [ROLES.MANAGEMENT, ROLES.ERP_ADMIN]);
+
+  var existing = {};
+  readTable_('QuoteTemplates').forEach(function (t) { existing[String(t.id)] = t; });
+
+  var restored = [], added = [];
+  defaultQuoteTemplates_().forEach(function (t) {
+    if (!existing[t.id]) {
+      appendRow_('QuoteTemplates', t, 'Standard quotation text installed');
+      added.push(t.section);
+      return;
+    }
+    if (String(existing[t.id].body).trim() === String(t.body).trim() &&
+        String(existing[t.id].title).trim() === String(t.title).trim()) {
+      return;   // already identical — no write, no audit noise
+    }
+    var patch = {};
+    Object.keys(t).forEach(function (k) { if (k !== 'id') patch[k] = t[k]; });
+    updateRowById_('QuoteTemplates', 'id', t.id, patch, 'Standard quotation text restored');
+    restored.push(t.section);
+  });
+
+  return { restored: restored, added: added, unchanged: !restored.length && !added.length };
+}
+
+/**
  * Installs the default quotation text, taken word-for-word from the client's own offers.
  * Called from setupSheet(); only ever adds sections that are not already present, so a
  * reworded clause is never overwritten by a later setup run.
@@ -228,47 +264,75 @@ function defaultQuoteTemplates_() {
         'The added values of this new generation compressor are its lower cost of ownership, ' +
         'energy efficiency, lower operating costs, compact design, high operator safety and ' +
         'minimal sound levels. In addition to the above, our EG series of screw compressors ' +
-        'provide Report Generation options and remote monitoring.'
+        'provide Report Generation options and remote monitoring.\n\n' +
+        'The compressor comes in aesthetically appealing packaging and is easy to install.\n\n' +
+        'ELGi Screw compressors belong to a highly successful range of screw compressors from ' +
+        'ELGi with a large customer base across the world for a wide variety of applications.'
     },
     {
       id: 'QTPL-COMP-WHY', section: 'WhyBrand', brand: 'ELGI',
       businessStream: STREAM_COMPRESSOR, appliesTo: '', title: 'Why ELGi?',
       sortOrder: 2, active: 'TRUE',
       body: 'Single source for all your compressor needs.\n' +
-        'A market leader and Asia’s largest manufacturer of air compressors, based out of ' +
+        '- A market leader and Asia\u2019s largest manufacturer of air compressors, based out of ' +
         'Coimbatore, India with 50+ years of expertise in design, manufacturing, sales and ' +
-        'service of a wide range of compressors and related accessories.\n' +
-        'Over 2 million ELGi products are powering businesses in mining, defence, transport, ' +
-        'pharmaceuticals, power, oil, railways, chemical, textile, printing, ship-building, ' +
-        'paper, electronics, telecommunications, medical, food and beverage, and plastics.\n' +
-        'Global footprint with off-shore manufacturing bases in Rotair SPA – Italy, Pattons ' +
-        'Inc – USA, Pulford Air & Gas – Australia and sales presence in over 100 countries.\n' +
+        'service of a wide range of compressors and related accessories like air dryers, ' +
+        'variable speed drives, down-stream filters and air receivers.\n' +
+        '- Over 2 million ELGi products are powering businesses in industries such as mining, ' +
+        'defence, transport, pharmaceuticals, power, oil, railways, chemical, textile, ' +
+        'printing, ship-building, paper manufacturing, electronics, telecommunications, ' +
+        'medical, food and beverage, and plastics.\n' +
+        '- Global footprint with off-shore manufacturing bases in Rotair SPA \u2013 Italy, Pattons ' +
+        'Inc \u2013 USA, Pulford Air & Gas \u2013 Australia and sales presence in over 100 countries.\n' +
+        '- We design and install a complete system that meets the requirement of different ' +
+        'applications across industries. We offer the complete compressed air system of air ' +
+        'compressors, air dryers, variable speed drives, down-stream filters and air receivers.\n' +
         'Quality assurance and reliability that come from being an ISO 9001:2015 company.\n' +
-        'Dedicated toll-free Customer Care System, with 13 branches and over 70 dealers across India.'
+        '- Each component in ELGi products passes through stringent quality tests and is 100% ' +
+        'tested for performance in the manufacturing line.\n' +
+        '- Each product comes with ELGi\u2019s UPTIME Assurance.\n' +
+        'Dedicated toll-free Customer Care System.\n' +
+        '- After sales service through our service organisation, which consists of 13 branches, ' +
+        'over 70 dealers across India and over 200 distributors in 100+ countries across the globe.'
     },
     {
       id: 'QTPL-COMP-TERMS', section: 'Terms', brand: 'ELGI',
       businessStream: STREAM_COMPRESSOR, appliesTo: '', title: 'Terms & Conditions',
       sortOrder: 3, active: 'TRUE',
       body: 'This sale will attract GST at the rates prevailing on the date of dispatch.\n' +
-        'Freight shall be extra from Ex-works Coimbatore on the above price. Transit insurance ' +
-        'shall be in the scope of the Purchaser.\n' +
+        'Freight condition shall be extra from Ex-works Coimbatore on the above price. Transit ' +
+        'insurance shall be in the scope of the Purchaser.\n' +
         'Statutory information: Please advise the GSTIN information in your purchase order.\n' +
         'Terms of payment: 30% advance and 70% before dispatch against Proforma Invoice.\n' +
-        'Delivery: 4–6 weeks, reckoned from the date of receipt of your clear and firm order ' +
-        'with advance, or the date of approval of the GA drawing, whichever is applicable.\n' +
-        'Consignee: The consignment will be dispatched on “selves” basis with special ' +
-        'instruction to the transporter to door-deliver against the original copy of the L/R.\n' +
-        'Supervision of erection and commissioning: We shall depute trained personnel on a ' +
-        'chargeable basis as per standard norms, for which we will submit a formal quote later.\n' +
+        'Delivery: 4-6 weeks. This delivery shall reckon from the date of receipt of your clear ' +
+        'and firm order with advance, or the date of approval of the GA drawing, whichever is ' +
+        'applicable.\n' +
+        'Consignee: The consignment will be dispatched on \u201cselves\u201d basis with special ' +
+        'instruction to the transporter to door-deliver the consignment against the original ' +
+        'copy of the L/R.\n' +
+        'Supervision of erection and commissioning: We shall depute trained personnel for ' +
+        'supervision of erection and commissioning on a chargeable basis as per standard norms ' +
+        'and conditions, for which we will submit a formal quote at a later stage. Taxes shall ' +
+        'be extra as applicable.\n' +
         'Validity: The offer is valid for a period of 30 days from the date of offer.\n' +
-        'Warranty: All parts and equipment, unless explicitly mentioned in the UPTIME document, ' +
-        'are warranted for 12 months from the date of start-up. Warranty is limited to repair or ' +
-        'replacement of defective parts against manufacturing defects only. Exclusions: ' +
-        'electricals (except motors and controller), rubber parts, seals, belts and consumables ' +
-        'such as air filter, oil filter, separator element and lubricant.\n' +
-        'Force majeure: We shall not be liable for any failure to perform where prevented by ' +
-        'situations beyond our reasonable control or by acts or omissions of the purchaser.'
+        'Warranty:\n' +
+        '- All parts and equipment, unless explicitly mentioned in the UPTIME document, are ' +
+        'warranted for a period of 12 months from the date of start-up.\n' +
+        '- Warranty is limited to repair or replacement of defective parts against ' +
+        'manufacturing defects only, and does not extend to any consequential liability thereof.\n' +
+        '- Exclusions: electricals (except motors and controller), rubber parts, seals, belts ' +
+        'and consumables like air filter, oil filter, separator element, lubricant and similar ' +
+        'wear and tear parts.\n' +
+        '- UPTIME Warranty clause as per the attached UPTIME document.\n' +
+        'Force majeure: We shall not be under any liability to the purchaser for any failure to ' +
+        'perform any of the obligations under the contract where it is prevented by i) ' +
+        'situations beyond its reasonable control, or ii) acts or omissions of the purchaser. ' +
+        'If the performance of the contract is prevented by this clause for more than 120 days, ' +
+        'then either party (except where the delay is caused by the purchaser, in which event ' +
+        'only the company) upon 30 days\u2019 written notice may terminate the contract with ' +
+        'respect to the unexecuted portion, whereupon the purchaser shall promptly pay the ' +
+        'company its termination charges determined in accordance with the company\u2019s standard ' +
+        'accounting practices upon submission of invoices thereof.'
     },
     {
       id: 'QTPL-SPARE-COVER', section: 'CoverLetter', brand: 'ELGI',
@@ -317,15 +381,20 @@ function defaultQuoteTemplates_() {
       title: 'Recommended compressor placement', sortOrder: 4, active: 'TRUE',
       body: 'The entrance to the compressor room should be high enough and wide enough to get ' +
         'the compressor in and out.\n' +
-        'Leave a minimum of 1 m clearance for compressors under 75 kW, and 1.5 m for those over ' +
-        '75 kW, for safe inspection, cleaning and maintenance.\n' +
-        'Leave a minimum of 2 m above the compressor for hot air to flow away (air cooled).\n' +
-        'Maintain the room temperature with proper ventilation. Higher suction temperatures ' +
-        'reduce oil life through a higher discharge oil temperature.\n' +
+        'Leave a minimum of 1 m space for compressors under 75 kW and 1.5 m for those over ' +
+        '75 kW, around the compressor, for safe and proper inspection, cleaning and ' +
+        'maintenance activities.\n' +
+        'Leave a minimum of 2 m space above the compressor for the hot air to flow away from ' +
+        'the compressor (air cooled).\n' +
+        'Maintain the room temperature with proper ventilation \u2014 the compressor room ' +
+        'temperature should stay within 50\u00b0C (122\u00b0F). Higher suction temperatures result in ' +
+        'reduced oil life through a higher discharge oil temperature, so ventilation must be ' +
+        'fitted properly.\n' +
         'Ensure the compressor is protected against direct sunlight and rain.\n' +
-        'The compressor base should make full contact with the floor. Do not leave the ' +
-        'compressor on the wooden pallet it was supplied on.\n' +
-        'Installation and commissioning will be carried out only once the above is in place.'
+        'The compressor base should make 100% contact directly with the floor. Do not place the ' +
+        'compressor on the wooden pallet supplied with it.\n' +
+        'Note: installation and commissioning will be done only after the above recommendations ' +
+        'are met.'
     },
 
     // ---- the document's own wording, kept out of the code ----
@@ -346,9 +415,17 @@ function defaultQuoteTemplates_() {
     {
       id: 'QTPL-CLOSING', section: 'Closing', brand: 'ELGI',
       businessStream: '', appliesTo: '', title: '', sortOrder: 6, active: 'TRUE',
-      body: 'We hope our offer is in line with your requirement. Should you need any further ' +
-        'clarification, please feel free to contact the undersigned. We look forward to ' +
-        'receiving your valuable order.'
+      body: 'We hope our offer is in line with your requirement and, in case you need any other ' +
+        'clarifications, please feel free to contact the undersigned. We look forward to ' +
+        'receiving your valuable order.\n\n' +
+        'Thanking and assuring you of our utmost attention always,'
+    },
+    {
+      id: 'QTPL-CLOSING-FINAL', section: 'ClosingFinal', brand: 'ELGI',
+      businessStream: STREAM_COMPRESSOR, appliesTo: '', title: '', sortOrder: 6, active: 'TRUE',
+      body: 'We appreciate your interest in our product and are confident that we will be able ' +
+        'to satisfy your requirement. As the next step, I request your time for a ' +
+        'techno-commercial discussion on the offer as per your convenience.'
     },
     {
       id: 'QTPL-SPECNOTE', section: 'SpecNote', brand: 'ELGI',

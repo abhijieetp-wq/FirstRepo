@@ -347,6 +347,25 @@ Three things follow from that, and each was a rough edge until it wasn't:
   afterwards, because the offer needs a billing address and a contact and that is the one moment
   someone has both to hand.
 
+## The standard wording is theirs, not a paraphrase of theirs
+
+The seeded sections carry the client's own text word for word — the five-paragraph covering
+letter, the three-heading Why ELGi with its bullets beneath each, the ten terms including the
+warranty's four lettered sub-clauses and the force majeure clause in full, and both closings
+(their letter ends by inviting questions; their terms end by asking for a meeting, and those are
+different paragraphs).
+
+An earlier pass had tightened all of that for readability, which was the wrong instinct for a
+document whose job is to match what the business already sends: it carried 38% of their text,
+and the shortened force majeure had lost the 120-day threshold and the notice period — a
+contractual term, summarised away.
+
+Because `installQuoteTemplates_` only ever adds sections that are absent — so that a reworded
+clause is never silently reverted by a later setup run — a correction to the standard text
+cannot reach a Sheet that has already been set up. **Settings → Quotation Text → Restore
+Standard Wording** is the deliberate way to take it. It touches only the sections that ship with
+the system, leaves anything the business wrote alone, and says how many it changed.
+
 ## Two streams, two price schedules
 
 Their compressor offer and their spares offer schedule prices differently, and each is right
