@@ -121,23 +121,47 @@ function buildQuotationHtml(quotationId) {
   var out = [];
   var push = function (h) { out.push(h); };
 
-  // ---------------------------------------------------------------- letterhead
-  var letterhead = function () {
-    return '<table class="lh"><tr><td>' +
-      (co.logoUrl ? '<img src="' + esc_(co.logoUrl) + '" class="logo" />' : '') +
-      (co.partnerLine ? '<div class="lh-partner">' + esc_(co.partnerLine) + '</div>' : '') +
-      // A wordmark already carries the name; setting it again underneath reads as a mistake.
-      (co.logoUrl && String(co.logoShowsName).toUpperCase() === 'TRUE'
-        ? '' : '<div class="lh-name">' + esc_(co.legalName) + '</div>') +
-      '<div class="lh-line">' + esc_([co.addressLine1, co.addressLine2, co.city].filter(Boolean).join(', ')) +
-        (co.pincode ? ' – ' + esc_(co.pincode) : '') + '</div>' +
-      '<div class="lh-line">' +
-        (co.email ? 'Email: ' + esc_(co.email) : '') +
-        (co.phone ? ' &nbsp;|&nbsp; Mobile: ' + esc_(co.phone) : '') +
-        (co.website ? ' &nbsp;|&nbsp; ' + esc_(co.website) : '') + '</div>' +
-      (co.gstin ? '<div class="lh-line"><b>' + esc_(L('gstNo', 'GST No')) + ': ' +
-        esc_(co.gstin) + '</b></div>' : '') +
-      '</td></tr></table><hr class="rule" />';
+  // ---------------------------------------------------------------- the page frame
+  /**
+   * Their letterhead is not a block at the top of the document — it is a page frame: our logo
+   * and the principal's at the head of every page, the address and GST number in the footer of
+   * every page. Ours used to be a block, inserted by hand wherever the code happened to start a
+   * new section, which meant any page produced by text simply overflowing got nothing at all —
+   * a sign-off marooned on a blank sheet with no indication of who sent it.
+   *
+   * A thead and a tfoot on a table wrapping the whole document is the portable way to say
+   * "repeat this on every page"; the renderer handles it wherever the text actually breaks.
+   */
+  var pageHead = function () {
+    return '<thead><tr><td>' +
+      '<table class="lh"><tr>' +
+        '<td class="lh-l">' +
+          (co.logoUrl ? '<img src="' + esc_(co.logoUrl) + '" class="logo" />' : '') + '</td>' +
+        '<td class="lh-r">' +
+          (co.partnerLogoUrl ? '<img src="' + esc_(co.partnerLogoUrl) + '" class="partner-logo" />' : '') +
+        '</td>' +
+      '</tr></table>' +
+      '</td></tr></thead>';
+  };
+
+  var pageFoot = function () {
+    return '<tfoot><tr><td>' +
+      '<div class="ft">' +
+        (co.partnerLine ? '<div class="ft-partner">' + esc_(co.partnerLine).toUpperCase() + '</div>' : '') +
+        // A wordmark already carries the name; setting it again reads as a mistake.
+        (co.logoUrl && String(co.logoShowsName).toUpperCase() === 'TRUE'
+          ? '' : '<div class="ft-name">' + esc_(co.legalName).toUpperCase() + '</div>') +
+        '<div class="ft-line">Address: ' +
+          esc_([co.addressLine1, co.addressLine2, co.city].filter(Boolean).join(' ')) +
+          (co.pincode ? '-' + esc_(co.pincode) : '') + '</div>' +
+        '<div class="ft-line">' +
+          (co.email ? 'Email: ' + esc_(co.email) : '') +
+          (co.phone ? ', Mobile: ' + esc_(co.phone) : '') +
+          (co.website ? ', ' + esc_(co.website) : '') + '</div>' +
+        (co.gstin ? '<div class="ft-line">' + esc_(L('gstNo', 'GST No')) + ': ' +
+          esc_(co.gstin) + '</div>' : '') +
+      '</div>' +
+      '</td></tr></tfoot>';
   };
 
   // The seal prints only if one is configured. This client stamps the paper by hand, so the
@@ -155,10 +179,13 @@ function buildQuotationHtml(quotationId) {
       '</div>';
   };
 
-  push('<html><head><meta charset="UTF-8" />' + quotationCss_() + '</head><body>');
+  push('<html><head><meta charset="UTF-8" />' + quotationCss_(co) + '</head><body>');
+  push('<table class="page">');
+  push(pageHead());
+  push(pageFoot());
+  push('<tbody><tr><td>');
 
   // ---------------------------------------------------------------- page 1: the letter
-  push(letterhead());
   var titleTpl = quoteTemplate_('DocumentTitle', stream);
   if (titleTpl) {
     if (titleTpl.title) push('<div class="doc-title">' + esc_(titleTpl.title) + '</div>');
@@ -239,7 +266,6 @@ function buildQuotationHtml(quotationId) {
   // ---------------------------------------------------------------- specifications
   if (specced.length) {
     push('<div class="page-break"></div>');
-    push(letterhead());
     push('<div class="h1">' + esc_(L('specHeading', 'Technical specifications')) + '</div>');
     var specNote = quoteTemplate_('SpecNote', stream);
     if (specNote) push('<div class="note">' + esc_(String(specNote.body).trim()) + '</div>');
@@ -277,7 +303,6 @@ function buildQuotationHtml(quotationId) {
 
   // ---------------------------------------------------------------- price schedule
   push('<div class="page-break"></div>');
-  push(letterhead());
   push('<div class="h1">' + esc_(L('priceHeading', 'Price schedule')) + '</div>');
   push('<table class="price"><tr>' +
     '<th class="w-desc">' + esc_(L('colDescription', 'Description')) + '</th>' +
@@ -358,12 +383,12 @@ function buildQuotationHtml(quotationId) {
   var install = quoteTemplate_('InstallationNotes', stream);
   if (install && isCompressor) {
     push('<div class="page-break"></div>');
-    push(letterhead());
     push('<div class="h1">' + esc_(install.title) + '</div><ol>');
     templateLines_(install.body).forEach(function (l) { push('<li>' + esc_(l) + '</li>'); });
     push('</ol>');
   }
 
+  push('</td></tr></tbody></table>');
   push('</body></html>');
   return out.join('\n');
 }
@@ -426,35 +451,53 @@ function generateQuotationPdf(quotationId) {
 }
 
 /** Plain CSS on purpose — the PDF converter ignores flexbox, grid and most modern layout. */
-function quotationCss_() {
+/** Plain CSS on purpose — the PDF converter ignores flexbox, grid and most modern layout. */
+function quotationCss_(co) {
+  var accent = String((co && co.docAccentColor) || '#C00000').trim() || '#C00000';
   return '<style>' +
+    '@page{size:A4;margin:10mm 14mm;}' +
     'body{font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;color:#111;line-height:1.45;margin:0;}' +
-    '.lh{width:100%;border-collapse:collapse;margin-bottom:2px;}' +
-    '.lh td{padding:0 0 4px;text-align:center;}' +
-    '.logo{max-height:64px;max-width:280px;margin-bottom:6px;}' +
-    '.lh-partner{font-size:8.5pt;letter-spacing:.5px;text-transform:uppercase;color:#444;}' +
-    '.lh-name{font-size:13pt;font-weight:bold;letter-spacing:.3px;}' +
-    '.lh-line{font-size:8.5pt;color:#333;}' +
-    '.rule{border:none;border-top:1.5px solid #222;margin:2px 0 14px;}' +
-    '.doc-title{text-align:center;font-size:11.5pt;font-weight:bold;margin-top:6px;}' +
-    '.doc-sub{text-align:center;font-size:11pt;font-weight:bold;text-decoration:underline;margin:4px 0 14px;}' +
-    '.refbar{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:10pt;}' +
+
+    // The page frame. thead and tfoot on this table are what repeat on every page.
+    'table.page{width:100%;border-collapse:collapse;}' +
+    'table.page > tbody > tr > td{padding:14px 0 0;vertical-align:top;}' +
+    'table.page > thead > tr > td{padding:0;}' +
+    'table.page > tfoot > tr > td{padding:0;}' +
+
+    '.lh{width:100%;border-collapse:collapse;}' +
+    '.lh td{padding:0;vertical-align:middle;}' +
+    '.lh-l{text-align:left;width:50%;}' +
+    '.lh-r{text-align:right;width:50%;}' +
+    '.logo{max-height:132px;max-width:210px;}' +
+    '.partner-logo{max-height:80px;max-width:160px;}' +
+
+    '.ft{border-top:1px solid #222;margin-top:10px;padding-top:4px;text-align:center;}' +
+    '.ft-partner{font-size:8.5pt;color:' + accent + ';text-decoration:underline;}' +
+    '.ft-name{font-size:11pt;font-weight:bold;letter-spacing:.3px;}' +
+    '.ft-line{font-size:8.5pt;color:#222;}' +
+
+    '.doc-title{font-size:12pt;font-weight:bold;color:' + accent + ';margin:4px 0 10px;}' +
+    '.doc-sub{font-size:11pt;font-weight:bold;margin:0 0 12px;}' +
+    '.refbar{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
     '.refbar td{padding:0;}' +
+    '.right{text-align:right;}' +
     '.to{margin-bottom:12px;font-size:10.5pt;}' +
     '.subject{margin:12px 0 8px;}' +
     '.salut{margin-bottom:8px;}' +
     'p{margin:0 0 9px;text-align:justify;}' +
-    '.h1{font-size:11.5pt;font-weight:bold;margin:18px 0 8px;border-bottom:1px solid #999;padding-bottom:3px;}' +
-    '.h2{font-size:10.5pt;font-weight:bold;margin:14px 0 6px;}' +
-    'ul,ol{margin:0 0 10px;padding-left:26px;}' +  // 18px clipped the '10.' on a two-digit list
+    '.h1{font-size:11.5pt;font-weight:bold;color:' + accent + ';margin:16px 0 8px;}' +
+    '.h2{font-size:10.5pt;font-weight:bold;color:' + accent + ';margin:14px 0 6px;}' +
+    'ul,ol{margin:0 0 10px;padding-left:26px;}' +   // 18px clipped the '10.' on a two-digit list
     'li{margin-bottom:4px;text-align:justify;}' +
     '.note{font-size:9pt;color:#444;margin:8px 0 12px;font-style:italic;}' +
+
     '.spec-title{font-weight:bold;margin:14px 0 5px;}' +
     'table.spec{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
     'table.spec th{background:#eee;text-align:left;padding:5px 8px;border:1px solid #999;}' +
     'table.spec td{padding:5px 8px;border:1px solid #999;}' +
     '.scope-head{font-weight:bold;margin:10px 0 3px;}' +
     '.scope-line{margin-left:12px;font-size:10pt;}' +
+
     'table.price{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:10pt;}' +
     'table.price th{background:#eee;padding:6px 8px;border:1px solid #999;text-align:left;}' +
     'table.price td{padding:6px 8px;border:1px solid #999;}' +
@@ -463,10 +506,14 @@ function quotationCss_() {
     'table.totals{width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:8px;}' +
     'table.totals td{padding:5px 8px;border:1px solid #999;}' +
     'table.totals tr.strong td{font-weight:bold;background:#f2f2f2;}' +
-    '.signoff{margin-top:22px;font-size:10.5pt;}' +
+
+    // A signature split across a page break reads as a printing fault, so it moves whole.
+    '.signoff{margin-top:22px;font-size:10.5pt;page-break-inside:avoid;}' +
     '.signoff .for{margin-top:4px;font-weight:bold;}' +
     '.sig-space{height:36px;}' +
     '.seal{max-height:80px;margin:6px 0;}' +
+    'table.totals{page-break-inside:avoid;}' +
     '.page-break{page-break-before:always;}' +
     '</style>';
 }
+

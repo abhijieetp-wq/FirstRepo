@@ -64,7 +64,12 @@ function defaultCompanyProfile_() {
     // Most logos are a wordmark — the company name is already drawn into the image — and
     // printing the text name underneath it says the name twice. Tick this and the letterhead
     // lets the logo speak for itself.
-    logoShowsName: 'FALSE'
+    logoShowsName: 'FALSE',
+    // The principal's mark, printed opposite our own. For a channel partner this is half the
+    // point of the letterhead, so it is a field rather than something only we can add.
+    partnerLogoUrl: '',
+    // Their documents set headings and the partner line in red.
+    docAccentColor: '#C00000'
   };
 }
 
@@ -94,7 +99,7 @@ function saveCompanyProfile(input) {
   record.gstin = gstin;
   record.logoShowsName = input.logoShowsName ? 'TRUE' : 'FALSE';
 
-  ['logoUrl', 'sealUrl'].forEach(function (k) {
+  ['logoUrl', 'sealUrl', 'partnerLogoUrl'].forEach(function (k) {
     if (record[k].length > MAX_CELL_CHARS) {
       throw new Error('That image is too large to store (' +
         Math.round(record[k].length / 1024) + ' KB, and the limit is ' +

@@ -5182,7 +5182,9 @@
   });
 
   function setSetMode(mode) {
-    if (setMode === "company" && mode !== "company") { pendingLogo = null; pendingSeal = null; }
+    if (setMode === "company" && mode !== "company") {
+      pendingImages = { logo: null, partner: null, seal: null };
+    }
     setMode = mode;
     SET_SUBTABS.forEach(function (m) {
       $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
@@ -5988,7 +5990,8 @@
     ["signOffLine", "Sign-off Line", "Yours sincerely,"],
     ["defaultBrand", "Default Brand", "The make this business sells"],
     ["appName", "Application Name", "Shown in the header and the browser tab"],
-    ["appSubtitle", "Application Subtitle", "The small line under the name"]
+    ["appSubtitle", "Application Subtitle", "The small line under the name"],
+    ["docAccentColor", "Document Accent Colour", "Headings on the printed offer, e.g. #C00000"]
   ];
 
   /**
@@ -5999,7 +6002,13 @@
    * address. Embedding the bytes avoids both, and the picture cannot later break because
    * someone moved a file. The cost is a size limit, which is what the downscale below is for.
    */
-  var LOGO_MAX_W = 320, LOGO_MAX_H = 160, SEAL_MAX_W = 300, SEAL_MAX_H = 200;
+  // Roughly twice the size each is printed at, so it stays crisp on paper. The old logo cap of
+  // 320x160 was the reason the mark came out a third the height of theirs.
+  var IMAGE_LIMITS = {
+    logo:    { w: 400, h: 300 },
+    partner: { w: 320, h: 180 },
+    seal:    { w: 300, h: 200 }
+  };
 
   function readImageAsDataUri(file, maxW, maxH, done, fail) {
     if (!/^image\//.test(file.type)) {
@@ -6061,13 +6070,15 @@
   }
 
   // Held between picking a file and pressing Save, so the preview survives the re-render.
-  var pendingLogo = null, pendingSeal = null;
+  var pendingImages = { logo: null, partner: null, seal: null };
+  var IMAGE_TO_FIELD = { logo: "logoUrl", partner: "partnerLogoUrl", seal: "sealUrl" };
 
   function renderCompanyPanel() {
     var co = setData.companyProfile || {};
     var editable = canAdminister();
-    if (pendingLogo === null) pendingLogo = co.logoUrl || "";
-    if (pendingSeal === null) pendingSeal = co.sealUrl || "";
+    Object.keys(pendingImages).forEach(function (k) {
+      if (pendingImages[k] === null) pendingImages[k] = co[IMAGE_TO_FIELD[k]] || "";
+    });
 
     var body = '<div class="grid grid-3">' + COMPANY_FIELDS.map(function (f) {
       return '<div class="field"><label>' + escapeHtml(f[1]) + "</label>" +
@@ -6077,11 +6088,19 @@
     }).join("") + "</div>" +
 
       '<div class="card-title" style="margin-top:22px;">Images</div>' +
-      '<div class="grid grid-2">' +
-        imageFieldHtml("logo", "Logo", "PNG or JPG. Resized on upload and stored in the sheet, " +
-          "so it keeps working without hosting it anywhere.", pendingLogo, editable) +
+      '<p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">' +
+        "The two logos print at the head of every page of a quotation — yours on the left, the " +
+        "manufacturer's on the right. Both are resized on upload and stored in the sheet, so " +
+        "they keep working without being hosted anywhere.</p>" +
+      '<div class="grid grid-3">' +
+        imageFieldHtml("logo", "Our Logo", "Printed top-left on every page.",
+          pendingImages.logo, editable) +
+        imageFieldHtml("partner", "Manufacturer Logo",
+          "Printed top-right — the ELGi mark on a channel partner's letterhead.",
+          pendingImages.partner, editable) +
         imageFieldHtml("seal", "Company Seal",
-          "Leave empty if the seal is stamped on the printed page by hand.", pendingSeal, editable) +
+          "Leave empty if the seal is stamped on the printed page by hand.",
+          pendingImages.seal, editable) +
       "</div>" +
       '<label class="check-line" style="margin-top:10px;">' +
         '<input type="checkbox" id="co-logoShowsName"' +
@@ -6105,7 +6124,7 @@
     if (!editable) return;
 
     var setImage = function (key, uri) {
-      if (key === "logo") pendingLogo = uri; else pendingSeal = uri;
+      pendingImages[key] = uri;
       renderCompanyPanel();
     };
 
@@ -6115,9 +6134,8 @@
       $(key + "-file").addEventListener("change", function (ev) {
         var file = ev.target.files[0];
         if (!file) return;
-        readImageAsDataUri(file,
-          key === "logo" ? LOGO_MAX_W : SEAL_MAX_W,
-          key === "logo" ? LOGO_MAX_H : SEAL_MAX_H,
+        var cap = IMAGE_LIMITS[key];
+        readImageAsDataUri(file, cap.w, cap.h,
           function (uri, w, h) {
             setImage(key, uri);
             showMsg("Image read at " + w + "×" + h + ". Press Save Letterhead to keep it.", "success");
@@ -6133,11 +6151,13 @@
     $("btn-save-company").addEventListener("click", function () {
       var payload = {};
       COMPANY_FIELDS.forEach(function (f) { payload[f[0]] = $("co-" + f[0]).value.trim(); });
-      payload.logoUrl = pendingLogo;
-      payload.sealUrl = pendingSeal;
+      Object.keys(pendingImages).forEach(function (k) {
+        payload[IMAGE_TO_FIELD[k]] = pendingImages[k];
+      });
       payload.logoShowsName = $("co-logoShowsName").checked;
       google.script.run.withSuccessHandler(function () {
-        pendingLogo = null; pendingSeal = null;   // re-read from what was actually stored
+        // re-read from what was actually stored
+        pendingImages = { logo: null, partner: null, seal: null };
         loadSettings();
         showMsg("Letterhead saved. Every quotation printed from now on carries it.", "success");
       }).withFailureHandler(onServerError).saveCompanyProfile(payload);

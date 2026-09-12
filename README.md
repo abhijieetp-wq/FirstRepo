@@ -347,9 +347,27 @@ Three things follow from that, and each was a rough edge until it wasn't:
   afterwards, because the offer needs a billing address and a contact and that is the one moment
   someone has both to hand.
 
+## The letterhead is a page frame, not a header
+
+Their document does not put the company details at the top of page one — it puts **the two
+logos in a running header and the address block in a running footer**, so every page of a
+nine-page offer is identifiable on its own. Ours used to insert a letterhead block by hand
+wherever the code started a new section, which meant a page produced by text simply overflowing
+got nothing: a real offer came out with the signature marooned on a blank second sheet, no
+address, no logo, nothing to say who had sent it.
+
+The whole document is now wrapped in one table with a `thead` carrying the logos and a `tfoot`
+carrying the address. That is the portable way to say "repeat this on every page" — the renderer
+puts it wherever the text actually breaks, rather than where we guessed it would. Verified
+across both streams: every page carries the frame.
+
+The signature block is marked `page-break-inside: avoid`, because a signature split across two
+sheets reads as a printing fault. When it will not fit, it moves whole to the next page — which
+now has a letterhead on it.
+
 ## The logo and the seal
 
-Both are **uploaded, not linked**. Settings → Letterhead → Images takes a PNG or JPG, shrinks
+There are **three** images, all **uploaded, not linked**. Settings → Letterhead → Images takes a PNG or JPG, shrinks
 it in the browser to something a page actually needs (320×160 for the logo, 300×200 for a
 seal), and stores the result in the sheet as a data URI.
 
@@ -363,6 +381,10 @@ well under it, falls back to JPEG on a white ground if a transparent PNG is stil
 the server refuses anything over 48,000 characters with a message saying so — better than a
 silent truncation that turns into a broken picture on every future quotation. The URL fields
 still exist for anyone who would rather link.
+
+The **manufacturer's logo** prints top-right, opposite ours. For a channel partner that mark is
+half the point of the letterhead — their own offers carry ELGi's beside their own on every page
+— so it is a field rather than something only a developer can add.
 
 **Tick "the logo already includes the company name"** when the logo is a wordmark. Most are, and
 printing the text name underneath one says the name twice, which reads as a mistake. With it
