@@ -320,11 +320,17 @@ function applyCatalogPrices_(itemType, itemId, itemCode, input) {
 /**
  * Clears the spare catalogue so a real one can be loaded over a set of trial rows.
  *
- * Refuses outright if anything in the system is built on those parts — a quotation line, an
- * order, a dispatch or a stock movement — because deleting a part that a document refers to
- * leaves that document unable to say what it sold. It reports what blocked it rather than a
- * flat no. Prices, compatibility and substitute rows for the parts it does remove go with
- * them, since none of them mean anything without the part.
+ * A part that no document refers to is deleted outright, with its prices, compatibility and
+ * substitute rows, since none of those mean anything without the part. A part that some
+ * quotation, order, dispatch or stock movement does refer to is **deactivated instead** —
+ * deleting it would leave that document unable to say what it sold, and the row costs
+ * nothing where it is.
+ *
+ * It used to refuse the whole job over a single referenced part, which is the wrong trade:
+ * one demo quotation made from trial data blocked the load of a 13,000-part catalogue, and
+ * the only way forward was to go and destroy real work first. Deactivating gets the same
+ * end state — those parts are out of the catalogue and off every picker — without touching
+ * anything anyone has quoted. The caller is told exactly which parts were kept and why.
  *
  * The reference check is the shared one in ItemReferences.gs. It used to be a local pair of
  * lookups here, one of which named a tab ("StockLedger") that does not exist in the schema —
@@ -339,22 +345,57 @@ function purgeSpares(confirmText) {
   }
 
   var spares = readTable_('Spares');
-  if (!spares.length) return { deleted: 0, prices: 0, compatibility: 0 };
+  if (!spares.length) {
+    return { deleted: 0, deactivated: 0, prices: 0, compatibility: 0, alternates: 0, kept: [] };
+  }
 
   var ids = {};
   spares.forEach(function (s) { ids[String(s.id)] = s.partNo; });
 
-  assertItemUnreferenced_('Spare', ids, 'The spare catalogue is');
+  var referenced = itemReferenceMap_('Spare', ids);
 
-  var removed = removeSpareDependents_(ids);
+  var removable = {};
+  var kept = [];
+  spares.forEach(function (s) {
+    var id = String(s.id);
+    if (referenced.hasOwnProperty(id)) {
+      kept.push({ partNo: s.partNo, description: s.description, usedBy: referenced[id] });
+    } else {
+      removable[id] = s.partNo;
+    }
+  });
 
+  var removed = removeSpareDependents_(removable);
+
+  // Rewritten as one block rather than deleted row by row: on a catalogue this size, a
+  // per-row delete does not finish inside an execution.
   var sheet = getSheet_('Spares');
-  if (sheet.getLastRow() > 1) sheet.deleteRows(2, sheet.getLastRow() - 1);
-  audit_('Delete', 'Spares', '(all)', '', spares.length + ' spares', '',
-    'Spare catalogue cleared before a bulk load');
+  var headers = getHeaders_(sheet);
+  var idCol = headers.indexOf('id');
+  var activeCol = headers.indexOf('active');
+  var lastRow = sheet.getLastRow();
+  var block = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
 
-  return { deleted: spares.length, prices: removed.prices,
-           compatibility: removed.compatibility, alternates: removed.alternates };
+  var survivors = block.filter(function (row) {
+    var id = String(row[idCol]);
+    if (!referenced.hasOwnProperty(id)) return false;
+    if (activeCol !== -1) row[activeCol] = 'FALSE';
+    return true;
+  });
+
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  if (survivors.length) {
+    sheet.getRange(2, 1, survivors.length, headers.length).setValues(survivors);
+  }
+
+  var deleted = spares.length - kept.length;
+  audit_('Delete', 'Spares', '(bulk)', '', spares.length + ' spares', kept.length + ' kept',
+    'Spare catalogue cleared before a bulk load — ' + deleted + ' deleted, ' +
+    kept.length + ' deactivated because documents refer to them');
+
+  return { deleted: deleted, deactivated: kept.length, prices: removed.prices,
+           compatibility: removed.compatibility, alternates: removed.alternates,
+           kept: kept.slice(0, 25), keptTotal: kept.length };
 }
 
 /**

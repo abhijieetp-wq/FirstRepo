@@ -552,7 +552,13 @@
       bulkStat("Updated", p.updateCount, "var(--navy)") +
       bulkStat("Price revisions", p.priceChangeCount, "var(--amber-dark)") +
       bulkStat("Skipped", p.skippedCount, p.skippedCount ? "var(--red)" : "var(--steel)") +
-      "</div>";
+      "</div>" +
+      // A fifth tile would wrap the row on its own, and this only applies to some imports.
+      (p.reactivatedCount
+        ? '<p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">' +
+          p.reactivatedCount + " of those updates bring a deactivated item back into the " +
+          "catalogue — a code present in this file is a live item.</p>"
+        : "");
 
     var problems = "";
     if (p.skippedCount) {
@@ -607,6 +613,7 @@
         loadCatalog();
         showMsg(res.newCount + " added, " + res.updateCount + " updated, " +
           res.priceChangeCount + " price revision(s)" +
+          (res.reactivatedCount ? ", " + res.reactivatedCount + " brought back into the catalogue" : "") +
           (res.skippedCount ? ", " + res.skippedCount + " skipped" : "") + ".", "success");
       }).withFailureHandler(function (err) {
         $("bulk-preview").innerHTML = "";
@@ -6689,10 +6696,11 @@
       (currentUser.role === "ERP Admin"
         ? '<div class="compare-strip" style="margin:18px 0 10px;">' +
             "<b>Clear the spare catalogue</b> — for loading a real catalogue over a set of " +
-            "trial rows, once, before anyone has quoted from them. It removes every spare " +
-            "and its prices, and refuses outright if any quotation, order, dispatch or stock " +
-            "movement already names one of them. If you only want to retire a part, " +
-            "deactivate it on the Catalog screen instead." +
+            "trial rows. Parts nothing refers to are deleted with their prices. Parts that a " +
+            "quotation, order, dispatch or stock movement does refer to are deactivated " +
+            "instead, so those documents still resolve while the part leaves the catalogue. " +
+            "Either way the catalogue comes out empty. To retire a single part, deactivate " +
+            "it on the Catalog screen." +
           "</div>" +
           '<button class="btn btn-danger btn-sm" id="btn-purge-spares">Clear Spare Catalogue</button>'
         : "") +
@@ -6714,9 +6722,10 @@
   function purgeSparesNow() {
     askDialog({
       title: "Clear the whole spare catalogue?",
-      message: "Every spare and its price history is deleted. This cannot be undone from the " +
-        "app — the Sheet's own version history is the only way back. Type DELETE ALL SPARES " +
-        "to confirm.",
+      message: "Every spare leaves the catalogue. Those nothing refers to are deleted with " +
+        "their price history, which cannot be undone from the app — the Sheet's own version " +
+        "history is the only way back. Those a document refers to are deactivated, and can " +
+        "be brought back from Catalog → Show deactivated. Type DELETE ALL SPARES to confirm.",
       input: true, inputLabel: "Confirmation", okLabel: "Clear catalogue", danger: true
     }, function (typed) {
       if (typed === null) return;
@@ -6727,12 +6736,32 @@
       $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Clearing…</p>';
       google.script.run.withSuccessHandler(function (res) {
         catalogLoaded.spares = false;
+        var kept = res.keptTotal || 0;
         $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +
-          "<b>Spare catalogue cleared.</b> " + res.deleted + " part(s), " + res.prices +
-          " price record(s), " + res.compatibility + " compatibility row(s) and " +
-          res.alternates + " substitute link(s) removed. Import the new catalogue from " +
-          "Masters → Catalog → Bulk Upload.</div>";
-        showMsg(res.deleted + " spare(s) removed.", "success");
+          "<b>Spare catalogue cleared.</b> " + res.deleted + " part(s) deleted, along with " +
+          res.prices + " price record(s), " + res.compatibility + " compatibility row(s) and " +
+          res.alternates + " substitute link(s)." +
+          (kept
+            ? "<div style=\"margin-top:10px;\"><b>" + kept + " part(s) were deactivated " +
+              "rather than deleted</b> because documents refer to them. They are out of the " +
+              "catalogue and off every picker; the documents that name them still resolve. " +
+              "Find them under Catalog → Show deactivated." +
+              '<ul style="margin:8px 0 0 18px; padding:0;">' +
+              (res.kept || []).map(function (k) {
+                return "<li><span class=\"mono\">" + escapeHtml(k.partNo) + "</span> — " +
+                  escapeHtml(k.usedBy.slice(0, 3).join(", ")) + "</li>";
+              }).join("") +
+              "</ul>" +
+              (kept > (res.kept || []).length
+                ? "<div style=\"margin-top:6px;\">…and " + (kept - res.kept.length) +
+                  " more.</div>" : "") +
+              "</div>"
+            : "") +
+          '<div style="margin-top:10px;">Import the new catalogue from Masters → Catalog → ' +
+          "Bulk Upload. A part number that arrives in the import is made active again, so a " +
+          "deactivated row here does not hide the real part.</div></div>";
+        showMsg(res.deleted + " spare(s) removed" +
+          (kept ? ", " + kept + " deactivated." : "."), "success");
       }).withFailureHandler(function (err) {
         $("sys-result").innerHTML = "";
         onServerError(err);

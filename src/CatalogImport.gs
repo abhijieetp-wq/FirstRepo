@@ -67,6 +67,7 @@ function previewCatalogImport(itemType, csvText) {
   return {
     newCount: analysis.creates.length,
     updateCount: analysis.updates.length,
+    reactivatedCount: analysis.updates.filter(function (u) { return u.wasInactive; }).length,
     skippedCount: analysis.skipped.length,
     priceChangeCount: analysis.priceChanges.length,
     skipped: analysis.skipped.slice(0, 50),
@@ -95,6 +96,7 @@ function commitCatalogImport(itemType, csvText) {
     if (analysis.updates.length) {
       var lastRow = sheet.getLastRow();
       var block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+      var activeCol = headers.indexOf('active');
       analysis.updates.forEach(function (u) {
         var target = block[u.rowIndex];
         spec.masterFields.forEach(function (f) {
@@ -103,6 +105,11 @@ function commitCatalogImport(itemType, csvText) {
           if (u.values[f] === undefined || u.values[f] === '') return;
           target[col] = u.values[f];
         });
+        // A code present in the imported catalogue is a live item. Without this, a row that
+        // had been deactivated — by the pre-import clear-out, say — was updated with the real
+        // description and price and then stayed invisible, so the part looked missing from a
+        // catalogue that had just loaded it.
+        if (activeCol !== -1) target[activeCol] = 'TRUE';
       });
       sheet.getRange(2, 1, block.length, headers.length).setValues(block);
     }
@@ -142,6 +149,7 @@ function commitCatalogImport(itemType, csvText) {
   return {
     newCount: analysis.creates.length,
     updateCount: analysis.updates.length,
+    reactivatedCount: analysis.updates.filter(function (u) { return u.wasInactive; }).length,
     priceChangeCount: pricesWritten,
     skippedCount: analysis.skipped.length
   };
@@ -221,7 +229,9 @@ function analyseImport_(itemType, csvText) {
     var itemId;
     if (match) {
       itemId = match.row.id;
-      updates.push({ action: 'update', key: key, values: values, rowIndex: match.rowIndex, id: itemId });
+      updates.push({ action: 'update', key: key, values: values, rowIndex: match.rowIndex,
+                     id: itemId,
+                     wasInactive: String(match.row.active).toUpperCase() === 'FALSE' });
     } else {
       itemId = generateId_(spec.idPrefix);
       creates.push({ action: 'new', key: key, values: values, id: itemId });

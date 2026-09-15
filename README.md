@@ -347,16 +347,30 @@ Each derived row says so in its notes.
 ### Clearing the trial rows first
 
 **Settings → System → Clear Spare Catalogue** (ERP Admin), which asks for `DELETE ALL SPARES`
-typed out. It removes every spare with its prices, compatibility and substitute rows, and
-refuses outright if any quotation, order, dispatch, invoice, goods receipt, reservation,
-enquiry line or stock movement already names one of them — so it is a tool for replacing
-untouched trial data, not for tidying a catalogue in use.
+typed out. Either way the catalogue comes out empty, but two different things happen to the
+rows:
 
-It was previously unreachable: `purgeSpares` existed but nothing called it, and its own guard
-named a tab, `StockLedger`, that is not in the schema, so it threw before it deleted anything
-every single time. The guard now comes from `ItemReferences.gs`, which is the one place that
-knows where a catalogue item can be referred to from, shared with the single-row delete so the
-two cannot drift apart again.
+- a part **nothing refers to** is deleted, with its prices, compatibility and substitute rows;
+- a part **some document refers to** — a quotation, order, dispatch, invoice, goods receipt,
+  reservation, enquiry line or stock movement — is **deactivated** instead. Deleting it would
+  leave that document unable to say what it sold, and the row costs nothing where it is.
+
+It used to refuse the whole job over a single referenced part, which is the wrong trade: one
+demo quotation made from trial data blocked the load of a 13,000-part catalogue, and the only
+way forward was to go and destroy real work first. The report names each part that was kept
+and the document that kept it, by its number rather than its row id — `quotation
+PIE/ELGI/QUOT/26-27/383`, not `quotation line QT-479af6c2`, which appears nowhere on screen.
+
+**An import reactivates what it updates.** A part number present in the imported catalogue is
+a live part, so a row deactivated by the clear-out above comes back with the real description
+and price. Without that, a part held back for one demo quotation would have been updated
+correctly and then stayed invisible — missing from a catalogue that had just loaded it.
+
+Before all this, the clear was simply unreachable: `purgeSpares` existed but nothing called
+it, and its own guard named a tab, `StockLedger`, that is not in the schema, so it threw
+before deleting anything every single time. The guard now comes from `ItemReferences.gs`,
+which is the one place that knows where a catalogue item can be referred to from, shared with
+the single-row delete so the two cannot drift apart again.
 
 ## Removing a catalogue record
 
