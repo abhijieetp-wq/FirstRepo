@@ -67,6 +67,7 @@ function getSettings() {
       hasCredential: !!props.getProperty(TALLY_PROPS.CREDENTIAL)
     },
     system: {
+      build: APP_BUILD,
       spreadsheetName: SpreadsheetApp.getActiveSpreadsheet().getName(),
       spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
       declaredTabs: Object.keys(SCHEMA).length,

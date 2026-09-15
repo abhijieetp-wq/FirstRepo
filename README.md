@@ -321,6 +321,22 @@ which is a basic renderer. That converter is also why the document is built from
 and rules rather than flexbox — it silently ignores modern layout. If ₹ comes out as a box in
 the PDF, say so and it becomes "Rs." in one edit.
 
+## Which build is running
+
+`clasp push` updates the code Apps Script has saved. It does **not** change what the `/exec`
+URL serves — that stays pinned to a deployment version until someone creates a new one, and
+"Deploy → New deployment" makes a *second* URL rather than updating the first. So pushing code
+and seeing nothing change is the normal experience, not a fault, and until now it was
+indistinguishable from a broken feature.
+
+`APP_BUILD` in `Code.gs` is stamped into the footer of every screen and onto Settings → System.
+If it does not match what was just pushed, the deployment is still serving an older version.
+Bump it with anything worth deploying.
+
+To actually deploy: **Deploy → Manage deployments → the pencil on the existing deployment →
+Version: New version → Deploy.** Editing the existing deployment is the part that matters;
+creating a new one leaves the old URL serving the old code.
+
 ## Leaving a quotation
 
 A quotation is written to the sheet the moment it is created, so there is nothing to save and

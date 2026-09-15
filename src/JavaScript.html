@@ -6394,9 +6394,13 @@
     $("set-panel").innerHTML = panelCard(
       "System",
       "The spreadsheet behind the app, and the tools for keeping its structure in step with " +
-        "the code.",
+        "the code. The build below is the code actually running — if it does not match what " +
+        "was just pushed, the deployment is still serving an older version.",
       "",
-      '<div class="grid grid-3" style="margin-bottom:16px;">' +
+      '<div class="grid grid-4" style="margin-bottom:16px;">' +
+        '<div class="kpi-card"><div class="kpi-label">Build Running</div>' +
+          '<div style="font-size:14px; font-weight:600; color:var(--navy); margin-top:4px;" ' +
+          'class="mono">' + escapeHtml(sys.build || "unknown") + "</div></div>" +
         '<div class="kpi-card"><div class="kpi-label">Spreadsheet</div>' +
           '<div style="font-size:14px; font-weight:600; color:var(--navy); margin-top:4px;">' +
           escapeHtml(sys.spreadsheetName) + "</div></div>" +
@@ -6477,7 +6481,8 @@
       $("app-name").textContent = user.appName;
       $("app-subtitle").textContent = user.appSubtitle || "";
       $("app-mark").textContent = user.appMark || "";
-      $("app-footer").textContent = user.appName + " — internal tool.";
+      $("app-footer").textContent = user.appName + " — internal tool." +
+        (user.build ? "  ·  build " + user.build : "");
       document.title = user.appName;
     }
     var initials = String(user.name || user.email || "?").trim().split(/\s+/)

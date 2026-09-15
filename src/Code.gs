@@ -1,3 +1,13 @@
+/**
+ * Which build is actually running.
+ *
+ * Apps Script serves the /exec URL from a pinned deployment version, so pushing code and
+ * seeing no change is the normal experience rather than a fault — and there was no way to tell
+ * a stale deployment from a broken feature except by hunting for the feature. This is shown in
+ * the footer of every screen and on Settings → System. Bump it with anything worth deploying.
+ */
+var APP_BUILD = '2026-09-15.1';
+
 function doGet(e) {
   // The browser tab is named by the company profile, so a second installation is not called
   // after the first one's brand.
@@ -33,5 +43,6 @@ function bootstrap() {
     user.appSubtitle = '';
     user.appMark = 'ER';
   }
+  user.build = APP_BUILD;
   return user;
 }
