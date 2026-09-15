@@ -44,26 +44,34 @@ function esc_(v) {
  * either loses the sense of what belongs to what.
  */
 function bulletList_(lines, ordered) {
+  // Build the shape first, then render it. Knowing whether an item has children before the
+  // opening tag is written is what lets a heading be marked as one.
+  var tree = [];
+  lines.forEach(function (raw) {
+    var isSub = /^-\s+/.test(raw);
+    var text = raw.replace(/^-\s+/, '');
+    if (isSub && tree.length) tree[tree.length - 1].children.push(text);
+    else tree.push({ text: isSub ? text : raw, children: [] });
+  });
+
   var tag = ordered ? 'ol' : 'ul';
   var out = ['<' + tag + '>'];
-  var open = false;
-  lines.forEach(function (raw) {
-    var sub = /^-\s+/.test(raw);
-    var text = raw.replace(/^-\s+/, '');
-    if (sub) {
-      if (!open) { out.push('<' + tag + ' class="sub">'); open = true; }
-      out.push('<li>' + esc_(text) + '</li>');
-      return;
+  tree.forEach(function (node) {
+    // Their document signals a heading by weight and bullet shape, not by indenting it —
+    // the points beneath sit at the same margin. An item with nothing under it is an
+    // ordinary bullet and stays that way.
+    out.push('<li' + (node.children.length ? ' class="lead"' : '') + '>' + esc_(node.text));
+    if (node.children.length) {
+      out.push('<' + tag + ' class="sub">');
+      node.children.forEach(function (c) { out.push('<li>' + esc_(c) + '</li>'); });
+      out.push('</' + tag + '>');
     }
-    if (open) { out.push('</' + tag + '></li>'); open = false; }
-    else if (out.length > 1) { out.push('</li>'); }
-    out.push('<li>' + esc_(text));
+    out.push('</li>');
   });
-  if (open) out.push('</' + tag + '>');
-  if (out.length > 1) out.push('</li>');
   out.push('</' + tag + '>');
   return out.join('');
 }
+
 
 /** Template bodies are one item per line; blank lines separate paragraphs. */
 function templateLines_(body) {
@@ -614,8 +622,13 @@ function quotationCss_(co) {
     '.h2{font-size:10.5pt;font-weight:bold;color:' + accent + ';margin:14px 0 6px;}' +
     'ul,ol{margin:0 0 10px;padding-left:26px;}' +   // 18px clipped the '10.' on a two-digit list
     'li{margin-bottom:4px;text-align:justify;}' +
-    'ul.sub,ol.sub{margin:4px 0 4px;padding-left:22px;}' +
-    'ol.sub{list-style-type:lower-alpha;}' +
+    // Theirs marks the heading with a hollow bullet and the points under it with a filled
+    // one — the reverse of a browser's default nesting — and does not indent the children.
+    'ul{list-style-type:circle;}' +
+    // The weight must not run on into the points beneath the heading.
+    'ul.sub{list-style-type:disc;margin:4px 0 4px;padding-left:16px;font-weight:normal;}' +
+    'ol.sub{margin:4px 0 4px;padding-left:22px;list-style-type:lower-alpha;}' +
+    'ul > li.lead{font-weight:bold;}' +
     '.note{font-size:9pt;color:#444;margin:8px 0 12px;font-style:italic;}' +
 
     '.spec-title{font-weight:bold;margin:14px 0 5px;}' +
