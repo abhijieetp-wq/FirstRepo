@@ -73,6 +73,99 @@ function getEffectivePrice_(itemType, itemId, priceLevel, asOf) {
  * Records a new effective-dated price, closing the previous row for that item+level.
  * Master data is Management/ERP Admin only (D4, FR-062).
  */
+/**
+ * Sets many prices in one pass.
+ *
+ * savePrice reads the whole PriceList to find the row it supersedes, then appends. That is
+ * right for one price and ruinous for thousands: a 13,000-part catalogue with a cost and a
+ * selling price each is 26,000 full table reads, which no Apps Script execution will survive.
+ * This does the same work — supersede what is open, append what is new, keep the effective
+ * dating honest — reading once and writing twice.
+ */
+function savePricesBulk_(entries, reason) {
+  var user = getCurrentUser();
+  requireRole_(user, MASTER_EDITORS);
+  if (!entries || !entries.length) return 0;
+
+  var today = todayIso_();
+  var wanted = entries.map(function (e) {
+    var price = Number(e.price);
+    if (isNaN(price) || price < 0) throw new Error('A valid price is required for ' + e.itemCode + '.');
+    if (PRICE_LEVELS.indexOf(e.priceLevel) === -1) {
+      throw new Error('Unknown price level "' + e.priceLevel + '".');
+    }
+    return {
+      itemType: e.itemType, itemId: String(e.itemId), itemCode: String(e.itemCode || ''),
+      priceLevel: e.priceLevel, price: price,
+      effectiveFrom: String(e.effectiveFrom || today).slice(0, 10)
+    };
+  });
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = getSheet_('PriceList');
+    var headers = getHeaders_(sheet);
+    var lastRow = sheet.getLastRow();
+
+    // One read. Index the open rows by item+level so superseding is a lookup, not a scan.
+    var openRows = {};
+    var block = null;
+    if (lastRow > 1) {
+      block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+      var ci = {};
+      headers.forEach(function (h, i) { ci[h] = i; });
+      block.forEach(function (row, idx) {
+        var key = row[ci.itemType] + '|' + row[ci.itemId] + '|' + row[ci.priceLevel];
+        (openRows[key] = openRows[key] || []).push({ idx: idx, row: row, ci: ci });
+      });
+    }
+
+    var superseded = 0;
+    wanted.forEach(function (w) {
+      var hits = openRows[w.itemType + '|' + w.itemId + '|' + w.priceLevel];
+      if (!hits) return;
+      hits.forEach(function (h) {
+        var asRow = {};
+        headers.forEach(function (name, i) { asRow[name] = h.row[i]; });
+        if (!priceRowActiveOn_(asRow, w.effectiveFrom)) return;
+        h.row[h.ci.effectiveTo] = previousDay_(w.effectiveFrom);
+        superseded++;
+      });
+    });
+    if (superseded && block) sheet.getRange(2, 1, block.length, headers.length).setValues(block);
+
+    var rows = wanted.map(function (w) {
+      return headers.map(function (h) {
+        switch (h) {
+          case 'id': return generateId_('PRC-');
+          case 'itemType': return w.itemType;
+          case 'itemId': return w.itemId;
+          case 'itemCode': return w.itemCode;
+          case 'priceLevel': return w.priceLevel;
+          case 'price': return w.price;
+          case 'currency': return 'INR';
+          case 'effectiveFrom': return w.effectiveFrom;
+          case 'effectiveTo': return '';
+          case 'approvedBy': return user.email;
+          case 'active': return 'TRUE';
+          case 'createdAt': return today;
+          case 'createdBy': return user.email;
+          default: return '';
+        }
+      });
+    });
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+
+    // One audit line for the batch: 26,000 would bury everything else in the log.
+    audit_('Update', 'PriceList', '(bulk)', '', '',
+      rows.length + ' price(s), ' + superseded + ' superseded', reason || 'Bulk price load');
+    return rows.length;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function savePrice(input) {
   var user = getCurrentUser();
   requireRole_(user, MASTER_EDITORS);

@@ -321,6 +321,36 @@ which is a basic renderer. That converter is also why the document is built from
 and rules rather than flexbox — it silently ignores modern layout. If ₹ comes out as a box in
 the PDF, say so and it becomes "Rs." in one edit.
 
+## Loading the real spare catalogue
+
+13,126 parts across six ELGi product groups, from `REVISED_SPARE_SHEET_26-27.xlsx`. The
+converted files are in `testdata/spares/`, split into four so each import finishes inside one
+Apps Script execution.
+
+Three things the conversion had to decide, all of them visible in the data:
+
+- **`CLP - INR` is the cost and `SELLING RATE` is the customer price.** 9,683 of the 10,080
+  rows carrying both are exactly 1.07× — a flat 7% markup — and the rest are that same markup
+  rounded to the rupee. So CLP loads as `piePrice` and the selling rate as `elgiPrice`.
+- **187 parts appear in more than one group**, with identical description, HSN and price every
+  time. They are one part, so `productGroup` holds a list — `RCD Spares; EPSAC ROCD Spares` —
+  and the search matches on any of them.
+- **4,470 rows carry the words "Will update shortly" in the HSN column.** That is prose, not a
+  code, and HSN prints on a GST document, so it is stored blank.
+
+**3,146 parts have no selling price** and are loaded with cost only. A quotation line for one
+of those prices at zero, which is deliberate: deriving a price nobody has quoted is worse than
+an obvious blank.
+
+The 20 lubricants are held back. That sheet has different columns (MRP, DLP, Dealer to
+Customer) and mixes per-litre with per-pack figures in the same table, so importing it needs an
+answer rather than a guess.
+
+**Prices load in one pass.** `savePrice` re-reads the whole PriceList to find the row it
+supersedes, which is right for one price and impossible for 26,252 of them. `savePricesBulk_`
+does the same work — supersede what is open, append what is new, effective dating intact —
+reading once and writing twice. Measured at 26,252 prices in 171 ms.
+
 ## When the sheet is behind the code
 
 Both writers map over the sheet's own header row, so a field the sheet has no column for used

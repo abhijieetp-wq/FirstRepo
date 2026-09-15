@@ -351,9 +351,12 @@
           </div>
 
           <div id="qb-add-panel" class="inline-form" style="display:none;">
-            <div class="grid grid-3">
+            <div class="grid grid-4">
               <div class="field"><label>Type</label>
                 <select id="qi-type"><option value="Spare">Spare Part</option><option value="Product">Compressor</option></select>
+              </div>
+              <div class="field" id="qi-group-field"><label>Product Group</label>
+                <input id="qi-group" list="productgroups-list" placeholder="All groups" />
               </div>
               <div class="field"><label>Search the catalog</label><input id="qi-search" placeholder="Code or description" /></div>
               <div class="field"><label>Quantity</label><input id="qi-qty" type="number" min="1" value="1" /></div>
@@ -1735,6 +1738,7 @@
 </div>
 
 <?!= include('JavaScript'); ?>
+<datalist id="productgroups-list"></datalist>
 <datalist id="charges-list"><option value="Carting"></option><option value="Freight"></option><option value="Packing &amp; Forwarding"></option></datalist>
 </body>
 </html>

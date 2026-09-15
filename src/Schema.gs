@@ -139,7 +139,10 @@ var SCHEMA = {
   },
   Spares: {
     label: 'ELGI spare master (FR-015) — replaces the old Parts tab',
-    columns: ['id', 'partNo', 'hsnCode', 'description', 'category', 'brand', 'uom', 'gstPct',
+    // productGroup is ELGi's own grouping (RCD Spares, EPSAC Airend, OFSAC…). The counter
+    // refers to parts by it, and with thousands of parts it is the only practical way to
+    // narrow a search.
+    columns: ['id', 'partNo', 'hsnCode', 'description', 'productGroup', 'category', 'brand', 'uom', 'gstPct',
       'purchasePrice', 'reorderLevel', 'safetyStock', 'defaultWarehouseId', 'defaultBinId',
       'notes', 'active', 'createdAt', 'createdBy']
   },

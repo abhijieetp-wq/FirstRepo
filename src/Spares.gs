@@ -234,3 +234,64 @@ function applyCatalogPrices_(itemType, itemId, itemCode, input) {
   maybeWrite(COST_PRICE_LEVEL, input.piePrice);
   maybeWrite(SELLING_PRICE_LEVEL, input.elgiPrice);
 }
+
+/**
+ * Clears the spare catalogue so a real one can be loaded over a set of trial rows.
+ *
+ * Refuses outright if anything in the system is built on those parts — a quotation line, an
+ * order, a dispatch or a stock movement — because deleting a part that a document refers to
+ * leaves that document unable to say what it sold. It reports what blocked it rather than a
+ * flat no. Prices and compatibility rows for the parts it does remove go with them, since
+ * neither means anything without the part.
+ */
+function purgeSpares(confirmText) {
+  var user = getCurrentUser();
+  requireRole_(user, [ROLES.ERP_ADMIN]);
+
+  if (String(confirmText).trim().toUpperCase() !== 'DELETE ALL SPARES') {
+    throw new Error('Type DELETE ALL SPARES to confirm.');
+  }
+
+  var spares = readTable_('Spares');
+  if (!spares.length) return { deleted: 0, prices: 0, compatibility: 0 };
+
+  var ids = {};
+  spares.forEach(function (s) { ids[String(s.id)] = s.partNo; });
+
+  var blockers = [];
+  var check = function (tab, field, label, typeField) {
+    readTable_(tab).forEach(function (r) {
+      if (typeField && r[typeField] !== 'Spare') return;
+      if (ids[String(r[field])]) blockers.push(label + ' ' + (r.quotationId || r.id));
+    });
+  };
+  check('QuotationItems', 'itemId', 'quotation line', 'itemType');
+  check('StockLedger', 'itemId', 'stock movement', 'itemType');
+
+  if (blockers.length) {
+    throw new Error('These spares are already used by ' + blockers.length +
+      ' record(s) — for example ' + blockers.slice(0, 3).join(', ') +
+      '. Clear those first, or keep the catalogue and let the import update it instead.');
+  }
+
+  var prices = 0, compat = 0;
+  readTable_('PriceList').forEach(function (r) {
+    if (r.itemType === 'Spare' && ids[String(r.itemId)]) {
+      deleteRowById_('PriceList', 'id', r.id, 'Removed with the spare catalogue');
+      prices++;
+    }
+  });
+  readTable_('SpareCompatibility').forEach(function (r) {
+    if (ids[String(r.spareId)]) {
+      deleteRowById_('SpareCompatibility', 'id', r.id, 'Removed with the spare catalogue');
+      compat++;
+    }
+  });
+
+  var sheet = getSheet_('Spares');
+  if (sheet.getLastRow() > 1) sheet.deleteRows(2, sheet.getLastRow() - 1);
+  audit_('Delete', 'Spares', '(all)', '', spares.length + ' spares', '',
+    'Spare catalogue cleared before a bulk load');
+
+  return { deleted: spares.length, prices: prices, compatibility: compat };
+}

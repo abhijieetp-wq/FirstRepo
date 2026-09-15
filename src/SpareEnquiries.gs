@@ -108,11 +108,31 @@ function saveSpareEnquiry(input) {
  * and marked; a free-text match is offered after them, flagged as unverified, because
  * quoting an unverified part is exactly the mistake this screen exists to prevent.
  */
-function suggestSpares(query, productModel) {
+/**
+ * Finds spares for a quotation or an enquiry.
+ *
+ * `productGroup` narrows the search to ELGi's own grouping — RCD Spares, EPSAC Airend and so
+ * on. On a catalogue of a few dozen parts that was a nicety; on thirteen thousand it is how
+ * the counter actually works, because that is the term the customer uses on the phone.
+ */
+/** The product groups actually present in the catalogue, for the picker's dropdown. */
+function listProductGroups() {
+  getCurrentUser();
+  var seen = {};
+  readTable_('Spares').forEach(function (s) {
+    String(s.productGroup || '').split(/\s*[;,]\s*/).forEach(function (g) {
+      if (g.trim()) seen[g.trim()] = true;
+    });
+  });
+  return Object.keys(seen).sort();
+}
+
+function suggestSpares(query, productModel, productGroup) {
   getCurrentUser();
 
   var q = String(query || '').trim().toLowerCase();
   var model = String(productModel || '').trim().toLowerCase();
+  var group = String(productGroup || '').trim().toLowerCase();
 
   var compatibleIds = {};
   if (model) {
@@ -132,6 +152,9 @@ function suggestSpares(query, productModel) {
   readTable_('Spares').forEach(function (s) {
     if (String(s.active).toUpperCase() === 'FALSE') return;
     var id = String(s.id);
+    // A part can sit in more than one group, so the stored value is a list.
+    if (group && String(s.productGroup || '').toLowerCase().indexOf(group) === -1) return;
+
     var matchesText = !q ||
       String(s.partNo).toLowerCase().indexOf(q) !== -1 ||
       String(s.description).toLowerCase().indexOf(q) !== -1 ||
@@ -145,6 +168,7 @@ function suggestSpares(query, productModel) {
       id: s.id,
       partNo: s.partNo,
       description: s.description,
+      productGroup: s.productGroup,
       category: s.category,
       uom: s.uom,
       // The selling price, under a neutral name — this is what the quotation will carry.

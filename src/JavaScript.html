@@ -2063,6 +2063,8 @@
   $("btn-qb-add-item").addEventListener("click", function () {
     $("qb-charge-panel").style.display = "none";
     $("qb-add-panel").style.display = "";
+    loadProductGroups();
+    syncItemTypeFields();
     $("qi-search").value = "";
     $("qi-qty").value = 1;
     $("qi-search").focus();
@@ -2071,7 +2073,31 @@
   $("btn-qb-close-add").addEventListener("click", function () {
     $("qb-add-panel").style.display = "none";
   });
-  $("qi-type").addEventListener("change", runQuoteItemSearch);
+  var productGroupsLoaded = false;
+  function loadProductGroups() {
+    if (productGroupsLoaded) return;
+    productGroupsLoaded = true;
+    google.script.run.withSuccessHandler(function (groups) {
+      $("productgroups-list").innerHTML = groups.map(function (g) {
+        return '<option value="' + escapeHtml(g) + '"></option>';
+      }).join("");
+    }).withFailureHandler(function () { productGroupsLoaded = false; }).listProductGroups();
+  }
+
+  // The group is ELGi's grouping of spares; it means nothing on a compressor line.
+  function syncItemTypeFields() {
+    $("qi-group-field").style.display = $("qi-type").value === "Spare" ? "" : "none";
+  }
+
+  $("qi-type").addEventListener("change", function () {
+    syncItemTypeFields();
+    runQuoteItemSearch();
+  });
+  $("qi-group").addEventListener("change", runQuoteItemSearch);
+  $("qi-group").addEventListener("input", function () {
+    if (quoteSearchTimer) clearTimeout(quoteSearchTimer);
+    quoteSearchTimer = setTimeout(runQuoteItemSearch, 250);
+  });
   $("qi-search").addEventListener("input", function () {
     if (quoteSearchTimer) clearTimeout(quoteSearchTimer);
     quoteSearchTimer = setTimeout(runQuoteItemSearch, 250);
@@ -2083,7 +2109,8 @@
     if (type === "Spare") {
       google.script.run.withSuccessHandler(function (rows) { renderQuoteItemResults(rows, "Spare"); })
         .withFailureHandler(onServerError)
-        .suggestSpares($("qi-search").value.trim(), openQuote ? openQuote.machineModel : "");
+        .suggestSpares($("qi-search").value.trim(), openQuote ? openQuote.machineModel : "",
+                       $("qi-group").value.trim());
     } else {
       google.script.run.withSuccessHandler(function (rows) {
         var q = $("qi-search").value.trim().toLowerCase();
@@ -2108,7 +2135,9 @@
         var desc = type === "Spare" ? r.description : (r.model || r.description);
         return "<tr>" +
           '<td class="mono">' + escapeHtml(code) + "</td>" +
-          "<td>" + escapeHtml(desc) + "</td>" +
+          "<td>" + escapeHtml(desc) +
+            (r.productGroup ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
+              escapeHtml(r.productGroup) + "</span>" : "") + "</td>" +
           (type === "Spare" ? "<td>" + (r.compatibilityConfirmed
             ? '<span class="badge badge-won">Fits model</span>'
             : '<span class="badge badge-overdue">Unverified</span>') + "</td>" : "") +

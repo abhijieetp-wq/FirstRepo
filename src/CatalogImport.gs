@@ -25,9 +25,9 @@ var IMPORT_SPECS = {
     keyField: 'partNo',
     idPrefix: 'SP-',
     required: ['partNo', 'description'],
-    columns: ['partNo', 'hsnCode', 'description', 'category', 'uom', 'gstPct', 'piePrice',
-      'elgiPrice', 'reorderLevel', 'safetyStock', 'defaultBinId', 'notes'],
-    masterFields: ['partNo', 'hsnCode', 'description', 'category', 'uom', 'gstPct',
+    columns: ['partNo', 'hsnCode', 'description', 'productGroup', 'category', 'uom', 'gstPct',
+      'piePrice', 'elgiPrice', 'reorderLevel', 'safetyStock', 'defaultBinId', 'notes'],
+    masterFields: ['partNo', 'hsnCode', 'description', 'productGroup', 'category', 'uom', 'gstPct',
       'reorderLevel', 'safetyStock', 'defaultBinId', 'notes'],
     numeric: ['gstPct', 'piePrice', 'elgiPrice', 'reorderLevel', 'safetyStock']
   },
@@ -126,15 +126,13 @@ function commitCatalogImport(itemType, csvText) {
     lock.releaseLock();
   }
 
-  // Prices go through savePrice so each change is properly effective-dated (FR-016).
-  var pricesWritten = 0;
-  analysis.priceChanges.forEach(function (p) {
-    savePrice({
-      itemType: itemType, itemId: p.itemId, itemCode: p.itemCode, priceLevel: p.level,
-      price: p.price, reason: 'Bulk catalog import'
-    });
-    pricesWritten++;
-  });
+  // Prices stay properly effective-dated (FR-016), but in one pass rather than one call each:
+  // a real catalogue is thousands of parts, and savePrice re-reads the whole PriceList every
+  // time it is called.
+  var pricesWritten = savePricesBulk_(analysis.priceChanges.map(function (p) {
+    return { itemType: itemType, itemId: p.itemId, itemCode: p.itemCode,
+             priceLevel: p.level, price: p.price };
+  }), 'Bulk catalog import');
 
   audit_('Update', spec.tab, '(bulk import)', '', '',
     analysis.creates.length + ' new, ' + analysis.updates.length + ' updated, ' +
