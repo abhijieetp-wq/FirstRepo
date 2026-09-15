@@ -1695,6 +1695,13 @@
     // Available at every status, locked included: a sent quotation is exactly the one most
     // often reprinted.
     buttons.push('<button class="btn btn-sm" id="btn-qb-print">Print / PDF</button>');
+    // Leaving a quotation was impossible: the New Quotation screen reopened whichever one was
+    // in hand, so the only way to start another was to finish this one first. Both ways out
+    // live here — keep it and come back, or throw it away.
+    buttons.push('<button class="btn btn-sm" id="btn-qb-new">+ New Quotation</button>');
+    if (editable && q.status === "Draft") {
+      buttons.push('<button class="btn btn-sm" id="btn-qb-discard">Discard Draft</button>');
+    }
     if (editable && q.status === "Draft") {
       buttons.push('<button class="btn btn-sm" data-qs="Approved">Mark Approved</button>');
     }
@@ -1714,6 +1721,40 @@
       btn.addEventListener("click", function () { changeQuoteStatus(btn.dataset.qs); });
     });
     $("btn-qb-print").addEventListener("click", openQuoteDocument);
+
+    // Nothing to save: a quotation is written to the sheet the moment it is created, so
+    // walking away from it leaves a draft sitting in the Quotations list, which is where it
+    // is picked up again.
+    $("btn-qb-new").addEventListener("click", function () {
+      var leaving = openQuote;
+      openQuote = null;
+      renderQuoteEmpty();
+      clearMsg();
+      showMsg(leaving.quoteNo + " is saved as a draft — reopen it any time from " +
+        "All Quotations. Starting a new one.", "success");
+    });
+
+    if ($("btn-qb-discard")) {
+      $("btn-qb-discard").addEventListener("click", function () {
+        var lineCount = (openQuote.items || []).length;
+        askDialog({
+          title: "Discard " + openQuote.quoteNo + "?",
+          message: "This draft and " + (lineCount === 1 ? "its 1 line" : "its " + lineCount + " lines") +
+            " are deleted for good. Only a draft can be discarded — anything already sent to a " +
+            "customer is marked Lost instead, so the record survives.",
+          okLabel: "Discard",
+          danger: true
+        }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function (res) {
+            openQuote = null;
+            renderQuoteEmpty();
+            clearMsg();
+            showMsg(res.quoteNo + " discarded.", "success");
+          }).withFailureHandler(onServerError).discardQuotation(openQuote.id);
+        });
+      });
+    }
     if ($("btn-qb-revise")) {
       $("btn-qb-revise").addEventListener("click", function () {
         askDialog({

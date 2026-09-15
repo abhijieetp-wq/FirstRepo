@@ -321,6 +321,25 @@ which is a basic renderer. That converter is also why the document is built from
 and rules rather than flexbox — it silently ignores modern layout. If ₹ comes out as a box in
 the PDF, say so and it becomes "Rs." in one edit.
 
+## Leaving a quotation
+
+A quotation is written to the sheet the moment it is created, so there is nothing to save and
+nothing to lose by walking away from one — it sits in All Quotations as a draft until someone
+picks it up. That was true from the start, and completely invisible: the New Quotation screen
+reopened whichever quotation was in hand, so the only apparent way to start another was to
+finish the first.
+
+The builder now carries both ways out. **+ New Quotation** leaves the draft where it is and
+starts a fresh one. **Discard Draft** throws it away, and only appears on a draft.
+
+Discarding refuses anything that has been built on: a quotation past Draft is what a customer
+received and is marked Lost instead, and one with a sales order or a revision against it would
+orphan those records. The quote number frees up for reuse afterwards, which is fine — an unsent
+draft never reached anyone.
+
+Returning to the screen still reopens the quotation in hand. That part was never the bug; being
+unable to leave it was.
+
 ## Who a quotation is addressed to
 
 A quotation stores a pointer to the customer, not their name as text. The printed offer builds

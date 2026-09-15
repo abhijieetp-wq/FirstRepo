@@ -491,6 +491,61 @@ function saveQuotationItem(input) {
   return getQuotation(input.quotationId);
 }
 
+/**
+ * Throws away a draft quotation and its lines.
+ *
+ * Only a draft, and only one nothing has been built on. A quotation that has been approved or
+ * submitted is what a customer received and is never deleted — it is marked Lost instead. One
+ * with a sales order against it, or with revisions hanging off it, would orphan those records,
+ * so it is refused with a message saying which.
+ *
+ * The number can be reused afterwards, and that is fine: an unsent draft never reached anyone,
+ * so nothing outside this system has seen it.
+ */
+function discardQuotation(quotationId) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+
+  var quote = readTable_('Quotations').filter(function (q) {
+    return String(q.id) === String(quotationId);
+  })[0];
+  if (!quote) throw new Error('That quotation no longer exists.');
+
+  if (String(quote.locked).toUpperCase() === 'TRUE' || quote.status !== 'Draft') {
+    throw new Error('Only a draft can be discarded. ' + quote.quoteNo + ' is ' +
+      quote.status + ' — mark it Lost instead, so the record of what was sent survives.');
+  }
+
+  var order = readTable_('SalesOrders').filter(function (o) {
+    return String(o.quotationId) === String(quotationId);
+  })[0];
+  if (order) {
+    throw new Error('Sales order ' + order.orderNo + ' was raised from this quotation, so it ' +
+      'cannot be discarded.');
+  }
+
+  var revision = readTable_('Quotations').filter(function (q) {
+    return String(q.parentQuotationId) === String(quotationId);
+  })[0];
+  if (revision) {
+    throw new Error('Revision ' + revision.quoteNo + ' ' + revision.revision + ' came from this ' +
+      'quotation, so it cannot be discarded.');
+  }
+
+  var lines = readTable_('QuotationItems').filter(function (i) {
+    return String(i.quotationId) === String(quotationId);
+  });
+  lines.forEach(function (line) {
+    deleteRowById_('QuotationItems', 'id', line.id, 'Line removed with discarded quotation');
+  });
+
+  var quoteNo = quote.quoteNo;
+  deleteRowById_('Quotations', 'id', quotationId,
+    'Draft quotation discarded (' + lines.length + ' line(s))');
+
+  return { quoteNo: quoteNo, lines: lines.length };
+}
+
 function deleteQuotationItem(id) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);
