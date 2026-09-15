@@ -338,9 +338,22 @@ Three things the conversion had to decide, all of them visible in the data:
 - **4,470 rows carry the words "Will update shortly" in the HSN column.** That is prose, not a
   code, and HSN prints on a GST document, so it is stored blank.
 
-**3,146 parts have no selling price** and are loaded with cost only. A quotation line for one
-of those prices at zero, which is deliberate: deriving a price nobody has quoted is worse than
-an obvious blank.
+**3,146 parts arrived with no selling price** and are derived at cost × 1.07, rounded up. Not a
+guess: `ceil(CLP × 1.07)` reproduces the selling rate on **all 10,060** rows that carry both
+figures, with no exceptions, so a derived price is indistinguishable from one they set by hand.
+Each derived row says so in its notes.
+
+## Filling a gap while quoting
+
+A real catalogue arrives incomplete — 4,470 of ELGi's own rows carry the words "Will update
+shortly" where an HSN code belongs. Adding such a part used to write a line with a zero price
+or a blank HSN and say nothing, which is noticed once the offer is in front of a customer.
+
+The picker now marks an incomplete part and, on Add, asks for **only what is missing** before
+the line is written. What is entered always reaches the quotation. Whether it also reaches the
+catalogue depends on rights: a price typed to get one quotation out should not silently become
+the price everyone quotes, so writing back needs Management or ERP Admin, and the message says
+which happened.
 
 The 20 lubricants are held back. That sheet has different columns (MRP, DLP, Dealer to
 Customer) and mixes per-litre with per-pack figures in the same table, so importing it needs an

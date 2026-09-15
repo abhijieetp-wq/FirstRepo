@@ -295,3 +295,65 @@ function purgeSpares(confirmText) {
 
   return { deleted: spares.length, prices: prices, compatibility: compat };
 }
+
+/**
+ * Fills in what a part is missing, at the moment someone needs it.
+ *
+ * Real catalogues arrive incomplete — 4,470 of ELGi's own rows carry the words "Will update
+ * shortly" where an HSN code belongs. Blocking the quotation until a master record is perfect
+ * is not an option, and quoting a part with no HSN on a GST document is not one either, so the
+ * gap is filled where it is noticed.
+ *
+ * Quoting rights are enough to supply the values, because the coordinator is the person who
+ * has them. Writing them back into the catalogue needs master rights: a price typed to get one
+ * quotation out should not silently become the price everyone else quotes. When the person
+ * lacks those rights the values still reach the quotation line, and the return says the
+ * catalogue was left alone so the screen can say so too.
+ */
+function completeSpareDetails(input) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+
+  var spare = readTable_('Spares').filter(function (s) {
+    return String(s.id) === String(input.spareId);
+  })[0];
+  if (!spare) throw new Error('That part no longer exists.');
+
+  var hsn = String(input.hsnCode === undefined ? '' : input.hsnCode).trim();
+  if (hsn && !/^\d{6,8}$/.test(hsn)) {
+    throw new Error('An HSN code is 6 to 8 digits. Leave it blank rather than guessing — it ' +
+      'prints on the quotation.');
+  }
+
+  var price = input.price === '' || input.price === undefined || input.price === null
+    ? null : Number(input.price);
+  if (price !== null && (isNaN(price) || price < 0)) {
+    throw new Error('The price must be a number, zero or more.');
+  }
+
+  var canWriteMaster = MASTER_EDITORS.indexOf(user.role) !== -1;
+  var written = [];
+
+  if (canWriteMaster && hsn && hsn !== String(spare.hsnCode || '').trim()) {
+    updateRowById_('Spares', 'id', spare.id, { hsnCode: hsn },
+      'HSN supplied while quoting ' + (input.quoteNo || ''));
+    written.push('HSN code');
+  }
+
+  if (canWriteMaster && price !== null) {
+    savePrice({
+      itemType: 'Spare', itemId: spare.id, itemCode: spare.partNo,
+      priceLevel: SELLING_PRICE_LEVEL, price: price,
+      reason: 'Supplied while quoting ' + (input.quoteNo || '')
+    });
+    written.push('selling price');
+  }
+
+  return {
+    partNo: spare.partNo,
+    hsnCode: hsn || spare.hsnCode || '',
+    price: price,
+    savedToCatalog: written,
+    canWriteMaster: canWriteMaster
+  };
+}
