@@ -101,12 +101,16 @@ function saveSpare(input) {
     safetyStock: input.safetyStock === '' || input.safetyStock === undefined || input.safetyStock === null ? '' : Number(input.safetyStock),
     defaultWarehouseId: String(input.defaultWarehouseId || 'WH-MAIN').trim(),
     defaultBinId: String(input.defaultBinId || '').trim(),
-    notes: String(input.notes || '').trim(),
-    active: input.active === false ? 'FALSE' : 'TRUE'
+    notes: String(input.notes || '').trim()
   };
+  // `active` is set only where the caller means to set it. The edit form does not carry the
+  // flag, so defaulting it to TRUE on every save silently brought deactivated parts back the
+  // next time anyone corrected a typo on one.
+  if (input.active !== undefined) record.active = input.active === false ? 'FALSE' : 'TRUE';
 
   var isNew = !input.id;
   if (isNew) {
+    if (record.active === undefined) record.active = 'TRUE';
     record.id = generateId_('SP-');
     record.createdAt = todayIso_();
     record.createdBy = user.email;
@@ -129,12 +133,90 @@ function saveSpare(input) {
   return record;
 }
 
-/** Soft delete: masters referenced by history are deactivated, never removed. */
+/**
+ * Soft delete: masters referenced by history are deactivated, never removed.
+ *
+ * The row keeps its place in the sheet so every quotation, order and stock movement that
+ * names it still resolves; it simply stops being offered anywhere new work is entered.
+ * Reversible through reactivateSpare — see the note there for why that matters.
+ */
 function deleteSpare(id, reason) {
   var user = getCurrentUser();
   requireRole_(user, MASTER_EDITORS);
   updateRowById_('Spares', 'id', id, { active: 'FALSE' }, reason || 'Spare deactivated');
   return true;
+}
+
+/**
+ * Puts a deactivated spare back into circulation.
+ *
+ * Deactivating was one-way: the row vanished from the catalogue, which lists active parts
+ * only, and nothing offered a route back. On a 13,000-part catalogue a mis-click was
+ * permanent from the screen's point of view, while the part number stayed taken — the
+ * duplicate check reads every row, active or not — so it could not even be typed in again.
+ */
+function reactivateSpare(id, reason) {
+  var user = getCurrentUser();
+  requireRole_(user, MASTER_EDITORS);
+  updateRowById_('Spares', 'id', id, { active: 'TRUE' }, reason || 'Spare reactivated');
+  return true;
+}
+
+/**
+ * Removes a spare outright, for the case deactivation handles badly: a row typed in wrong.
+ *
+ * Deactivating a mistake leaves it in the sheet forever and keeps its part number reserved,
+ * so the corrected row cannot reuse it. Deleting is only safe while nothing refers to the
+ * part, and that is checked across every table that can name one rather than assumed — if
+ * anything does, this refuses and says what, because deactivating is then the right answer.
+ *
+ * Its price history and compatibility rows go with it: neither means anything without the
+ * part, and leaving them turns the next import into a mess of orphans.
+ */
+function purgeSpare(id) {
+  var user = getCurrentUser();
+  requireRole_(user, MASTER_EDITORS);
+
+  var spare = readTable_('Spares').filter(function (s) { return String(s.id) === String(id); })[0];
+  if (!spare) throw new Error('That spare no longer exists.');
+
+  var ids = {};
+  ids[String(spare.id)] = spare.partNo;
+  assertItemUnreferenced_('Spare', ids, 'Part ' + spare.partNo + ' is');
+
+  var removed = removeSpareDependents_(ids);
+  deleteRowById_('Spares', 'id', spare.id, 'Spare deleted — nothing referred to it');
+  return { partNo: spare.partNo, prices: removed.prices, compatibility: removed.compatibility,
+           alternates: removed.alternates };
+}
+
+/**
+ * Clears the rows that only exist to describe a spare, for every id in `ids`.
+ * Shared by the single delete and the whole-catalogue purge so the two cannot drift apart.
+ */
+function removeSpareDependents_(ids) {
+  var prices = 0, compat = 0, alts = 0;
+
+  readTable_('PriceList').forEach(function (r) {
+    if (r.itemType === 'Spare' && ids.hasOwnProperty(String(r.itemId))) {
+      deleteRowById_('PriceList', 'id', r.id, 'Removed with the spare');
+      prices++;
+    }
+  });
+  readTable_('SpareCompatibility').forEach(function (r) {
+    if (ids.hasOwnProperty(String(r.spareId))) {
+      deleteRowById_('SpareCompatibility', 'id', r.id, 'Removed with the spare');
+      compat++;
+    }
+  });
+  readTable_('SpareAlternates').forEach(function (r) {
+    if (ids.hasOwnProperty(String(r.spareId))) {
+      deleteRowById_('SpareAlternates', 'id', r.id, 'Removed with the spare');
+      alts++;
+    }
+  });
+
+  return { prices: prices, compatibility: compat, alternates: alts };
 }
 
 /** Links a substitute part. Either point at another spare, or record a free-text equivalent. */
@@ -241,8 +323,12 @@ function applyCatalogPrices_(itemType, itemId, itemCode, input) {
  * Refuses outright if anything in the system is built on those parts — a quotation line, an
  * order, a dispatch or a stock movement — because deleting a part that a document refers to
  * leaves that document unable to say what it sold. It reports what blocked it rather than a
- * flat no. Prices and compatibility rows for the parts it does remove go with them, since
- * neither means anything without the part.
+ * flat no. Prices, compatibility and substitute rows for the parts it does remove go with
+ * them, since none of them mean anything without the part.
+ *
+ * The reference check is the shared one in ItemReferences.gs. It used to be a local pair of
+ * lookups here, one of which named a tab ("StockLedger") that does not exist in the schema —
+ * so this threw on the missing tab every time it ran and never cleared a catalogue at all.
  */
 function purgeSpares(confirmText) {
   var user = getCurrentUser();
@@ -258,42 +344,17 @@ function purgeSpares(confirmText) {
   var ids = {};
   spares.forEach(function (s) { ids[String(s.id)] = s.partNo; });
 
-  var blockers = [];
-  var check = function (tab, field, label, typeField) {
-    readTable_(tab).forEach(function (r) {
-      if (typeField && r[typeField] !== 'Spare') return;
-      if (ids[String(r[field])]) blockers.push(label + ' ' + (r.quotationId || r.id));
-    });
-  };
-  check('QuotationItems', 'itemId', 'quotation line', 'itemType');
-  check('StockLedger', 'itemId', 'stock movement', 'itemType');
+  assertItemUnreferenced_('Spare', ids, 'The spare catalogue is');
 
-  if (blockers.length) {
-    throw new Error('These spares are already used by ' + blockers.length +
-      ' record(s) — for example ' + blockers.slice(0, 3).join(', ') +
-      '. Clear those first, or keep the catalogue and let the import update it instead.');
-  }
-
-  var prices = 0, compat = 0;
-  readTable_('PriceList').forEach(function (r) {
-    if (r.itemType === 'Spare' && ids[String(r.itemId)]) {
-      deleteRowById_('PriceList', 'id', r.id, 'Removed with the spare catalogue');
-      prices++;
-    }
-  });
-  readTable_('SpareCompatibility').forEach(function (r) {
-    if (ids[String(r.spareId)]) {
-      deleteRowById_('SpareCompatibility', 'id', r.id, 'Removed with the spare catalogue');
-      compat++;
-    }
-  });
+  var removed = removeSpareDependents_(ids);
 
   var sheet = getSheet_('Spares');
   if (sheet.getLastRow() > 1) sheet.deleteRows(2, sheet.getLastRow() - 1);
   audit_('Delete', 'Spares', '(all)', '', spares.length + ' spares', '',
     'Spare catalogue cleared before a bulk load');
 
-  return { deleted: spares.length, prices: prices, compatibility: compat };
+  return { deleted: spares.length, prices: removed.prices,
+           compatibility: removed.compatibility, alternates: removed.alternates };
 }
 
 /**

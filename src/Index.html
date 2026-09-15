@@ -143,6 +143,10 @@
       </div>
       <div class="search-bar">
         <input id="catalog-search" placeholder="Search…" />
+        <label id="catalog-inactive-wrap" style="display:none; align-items:center; gap:6px;
+               font-size:12.5px; color:var(--ink-soft); white-space:nowrap;">
+          <input type="checkbox" id="catalog-show-inactive" /> Show deactivated
+        </label>
         <button class="btn btn-sm" id="btn-compare-selected">Compare Selected</button>
       </div>
       <div id="bulk-upload-panel" class="inline-form" style="display:none;">
@@ -581,8 +585,11 @@
     </div>
     <p id="pm-stock-summary" class="mono" style="font-size:12px; color:var(--ink-soft); margin:6px 0 0;"></p>
 
-    <div style="display:flex; justify-content:space-between; margin-top:22px;">
-      <button class="btn btn-danger" id="btn-delete-part" style="display:none;">Deactivate</button>
+    <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px; flex-wrap:wrap;">
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-danger" id="btn-delete-part" style="display:none;">Deactivate</button>
+        <button class="btn" id="btn-purge-part" style="display:none;">Delete permanently</button>
+      </div>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-cancel-part">Cancel</button>
         <button class="btn btn-primary" id="btn-save-part">Save Spare</button>
@@ -624,8 +631,11 @@
 
     <div class="field" style="margin-top:12px;"><label>Notes</label><input id="um-notes" /></div>
 
-    <div style="display:flex; justify-content:space-between; margin-top:22px;">
-      <button class="btn btn-danger" id="btn-delete-unit" style="display:none;">Deactivate</button>
+    <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px; flex-wrap:wrap;">
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-danger" id="btn-delete-unit" style="display:none;">Deactivate</button>
+        <button class="btn" id="btn-purge-unit" style="display:none;">Delete permanently</button>
+      </div>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-cancel-unit">Cancel</button>
         <button class="btn btn-primary" id="btn-save-unit">Save Product</button>

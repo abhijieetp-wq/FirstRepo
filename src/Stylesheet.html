@@ -121,6 +121,10 @@
   .badge-won, .badge-paid, .badge-active, .badge-delivered{ background:var(--green-bg); color:var(--green); }
   .badge-lost, .badge-overdue, .badge-dormant{ background:var(--red-bg); color:var(--red); }
   .badge-followup{ background:#E9EEFB; color:#3355AA; }
+  /* Deactivated master rows: visible when asked for, but never mistaken for live ones. */
+  tr.row-inactive td{ color:var(--ink-soft); background:#FAFAFB; }
+  tr.row-inactive td.center{ white-space:nowrap; }
+  tr.row-inactive td:not(.checkbox-cell):not(.center){ text-decoration:line-through; text-decoration-color:var(--border); }
 
   .empty{ text-align:center; color:var(--steel); padding:34px 20px; font-size:13.5px; }
 
@@ -148,6 +152,10 @@
 
   .search-bar{ display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
   .search-bar input{ flex:1; min-width:200px; padding:9px 10px; border:1px solid var(--border); border-radius:4px; font-size:13.5px; }
+  /* The search field's own styling is meant for the text box; a checkbox sharing the bar
+     would otherwise inherit flex:1 and stretch across it, stranded from its label. */
+  .search-bar input[type="checkbox"]{ flex:0 0 auto; min-width:0; width:auto; padding:0;
+    border:none; margin:0; }
 
   .checkbox-cell{ width:28px; }
   .compare-strip{ background:#FFF8EE; border:1px solid #F2D9AF; border-radius:var(--radius); padding:16px; margin-top:6px; }

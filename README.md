@@ -70,6 +70,7 @@ src/
   Customers.gs       customer master + contacts + addresses
   Products.gs        compressor product master
   Spares.gs          spare parts master, alternates, compatibility
+  ItemReferences.gs  where a catalogue item can be referred to from; guards every hard delete
   Pricing.gs         effective-dated price lists (FR-016/017)
   Stock.gs           append-only stock ledger, availability (FR-036/037)
   SpareEnquiries.gs  spare enquiry capture and part identification (FR-022/023/025)
@@ -342,6 +343,38 @@ Three things the conversion had to decide, all of them visible in the data:
 guess: `ceil(CLP × 1.07)` reproduces the selling rate on **all 10,060** rows that carry both
 figures, with no exceptions, so a derived price is indistinguishable from one they set by hand.
 Each derived row says so in its notes.
+
+### Clearing the trial rows first
+
+**Settings → System → Clear Spare Catalogue** (ERP Admin), which asks for `DELETE ALL SPARES`
+typed out. It removes every spare with its prices, compatibility and substitute rows, and
+refuses outright if any quotation, order, dispatch, invoice, goods receipt, reservation,
+enquiry line or stock movement already names one of them — so it is a tool for replacing
+untouched trial data, not for tidying a catalogue in use.
+
+It was previously unreachable: `purgeSpares` existed but nothing called it, and its own guard
+named a tab, `StockLedger`, that is not in the schema, so it threw before it deleted anything
+every single time. The guard now comes from `ItemReferences.gs`, which is the one place that
+knows where a catalogue item can be referred to from, shared with the single-row delete so the
+two cannot drift apart again.
+
+## Removing a catalogue record
+
+Three different things, and the right one depends on whether anything refers to the row.
+
+- **Deactivate** (the pencil on any row) is the normal case. The row stays in the sheet so
+  every document that names it still resolves, and stops being offered on new work.
+- **Reactivate** undoes that. Tick **Show deactivated** on the Catalog screen to find the row;
+  the same button reads Reactivate when the row is off. Deactivating used to be one-way from
+  the screen — the row vanished from a list that shows active parts only, nothing offered a
+  route back, and its part number stayed reserved because the duplicate check reads every row.
+- **Delete permanently** is for a row typed in wrong. It removes the row and its price history
+  and is refused, by name, if anything at all refers to the part. Confirmed by typing the part
+  number back.
+
+Saving an edit no longer revives a deactivated row. The form does not carry the active flag,
+and both `saveSpare` and `saveProduct` defaulted it to `TRUE` on every write, so correcting a
+typo on a retired part quietly put it back in the catalogue.
 
 ## Filling a gap while quoting
 

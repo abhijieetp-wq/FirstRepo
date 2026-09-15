@@ -75,12 +75,15 @@ function saveProduct(input) {
     standardAccessories: String(input.standardAccessories || '').trim(),
     leadTimeDays: input.leadTimeDays === '' || input.leadTimeDays === undefined || input.leadTimeDays === null ? '' : Number(input.leadTimeDays),
     uom: String(input.uom || 'Nos').trim() || 'Nos',
-    notes: String(input.notes || '').trim(),
-    active: input.active === false ? 'FALSE' : 'TRUE'
+    notes: String(input.notes || '').trim()
   };
+  // Set only where the caller means to — see the same note in saveSpare. An edit that
+  // defaulted this to TRUE brought deactivated products back without anyone asking.
+  if (input.active !== undefined) record.active = input.active === false ? 'FALSE' : 'TRUE';
 
   var isNew = !input.id;
   if (isNew) {
+    if (record.active === undefined) record.active = 'TRUE';
     record.id = generateId_('PR-');
     record.createdAt = todayIso_();
     record.createdBy = user.email;
@@ -100,4 +103,42 @@ function deleteProduct(id, reason) {
   requireRole_(user, MASTER_EDITORS);
   updateRowById_('Products', 'id', id, { active: 'FALSE' }, reason || 'Product deactivated');
   return true;
+}
+
+/** Puts a deactivated product back in the catalogue. The counterpart deleteProduct lacked. */
+function reactivateProduct(id, reason) {
+  var user = getCurrentUser();
+  requireRole_(user, MASTER_EDITORS);
+  updateRowById_('Products', 'id', id, { active: 'TRUE' }, reason || 'Product reactivated');
+  return true;
+}
+
+/**
+ * Removes a product outright, for a row entered in error.
+ *
+ * Only while nothing refers to it — an order line, a serial number, an installed machine, a
+ * compressor selection or a spare's compatibility entry all block it, and the refusal names
+ * which. A product that has sold is deactivated, never deleted.
+ */
+function purgeProduct(id) {
+  var user = getCurrentUser();
+  requireRole_(user, MASTER_EDITORS);
+
+  var product = readTable_('Products').filter(function (p) { return String(p.id) === String(id); })[0];
+  if (!product) throw new Error('That product no longer exists.');
+
+  var ids = {};
+  ids[String(product.id)] = product.productCode;
+  assertItemUnreferenced_('Product', ids, 'Product ' + product.productCode + ' is');
+
+  var prices = 0;
+  readTable_('PriceList').forEach(function (r) {
+    if (r.itemType === 'Product' && ids.hasOwnProperty(String(r.itemId))) {
+      deleteRowById_('PriceList', 'id', r.id, 'Removed with the product');
+      prices++;
+    }
+  });
+
+  deleteRowById_('Products', 'id', product.id, 'Product deleted — nothing referred to it');
+  return { productCode: product.productCode, prices: prices };
 }

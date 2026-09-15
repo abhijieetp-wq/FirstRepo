@@ -291,6 +291,8 @@
   var productsCache = [];
   var compareSelection = new Set();
   var catalogLoaded = { spares: false, products: false };
+  // Which list the cache currently holds: active rows only, or active plus deactivated.
+  var catalogScope = false;
 
   // Columns are built per render because the PIE (cost) column only exists for roles
   // allowed to see cost data — the server omits the field for everyone else.
@@ -354,6 +356,8 @@
   function initCatalogView() {
     $("btn-new-catalog-item").style.display = canEditCatalog() ? "inline-flex" : "none";
     $("btn-bulk-upload").style.display = canEditCatalog() ? "inline-flex" : "none";
+    // Only the people who can reactivate a row have any use for seeing deactivated ones.
+    $("catalog-inactive-wrap").style.display = canEditCatalog() ? "inline-flex" : "none";
     switchCatalogMode(CATALOG_MODE);
   }
 
@@ -368,18 +372,37 @@
     loadCatalog();
   }
 
+  function showingInactive() {
+    var box = $("catalog-show-inactive");
+    return !!(box && box.checked && canEditCatalog());
+  }
+
   function loadCatalog() {
+    // The cache holds one list or the other, so it has to be dropped when the scope changes
+    // rather than only when the data does.
+    var scope = showingInactive();
+    if (catalogScope !== scope) {
+      catalogScope = scope;
+      catalogLoaded.spares = false;
+      catalogLoaded.products = false;
+    }
     if (CATALOG_MODE === "spares") {
       if (catalogLoaded.spares) { renderCatalogTable(); return; }
       google.script.run.withSuccessHandler(function (rows) {
         sparesCache = rows.map(decorateSpare); catalogLoaded.spares = true; renderCatalogTable();
-      }).withFailureHandler(onServerError).listSpares();
+      }).withFailureHandler(onServerError).listSpares(scope);
     } else {
       if (catalogLoaded.products) { renderCatalogTable(); return; }
       google.script.run.withSuccessHandler(function (rows) {
         productsCache = rows; catalogLoaded.products = true; renderCatalogTable();
-      }).withFailureHandler(onServerError).listProducts();
+      }).withFailureHandler(onServerError).listProducts(scope);
     }
+  }
+
+  // A blank cell counts as active, matching the server — a row typed straight into the Sheet
+  // without the flag is a live part, not a hidden one.
+  function isInactive(r) {
+    return String(r.active || "").toUpperCase() === "FALSE";
   }
 
   // Flattens the alternates array into one readable cell for the table.
@@ -416,10 +439,14 @@
         var display = c.money ? (v ? fmt(v) : "—") : (v === undefined || v === null || v === "" ? "—" : escapeHtml(v));
         return "<td" + (c.num ? ' class="num mono"' : "") + ">" + display + "</td>";
       }).join("");
-      return "<tr>" +
+      var off = isInactive(r);
+      return '<tr' + (off ? ' class="row-inactive" title="Deactivated — open it to reactivate"' : "") + ">" +
         '<td class="checkbox-cell"><input type="checkbox" data-compare="' + r.id + '" ' + (compareSelection.has(r.id) ? "checked" : "") + " /></td>" +
         cells +
-        '<td class="center">' + (isManager ? '<button class="btn-ghost" data-edit="' + r.id + '" title="Edit">✎</button>' : "") + "</td>" +
+        '<td class="center">' +
+          (off ? '<span class="badge badge-draft" style="margin-right:6px;">Deactivated</span>' : "") +
+          (isManager ? '<button class="btn-ghost" data-edit="' + r.id + '" title="Edit">✎</button>' : "") +
+        "</td>" +
         "</tr>";
     }).join("");
 
@@ -434,6 +461,7 @@
   }
 
   $("catalog-search").addEventListener("input", renderCatalogTable);
+  $("catalog-show-inactive").addEventListener("change", loadCatalog);
   $("subtab-parts").addEventListener("click", function () { switchCatalogMode("spares"); });
   $("subtab-units").addEventListener("click", function () { switchCatalogMode("products"); });
 
@@ -588,12 +616,35 @@
     });
   });
 
+  /**
+   * Sets the two destructive buttons on a master modal from the row being edited.
+   *
+   * Both modals need the same three states and got them wrong in the same way before: a new
+   * row shows neither button, a live row offers Deactivate, and a deactivated row offers
+   * Reactivate — which is the state that had no button at all, so deactivating was one-way
+   * from the screen. Permanent deletion sits apart from all three, deliberately plain rather
+   * than red, because it is the rare case and the loud button should be the safe one.
+   */
+  function setMasterRowButtons(prefix, row) {
+    var off = row && isInactive(row);
+    var del = $("btn-delete-" + prefix);
+    var purge = $("btn-purge-" + prefix);
+    // Say so in words as well as in the button, so the state is clear before anything is
+    // clicked. The caller has just set the title, so this appends to it.
+    var title = $(prefix + "-modal-title");
+    if (off) title.textContent = title.textContent + " — deactivated";
+    del.style.display = row ? "inline-flex" : "none";
+    del.textContent = off ? "Reactivate" : "Deactivate";
+    del.className = "btn " + (off ? "btn-primary" : "btn-danger");
+    purge.style.display = row ? "inline-flex" : "none";
+  }
+
   // ---- Spare modal ----
   function openSpareModal(id) {
     $("pm-pie-wrap").style.display = canSeeCost() ? "" : "none";
     var s = id ? sparesCache.find(function (x) { return x.id === id; }) : null;
     $("part-modal-title").textContent = id ? "Edit Spare" : "Add Spare";
-    $("btn-delete-part").style.display = id ? "inline-flex" : "none";
+    setMasterRowButtons("part", id ? s : null);
     $("pm-id").value = id || "";
     $("pm-partno").value = s ? s.partNo : "";
     $("pm-category").value = s ? (s.category || "") : "";
@@ -639,18 +690,51 @@
   $("btn-delete-part").addEventListener("click", function () {
     var id = $("pm-id").value;
     if (!id) return;
+    var spare = sparesCache.find(function (x) { return x.id === id; });
+    var reviving = spare && isInactive(spare);
     askDialog({
-      title: "Deactivate this spare?",
-      message: "It stays in the sheet so past orders still resolve.",
-      input: true, inputLabel: "Reason", okLabel: "Deactivate", danger: true
+      title: reviving ? "Reactivate this spare?" : "Deactivate this spare?",
+      message: reviving
+        ? "It goes back into the catalogue and can be quoted again."
+        : "It stays in the sheet so past orders still resolve, and stops being offered on " +
+          "new quotations. You can bring it back with Show deactivated.",
+      input: true, inputLabel: "Reason",
+      okLabel: reviving ? "Reactivate" : "Deactivate", danger: !reviving
     }, function (reason) {
       if (reason === null) return;
-      google.script.run.withSuccessHandler(function () {
+      var done = function () {
         catalogLoaded.spares = false;
         $("part-modal-backdrop").classList.remove("show");
         loadCatalog();
-        showMsg("Spare deactivated.", "success");
-      }).withFailureHandler(onServerError).deleteSpare(id, reason);
+        showMsg(reviving ? "Spare reactivated." : "Spare deactivated.", "success");
+      };
+      var call = google.script.run.withSuccessHandler(done).withFailureHandler(onServerError);
+      if (reviving) call.reactivateSpare(id, reason); else call.deleteSpare(id, reason);
+    });
+  });
+
+  $("btn-purge-part").addEventListener("click", function () {
+    var id = $("pm-id").value;
+    if (!id) return;
+    var partNo = $("pm-partno").value.trim();
+    askDialog({
+      title: "Delete " + partNo + " for good?",
+      message: "This removes the row and its price history from the sheet. It is refused if " +
+        "any quotation, order, dispatch or stock movement names the part — deactivate those. " +
+        "Type the part number to confirm.",
+      input: true, inputLabel: "Part number", okLabel: "Delete permanently", danger: true
+    }, function (typed) {
+      if (typed === null) return;
+      if (String(typed).trim().toUpperCase() !== partNo.toUpperCase()) {
+        showMsg("That is not the part number — nothing was deleted.", "error");
+        return;
+      }
+      google.script.run.withSuccessHandler(function (res) {
+        catalogLoaded.spares = false;
+        $("part-modal-backdrop").classList.remove("show");
+        loadCatalog();
+        showMsg(res.partNo + " deleted, with " + res.prices + " price record(s).", "success");
+      }).withFailureHandler(onServerError).purgeSpare(id);
     });
   });
 
@@ -659,7 +743,7 @@
     $("um-pie-wrap").style.display = canSeeCost() ? "" : "none";
     var p = id ? productsCache.find(function (x) { return x.id === id; }) : null;
     $("unit-modal-title").textContent = id ? "Edit Product" : "Add Product";
-    $("btn-delete-unit").style.display = id ? "inline-flex" : "none";
+    setMasterRowButtons("unit", id ? p : null);
     $("um-id").value = id || "";
     $("um-modelcode").value = p ? p.productCode : "";
     $("um-modelname").value = p ? p.model : "";
@@ -706,18 +790,51 @@
   $("btn-delete-unit").addEventListener("click", function () {
     var id = $("um-id").value;
     if (!id) return;
+    var product = productsCache.find(function (x) { return x.id === id; });
+    var reviving = product && isInactive(product);
     askDialog({
-      title: "Deactivate this product?",
-      message: "It stays in the sheet so past orders still resolve.",
-      input: true, inputLabel: "Reason", okLabel: "Deactivate", danger: true
+      title: reviving ? "Reactivate this product?" : "Deactivate this product?",
+      message: reviving
+        ? "It goes back into the catalogue and can be quoted again."
+        : "It stays in the sheet so past orders still resolve, and stops being offered on " +
+          "new quotations. You can bring it back with Show deactivated.",
+      input: true, inputLabel: "Reason",
+      okLabel: reviving ? "Reactivate" : "Deactivate", danger: !reviving
     }, function (reason) {
       if (reason === null) return;
-      google.script.run.withSuccessHandler(function () {
+      var done = function () {
         catalogLoaded.products = false;
         $("unit-modal-backdrop").classList.remove("show");
         loadCatalog();
-        showMsg("Product deactivated.", "success");
-      }).withFailureHandler(onServerError).deleteProduct(id, reason);
+        showMsg(reviving ? "Product reactivated." : "Product deactivated.", "success");
+      };
+      var call = google.script.run.withSuccessHandler(done).withFailureHandler(onServerError);
+      if (reviving) call.reactivateProduct(id, reason); else call.deleteProduct(id, reason);
+    });
+  });
+
+  $("btn-purge-unit").addEventListener("click", function () {
+    var id = $("um-id").value;
+    if (!id) return;
+    var code = $("um-modelcode").value.trim();
+    askDialog({
+      title: "Delete " + code + " for good?",
+      message: "This removes the row and its price history from the sheet. It is refused if " +
+        "any order, serial number, installed machine or selection names the product. " +
+        "Type the product code to confirm.",
+      input: true, inputLabel: "Product code", okLabel: "Delete permanently", danger: true
+    }, function (typed) {
+      if (typed === null) return;
+      if (String(typed).trim().toUpperCase() !== code.toUpperCase()) {
+        showMsg("That is not the product code — nothing was deleted.", "error");
+        return;
+      }
+      google.script.run.withSuccessHandler(function (res) {
+        catalogLoaded.products = false;
+        $("unit-modal-backdrop").classList.remove("show");
+        loadCatalog();
+        showMsg(res.productCode + " deleted, with " + res.prices + " price record(s).", "success");
+      }).withFailureHandler(onServerError).purgeProduct(id);
     });
   });
 
@@ -6569,12 +6686,58 @@
           ? '<button class="btn btn-amber btn-sm" id="btn-run-setup">Run Setup</button>' : "") +
         '<button class="btn btn-sm" id="btn-view-audit">View Audit Log</button>' +
       "</div>" +
+      (currentUser.role === "ERP Admin"
+        ? '<div class="compare-strip" style="margin:18px 0 10px;">' +
+            "<b>Clear the spare catalogue</b> — for loading a real catalogue over a set of " +
+            "trial rows, once, before anyone has quoted from them. It removes every spare " +
+            "and its prices, and refuses outright if any quotation, order, dispatch or stock " +
+            "movement already names one of them. If you only want to retire a part, " +
+            "deactivate it on the Catalog screen instead." +
+          "</div>" +
+          '<button class="btn btn-danger btn-sm" id="btn-purge-spares">Clear Spare Catalogue</button>'
+        : "") +
       '<div id="sys-result"></div>');
 
     if ($("btn-run-setup")) {
       $("btn-run-setup").addEventListener("click", runSetupNow);
     }
+    if ($("btn-purge-spares")) {
+      $("btn-purge-spares").addEventListener("click", purgeSparesNow);
+    }
     wireAuditButton();
+  }
+
+  /**
+   * Empties the spare master. Typed confirmation rather than a yes/no, because this is the
+   * one action in the app that destroys rows in bulk and cannot be undone from the screen.
+   */
+  function purgeSparesNow() {
+    askDialog({
+      title: "Clear the whole spare catalogue?",
+      message: "Every spare and its price history is deleted. This cannot be undone from the " +
+        "app — the Sheet's own version history is the only way back. Type DELETE ALL SPARES " +
+        "to confirm.",
+      input: true, inputLabel: "Confirmation", okLabel: "Clear catalogue", danger: true
+    }, function (typed) {
+      if (typed === null) return;
+      if (String(typed).trim().toUpperCase() !== "DELETE ALL SPARES") {
+        showMsg("Not confirmed — nothing was deleted.", "error");
+        return;
+      }
+      $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Clearing…</p>';
+      google.script.run.withSuccessHandler(function (res) {
+        catalogLoaded.spares = false;
+        $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +
+          "<b>Spare catalogue cleared.</b> " + res.deleted + " part(s), " + res.prices +
+          " price record(s), " + res.compatibility + " compatibility row(s) and " +
+          res.alternates + " substitute link(s) removed. Import the new catalogue from " +
+          "Masters → Catalog → Bulk Upload.</div>";
+        showMsg(res.deleted + " spare(s) removed.", "success");
+      }).withFailureHandler(function (err) {
+        $("sys-result").innerHTML = "";
+        onServerError(err);
+      }).purgeSpares("DELETE ALL SPARES");
+    });
   }
 
   function runSetupNow() {
