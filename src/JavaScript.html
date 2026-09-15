@@ -5307,8 +5307,35 @@
     });
   }
 
+  /**
+   * A sheet behind the code blocks saving on any panel, so it is said at the top of Settings
+   * rather than inside System — the panel nobody visits until something has already failed.
+   * The fix is a button here, because a warning that sends you somewhere else to act on it is
+   * most of an error message and none of a remedy.
+   */
+  function renderDriftBanner() {
+    var drift = (setData.system && setData.system.drift) || [];
+    var zone = $("set-drift");
+    if (!drift.length) { zone.innerHTML = ""; return; }
+
+    zone.innerHTML = '<div class="msg msg-error show" style="position:static; margin:16px 0 0;">' +
+      '<span class="msg-text"><b>This sheet is behind the code.</b> ' +
+      drift.map(function (d) {
+        return escapeHtml(d.tab) + (d.missingTab ? " (whole tab missing)"
+          : ": " + escapeHtml(d.columns.join(", ")));
+      }).join(" · ") +
+      ". Anything saved into those columns is refused until the sheet catches up.</span>" +
+      (canAdminister()
+        ? '<button class="btn btn-sm" id="btn-drift-setup" type="button" ' +
+          'style="flex:none; margin-left:12px;">Run Setup</button>'
+        : "") + "</div>";
+
+    if ($("btn-drift-setup")) $("btn-drift-setup").addEventListener("click", runSetupNow);
+  }
+
   function renderSetPanel() {
     if (!setData) return;
+    renderDriftBanner();
     if (setMode === "users") renderUsersPanel();
     else if (setMode === "lists") renderListsPanel();
     else if (setMode === "reasons") renderReasonsPanel();
@@ -6433,35 +6460,47 @@
       '<div id="sys-result"></div>');
 
     if ($("btn-run-setup")) {
-      $("btn-run-setup").addEventListener("click", function () {
-        askDialog({
-          title: "Run setup now?",
-          message: "Missing tabs and columns are added. Nothing existing is renamed, reordered " +
-            "or deleted, and no data is touched.",
-          okLabel: "Run Setup"
-        }, function (ok) {
-          if (ok === null) return;
-          $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Running…</p>';
-          google.script.run.withSuccessHandler(function (report) {
-            var line = function (label, arr) {
-              return arr && arr.length
-                ? "<div><b>" + label + ":</b> " + escapeHtml(arr.join(", ")) + "</div>" : "";
-            };
-            $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +
-              "<b>Setup complete.</b>" +
-              line("Tabs created", report.created) +
-              line("Columns added", report.columnsAdded) +
-              line("Seeded", report.seeded) +
-              line("Migrated", report.migrated) +
-              (!(report.created || []).length && !(report.columnsAdded || []).length
-                ? "<div>Nothing was missing — the sheet already matches the code.</div>" : "") +
-              "</div>";
-            showMsg("Setup complete.", "success");
-          }).withFailureHandler(onServerError).runSetupFromSettings();
-        });
-      });
+      $("btn-run-setup").addEventListener("click", runSetupNow);
     }
+    wireAuditButton();
+  }
 
+  function runSetupNow() {
+    askDialog({
+      title: "Run setup now?",
+      message: "Missing tabs and columns are added. Nothing existing is renamed, reordered " +
+        "or deleted, and no data is touched.",
+      okLabel: "Run Setup"
+    }, function (ok) {
+      if (ok === null) return;
+      // Reachable from the drift banner on any panel, where there is no sys-result to write to.
+      var out = function (html) { if ($("sys-result")) $("sys-result").innerHTML = html; };
+      out('<p style="font-size:12.5px; margin-top:14px;">Running…</p>');
+      showMsg("Running setup…", "success");
+
+      google.script.run.withSuccessHandler(function (report) {
+        var line = function (label, arr) {
+          return arr && arr.length
+            ? "<div><b>" + label + ":</b> " + escapeHtml(arr.join(", ")) + "</div>" : "";
+        };
+        out('<div class="card" style="margin-top:14px; font-size:12.5px;">' +
+          "<b>Setup complete.</b>" +
+          line("Tabs created", report.created) +
+          line("Columns added", report.columnsAdded) +
+          line("Seeded", report.seeded) +
+          line("Migrated", report.migrated) +
+          (!(report.created || []).length && !(report.columnsAdded || []).length
+            ? "<div>Nothing was missing — the sheet already matches the code.</div>" : "") +
+          "</div>");
+        var added = (report.columnsAdded || []).length;
+        showMsg(added ? "Setup complete — " + added + " tab(s) brought up to date. Try saving again."
+                      : "Setup complete. The sheet already matched the code.", "success");
+        loadSettings();   // the drift banner clears itself once it is untrue
+      }).withFailureHandler(onServerError).runSetupFromSettings();
+    });
+  }
+
+  function wireAuditButton() {
     $("btn-view-audit").addEventListener("click", function () {
       $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Loading…</p>';
       google.script.run.withSuccessHandler(function (rows) {

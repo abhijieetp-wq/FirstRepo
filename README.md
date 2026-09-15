@@ -334,8 +334,12 @@ and saying to press Run Setup. A field the schema does not declare at all is a s
 rather than a stale sheet, so that is logged instead of thrown — one stray key should not take a
 working screen down.
 
-Settings → System also lists any drift up front, so a sheet that needs Setup says so before it
-swallows somebody's edit rather than after.
+Settings carries the warning **above every panel**, not inside System — the panel nobody visits
+until something has already failed — with a Run Setup button in the banner itself. A warning
+that sends you elsewhere to act on it is most of an error message and none of a remedy.
+
+`setupSheet()` adds columns for every tab in its first pass and only seeds afterwards, so it
+cannot trip the guard above on its own writes. Running it is always the way out.
 
 ## Which build is running
 
