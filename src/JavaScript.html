@@ -6410,6 +6410,16 @@
           '<div style="font-size:14px; font-weight:600; color:var(--navy); margin-top:4px;">' +
           escapeHtml(sys.timeZone) + "</div></div>" +
       "</div>" +
+      (sys.drift && sys.drift.length
+        ? '<div class="msg msg-error show" style="margin-bottom:14px; position:static;">' +
+          "<span class=\"msg-text\"><b>This sheet is behind the code.</b> " +
+          sys.drift.map(function (d) {
+            return escapeHtml(d.tab) + (d.missingTab ? " (whole tab missing)"
+              : ": " + escapeHtml(d.columns.join(", ")));
+          }).join(" · ") +
+          ". Anything saved into those columns is refused until you press Run Setup below." +
+          "</span></div>"
+        : "") +
       '<div class="compare-strip" style="margin-bottom:14px;">' +
         "<b>Run Setup</b> creates any tab or column the code expects and the sheet does not " +
         "yet have. It only ever adds — it never reorders, renames or deletes — so it is safe " +

@@ -321,6 +321,22 @@ which is a basic renderer. That converter is also why the document is built from
 and rules rather than flexbox — it silently ignores modern layout. If ₹ comes out as a box in
 the PDF, say so and it becomes "Rs." in one edit.
 
+## When the sheet is behind the code
+
+Both writers map over the sheet's own header row, so a field the sheet has no column for used
+to be **silently discarded** — the value appeared to save, came back empty on the next read, and
+nothing anywhere said why. That is how the manufacturer logo could be uploaded a dozen times
+and never stick: `partnerLogoUrl` was added to the schema after that Sheet was set up, so every
+save dropped it on the floor.
+
+Writing a field the schema declares but the sheet lacks now **fails loudly**, naming the column
+and saying to press Run Setup. A field the schema does not declare at all is a slip in the code
+rather than a stale sheet, so that is logged instead of thrown — one stray key should not take a
+working screen down.
+
+Settings → System also lists any drift up front, so a sheet that needs Setup says so before it
+swallows somebody's edit rather than after.
+
 ## Which build is running
 
 `clasp push` updates the code Apps Script has saved. It does **not** change what the `/exec`

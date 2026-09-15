@@ -167,6 +167,30 @@ function backfillIds_(ss, report) {
 }
 
 /** Rewrites legacy role values and fills in businessStream/id so nobody is locked out. */
+/**
+ * Which tabs are behind the code, without changing anything.
+ *
+ * Read-only sibling of setupSheet(): the same comparison, reported instead of applied, so a
+ * sheet that needs Setup can say so on screen rather than waiting to swallow someone's edit.
+ */
+function schemaDrift_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var drift = [];
+  Object.keys(SCHEMA).forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet) { drift.push({ tab: tabName, missingTab: true, columns: [] }); return; }
+    var existing = sheet.getLastRow() > 0
+      ? sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0]
+          .map(function (h) { return String(h).trim(); })
+      : [];
+    var missing = SCHEMA[tabName].columns.filter(function (c) {
+      return existing.indexOf(c) === -1;
+    });
+    if (missing.length) drift.push({ tab: tabName, missingTab: false, columns: missing });
+  });
+  return drift;
+}
+
 function migrateUsers_(ss, report) {
   var sheet = ss.getSheetByName('Users');
   if (!sheet || sheet.getLastRow() < 2) return;

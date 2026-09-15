@@ -57,12 +57,47 @@ function readTable_(sheetName) {
 }
 
 /** Appends one row, taking values from `obj` for each existing header (missing keys become ''). */
+/**
+ * Refuses to write a field the sheet has no column for.
+ *
+ * Both writers map over the sheet's own headers, so anything the sheet does not have a column
+ * for was silently thrown away — the value appeared to save, then came back empty on the next
+ * read, with nothing anywhere saying why. That is how a logo could be uploaded a dozen times
+ * and never stick.
+ *
+ * A field the schema declares but the sheet lacks means the sheet is behind the code, which
+ * Run Setup fixes; that is worth stopping for. A field the schema does not declare at all is a
+ * mistake in the code rather than in the sheet, and is logged rather than thrown so that one
+ * stray key cannot take a working screen down.
+ */
+function assertWritableFields_(sheetName, headers, obj) {
+  var unknown = Object.keys(obj).filter(function (k) { return headers.indexOf(k) === -1; });
+  if (!unknown.length) return;
+
+  var declared = (SCHEMA[sheetName] && SCHEMA[sheetName].columns) || [];
+  var behind = unknown.filter(function (k) { return declared.indexOf(k) !== -1; });
+
+  if (behind.length) {
+    throw new Error('The "' + sheetName + '" tab is missing the column' +
+      (behind.length > 1 ? 's ' : ' ') + behind.join(', ') +
+      ', so that value cannot be saved. The sheet is behind the code — open ' +
+      'Settings → System and press Run Setup, which adds missing columns without touching ' +
+      'anything already there.');
+  }
+
+  var stray = unknown.filter(function (k) { return declared.indexOf(k) === -1; });
+  if (stray.length) {
+    console.warn('Ignored field(s) not declared for ' + sheetName + ': ' + stray.join(', '));
+  }
+}
+
 function appendRow_(sheetName, obj, auditReason) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     var sheet = getSheet_(sheetName);
     var headers = getHeaders_(sheet);
+    assertWritableFields_(sheetName, headers, obj);
     var row = headers.map(function (h) {
       return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
     });
@@ -83,6 +118,7 @@ function updateRowById_(sheetName, idField, idValue, patch, auditReason) {
     var headers = getHeaders_(sheet);
     var idCol = headers.indexOf(idField);
     if (idCol === -1) throw new Error('Column "' + idField + '" not found in ' + sheetName);
+    assertWritableFields_(sheetName, headers, patch);
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) throw new Error('No rows in ' + sheetName + ' yet.');
     var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();

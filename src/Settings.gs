@@ -68,6 +68,9 @@ function getSettings() {
     },
     system: {
       build: APP_BUILD,
+      // Named here so a sheet behind the code announces itself, rather than waiting to
+      // swallow the next thing somebody saves into a column that does not exist.
+      drift: schemaDrift_(),
       spreadsheetName: SpreadsheetApp.getActiveSpreadsheet().getName(),
       spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
       declaredTabs: Object.keys(SCHEMA).length,
