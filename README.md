@@ -395,6 +395,49 @@ before deleting anything every single time. The guard now comes from `ItemRefere
 which is the one place that knows where a catalogue item can be referred to from, shared with
 the single-row delete so the two cannot drift apart again.
 
+## Clearing test data out of quotations
+
+Everything past Draft is locked, which is right: a quotation that has gone to a customer
+should not quietly change under them. But the lock had no key. A quotation marked Submitted by
+mistake, or raised to try the screen out, could never be edited or discarded again — and it
+held onto the products it named for good, so those could not be deleted either.
+
+**Reopen as Draft** is the way back: it unlocks the quotation and clears the approval and
+submission dates, so a draft never carries dates it no longer has. Revise still covers the
+other case — a quotation that genuinely went out and needs changing, where the sent version
+must survive.
+
+It refuses on **Won** and **Lost**, because marking those also moved the opportunity or
+enquiry behind them and undoing that belongs with those records; on a quotation with a sales
+order raised from it; and on one that has been revised. The same guards as discarding, for the
+same reason.
+
+The sequence for clearing test data is then: **Reopen as Draft → Discard Draft → Delete
+permanently** on the product.
+
+## The compressor catalogue
+
+`testdata/products/elgi-eq-compressors.csv` — 70 rows, generated from ELGi's EQ Series
+brochure (`01CAT0038`), 50 Hz only, since that is what India runs.
+
+Seven frames (11 to 45 kW) x five working pressures x two speed types:
+
+- **Fixed speed with Demand=Match**, the brochure's `EQ 11 DM` … `EQ 45 DM`. One FAD per
+  pressure; delivery varies 100–40% by re-circulating air inside the machine.
+- **Variable speed (VFD)**, the brochure's plain `EQ 11` … `EQ 45`. The brochure gives a FAD
+  range; the catalogue carries the top of it, because that is the capacity PIE quotes.
+
+**The model names come from PIE's own quotation, not from the brochure.** Their offer to
+Jaydurga Industries reads `EQ 18-7.5 V 400V/50HZ`, where 7.5 is the *maximum* pressure while
+the brochure's column is the *normal working* pressure — max is working + 0.5 throughout. That
+one quotation also settles HSN `8414`, GST 18%, warranty 12 months from start-up (clause 9a)
+and delivery 4–6 weeks. Every one of its spec values — 113 cfm, 18 kW/25 hp, 680 kg,
+1500 x 821 x 1220 — matches the generated row for `EQ 18-7.5 V` exactly, which is the check
+worth having: the file reproduces a document they actually sent.
+
+Prices are deliberately empty. The brochure has none, and the importer leaves existing prices
+untouched when the columns are blank.
+
 ## Removing a catalogue record
 
 Three different things, and the right one depends on whether anything refers to the row.

@@ -546,6 +546,59 @@ function discardQuotation(quotationId) {
   return { quoteNo: quoteNo, lines: lines.length };
 }
 
+/**
+ * Puts a locked quotation back to Draft.
+ *
+ * Everything past Draft is locked, which is right — a quotation that has gone to a customer
+ * should not quietly change under them. But the lock had no key: a quotation marked Submitted
+ * by mistake, or raised to try the screen out, could never be edited or discarded again, and
+ * it held onto the products it named for good. That made test data impossible to clear.
+ *
+ * Won and Lost are not reopened here. They are outcomes, and marking them moved the
+ * opportunity or enquiry behind them; undoing that belongs with those records, not with a
+ * button on the quotation. An order raised from the quotation, or a revision descended from
+ * it, blocks it too — the same things that block discarding, for the same reason.
+ *
+ * The dates set on the way up are cleared on the way down, so a draft never carries an
+ * approval or a submission date it no longer has.
+ */
+function reopenQuotation(id, reason) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+
+  var quote = readTable_('Quotations').filter(function (q) {
+    return String(q.id) === String(id);
+  })[0];
+  if (!quote) throw new Error('That quotation no longer exists.');
+
+  if (quote.status === 'Draft') return getQuotation(id);
+  if (['Won', 'Lost'].indexOf(quote.status) !== -1) {
+    throw new Error(quote.quoteNo + ' is marked ' + quote.status + '. That outcome also moved ' +
+      'the opportunity or enquiry it came from, so it is not undone from here.');
+  }
+
+  var order = readTable_('SalesOrders').filter(function (o) {
+    return String(o.quotationId) === String(id);
+  })[0];
+  if (order) {
+    throw new Error('Sales order ' + order.orderNo + ' was raised from ' + quote.quoteNo +
+      ', so it cannot be reopened.');
+  }
+
+  var revision = readTable_('Quotations').filter(function (q) {
+    return String(q.parentQuotationId) === String(id);
+  })[0];
+  if (revision) {
+    throw new Error('Revision ' + revision.quoteNo + ' ' + revision.revision + ' came from ' +
+      quote.quoteNo + ', so it cannot be reopened. Work on the revision instead.');
+  }
+
+  updateRowById_('Quotations', 'id', id,
+    { status: 'Draft', locked: 'FALSE', approvedBy: '', approvalDate: '', submittedDate: '' },
+    reason ? 'Reopened as draft: ' + reason : 'Reopened as draft');
+  return getQuotation(id);
+}
+
 function deleteQuotationItem(id) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);

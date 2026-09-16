@@ -1940,6 +1940,13 @@
     if (canEditQuotes() && q.locked) {
       buttons.push('<button class="btn btn-sm btn-amber" id="btn-qb-revise">Revise</button>');
     }
+    // The way back down. Revise is for a quotation that went out and needs changing; this is
+    // for one that should not have left Draft at all — marked Submitted by mistake, or raised
+    // to try the screen out. Without it a locked quotation could never be edited or discarded,
+    // and held onto the products it named for good.
+    if (canEditQuotes() && q.locked && ["Won", "Lost"].indexOf(q.status) === -1) {
+      buttons.push('<button class="btn btn-sm" id="btn-qb-reopen">Reopen as Draft</button>');
+    }
     zone.innerHTML = buttons.join("");
 
     zone.querySelectorAll("[data-qs]").forEach(function (btn) {
@@ -1958,6 +1965,26 @@
       showMsg(leaving.quoteNo + " is saved as a draft — reopen it any time from " +
         "All Quotations. Starting a new one.", "success");
     });
+
+    if ($("btn-qb-reopen")) {
+      $("btn-qb-reopen").addEventListener("click", function () {
+        var id = openQuote.id;
+        askDialog({
+          title: "Reopen " + openQuote.quoteNo + " as a draft?",
+          message: "It becomes editable again, and its approval and submission dates are " +
+            "cleared. Use Revise instead if this quotation went to the customer and needs " +
+            "changing — that keeps the sent version.",
+          input: true, inputLabel: "Reason", okLabel: "Reopen"
+        }, function (reason) {
+          if (reason === null) return;
+          google.script.run.withSuccessHandler(function (q) {
+            openQuote = q;
+            renderQuoteBuilder();
+            showMsg(q.quoteNo + " is a draft again.", "success");
+          }).withFailureHandler(onServerError).reopenQuotation(id, reason);
+        });
+      });
+    }
 
     if ($("btn-qb-discard")) {
       $("btn-qb-discard").addEventListener("click", function () {
