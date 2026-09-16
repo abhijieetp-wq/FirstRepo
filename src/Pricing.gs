@@ -101,8 +101,10 @@ function savePricesBulk_(entries, reason) {
     };
   });
 
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  // Deliberately a second acquisition rather than one held across the whole import: the
+  // master rows are written and released first, so the price pass — the long one, since it
+  // rewrites the entire price list — does not also hold the catalogue tab while it runs.
+  var lock = acquireLock_(LOCK_WAIT_BULK_MS, 'this price load');
   try {
     var sheet = getSheet_('PriceList');
     var headers = getHeaders_(sheet);

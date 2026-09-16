@@ -413,6 +413,23 @@ Saving an edit no longer revives a deactivated row. The form does not carry the 
 and both `saveSpare` and `saveProduct` defaulted it to `TRUE` on every write, so correcting a
 typo on a retired part quietly put it back in the catalogue.
 
+### Importing four files in a row
+
+The catalogue arrives split so each file finishes inside one Apps Script execution, which
+means the Bulk Upload screen is used four or five times in a row. It now stays open after an
+import, drops the file it just loaded, and says what landed and how many files have gone in so
+far — so the next file is one click away. **Clear selection** drops a chosen file at any point
+without closing the panel. Closing resets the tally.
+
+**Only one import runs at a time.** A file this size holds the sheet for minutes; starting the
+next one on top of it fails on the script lock with Google's own message — *"Lock timeout:
+another process was holding the lock for too long"* — which names nothing, explains nothing,
+and leaves you wondering whether half a file landed. Every lock now goes through
+`acquireLock_`, which says what could not start, what is in the way, how long it waited, and
+that **nothing from the attempt was written** — true by construction, since the lock is taken
+before the first write. The bulk paths wait four minutes rather than thirty seconds, and the
+screen disables the file input and both buttons while an import is running.
+
 ## Filling a gap while quoting
 
 A real catalogue arrives incomplete — 4,470 of ELGi's own rows carry the words "Will update

@@ -92,8 +92,7 @@ function assertWritableFields_(sheetName, headers, obj) {
 }
 
 function appendRow_(sheetName, obj, auditReason) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  var lock = acquireLock_(LOCK_WAIT_ROW_MS, 'that save');
   try {
     var sheet = getSheet_(sheetName);
     var headers = getHeaders_(sheet);
@@ -111,8 +110,7 @@ function appendRow_(sheetName, obj, auditReason) {
 
 /** Merges `patch` onto the row whose `idField` column equals `idValue`. Untouched columns keep their value. */
 function updateRowById_(sheetName, idField, idValue, patch, auditReason) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  var lock = acquireLock_(LOCK_WAIT_ROW_MS, 'that save');
   try {
     var sheet = getSheet_(sheetName);
     var headers = getHeaders_(sheet);
@@ -148,8 +146,7 @@ function updateRowById_(sheetName, idField, idValue, patch, auditReason) {
 }
 
 function deleteRowById_(sheetName, idField, idValue, auditReason) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  var lock = acquireLock_(LOCK_WAIT_ROW_MS, 'that delete');
   try {
     var sheet = getSheet_(sheetName);
     var headers = getHeaders_(sheet);
@@ -173,6 +170,39 @@ function deleteRowById_(sheetName, idField, idValue, auditReason) {
 }
 
 /**
+ * How long each kind of write is prepared to queue behind another one.
+ *
+ * A single-row save is quick, so waiting long for it means something is wrong. A bulk import
+ * or price load holds the sheet for as long as it takes to rewrite tens of thousands of cells
+ * — minutes, on a real catalogue — and the next one in the queue should wait that out rather
+ * than give up on it. Apps Script caps waitLock at five minutes.
+ */
+var LOCK_WAIT_ROW_MS = 10000;
+var LOCK_WAIT_BULK_MS = 240000;
+
+/**
+ * Takes the script lock, or fails with something a person can act on.
+ *
+ * Apps Script's own message is "Lock timeout: another process was holding the lock for too
+ * long", which says nothing about what was holding it, whether any data was written, or what
+ * to do next. All three matter here: an import that cannot take the lock has written nothing
+ * at all, because the lock comes before the first write — and being told that is the
+ * difference between retrying calmly and going to hunt for half-loaded rows.
+ */
+function acquireLock_(waitMs, what) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(waitMs);
+  } catch (e) {
+    throw new Error('Could not start ' + what + ': another save or import is still running, ' +
+      'and it did not finish within ' + Math.round(waitMs / 1000) + ' seconds. A large ' +
+      'catalogue import holds the sheet for a few minutes — wait for it to report how many ' +
+      'rows it wrote, then try again. Nothing from this attempt was written.');
+  }
+  return lock;
+}
+
+/**
  * Deletes every row a predicate matches, by rewriting the tab rather than deleting row by row.
  *
  * `deleteRowById_` re-reads and re-indexes for each row, which is right for one row and
@@ -181,8 +211,7 @@ function deleteRowById_(sheetName, idField, idValue, auditReason) {
  * entry for the batch rather than burying the log.
  */
 function deleteRowsWhere_(sheetName, matches, auditReason) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  var lock = acquireLock_(LOCK_WAIT_BULK_MS, 'that clear-out');
   try {
     var sheet = getSheet_(sheetName);
     var headers = getHeaders_(sheet);

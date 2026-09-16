@@ -165,7 +165,13 @@
 
         <div class="field">
           <label>Choose your CSV file</label>
-          <input type="file" id="bulk-file" accept=".csv,text/csv" />
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <input type="file" id="bulk-file" accept=".csv,text/csv" />
+            <button class="btn btn-sm" id="btn-bulk-clear" type="button"
+                    style="display:none;">Clear selection</button>
+          </div>
+          <p id="bulk-done" style="display:none; font-size:12.5px; color:var(--green);
+             margin:8px 0 0;"></p>
         </div>
 
         <div id="bulk-preview" style="margin-top:14px;"></div>

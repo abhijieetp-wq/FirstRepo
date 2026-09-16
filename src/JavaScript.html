@@ -497,8 +497,32 @@
 
   // ---- Bulk upload ----
   var bulkCsvText = null;
+  // A real catalogue arrives split across several files, so this screen is used four or five
+  // times in a row. `bulkBusy` also keeps a second import from starting on top of the first:
+  // a large one holds the sheet for minutes, and the second would fail on the lock.
+  var bulkBusy = false;
+  var bulkImported = [];
+  var bulkFileName = "";
 
   function bulkItemType() { return CATALOG_MODE === "spares" ? "Spare" : "Product"; }
+
+  /** Enables or disables everything that would start work, in one place. */
+  function setBulkBusy(busy) {
+    bulkBusy = busy;
+    $("bulk-file").disabled = busy;
+    $("btn-bulk-clear").disabled = busy;
+    $("btn-bulk-close").disabled = busy;
+    $("btn-bulk-commit").disabled = busy || !bulkCsvText;
+  }
+
+  /** Drops the chosen file without closing the panel, ready for the next one. */
+  function clearBulkFile() {
+    bulkCsvText = null;
+    $("bulk-file").value = "";
+    $("bulk-preview").innerHTML = "";
+    $("btn-bulk-clear").style.display = "none";
+    $("btn-bulk-commit").disabled = true;
+  }
 
   $("btn-bulk-upload").addEventListener("click", function () {
     $("bulk-upload-panel").style.display = "";
@@ -519,15 +543,20 @@
   });
 
   function resetBulkState() {
-    bulkCsvText = null;
-    $("bulk-file").value = "";
-    $("bulk-preview").innerHTML = "";
-    $("btn-bulk-commit").disabled = true;
+    clearBulkFile();
+    bulkImported = [];
+    $("bulk-done").style.display = "none";
+    $("bulk-done").textContent = "";
+    setBulkBusy(false);
   }
+
+  $("btn-bulk-clear").addEventListener("click", clearBulkFile);
 
   $("bulk-file").addEventListener("change", function (e) {
     var file = e.target.files && e.target.files[0];
-    if (!file) return;
+    if (!file) { clearBulkFile(); return; }
+    bulkFileName = file.name;
+    $("btn-bulk-clear").style.display = "inline-flex";
     $("bulk-preview").innerHTML = '<div class="empty" style="padding:12px;">Reading file…</div>';
     var reader = new FileReader();
     reader.onload = function () {
@@ -536,6 +565,7 @@
       google.script.run.withSuccessHandler(renderBulkPreview)
         .withFailureHandler(function (err) {
           $("bulk-preview").innerHTML = "";
+          bulkCsvText = null;
           $("btn-bulk-commit").disabled = true;
           onServerError(err);
         })
@@ -594,22 +624,40 @@
   }
 
   $("btn-bulk-commit").addEventListener("click", function () {
-    if (!bulkCsvText) return;
+    if (!bulkCsvText || bulkBusy) return;
     var type = bulkItemType();
+    var name = bulkFileName;
     askDialog({
       title: "Apply this import?",
       message: "This writes to the catalog and creates price revisions where prices changed. " +
-        "Existing items are updated in place; nothing is deleted.",
+        "Existing items are updated in place; nothing is deleted. A file this size holds the " +
+        "sheet for a few minutes — leave this screen open until it reports back.",
       okLabel: "Apply Import"
     }, function (ok) {
       if (ok === null) return;
-      $("btn-bulk-commit").disabled = true;
-      $("bulk-preview").innerHTML = '<div class="empty" style="padding:12px;">Importing — this can take a minute for a large file…</div>';
+      setBulkBusy(true);
+      $("bulk-preview").innerHTML = '<div class="empty" style="padding:12px;">Importing — a ' +
+        "large file takes a few minutes. Do not start another import until this one reports " +
+        "back.</div>";
       google.script.run.withSuccessHandler(function (res) {
         catalogLoaded.spares = false;
         catalogLoaded.products = false;
-        $("bulk-upload-panel").style.display = "none";
-        resetBulkState();
+
+        // The panel stays open and the file is dropped, because a real catalogue arrives in
+        // several files and the next one follows immediately. Closing it meant reopening,
+        // and the file input still held the file just imported.
+        bulkImported.push(name);
+        clearBulkFile();
+        setBulkBusy(false);
+        $("bulk-done").style.display = "";
+        $("bulk-done").textContent = "Imported " + name + " — " + res.newCount + " added, " +
+          res.updateCount + " updated, " + res.priceChangeCount + " price revision(s)" +
+          (res.reactivatedCount ? ", " + res.reactivatedCount + " reactivated" : "") +
+          (res.skippedCount ? ", " + res.skippedCount + " skipped" : "") +
+          ". " + (bulkImported.length > 1
+            ? bulkImported.length + " files imported so far. "
+            : "") + "Choose the next file, or Close when you are done.";
+
         loadCatalog();
         showMsg(res.newCount + " added, " + res.updateCount + " updated, " +
           res.priceChangeCount + " price revision(s)" +
@@ -617,7 +665,7 @@
           (res.skippedCount ? ", " + res.skippedCount + " skipped" : "") + ".", "success");
       }).withFailureHandler(function (err) {
         $("bulk-preview").innerHTML = "";
-        $("btn-bulk-commit").disabled = false;
+        setBulkBusy(false);
         onServerError(err);
       }).commitCatalogImport(type, bulkCsvText);
     });

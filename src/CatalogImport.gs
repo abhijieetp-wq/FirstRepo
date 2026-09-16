@@ -86,8 +86,9 @@ function commitCatalogImport(itemType, csvText) {
   var spec = importSpec_(itemType);
   var analysis = analyseImport_(itemType, csvText);
 
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  // Parsing and analysis are already done, above, outside the lock: the lock covers only the
+  // writes, so the sheet is held for as short a time as the work allows.
+  var lock = acquireLock_(LOCK_WAIT_BULK_MS, 'this import');
   try {
     var sheet = getSheet_(spec.tab);
     var headers = getHeaders_(sheet);
