@@ -2477,14 +2477,19 @@
    * Asks only for what the part is actually missing, then adds the line.
    */
   var completingSpare = null;
+  var completingType = null;
 
-  function openCompletePanel(r) {
+  function openCompletePanel(r, type) {
     completingSpare = r;
+    completingType = type || "Spare";
+    var isSpare = completingType === "Spare";
+    var noun = isSpare ? "part" : "compressor";
     var needPrice = !r.price;
     var needHsn = !String(r.hsnCode || "").trim();
 
-    $("qi-complete-title").textContent = r.partNo + " — " + (r.description || "");
-    $("qi-complete-note").textContent = "This part is in the catalogue but " +
+    $("qi-complete-title").textContent = (isSpare ? r.partNo : r.productCode) + " — " +
+      (isSpare ? (r.description || "") : (r.model || r.description || ""));
+    $("qi-complete-note").textContent = "This " + noun + " is in the catalogue but " +
       (needPrice && needHsn ? "has no selling price and no HSN code."
         : needPrice ? "has no selling price." : "has no HSN code.") +
       (canEditMasters()
@@ -2504,6 +2509,7 @@
   function closeCompletePanel() {
     $("qi-complete").style.display = "none";
     completingSpare = null;
+    completingType = null;
   }
 
   $("btn-qi-complete-cancel").addEventListener("click", closeCompletePanel);
@@ -2516,10 +2522,17 @@
     var hsn = $("qi-complete-hsn").value.trim();
 
     if (needPrice && price === "") { showMsg("Enter the selling price for this part.", "error"); return; }
-    if (needHsn && !/^[0-9]{6,8}$/.test(hsn)) {
-      showMsg("An HSN code is 6 to 8 digits. It prints on the quotation.", "error");
+    // 4, 6 or 8 digits: PIE's own quotations print a 4-digit HSN (8414), and a rule that
+    // refused their own documents would be the wrong rule.
+    if (needHsn && !/^([0-9]{4}|[0-9]{6}|[0-9]{8})$/.test(hsn)) {
+      showMsg("An HSN code is 4, 6 or 8 digits. It prints on the quotation.", "error");
       return;
     }
+
+    var isSpare = completingType === "Spare";
+    var itemCode = isSpare ? completingSpare.partNo : completingSpare.productCode;
+    var itemDesc = isSpare ? completingSpare.description
+                           : (completingSpare.model || completingSpare.description);
 
     google.script.run.withSuccessHandler(function (res) {
       google.script.run.withSuccessHandler(function (nq) {
@@ -2527,17 +2540,18 @@
         renderQuoteBuilder();
         closeCompletePanel();
         runQuoteItemSearch();
-        showMsg("Added " + res.partNo + "." + (res.savedToCatalog.length
+        showMsg("Added " + res.code + "." + (res.savedToCatalog.length
           ? " Its " + res.savedToCatalog.join(" and ") + " saved to the catalogue too."
           : " The catalogue was left unchanged."), "success");
       }).withFailureHandler(onServerError).saveQuotationItem({
-        quotationId: openQuote.id, itemType: "Spare", itemId: completingSpare.id,
-        itemCode: completingSpare.partNo, description: completingSpare.description,
+        quotationId: openQuote.id, itemType: completingType, itemId: completingSpare.id,
+        itemCode: itemCode, description: itemDesc,
         uom: completingSpare.uom, qty: $("qi-qty").value || 1,
         unitPrice: needPrice ? price : completingSpare.price, discountPct: 0
       });
-    }).withFailureHandler(onServerError).completeSpareDetails({
-      spareId: completingSpare.id,
+    }).withFailureHandler(onServerError).completeCatalogDetails({
+      itemType: completingType,
+      itemId: completingSpare.id,
       hsnCode: needHsn ? hsn : "",
       price: needPrice ? price : "",
       quoteNo: openQuote ? openQuote.quoteNo : ""
@@ -2677,10 +2691,12 @@
     zone.querySelectorAll("[data-add-line]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var r = rows.find(function (x) { return x.id === btn.dataset.addLine; });
-        // A part the catalogue never finished is completed here rather than added blank: a
-        // zero price or a missing HSN is only noticed once the offer is in front of a customer.
-        if (type === "Spare" && (!r.price || !String(r.hsnCode || "").trim())) {
-          openCompletePanel(r);
+        // A row the catalogue never finished is completed here rather than added blank: a
+        // zero price or a missing HSN is only noticed once the offer is in front of a
+        // customer. This used to apply to spares alone, which left every compressor loaded
+        // from a brochure — and a brochure carries no prices — going on at zero.
+        if (!r.price || !String(r.hsnCode || "").trim()) {
+          openCompletePanel(r, type);
           return;
         }
         google.script.run.withSuccessHandler(function (nq) {

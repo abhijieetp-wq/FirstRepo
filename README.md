@@ -72,6 +72,7 @@ src/
   Spares.gs          spare parts master, alternates, compatibility
   ItemReferences.gs  where a catalogue item can be referred to from; guards every hard delete
   CatalogDelete.gs   deleting a selection of catalogue rows, with the documents holding them
+  CatalogComplete.gs supplying a missing price or HSN at the moment a quotation needs it
   Pricing.gs         effective-dated price lists (FR-016/017)
   Stock.gs           append-only stock ledger, availability (FR-036/037)
   SpareEnquiries.gs  spare enquiry capture and part identification (FR-022/023/025)
@@ -560,11 +561,19 @@ A real catalogue arrives incomplete — 4,470 of ELGi's own rows carry the words
 shortly" where an HSN code belongs. Adding such a part used to write a line with a zero price
 or a blank HSN and say nothing, which is noticed once the offer is in front of a customer.
 
-The picker now marks an incomplete part and, on Add, asks for **only what is missing** before
-the line is written. What is entered always reaches the quotation. Whether it also reaches the
+The picker marks an incomplete row and, on Add, asks for **only what is missing** before the
+line is written. What is entered always reaches the quotation. Whether it also reaches the
 catalogue depends on rights: a price typed to get one quotation out should not silently become
 the price everyone quotes, so writing back needs Management or ERP Admin, and the message says
 which happened.
+
+**This was built for spares and stayed there, which the compressor catalogue made expensive.**
+A brochure carries no prices, so 70 of the 73 products have none — and the check that stops a
+blank line read `type === "Spare"`. Every one of them would have gone onto a quotation at ₹0,
+with a small grey badge in the picker as the only warning. It now covers both catalogues.
+
+The HSN rule went with it: it demanded 6 to 8 digits, and PIE's own quotations print **8414**.
+A rule that refuses their own documents is the wrong rule, so 4, 6 and 8 are all accepted.
 
 The 20 lubricants are held back. That sheet has different columns (MRP, DLP, Dealer to
 Customer) and mixes per-litre with per-pack figures in the same table, so importing it needs an
