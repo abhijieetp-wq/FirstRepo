@@ -313,6 +313,19 @@ function saveQuotationHeader(input) {
     patch.contactId = parties.contactId;
     patch.billingAddressId = parties.billingAddressId;
     patch.shippingAddressId = parties.shippingAddressId;
+  } else if (!existing.contactId || !existing.billingAddressId) {
+    // The offer is addressed to a person at an address: "Kind Attention", their mobile and
+    // email, and the customer's address under the company name. Those are stamped on when the
+    // quotation is created, from whatever the customer record held at that moment — so a
+    // customer created in a hurry, without a contact, produced an offer addressed to nobody
+    // and no way to fix it short of starting again. Adding the contact and pressing Save
+    // Details now picks it up.
+    var found = defaultPartiesFor_(existing.customerId);
+    if (!existing.contactId && found.contactId) patch.contactId = found.contactId;
+    if (!existing.billingAddressId && found.billingAddressId) {
+      patch.billingAddressId = found.billingAddressId;
+      if (!existing.shippingAddressId) patch.shippingAddressId = found.shippingAddressId;
+    }
   }
 
   // The package discount is the one their printed offer shows: everything listed at full price

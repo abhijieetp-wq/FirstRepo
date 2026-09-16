@@ -2500,7 +2500,8 @@
     var needHsn = !String(r.hsnCode || "").trim();
 
     $("qi-complete-title").textContent = (isSpare ? r.partNo : r.productCode) + " — " +
-      (isSpare ? (r.description || "") : (r.model || r.description || ""));
+      // The same text the picker row showed, so there is no doubt which row was clicked.
+      (r.description || r.model || "");
     $("qi-complete-note").textContent = "This " + noun + " is in the catalogue but " +
       (needPrice && needHsn ? "has no selling price and no HSN code."
         : needPrice ? "has no selling price." : "has no HSN code.") +
@@ -2543,8 +2544,7 @@
 
     var isSpare = completingType === "Spare";
     var itemCode = isSpare ? completingSpare.partNo : completingSpare.productCode;
-    var itemDesc = isSpare ? completingSpare.description
-                           : (completingSpare.model || completingSpare.description);
+    var itemDesc = completingSpare.description || completingSpare.model;
 
     google.script.run.withSuccessHandler(function (res) {
       google.script.run.withSuccessHandler(function (nq) {
@@ -2684,7 +2684,10 @@
       '<th class="num">Price</th><th class="num">Available</th><th></th></tr></thead><tbody>' +
       rows.map(function (r) {
         var code = type === "Spare" ? r.partNo : r.productCode;
-        var desc = type === "Spare" ? r.description : (r.model || r.description);
+        // The description is what lands on the price schedule, so it is what the picker
+        // shows. Preferring the model put "EQ 18-7.5 V" on the offer where PIE writes
+        // "Elgi make EQ 18 VFD -7.5 STD" — the model is already in the Code column.
+        var desc = r.description || r.model;
         return "<tr>" +
           '<td class="mono">' + escapeHtml(code) + "</td>" +
           "<td>" + escapeHtml(desc) +
@@ -2720,7 +2723,7 @@
           itemType: type,
           itemId: r.id,
           itemCode: type === "Spare" ? r.partNo : r.productCode,
-          description: type === "Spare" ? r.description : (r.model || r.description),
+          description: desc,
           qty: Math.max(1, Number($("qi-qty").value) || 1),
           availabilityNote: r.available !== undefined
             ? (r.available > 0 ? r.available + " available" : "Out of stock") : ""
