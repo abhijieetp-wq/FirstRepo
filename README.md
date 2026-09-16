@@ -437,6 +437,31 @@ the sheet — two prices for each of 13,000 parts. It now reads the block and in
 position, so a row of the wrong itemType is rejected on one comparison. At full catalogue size
 that is 26,000 price rows: 68 ms for spares, 21 ms for products, against one block read.
 
+## The two pages that never printed
+
+PIE's compressor offer carries a specification table and a scope of supply. Ours carried
+neither, for two different reasons, and both are now closed.
+
+**The specification table** — Model, Capacity, Maximum pressure, Normal working pressure,
+Main motor nominal rating, Starter, Dimensions, Weight. The schema has had these six columns
+since the start and `QuotationDocument.gs` has always known how to print them. What was
+missing was any way to get data into them: the importer had no column for them and the product
+form had no field, so `specced` was empty for every machine ever quoted and the table silently
+never appeared. All three now agree, and the enclosure list says "Technical specifications and
+scope of supply" the way theirs does.
+
+**The scope of supply** — the section existed, the document rendered it, and nothing was ever
+seeded, so it printed as nothing. It is now PIE's own text, word for word off
+PIE/ELGI/QUOT/26-27/383: eleven blocks from Base & Enclosure to Optional Features. The
+renderer already treated a line ending in a colon as a heading, which is exactly how their
+copy reads, so it needed no new code.
+
+**The UPTIME Assurance annexure stays an attachment.** It is ELGi's own legal document —
+warranty periods per series, exclusions, limitation of liability, and a customer signature
+block — and retyping that into a template is how a transcription error reaches a contract. The
+new `ExtraEnclosures` section names it in the enclosure list so the reader is told what is in
+the envelope, and the PDF goes in as it comes.
+
 ## The compressor catalogue
 
 `testdata/products/elgi-eq-compressors.csv` — 70 rows, generated from ELGi's EQ Series

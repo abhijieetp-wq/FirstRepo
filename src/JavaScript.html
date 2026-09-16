@@ -1058,6 +1058,12 @@
     $("um-hprating").value = p ? (p.hpRating || "") : "";
     $("um-workingpressure").value = p ? (p.workingPressure || "") : "";
     $("um-fad").value = p ? (p.fad || "") : "";
+    $("um-capacity").value = p ? (p.capacityCfm || "") : "";
+    $("um-maxpressure").value = p ? (p.maxPressure || "") : "";
+    $("um-motorkw").value = p ? (p.motorKw || "") : "";
+    $("um-starter").value = p ? (p.starterType || "") : "";
+    $("um-dimensions").value = p ? (p.dimensionsMm || "") : "";
+    $("um-weight").value = p ? (p.weightKg || "") : "";
     $("um-hsn").value = p ? (p.hsnCode || "") : "";
     $("um-pieprice").value = p && p.piePrice ? p.piePrice : "";
     $("um-elgiprice").value = p && p.price ? p.price : "";
@@ -1078,6 +1084,12 @@
       hpRating: $("um-hprating").value.trim(),
       workingPressure: $("um-workingpressure").value.trim(),
       fad: $("um-fad").value.trim(),
+      capacityCfm: $("um-capacity").value.trim(),
+      maxPressure: $("um-maxpressure").value.trim(),
+      motorKw: $("um-motorkw").value.trim(),
+      starterType: $("um-starter").value.trim(),
+      dimensionsMm: $("um-dimensions").value.trim(),
+      weightKg: $("um-weight").value.trim(),
       gstPct: $("um-gst").value,
       warrantyMonths: $("um-warranty").value,
       leadTimeDays: $("um-leadtime").value,

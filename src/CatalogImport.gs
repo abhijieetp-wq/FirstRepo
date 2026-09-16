@@ -50,11 +50,17 @@ var IMPORT_SPECS = {
     keyField: 'productCode',
     idPrefix: 'PR-',
     required: ['productCode', 'model'],
+    // The six spec fields are the specification table PIE prints on every compressor offer.
+    // The schema has always had them and the document has always known how to print them —
+    // but there was no column here to load them through and no field on the form to type
+    // them into, so the table never appeared for any machine.
     columns: ['productCode', 'hsnCode', 'model', 'family', 'series', 'description', 'category',
-      'hpRating', 'fad', 'workingPressure', 'gstPct', 'piePrice', 'elgiPrice', 'warrantyMonths',
-      'leadTimeDays', 'uom', 'notes'],
+      'hpRating', 'fad', 'workingPressure', 'capacityCfm', 'maxPressure', 'motorKw',
+      'starterType', 'dimensionsMm', 'weightKg', 'gstPct', 'piePrice', 'elgiPrice',
+      'warrantyMonths', 'leadTimeDays', 'uom', 'notes'],
     masterFields: ['productCode', 'hsnCode', 'model', 'family', 'series', 'description',
-      'category', 'hpRating', 'fad', 'workingPressure', 'gstPct', 'warrantyMonths',
+      'category', 'hpRating', 'fad', 'workingPressure', 'capacityCfm', 'maxPressure',
+      'motorKw', 'starterType', 'dimensionsMm', 'weightKg', 'gstPct', 'warrantyMonths',
       'leadTimeDays', 'uom', 'notes'],
     numeric: ['gstPct', 'piePrice', 'elgiPrice', 'warrantyMonths', 'leadTimeDays']
   }
@@ -372,8 +378,11 @@ function exampleValue_(itemType, column) {
     description: 'Air Filter Element', model: 'EG37', family: 'Screw', series: 'EG',
     category: 'Filter', uom: 'Nos', gstPct: '18', piePrice: '980', elgiPrice: '1450',
     reorderLevel: '10', safetyStock: '5', defaultBinId: 'A-12', notes: '',
-    hpRating: '50', fad: '6.2 m3/min', workingPressure: '7.5 bar',
-    warrantyMonths: '12', leadTimeDays: '30'
+    hpRating: '25', fad: '113 cfm', workingPressure: '7 bar.g',
+    capacityCfm: '113 cfm', maxPressure: '7.5 bar.g', motorKw: '18 kW, 25 hp',
+    starterType: 'Variable Frequency Drive', dimensionsMm: '1500 x 821 x 1220',
+    weightKg: '680 kg',
+    warrantyMonths: '12', leadTimeDays: '42'
   };
   return examples[column] === undefined ? '' : examples[column];
 }

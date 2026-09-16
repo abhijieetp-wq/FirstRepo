@@ -70,6 +70,14 @@ function saveProduct(input) {
     hpRating: String(input.hpRating || '').trim(),
     fad: String(input.fad || '').trim(),
     workingPressure: String(input.workingPressure || '').trim(),
+    // The specification table on a compressor offer. Present in the schema since the start
+    // and printed by the document, but with nowhere to enter them they were always blank.
+    capacityCfm: String(input.capacityCfm || '').trim(),
+    maxPressure: String(input.maxPressure || '').trim(),
+    motorKw: String(input.motorKw || '').trim(),
+    starterType: String(input.starterType || '').trim(),
+    dimensionsMm: String(input.dimensionsMm || '').trim(),
+    weightKg: String(input.weightKg || '').trim(),
     gstPct: input.gstPct === '' || input.gstPct === undefined || input.gstPct === null ? '' : Number(input.gstPct),
     warrantyMonths: input.warrantyMonths === '' || input.warrantyMonths === undefined || input.warrantyMonths === null ? '' : Number(input.warrantyMonths),
     standardAccessories: String(input.standardAccessories || '').trim(),
