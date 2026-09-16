@@ -10,14 +10,28 @@
  * Existing rows are updated in place (so ids, history and links survive), unknown codes are
  * appended, and rows missing a required field are skipped and reported rather than guessed at.
  *
- * Performance: a 7,000-row file cannot be written row by row inside the 6-minute limit, so
- * master rows are written with two bulk range writes (one update block, one append block).
- * Prices still go through savePrice because effective-dating is the whole point of FR-016 —
- * that is the slow part, and only prices that actually changed are written.
+ * Performance: Apps Script kills any single call at six minutes, and one of these files is
+ * 3,500 parts with up to 7,000 prices behind them — comfortably past it. So the commit runs
+ * in chunks: the client asks for a few hundred rows at a time and keeps asking until the
+ * server says it is done. Every chunk is a complete, committed piece of work, which also
+ * means an interrupted load has written what it reported and nothing else.
+ *
+ * Within a chunk, master rows are written with two bulk range writes (one update block, one
+ * append block) and prices in a single pass through savePricesBulk_ — writing row by row
+ * would not finish either.
  *
  * Audit: a bulk import writes one summary AuditLog row rather than thousands. Per-row detail
  * would swamp the log and make it useless for the change-tracking it exists to serve.
  */
+
+/**
+ * Rows per chunk.
+ *
+ * Small enough that a chunk finishes well inside the six-minute limit even late in a load,
+ * when the catalogue it reads first is at full size; large enough that a 3,500-row file is
+ * seven or eight round trips rather than dozens.
+ */
+var IMPORT_CHUNK_ROWS = 500;
 
 var IMPORT_SPECS = {
   Spare: {
@@ -63,8 +77,13 @@ function getImportTemplate(itemType) {
 function previewCatalogImport(itemType, csvText) {
   var user = getCurrentUser();
   requireRole_(user, MASTER_EDITORS);
-  var analysis = analyseImport_(itemType, csvText);
+  // The preview runs once per file and is the number a person decides on, so it pays for the
+  // extra read that tells it which prices would actually change. The commit skips that: it
+  // runs once per chunk, and savePricesBulk_ is already holding the price list it would need.
+  var analysis = analyseImport_(itemType, csvText, { comparePrices: true });
   return {
+    totalRows: analysis.totalRows,
+    chunkRows: IMPORT_CHUNK_ROWS,
     newCount: analysis.creates.length,
     updateCount: analysis.updates.length,
     reactivatedCount: analysis.updates.filter(function (u) { return u.wasInactive; }).length,
@@ -78,13 +97,28 @@ function previewCatalogImport(itemType, csvText) {
   };
 }
 
-/** Applies the same file the preview described. */
-function commitCatalogImport(itemType, csvText) {
+/**
+ * Applies one chunk of the file the preview described.
+ *
+ * `fromRow` is the 0-based index into the file's data rows (the header is not one). The
+ * caller starts at 0 and keeps passing back the `nextRow` it is given until `done` comes
+ * back true; `maxRows` defaults to IMPORT_CHUNK_ROWS for anyone doing that. Omitting both
+ * does the whole file in one call, which is what the tests do and what a small file can
+ * still afford.
+ */
+function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
   var user = getCurrentUser();
   requireRole_(user, MASTER_EDITORS);
 
   var spec = importSpec_(itemType);
-  var analysis = analyseImport_(itemType, csvText);
+  // Passing a starting row is what says "I am driving this in chunks", so that call gets the
+  // chunk size unless it asked for a different one. Calling with neither — a small file, or a
+  // test — still does the whole thing in one go.
+  var driving = fromRow !== undefined && fromRow !== null;
+  var rowsThisCall = Number(maxRows) > 0 ? Number(maxRows)
+                   : (driving ? IMPORT_CHUNK_ROWS : 0);
+  var analysis = analyseImport_(itemType, csvText,
+    { fromRow: fromRow, maxRows: rowsThisCall });
 
   // Parsing and analysis are already done, above, outside the lock: the lock covers only the
   // writes, so the sheet is held for as short a time as the work allows.
@@ -145,14 +179,19 @@ function commitCatalogImport(itemType, csvText) {
   audit_('Update', spec.tab, '(bulk import)', '', '',
     analysis.creates.length + ' new, ' + analysis.updates.length + ' updated, ' +
     pricesWritten + ' price revisions, ' + analysis.skipped.length + ' skipped',
-    'Bulk catalog import by ' + user.email);
+    'Bulk catalog import by ' + user.email +
+    (analysis.chunked ? ' (rows ' + (analysis.fromRow + 1) + '–' + analysis.nextRow + ' of ' +
+      analysis.totalRows + ')' : ''));
 
   return {
     newCount: analysis.creates.length,
     updateCount: analysis.updates.length,
     reactivatedCount: analysis.updates.filter(function (u) { return u.wasInactive; }).length,
     priceChangeCount: pricesWritten,
-    skippedCount: analysis.skipped.length
+    skippedCount: analysis.skipped.length,
+    totalRows: analysis.totalRows,
+    nextRow: analysis.nextRow,
+    done: analysis.done
   };
 }
 
@@ -164,8 +203,21 @@ function importSpec_(itemType) {
   return spec;
 }
 
-/** Shared by preview and commit so what you confirm is exactly what gets applied. */
-function analyseImport_(itemType, csvText) {
+/**
+ * Shared by preview and commit so what you confirm is exactly what gets applied.
+ *
+ * `opts.fromRow` / `opts.maxRows` restrict the work to one slice of the file. Parsing is done
+ * on the whole file every time — it is pure string work and cheap next to a single sheet read
+ * — so that duplicate part numbers are still found across the whole file rather than only
+ * within whichever chunk happens to contain them. A row's fate must not depend on where the
+ * chunk boundary fell.
+ *
+ * `opts.comparePrices` reads the current price list so that only genuine changes are counted.
+ * The commit leaves it off: savePricesBulk_ has to read the price list anyway, and does the
+ * same comparison where the data already is, rather than paying for a second full read.
+ */
+function analyseImport_(itemType, csvText, opts) {
+  var options = opts || {};
   var spec = importSpec_(itemType);
   var rows = parseCsv_(csvText);
   if (!rows.length) throw new Error('That file has no rows.');
@@ -177,6 +229,29 @@ function analyseImport_(itemType, csvText) {
       '. Use the template header shown above.');
   }
 
+  var keyCol = header.indexOf(spec.keyField);
+
+  // Which data rows are real, and which key each carries — one pass, no sheet access, over
+  // the whole file regardless of the chunk. `dataRows` holds indexes into `rows`.
+  var dataRows = [];
+  var firstLineFor = {};
+  var duplicateOf = {};
+  for (var r = 1; r < rows.length; r++) {
+    var line = rows[r];
+    if (line.every(function (c) { return String(c).trim() === ''; })) continue;
+    dataRows.push(r);
+    var k = keyCol === -1 ? '' : String(line[keyCol] === undefined ? '' : line[keyCol]).trim().toLowerCase();
+    if (!k) continue;
+    if (firstLineFor.hasOwnProperty(k)) duplicateOf[r] = firstLineFor[k];
+    else firstLineFor[k] = r + 1;
+  }
+
+  var totalRows = dataRows.length;
+  var fromRow = Math.max(0, Number(options.fromRow) || 0);
+  var maxRows = Number(options.maxRows) > 0 ? Number(options.maxRows) : totalRows;
+  var slice = dataRows.slice(fromRow, fromRow + maxRows);
+  var nextRow = fromRow + slice.length;
+
   var existing = readTable_(spec.tab);
   var byKey = {};
   existing.forEach(function (row, idx) {
@@ -184,13 +259,12 @@ function analyseImport_(itemType, csvText) {
     if (key) byKey[key] = { row: row, rowIndex: idx };
   });
 
-  var prices = priceMapFor_(itemType);
+  var prices = options.comparePrices ? priceMapFor_(itemType) : {};
   var creates = [], updates = [], skipped = [], priceChanges = [];
-  var seenKeys = {};
 
-  for (var i = 1; i < rows.length; i++) {
+  for (var n = 0; n < slice.length; n++) {
+    var i = slice[n];
     var raw = rows[i];
-    if (raw.every(function (c) { return String(c).trim() === ''; })) continue;
 
     var values = {};
     header.forEach(function (h, idx) {
@@ -220,11 +294,11 @@ function analyseImport_(itemType, csvText) {
     });
 
     var lower = key.toLowerCase();
-    if (seenKeys[lower]) {
-      skipped.push({ line: lineNo, code: key, reason: 'duplicate of line ' + seenKeys[lower] + ' in this file' });
+    if (duplicateOf.hasOwnProperty(i)) {
+      skipped.push({ line: lineNo, code: key,
+                     reason: 'duplicate of line ' + duplicateOf[i] + ' in this file' });
       continue;
     }
-    seenKeys[lower] = lineNo;
 
     var match = byKey[lower];
     var itemId;
@@ -238,7 +312,8 @@ function analyseImport_(itemType, csvText) {
       creates.push({ action: 'new', key: key, values: values, id: itemId });
     }
 
-    // Only price levels whose value actually changed become revisions.
+    // Every price in the file is a candidate. With comparison on, the ones already in force
+    // are dropped here; without it, savePricesBulk_ drops them when it reads the price list.
     var current = prices[String(itemId)] || {};
     [[COST_PRICE_LEVEL, 'piePrice'], [SELLING_PRICE_LEVEL, 'elgiPrice']].forEach(function (pair) {
       var level = pair[0], field = pair[1];
@@ -249,7 +324,12 @@ function analyseImport_(itemType, csvText) {
     });
   }
 
-  return { creates: creates, updates: updates, skipped: skipped, priceChanges: priceChanges };
+  return {
+    creates: creates, updates: updates, skipped: skipped, priceChanges: priceChanges,
+    totalRows: totalRows, fromRow: fromRow, nextRow: nextRow,
+    done: nextRow >= totalRows,
+    chunked: fromRow > 0 || nextRow < totalRows
+  };
 }
 
 /** RFC-4180-ish CSV parser: handles quoted fields, embedded commas, quotes and newlines. */

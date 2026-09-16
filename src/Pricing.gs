@@ -123,21 +123,35 @@ function savePricesBulk_(entries, reason) {
       });
     }
 
+    // A price that is already in force is left alone: no row closed, no row appended. The
+    // caller used to make this decision, which meant reading the whole price list a second
+    // time to do it. The list is already open here, so the comparison happens here.
     var superseded = 0;
+    var changing = [];
     wanted.forEach(function (w) {
       var hits = openRows[w.itemType + '|' + w.itemId + '|' + w.priceLevel];
-      if (!hits) return;
-      hits.forEach(function (h) {
+      var toClose = [];
+      var unchanged = false;
+
+      (hits || []).forEach(function (h) {
         var asRow = {};
         headers.forEach(function (name, i) { asRow[name] = h.row[i]; });
         if (!priceRowActiveOn_(asRow, w.effectiveFrom)) return;
+        if (Number(asRow.price) === w.price) { unchanged = true; return; }
+        toClose.push(h);
+      });
+
+      if (unchanged) return;
+      toClose.forEach(function (h) {
         h.row[h.ci.effectiveTo] = previousDay_(w.effectiveFrom);
         superseded++;
       });
+      changing.push(w);
     });
     if (superseded && block) sheet.getRange(2, 1, block.length, headers.length).setValues(block);
+    if (!changing.length) return 0;
 
-    var rows = wanted.map(function (w) {
+    var rows = changing.map(function (w) {
       return headers.map(function (h) {
         switch (h) {
           case 'id': return generateId_('PRC-');

@@ -4,6 +4,8 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var fmt = function (n) { return "₹" + (Math.round((n || 0) * 100) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  // Plain counts, grouped the Indian way like every other number on screen — 13,126 not 13126.
+  var fmtInt = function (n) { return Number(n || 0).toLocaleString("en-IN"); };
   function escapeHtml(str) {
     return String(str === undefined || str === null ? "" : str).replace(/[&<>"']/g, function (m) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m];
@@ -636,10 +638,51 @@
     }, function (ok) {
       if (ok === null) return;
       setBulkBusy(true);
-      $("bulk-preview").innerHTML = '<div class="empty" style="padding:12px;">Importing — a ' +
-        "large file takes a few minutes. Do not start another import until this one reports " +
-        "back.</div>";
+      runImport(type, bulkCsvText, name);
+    });
+  });
+
+  /**
+   * Drives the import one chunk at a time.
+   *
+   * Apps Script kills any single call at six minutes, and one of these files is 3,500 parts
+   * with up to 7,000 prices behind them — it does not fit, and what it did instead was sit
+   * there saying "Importing…" until the execution was killed. So the server takes a few
+   * hundred rows per call and says where it got to; this keeps asking until it says done.
+   *
+   * Each chunk is committed, so the count below is what is actually in the sheet, not a
+   * promise. If one fails, the rows already reported are in and the rest are not — and the
+   * message says which row to resume from rather than leaving it to be guessed.
+   */
+  function runImport(type, csvText, name) {
+    var total = { newCount: 0, updateCount: 0, reactivatedCount: 0, priceChangeCount: 0,
+                  skippedCount: 0 };
+    var startedAt = Date.now();
+
+    var progress = function (done, all) {
+      var pct = all ? Math.round((done / all) * 100) : 0;
+      $("bulk-preview").innerHTML =
+        '<div style="padding:4px 0 12px;">' +
+        '<div style="font-size:12.5px; margin-bottom:8px;">Importing ' + escapeHtml(name) +
+          " — " + fmtInt(done) + " of " + fmtInt(all) + " rows (" + pct + "%). " +
+          "A file this size takes a few minutes; leave this screen open.</div>" +
+        '<div style="height:8px; background:var(--border); border-radius:4px; overflow:hidden;">' +
+          '<div style="height:8px; width:' + pct + '%; background:var(--amber);"></div>' +
+        "</div></div>";
+    };
+    progress(0, 0);
+
+    var step = function (fromRow) {
       google.script.run.withSuccessHandler(function (res) {
+        total.newCount += res.newCount;
+        total.updateCount += res.updateCount;
+        total.reactivatedCount += res.reactivatedCount;
+        total.priceChangeCount += res.priceChangeCount;
+        total.skippedCount += res.skippedCount;
+        progress(res.nextRow, res.totalRows);
+
+        if (!res.done) { step(res.nextRow); return; }
+
         catalogLoaded.spares = false;
         catalogLoaded.products = false;
 
@@ -649,27 +692,33 @@
         bulkImported.push(name);
         clearBulkFile();
         setBulkBusy(false);
+        var secs = Math.round((Date.now() - startedAt) / 1000);
         $("bulk-done").style.display = "";
-        $("bulk-done").textContent = "Imported " + name + " — " + res.newCount + " added, " +
-          res.updateCount + " updated, " + res.priceChangeCount + " price revision(s)" +
-          (res.reactivatedCount ? ", " + res.reactivatedCount + " reactivated" : "") +
-          (res.skippedCount ? ", " + res.skippedCount + " skipped" : "") +
-          ". " + (bulkImported.length > 1
+        $("bulk-done").textContent = "Imported " + name + " — " + total.newCount + " added, " +
+          total.updateCount + " updated, " + total.priceChangeCount + " price revision(s)" +
+          (total.reactivatedCount ? ", " + total.reactivatedCount + " reactivated" : "") +
+          (total.skippedCount ? ", " + total.skippedCount + " skipped" : "") +
+          ", in " + secs + "s. " + (bulkImported.length > 1
             ? bulkImported.length + " files imported so far. "
             : "") + "Choose the next file, or Close when you are done.";
 
         loadCatalog();
-        showMsg(res.newCount + " added, " + res.updateCount + " updated, " +
-          res.priceChangeCount + " price revision(s)" +
-          (res.reactivatedCount ? ", " + res.reactivatedCount + " brought back into the catalogue" : "") +
-          (res.skippedCount ? ", " + res.skippedCount + " skipped" : "") + ".", "success");
+        showMsg(total.newCount + " added, " + total.updateCount + " updated, " +
+          total.priceChangeCount + " price revision(s)" +
+          (total.reactivatedCount ? ", " + total.reactivatedCount + " brought back into the catalogue" : "") +
+          (total.skippedCount ? ", " + total.skippedCount + " skipped" : "") + ".", "success");
       }).withFailureHandler(function (err) {
-        $("bulk-preview").innerHTML = "";
         setBulkBusy(false);
+        $("bulk-preview").innerHTML = '<div class="msg msg-error show" style="position:static;">' +
+          '<span class="msg-text">Stopped after ' + fmtInt(fromRow) + " row(s), which are " +
+          "saved. Re-importing the same file is safe — rows already in are matched on their " +
+          "code and updated in place rather than duplicated.</span></div>";
         onServerError(err);
-      }).commitCatalogImport(type, bulkCsvText);
-    });
-  });
+      }).commitCatalogImport(type, csvText, fromRow, null);
+    };
+
+    step(0);
+  }
 
   /**
    * Sets the two destructive buttons on a master modal from the row being edited.

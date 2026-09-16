@@ -413,6 +413,33 @@ Saving an edit no longer revives a deactivated row. The form does not carry the 
 and both `saveSpare` and `saveProduct` defaulted it to `TRUE` on every write, so correcting a
 typo on a retired part quietly put it back in the catalogue.
 
+### The import runs in chunks
+
+Apps Script kills any single call at **six minutes**. One of these files is 3,500 parts with
+up to 7,000 prices behind them, and it does not fit — what it did instead was sit on
+"Importing…" until the execution was killed, having written some unknowable fraction of the
+file.
+
+So the commit takes `fromRow` and returns `nextRow` and `done`, and the screen keeps asking
+until the server says it is finished, showing a progress bar as it goes. Each chunk is a
+committed piece of work, so the count on screen is what is in the sheet rather than a promise.
+If one fails, the message says how many rows are in and that re-importing the same file is
+safe — matching is on the part number, so rows already there are updated in place.
+
+`IMPORT_CHUNK_ROWS` is 500: small enough to finish well inside the limit even late in a load,
+when the catalogue it reads first is at full size, and large enough that a file is seven or
+eight round trips rather than dozens.
+
+Two things the chunking had to not break:
+
+- **Duplicate part numbers are still found across the whole file.** Parsing runs over the
+  entire CSV on every call — pure string work, cheap next to one sheet read — so a row's fate
+  never depends on where the chunk boundary happened to fall.
+- **The price list is read once per chunk, not twice.** `analyseImport_` used to read it to
+  decide which prices had changed, and then `savePricesBulk_` read it again to supersede them.
+  The comparison now happens inside `savePricesBulk_`, where the data is already open: a price
+  already in force closes no row and appends none.
+
 ### Importing four files in a row
 
 The catalogue arrives split so each file finishes inside one Apps Script execution, which
