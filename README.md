@@ -415,6 +415,26 @@ same reason.
 The sequence for clearing test data is then: **Reopen as Draft → Discard Draft → Delete
 permanently** on the product.
 
+## What the catalogue screen says while it has nothing to show
+
+Three states that were one blank table.
+
+- **Loading.** The request went out and the grid sat empty until it came back. On a real
+  catalogue that is long enough to read as "there is no data here", which is exactly how it
+  was reported.
+- **Empty.** "No items match your search" over a catalogue with nothing in it sends people
+  hunting for a filter that is not set. It now names the tab, points at Bulk Upload, and says
+  that deactivated items are hidden.
+- **Failed.** A failure only ever appeared as a banner at the top of the page. Scrolled down
+  at the table you saw an empty grid and no reason for it. The reason now sits where the rows
+  should be, with a Try again.
+
+**The load itself got faster**, which is the other half of the same report. `priceMapFor_` ran
+through `readTable_`, building an object and normalizing every cell of the largest table in
+the sheet — two prices for each of 13,000 parts. It now reads the block and indexes by column
+position, so a row of the wrong itemType is rejected on one comparison. At full catalogue size
+that is 26,000 price rows: 68 ms for spares, 21 ms for products, against one block read.
+
 ## The compressor catalogue
 
 `testdata/products/elgi-eq-compressors.csv` — 70 rows, generated from ELGi's EQ Series
@@ -437,6 +457,18 @@ worth having: the file reproduces a document they actually sent.
 
 Prices are deliberately empty. The brochure has none, and the importer leaves existing prices
 untouched when the columns are blank.
+
+### Air treatment
+
+`testdata/products/elgi-air-treatment.csv` — the AR 0150Ns A1 dryer and the AF 0132P / AF
+0132F filters. **Three rows, not a range**: there is no ELGi dryer or filter catalogue here, so
+these come from the one offer that carries them, PIE/ELGI/QUOT/26-27/383. That offer is
+authoritative for what it does contain, prices included, so unlike the compressors these rows
+ship with `elgiPrice` set, and each says in its notes where the number came from.
+
+Two things in that offer read as copy-paste slips in PIE's own template, flagged rather than
+silently repaired: the dryer block's label column says `AR 0080N A1` where every other block
+says "Model", and the fine filter's Model row says `AF 0132P` — the pre-filter's code.
 
 ## Removing a catalogue record
 

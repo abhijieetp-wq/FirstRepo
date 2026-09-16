@@ -43,22 +43,55 @@ function priceRowActiveOn_(row, asOf) {
 function priceMapFor_(itemType, asOf) {
   var when = asOf || todayIso_();
   var map = {};
-  readTable_('PriceList').forEach(function (row) {
-    if (row.itemType !== itemType) return;
-    if (!priceRowActiveOn_(row, when)) return;
-    if (!map[row.itemId]) map[row.itemId] = {};
-    var existing = map[row.itemId][row.priceLevel];
-    // Later effectiveFrom wins if two rows somehow overlap.
-    if (!existing || String(row.effectiveFrom) >= String(existing.effectiveFrom)) {
-      map[row.itemId][row.priceLevel] = {
-        price: Number(row.price) || 0,
-        minPrice: row.minPrice === '' || row.minPrice === null ? null : Number(row.minPrice),
-        maxDiscountPct: row.maxDiscountPct === '' || row.maxDiscountPct === null ? null : Number(row.maxDiscountPct),
-        effectiveFrom: row.effectiveFrom,
-        priceId: row.id
-      };
+
+  // Deliberately not readTable_. That builds an object for every row and normalizes every
+  // cell, and this table is the largest in the sheet — two prices for each of 13,000 parts.
+  // Reading the block and indexing by column position lets a row of the wrong itemType be
+  // rejected on a single comparison, which is most of them whenever the caller wants
+  // products. It is the difference between the catalogue screen opening and appearing empty
+  // for half a minute while it loads.
+  var sheet = getSheet_('PriceList');
+  var headers = getHeaders_(sheet);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2 || !headers.length) return map;
+
+  var ci = {};
+  headers.forEach(function (h, i) { ci[h] = i; });
+  var block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+
+  var asIso = function (v) {
+    if (v instanceof Date) {
+      return Utilities.formatDate(v, Session.getScriptTimeZone() || 'Etc/UTC', 'yyyy-MM-dd');
     }
-  });
+    return String(v || '').slice(0, 10);
+  };
+
+  for (var r = 0; r < block.length; r++) {
+    var row = block[r];
+    if (row[ci.itemType] !== itemType) continue;
+    if (String(row[ci.active]).toUpperCase() === 'FALSE') continue;
+
+    var from = asIso(row[ci.effectiveFrom]);
+    var to = asIso(row[ci.effectiveTo]);
+    if (from && when < from) continue;
+    if (to && when > to) continue;
+
+    var itemId = row[ci.itemId];
+    var level = row[ci.priceLevel];
+    if (!map[itemId]) map[itemId] = {};
+    var existing = map[itemId][level];
+    // Later effectiveFrom wins if two rows somehow overlap.
+    if (existing && String(from) < String(existing.effectiveFrom)) continue;
+
+    var min = row[ci.minPrice], maxd = row[ci.maxDiscountPct];
+    map[itemId][level] = {
+      price: Number(row[ci.price]) || 0,
+      minPrice: min === '' || min === null ? null : Number(min),
+      maxDiscountPct: maxd === '' || maxd === null ? null : Number(maxd),
+      effectiveFrom: from,
+      priceId: row[ci.id]
+    };
+  }
   return map;
 }
 

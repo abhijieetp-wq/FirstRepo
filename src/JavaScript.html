@@ -379,6 +379,20 @@
     return !!(box && box.checked && canEditCatalog());
   }
 
+  /**
+   * Fills the table area with a message instead of rows.
+   *
+   * The catalogue used to show nothing at all while it was loading: the request went out and
+   * the table sat empty until it came back, which on a real catalogue is long enough to read
+   * as "there is no data here". Worse, a failure only ever appeared as a banner at the top of
+   * the page, so scrolled down at the table you saw an empty grid and no reason for it.
+   */
+  function catalogNotice(html) {
+    $("catalog-thead").innerHTML = "";
+    $("catalog-tbody").innerHTML = '<tr><td><div class="empty" style="padding:22px;">' +
+      html + "</div></td></tr>";
+  }
+
   function loadCatalog() {
     // The cache holds one list or the other, so it has to be dropped when the scope changes
     // rather than only when the data does.
@@ -388,16 +402,39 @@
       catalogLoaded.spares = false;
       catalogLoaded.products = false;
     }
-    if (CATALOG_MODE === "spares") {
-      if (catalogLoaded.spares) { renderCatalogTable(); return; }
-      google.script.run.withSuccessHandler(function (rows) {
-        sparesCache = rows.map(decorateSpare); catalogLoaded.spares = true; renderCatalogTable();
-      }).withFailureHandler(onServerError).listSpares(scope);
+    var mode = CATALOG_MODE;
+    var what = mode === "spares" ? "spares" : "compressors";
+
+    if (catalogLoaded[mode === "spares" ? "spares" : "products"]) { renderCatalogTable(); return; }
+
+    catalogNotice("Loading " + what + "…");
+
+    var ok = function (assign) {
+      return function (rows) {
+        // The list that comes back may be for the tab the user has since left.
+        if (CATALOG_MODE !== mode) return;
+        assign(rows);
+        renderCatalogTable();
+      };
+    };
+    var failed = function (err) {
+      if (CATALOG_MODE !== mode) return;
+      catalogNotice('<b>The ' + what + " list could not be loaded.</b><br>" +
+        escapeHtml(err && err.message ? err.message : String(err)) +
+        '<br><button class="btn btn-sm" style="margin-top:10px;" data-catalog-retry>Try again</button>');
+      $("catalog-tbody").querySelector("[data-catalog-retry]")
+        .addEventListener("click", function () { loadCatalog(); });
+      onServerError(err);
+    };
+
+    if (mode === "spares") {
+      google.script.run.withSuccessHandler(ok(function (rows) {
+        sparesCache = rows.map(decorateSpare); catalogLoaded.spares = true;
+      })).withFailureHandler(failed).listSpares(scope);
     } else {
-      if (catalogLoaded.products) { renderCatalogTable(); return; }
-      google.script.run.withSuccessHandler(function (rows) {
-        productsCache = rows; catalogLoaded.products = true; renderCatalogTable();
-      }).withFailureHandler(onServerError).listProducts(scope);
+      google.script.run.withSuccessHandler(ok(function (rows) {
+        productsCache = rows; catalogLoaded.products = true;
+      })).withFailureHandler(failed).listProducts(scope);
     }
   }
 
@@ -430,7 +467,16 @@
       "<th></th></tr>";
 
     if (filtered.length === 0) {
-      $("catalog-tbody").innerHTML = '<tr><td colspan="' + (cols.length + 2) + '"><div class="empty">No items match your search.</div></td></tr>';
+      // "No items match your search" over an empty catalogue sends people hunting for a
+      // filter that is not there. Say which of the two it is.
+      var msg = rows.length
+        ? "No items match your search."
+        : (CATALOG_MODE === "spares"
+            ? "No spares in the catalogue yet. Add one, or load a file with Bulk Upload."
+            : "No compressors in the catalogue yet. Add one, or load a file with Bulk Upload.") +
+          (showingInactive() ? "" : " Deactivated items are hidden — tick Show deactivated to include them.");
+      $("catalog-tbody").innerHTML = '<tr><td colspan="' + (cols.length + 2) +
+        '"><div class="empty">' + msg + "</div></td></tr>";
       return;
     }
 
