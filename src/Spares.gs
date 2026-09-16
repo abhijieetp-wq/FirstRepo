@@ -459,3 +459,157 @@ function completeSpareDetails(input) {
     canWriteMaster: canWriteMaster
   };
 }
+
+/**
+ * The deeper clear-out: the trial spares *and* the documents built on them.
+ *
+ * The ordinary clear deactivates a part some document refers to, which is right when that
+ * document matters. It is not right when the document is itself trial data — a seeded opening
+ * stock row, or a quotation raised to try the screen out. Then the part stays in the sheet
+ * forever on the strength of a record nobody wants either.
+ *
+ * So this removes both, and draws one hard line: anything that has reached a **commitment**
+ * stops it. A sales order, a goods receipt, a dispatch or an invoice is a record of something
+ * that actually happened, often with statutory weight, and no button labelled "clear the trial
+ * data" gets to sweep those away. The same goes for a quotation that is past Draft, has an
+ * order raised from it, or has been revised — the policy `discardQuotation` already applies,
+ * for the same reason: the record of what was sent to a customer has to survive.
+ *
+ * It refuses as a whole rather than doing what it can. A half-applied clear-out leaves parts
+ * whose documents are gone and documents whose parts are gone, which is worse than either.
+ */
+function planSparePurge() {
+  var user = getCurrentUser();
+  requireRole_(user, [ROLES.ERP_ADMIN]);
+
+  var spares = readTable_('Spares');
+  var ids = {};
+  spares.forEach(function (s) { ids[String(s.id)] = s.partNo; });
+
+  var isOurs = function (row) {
+    return row.itemType === 'Spare' && ids.hasOwnProperty(String(row.itemId));
+  };
+
+  // Committed records: named, never removed.
+  var blocked = [];
+  var refuse = function (tab, label, parentField, parentTab, parentField2) {
+    var hits = readTable_(tab).filter(isOurs);
+    if (!hits.length) return;
+    var names = {};
+    if (parentTab) {
+      readTable_(parentTab).forEach(function (r) { names[String(r.id)] = r[parentField2]; });
+    }
+    var shown = [];
+    hits.forEach(function (h) {
+      var n = label + ' ' + (names[String(h[parentField])] || h[parentField] || h.id);
+      if (shown.indexOf(n) === -1) shown.push(n);
+    });
+    blocked = blocked.concat(shown);
+  };
+  refuse('SalesOrderItems', 'sales order', 'salesOrderId', 'SalesOrders', 'orderNo');
+  refuse('GRNItems', 'goods receipt', 'grnId', 'GRNs', 'grnNo');
+  refuse('DispatchItems', 'dispatch', 'dispatchId', 'Dispatches', 'dispatchNo');
+  refuse('InvoiceItems', 'invoice', 'invoiceId', 'Invoices', 'invoiceNo');
+
+  // Quotations that name one of these parts, with the discard policy applied to each.
+  var quoteIds = {};
+  readTable_('QuotationItems').forEach(function (i) {
+    if (isOurs(i)) quoteIds[String(i.quotationId)] = true;
+  });
+  var allQuotes = readTable_('Quotations');
+  var orderByQuote = {};
+  readTable_('SalesOrders').forEach(function (o) { orderByQuote[String(o.quotationId)] = o.orderNo; });
+  var revisionOf = {};
+  allQuotes.forEach(function (q) {
+    if (q.parentQuotationId) revisionOf[String(q.parentQuotationId)] = q.quoteNo + ' ' + q.revision;
+  });
+
+  var quotations = [];
+  allQuotes.forEach(function (q) {
+    if (!quoteIds[String(q.id)]) return;
+    var why = '';
+    if (String(q.locked).toUpperCase() === 'TRUE' || q.status !== 'Draft') {
+      why = 'is ' + q.status + ', not a draft — mark it Lost instead, so the record of what ' +
+        'was sent survives';
+    } else if (orderByQuote[String(q.id)]) {
+      why = 'has sales order ' + orderByQuote[String(q.id)] + ' raised from it';
+    } else if (revisionOf[String(q.id)]) {
+      why = 'was revised as ' + revisionOf[String(q.id)];
+    }
+    if (why) blocked.push('quotation ' + q.quoteNo + ' ' + why);
+    else quotations.push({ id: q.id, quoteNo: q.quoteNo, status: q.status });
+  });
+
+  // Enquiries are working notes, not commitments, so the lines simply go.
+  var enquiryLines = readTable_('SpareEnquiryItems').filter(function (i) {
+    return ids.hasOwnProperty(String(i.spareId));
+  });
+
+  return {
+    spares: spares.length,
+    stockMovements: readTable_('StockMovements').filter(isOurs).length,
+    reservations: readTable_('StockReservations').filter(isOurs).length,
+    quotations: quotations,
+    enquiryLines: enquiryLines.length,
+    blocked: blocked
+  };
+}
+
+/** Applies the plan above. Same confirmation discipline, one step further. */
+function purgeSparesWithDocuments(confirmText) {
+  var user = getCurrentUser();
+  requireRole_(user, [ROLES.ERP_ADMIN]);
+
+  if (String(confirmText).trim().toUpperCase() !== 'DELETE SPARES AND DOCUMENTS') {
+    throw new Error('Type DELETE SPARES AND DOCUMENTS to confirm.');
+  }
+
+  var plan = planSparePurge();
+  if (plan.blocked.length) {
+    throw new Error('This would have to remove ' + plan.blocked.length +
+      ' committed record(s), which it will not do — ' + plan.blocked.slice(0, 4).join(', ') +
+      (plan.blocked.length > 4 ? ', and others' : '') +
+      '. Those are records of what actually happened. Use Clear Spare Catalogue instead: the ' +
+      'parts they name are deactivated rather than deleted, and everything else still goes.');
+  }
+  if (!plan.spares) return { deleted: 0, quotations: [], stockMovements: 0, reservations: 0,
+                             enquiryLines: 0, prices: 0, compatibility: 0, alternates: 0 };
+
+  var ids = {};
+  readTable_('Spares').forEach(function (s) { ids[String(s.id)] = s.partNo; });
+  var isOurs = function (row) {
+    return row.itemType === 'Spare' && ids.hasOwnProperty(String(row.itemId));
+  };
+
+  // Documents first: while the parts still exist, so an interrupted run leaves lines whose
+  // part resolves rather than lines pointing at nothing.
+  var discarded = [];
+  plan.quotations.forEach(function (q) {
+    var res = discardQuotation(q.id);
+    discarded.push(res.quoteNo);
+  });
+
+  var enquiryLines = deleteRowsWhere_('SpareEnquiryItems', function (r) {
+    return ids.hasOwnProperty(String(r.spareId));
+  }, 'Enquiry line removed with the trial spare catalogue');
+
+  var movements = deleteRowsWhere_('StockMovements', isOurs,
+    'Stock movement removed with the trial spare catalogue');
+  var reservations = deleteRowsWhere_('StockReservations', isOurs,
+    'Reservation removed with the trial spare catalogue');
+
+  var removed = removeSpareDependents_(ids);
+
+  var sheet = getSheet_('Spares');
+  var headers = getHeaders_(sheet);
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+
+  var count = Object.keys(ids).length;
+  audit_('Delete', 'Spares', '(all)', '', count + ' spares', '',
+    'Spare catalogue and the documents built on it cleared by ' + user.email);
+
+  return { deleted: count, quotations: discarded, stockMovements: movements,
+           reservations: reservations, enquiryLines: enquiryLines, prices: removed.prices,
+           compatibility: removed.compatibility, alternates: removed.alternates };
+}

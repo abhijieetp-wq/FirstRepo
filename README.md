@@ -361,6 +361,29 @@ way forward was to go and destroy real work first. The report names each part th
 and the document that kept it, by its number rather than its row id — `quotation
 PIE/ELGI/QUOT/26-27/383`, not `quotation line QT-479af6c2`, which appears nowhere on screen.
 
+### When the documents are trial data too
+
+Deactivating is right when the document that holds a part in place matters. It is wrong when
+that document is itself trial data — a seeded opening-stock row, or a quotation raised to try
+the screen out. Then the part stays in the sheet forever on the strength of a record nobody
+wants either.
+
+**Settings → System → Clear Spares and Their Documents…** removes both. It shows the plan
+first — how many parts, how many ledger rows, and every quotation by number — and only then
+asks for `DELETE SPARES AND DOCUMENTS`. The confirmation dialog repeats that summary rather
+than pointing at the card behind it, because the modal covers the card.
+
+One hard line: anything that has reached a **commitment** stops it, as a whole. A sales order,
+goods receipt, dispatch or invoice is a record of something that actually happened, often with
+statutory weight, and no button labelled "clear the trial data" gets to sweep those away. The
+same goes for a quotation past Draft, one with an order raised from it, or one that has been
+revised — the policy `discardQuotation` already applies, for the same reason: the record of
+what was sent to a customer has to survive. When it refuses it names the records and points at
+the ordinary clear, which deactivates those parts and still removes everything else.
+
+It refuses as a whole rather than doing what it can. A half-applied clear-out leaves parts
+whose documents are gone and documents whose parts are gone, which is worse than either.
+
 **An import reactivates what it updates.** A part number present in the imported catalogue is
 a live part, so a row deactivated by the clear-out above comes back with the real description
 and price. Without that, a part held back for one demo quotation would have been updated

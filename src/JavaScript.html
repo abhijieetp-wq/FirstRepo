@@ -6702,7 +6702,10 @@
             "Either way the catalogue comes out empty. To retire a single part, deactivate " +
             "it on the Catalog screen." +
           "</div>" +
-          '<button class="btn btn-danger btn-sm" id="btn-purge-spares">Clear Spare Catalogue</button>'
+          '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+          '<button class="btn btn-danger btn-sm" id="btn-purge-spares">Clear Spare Catalogue</button>' +
+          '<button class="btn btn-sm" id="btn-purge-spares-deep">Clear Spares and Their Documents…</button>' +
+          "</div>"
         : "") +
       '<div id="sys-result"></div>');
 
@@ -6711,6 +6714,7 @@
     }
     if ($("btn-purge-spares")) {
       $("btn-purge-spares").addEventListener("click", purgeSparesNow);
+      $("btn-purge-spares-deep").addEventListener("click", purgeSparesDeepNow);
     }
     wireAuditButton();
   }
@@ -6802,6 +6806,101 @@
         loadSettings();   // the drift banner clears itself once it is untrue
       }).withFailureHandler(onServerError).runSetupFromSettings();
     });
+  }
+
+  /**
+   * The deeper clear-out, for when the parts left behind are held only by trial documents.
+   *
+   * The plan is fetched and shown *before* the confirmation is asked for, not after. What
+   * this removes is not guessable from the button — a quotation by number, a count of ledger
+   * rows — and nobody should be typing a confirmation phrase against a description they have
+   * not read.
+   */
+  function purgeSparesDeepNow() {
+    $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Working out what this would remove…</p>';
+    google.script.run.withSuccessHandler(function (plan) {
+      var quoteLines = plan.quotations.map(function (q) {
+        return "<li>quotation <span class=\"mono\">" + escapeHtml(q.quoteNo) + "</span> (" +
+          escapeHtml(q.status) + ")</li>";
+      }).join("");
+
+      $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +
+        "<b>This would remove:</b>" +
+        '<ul style="margin:8px 0 0 18px; padding:0;">' +
+          "<li>" + plan.spares + " spare(s), with their prices, compatibility and substitutes</li>" +
+          (plan.stockMovements ? "<li>" + plan.stockMovements + " stock movement(s)</li>" : "") +
+          (plan.reservations ? "<li>" + plan.reservations + " stock reservation(s)</li>" : "") +
+          (plan.enquiryLines ? "<li>" + plan.enquiryLines + " enquiry line(s)</li>" : "") +
+          quoteLines +
+        "</ul>" +
+        (plan.blocked.length
+          ? '<div class="msg msg-error show" style="margin-top:12px; position:static;">' +
+            "<span class=\"msg-text\"><b>It will not run.</b> " + plan.blocked.length +
+            " committed record(s) refer to these parts — " +
+            escapeHtml(plan.blocked.slice(0, 5).join(", ")) +
+            (plan.blocked.length > 5 ? ", and others" : "") +
+            ". Those are records of what actually happened, so they are never swept away by " +
+            "a clear-out. Use Clear Spare Catalogue instead: the parts they name are " +
+            "deactivated rather than deleted, and everything else still goes.</span></div>"
+          : '<p style="margin:12px 0 0;">Nothing here is a committed record — no order, ' +
+            "goods receipt, dispatch or invoice names these parts.</p>") +
+        "</div>";
+
+      if (plan.blocked.length) {
+        showMsg("Cannot run — committed records refer to these parts.", "error");
+        return;
+      }
+
+      // The dialog carries its own summary rather than pointing at the card behind it: the
+      // modal covers that card, and a confirmation phrase should never be typed against a
+      // description the person cannot see while typing it.
+      var parts = [plan.spares + " spare(s)"];
+      if (plan.stockMovements) parts.push(plan.stockMovements + " stock movement(s)");
+      if (plan.reservations) parts.push(plan.reservations + " reservation(s)");
+      if (plan.enquiryLines) parts.push(plan.enquiryLines + " enquiry line(s)");
+      if (plan.quotations.length) {
+        parts.push(plan.quotations.length + " quotation(s) — " +
+          plan.quotations.map(function (q) { return q.quoteNo; }).join(", "));
+      }
+
+      askDialog({
+        title: "Delete the spares and these documents?",
+        message: "This removes " + parts.join(", ") + ", along with their prices, " +
+          "compatibility and substitute rows. It cannot be undone from the app — the Sheet's " +
+          "own version history is the only way back. Type DELETE SPARES AND DOCUMENTS to " +
+          "confirm.",
+        input: true, inputLabel: "Confirmation", okLabel: "Delete everything listed", danger: true
+      }, function (typed) {
+        if (typed === null) return;
+        if (String(typed).trim().toUpperCase() !== "DELETE SPARES AND DOCUMENTS") {
+          showMsg("Not confirmed — nothing was deleted.", "error");
+          return;
+        }
+        $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Clearing…</p>';
+        google.script.run.withSuccessHandler(function (res) {
+          catalogLoaded.spares = false;
+          $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +
+            "<b>Done.</b> " + res.deleted + " spare(s) deleted, with " + res.prices +
+            " price record(s), " + res.compatibility + " compatibility row(s), " +
+            res.alternates + " substitute link(s), " + res.stockMovements +
+            " stock movement(s), " + res.reservations + " reservation(s) and " +
+            res.enquiryLines + " enquiry line(s)." +
+            (res.quotations.length
+              ? "<div style=\"margin-top:8px;\">Quotations discarded: " +
+                escapeHtml(res.quotations.join(", ")) + "</div>"
+              : "") +
+            '<div style="margin-top:10px;">The catalogue is empty. Import from Masters → ' +
+            "Catalog → Bulk Upload.</div></div>";
+          showMsg(res.deleted + " spare(s) and their documents removed.", "success");
+        }).withFailureHandler(function (err) {
+          $("sys-result").innerHTML = "";
+          onServerError(err);
+        }).purgeSparesWithDocuments("DELETE SPARES AND DOCUMENTS");
+      });
+    }).withFailureHandler(function (err) {
+      $("sys-result").innerHTML = "";
+      onServerError(err);
+    }).planSparePurge();
   }
 
   function wireAuditButton() {

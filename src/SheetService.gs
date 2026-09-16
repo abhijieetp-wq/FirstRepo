@@ -172,6 +172,49 @@ function deleteRowById_(sheetName, idField, idValue, auditReason) {
   }
 }
 
+/**
+ * Deletes every row a predicate matches, by rewriting the tab rather than deleting row by row.
+ *
+ * `deleteRowById_` re-reads and re-indexes for each row, which is right for one row and
+ * unusable for hundreds — and deleting rows from under an index shifts every row after it.
+ * This reads once, keeps the rows that do not match, writes them back, and logs one audit
+ * entry for the batch rather than burying the log.
+ */
+function deleteRowsWhere_(sheetName, matches, auditReason) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = getSheet_(sheetName);
+    var headers = getHeaders_(sheet);
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2 || !headers.length) return 0;
+
+    var block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var survivors = [];
+    var removed = 0;
+
+    block.forEach(function (row) {
+      var blank = row.every(function (c) { return c === '' || c === null; });
+      if (blank) return;
+      var obj = {};
+      headers.forEach(function (h, i) { obj[h] = normalizeCell_(row[i]); });
+      if (matches(obj)) { removed++; return; }
+      survivors.push(row);
+    });
+
+    if (!removed) return 0;
+
+    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+    if (survivors.length) {
+      sheet.getRange(2, 1, survivors.length, headers.length).setValues(survivors);
+    }
+    audit_('Delete', sheetName, '(bulk)', '', removed + ' rows', '', auditReason);
+    return removed;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function generateId_(prefix) {
   return (prefix || '') + Utilities.getUuid().slice(0, 8);
 }
