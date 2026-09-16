@@ -71,6 +71,7 @@ src/
   Products.gs        compressor product master
   Spares.gs          spare parts master, alternates, compatibility
   ItemReferences.gs  where a catalogue item can be referred to from; guards every hard delete
+  CatalogDelete.gs   deleting a selection of catalogue rows, with the documents holding them
   Pricing.gs         effective-dated price lists (FR-016/017)
   Stock.gs           append-only stock ledger, availability (FR-036/037)
   SpareEnquiries.gs  spare enquiry capture and part identification (FR-022/023/025)
@@ -469,6 +470,27 @@ ship with `elgiPrice` set, and each says in its notes where the number came from
 Two things in that offer read as copy-paste slips in PIE's own template, flagged rather than
 silently repaired: the dryer block's label column says `AR 0080N A1` where every other block
 says "Model", and the fine filter's Model row says `AF 0132P` — the pre-filter's code.
+
+## Deleting a set of catalogue rows
+
+Tick the rows and press **Delete Selected**. It plans first — what can go on its own, what
+needs documents removed with it, and what cannot go at all — then asks.
+
+This exists because the single-row delete answers the wrong question for trial data. It
+refuses the moment anything points at a row and says to deactivate instead, which is right for
+a part with history and useless for a row whose only reference is a seeded opening-stock
+entry. Worse, it was not even a workable refusal: **a stock movement cannot be removed from
+any screen in the app**, so a row blocked by one could never be deleted, whatever it was.
+
+It works on a selection rather than a whole tab, which matters once a real catalogue is in.
+The trial compressors and the 70 real ones sit side by side in the same list, and a "clear the
+product catalogue" button would take both. Same flow on Spares and on Products.
+
+The line it will not cross is the same one the spare clear-out draws: a sales order, goods
+receipt, dispatch or invoice is a record of something that actually happened; a quotation past
+Draft has to be reopened first. It refuses as a whole while any blocked row is still in the
+selection, because a half-applied delete leaves rows whose documents are gone and documents
+whose rows are gone.
 
 ## Removing a catalogue record
 

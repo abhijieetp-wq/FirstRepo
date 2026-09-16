@@ -367,11 +367,21 @@
     CATALOG_MODE = mode;
     $("bulk-upload-panel").style.display = "none";
     compareSelection = new Set();
+    syncDeleteSelected();
     $("compare-strip-zone").innerHTML = "";
     $("catalog-search").value = "";
     $("subtab-parts").className = "btn btn-sm" + (mode === "spares" ? " btn-primary" : "");
     $("subtab-units").className = "btn btn-sm" + (mode === "products" ? " btn-primary" : "");
     loadCatalog();
+  }
+
+  /** The same ticks that drive Compare also drive Delete, so the button follows them. */
+  function syncDeleteSelected() {
+    var btn = $("btn-delete-selected");
+    if (!btn) return;
+    var n = compareSelection.size;
+    btn.style.display = (canEditCatalog() && n) ? "inline-flex" : "none";
+    btn.textContent = "Delete Selected (" + n + ")";
   }
 
   function showingInactive() {
@@ -501,8 +511,10 @@
     $("catalog-tbody").querySelectorAll("[data-compare]").forEach(function (cb) {
       cb.addEventListener("change", function () {
         if (cb.checked) compareSelection.add(cb.dataset.compare); else compareSelection.delete(cb.dataset.compare);
+        syncDeleteSelected();
       });
     });
+    syncDeleteSelected();
     $("catalog-tbody").querySelectorAll("[data-edit]").forEach(function (btn) {
       btn.addEventListener("click", function () { openCatalogModal(btn.dataset.edit); });
     });
@@ -536,6 +548,150 @@
           '<td class="num mono" style="font-weight:700; color:' + (isBest ? "var(--green)" : "var(--navy)") + ';">' + fmt(best) + (isBest ? " ★" : "") + "</td></tr>";
       }).join("") + "</tbody></table></div>";
   });
+
+  /**
+   * Deletes the ticked rows, showing what that would take with it first.
+   *
+   * The plan comes back before anything is asked for, because what goes is not guessable from
+   * the button: a seeded stock movement, a draft quotation by number, a row that cannot go at
+   * all. The confirmation is the count, typed out, since that is the one thing a person can
+   * check against what they actually ticked.
+   */
+  $("btn-delete-selected").addEventListener("click", function () {
+    var ids = Array.from(compareSelection);
+    if (!ids.length) return;
+    var type = CATALOG_MODE === "spares" ? "Spare" : "Product";
+
+    $("compare-strip-zone").innerHTML =
+      '<div class="compare-strip">Working out what this would remove…</div>';
+
+    google.script.run.withSuccessHandler(function (plan) {
+      var list = function (title, items, render) {
+        if (!items.length) return "";
+        return "<div style=\"margin-top:10px;\"><b>" + title + "</b><ul style=\"margin:6px 0 0 18px; padding:0;\">" +
+          items.slice(0, 20).map(render).join("") +
+          (items.length > 20 ? "<li>…and " + (items.length - 20) + " more</li>" : "") +
+          "</ul></div>";
+      };
+
+      var canGoAlone = plan.free.length;
+      var needDocs = plan.withDocuments.length;
+
+      $("compare-strip-zone").innerHTML = '<div class="compare-strip">' +
+        '<div class="card-title" style="margin-bottom:6px;">Delete ' + plan.total + " selected " +
+          plan.label + "(s)?</div>" +
+        list(canGoAlone + (canGoAlone === 1 ? " can be deleted now — nothing refers to it:"
+                                              : " can be deleted now — nothing refers to them:"),
+             plan.free,
+             function (f) { return "<li><span class=\"mono\">" + escapeHtml(f.code) + "</span></li>"; }) +
+        list(needDocs + (needDocs === 1 ? " is referred to by documents that can go too:"
+                                        : " are referred to by documents that can go too:"),
+             plan.withDocuments,
+             function (f) { return "<li><span class=\"mono\">" + escapeHtml(f.code) + "</span> — " +
+               escapeHtml(f.usedBy.slice(0, 3).join(", ")) + "</li>"; }) +
+        list(plan.blocked.length + (plan.blocked.length === 1 ? " cannot be deleted:"
+                                                             : " cannot be deleted:"),
+             plan.blocked,
+             function (f) { return "<li><span class=\"mono\">" + escapeHtml(f.code) + "</span> — " +
+               escapeHtml(f.why.slice(0, 2).join("; ")) + "</li>"; }) +
+        (plan.blocked.length
+          ? '<p style="margin:10px 0 0;">Deselect those, or clear what is named, and try ' +
+            "again. Nothing is deleted while any of them is in the selection.</p>"
+          : "") +
+        "</div>";
+
+      if (plan.blocked.length) {
+        showMsg(plan.blocked.length + " of the selected rows cannot be deleted — see the list.", "error");
+        return;
+      }
+
+      var ask = function (withDocs, count) {
+        askDialog({
+          title: "Delete " + count + " " + plan.label + "(s)?",
+          message: (withDocs
+            ? "This also discards " + describeDocs(plan) + ". "
+            : "Only the " + count + " that nothing refers to. ") +
+            "It cannot be undone from the app — the Sheet's own version history is the only " +
+            "way back. Type " + count + " to confirm.",
+          input: true, inputLabel: "Type " + count, okLabel: "Delete", danger: true
+        }, function (typed) {
+          if (typed === null) return;
+          if (String(typed).trim() !== String(count)) {
+            showMsg("That is not " + count + " — nothing was deleted.", "error");
+            return;
+          }
+          $("compare-strip-zone").innerHTML = '<div class="compare-strip">Deleting…</div>';
+          google.script.run.withSuccessHandler(function (res) {
+            compareSelection = new Set();
+            syncDeleteSelected();
+            catalogLoaded.spares = false;
+            catalogLoaded.products = false;
+            $("compare-strip-zone").innerHTML = '<div class="compare-strip">' +
+              "<b>" + res.deleted + " " + plan.label + "(s) deleted.</b> " +
+              [res.prices + " price record(s)",
+               res.compatibility + " compatibility row(s)",
+               res.alternates + " substitute link(s)",
+               res.stockMovements + " stock movement(s)",
+               res.reservations + " reservation(s)",
+               res.enquiryLines + " enquiry line(s)"]
+                .filter(function (t) { return !/^0 /.test(t); }).join(", ") +
+              (res.quotations.length
+                ? ". Quotations discarded: " + escapeHtml(res.quotations.join(", "))
+                : "") + "</div>";
+            loadCatalog();
+            showMsg(res.deleted + " " + plan.label + "(s) deleted.", "success");
+          }).withFailureHandler(function (err) {
+            $("compare-strip-zone").innerHTML = "";
+            onServerError(err);
+          }).deleteCatalogItems(type, ids, withDocs, String(count));
+        });
+      };
+
+      if (!needDocs) { ask(false, canGoAlone); return; }
+
+      // Two real choices when documents are in the way, so they are offered as such rather
+      // than as a yes/no that hides one of them.
+      askDialog({
+        title: "Some of these are used by documents",
+        message: needDocs + " of the " + plan.total + " are named by " + describeDocs(plan) +
+          ". Delete those documents too, or delete only the " + canGoAlone +
+          " that nothing refers to?",
+        options: [
+          { value: "docs", label: "Delete all " + (canGoAlone + needDocs) + ", documents included" }
+        ].concat(canGoAlone
+          ? [{ value: "free", label: "Delete only the " + canGoAlone +
+                " that nothing refers to" }] : []),
+        optionsLabel: "Choose",
+        okLabel: "Continue"
+      }, function (choice) {
+        if (choice === null) return;
+        if (choice === "docs") ask(true, canGoAlone + needDocs);
+        else ask(false, canGoAlone);
+      });
+    }).withFailureHandler(function (err) {
+      $("compare-strip-zone").innerHTML = "";
+      onServerError(err);
+    }).planCatalogDelete(type, ids);
+  });
+
+  /** "2 draft quotation(s) and 8 stock movement(s)" — what the documents actually are. */
+  function describeDocs(plan) {
+    var kinds = {};
+    plan.withDocuments.forEach(function (f) {
+      f.usedBy.forEach(function (phrase) {
+        var kind = /^quotation /.test(phrase) ? "draft quotation"
+                 : /^stock movement/.test(phrase) ? "stock movement"
+                 : /^reservation/.test(phrase) ? "reservation"
+                 : /^enquiry/.test(phrase) ? "enquiry line" : phrase;
+        kinds[kind] = kinds[kind] || new Set();
+        kinds[kind].add(phrase);
+      });
+    });
+    var parts = Object.keys(kinds).map(function (k) { return kinds[k].size + " " + k + "(s)"; });
+    return parts.length > 1
+      ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1]
+      : (parts[0] || "documents");
+  }
 
   $("btn-new-catalog-item").addEventListener("click", function () { openCatalogModal(null); });
   function openCatalogModal(id) {
