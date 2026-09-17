@@ -149,7 +149,8 @@ function defaultBrand_() {
  * `key = value` per line.
  */
 var QUOTE_SECTIONS = ['CoverLetter', 'WhyBrand', 'ScopeOfSupply', 'Terms', 'InstallationNotes',
-  'ExtraEnclosures', 'DocumentTitle', 'Closing', 'ClosingFinal', 'SpecNote', 'Labels'];
+  'UptimeWarranty', 'ExtraEnclosures', 'DocumentTitle', 'Closing', 'ClosingFinal', 'SpecNote',
+  'Labels'];
 
 function listQuoteTemplates(options) {
   getCurrentUser();
@@ -445,6 +446,139 @@ function defaultQuoteTemplates_() {
         'Optional Features:\n' +
         'Integrated dryer, Air Alert (IoT device) and VFD moisture separator with zero loss ' +
         'drain valve'
+    },
+
+    // ELGi's UPTIME Assurance annexure, off PIE/ELGI/QUOT/26-27/383 word for word.
+    //
+    // I argued for leaving this as an attached PDF: it is ELGi's legal document, and a copy
+    // kept here goes stale silently the day ELGi revises a warranty period. PIE's answer
+    // settles it — the page exists to be filled in by hand and signed by both sides, and an
+    // attachment nobody can sign is worth nothing. So it prints, with its blanks intact.
+    //
+    // The staleness risk is real and is now PIE's to manage: when ELGi revises the annexure,
+    // this text is edited in Settings → Quotation Text. Lines ending in a colon are headings;
+    // a line starting with "# " is a field to be completed by hand and prints with a rule.
+    {
+      id: 'QTPL-COMP-UPTIME', section: 'UptimeWarranty', brand: 'ELGI',
+      businessStream: STREAM_COMPRESSOR, appliesTo: '', sortOrder: 6, active: 'TRUE',
+      title: 'ELGi\u2019s UPTIME Assurance is all about giving customers peace of mind by ' +
+        'offering industry\u2019s leading warranty',
+      body: 'ELGi warrants that its product and the components for its products will perform ' +
+        'the purpose and function for which they are designed and intended for the periods of ' +
+        'time indicated below when used, serviced and maintained in accordance with ELGi\u2019s ' +
+        'instructions and specification.\n' +
+        'To avail this warranty please register with the ELGi Customer Care System (CCS) ' +
+        'within 15 days after receipt of the compressor package or within 3 days of ' +
+        'commissioning whichever occurs earlier.\n' +
+        'EG SERIES:\n' +
+        'AIREND \u2014 72 months from the date of start-up (not exceeding 30000 hours) or 78 ' +
+        'months from the date of shipment from ELGi factory/warehouse, whichever occurs first.\n' +
+        'MAIN MOTOR / COOLER / SEPARATOR TANK \u2014 36 months from the date of start-up or 42 ' +
+        'months from the date of shipment from ELGi factory/warehouse, whichever occurs first.\n' +
+        'ENCAP SERIES:\n' +
+        'AIREND \u2014 36 months from the date of start-up (not to exceed 15000 hrs) or 42 ' +
+        'months from the date of shipment from ELGi factory/warehouse, whichever occurs first.\n' +
+        'OF SERIES:\n' +
+        'AIREND \u2014 48 months from the date of commissioning (not exceeding 30000 hours) or ' +
+        '54 months from the date of shipment from the ELGi factory/warehouse, whichever occurs ' +
+        'first.\n' +
+        'MOTORS (MAIN & OIL) / COOLERS / CAPACITY CONTROL VALVE \u2014 24 months from the date ' +
+        'of commissioning or 30 months from the date of shipment from the ELGi ' +
+        'factory/warehouse, whichever occurs first.\n' +
+        'OTHER COMPRESSOR PARTS:\n' +
+        'All other parts, unless explicitly mentioned other than the above, are warranted for ' +
+        'a period of 12 months from the date of start-up or 18 months from the date of ' +
+        'shipment from ELGi factory/warehouse, whichever occurs first.\n' +
+        'WARRANTY COVERAGE:\n' +
+        '1st year \u2014 parts, labour and transportation of parts.\n' +
+        '2nd year onwards \u2014 parts (ex-works basis) and labour.\n' +
+        'If an ELGi product or component of an ELGi product fails to perform as warranted, ' +
+        'ELGi will, at its option, repair or replace the product or component of the product ' +
+        'as indicated, and upon the terms and provisions set forth below.\n' +
+        'WARRANTY CONDITIONS:\n' +
+        '1. Compressors shall be installed, operated and maintained as per the ELGi Operation ' +
+        '& Maintenance Manual.\n' +
+        '2. Commissioning shall be done by ELGi authorised personnel/distributor.\n' +
+        '3. Genuine consumables, lubricants and spares shall be used.\n' +
+        '4. Compressor shall be preserved if kept idle as per the preservation procedure ' +
+        'detailed in the ELGi Operation & Maintenance Manual.\n' +
+        '5. ELGi\u2019s free oil sampling programme participation is required as below: ' +
+        '(a) if ELGi Airlube UT Syn Fluid is used \u2014 every 4000 hrs/6 months whichever ' +
+        'occurs first, or as per the oil sampling report; (b) if ELGi Airlube XD is used ' +
+        '\u2014 as recommended by ELGi authorised service personnel.\n' +
+        '6. All warranty complaints must be registered with ELGi CCS within 24 hrs.\n' +
+        '7. Customer shall maintain water sampling quality as per ELGi\u2019s recommendations ' +
+        'given in the OMM with a frequency of every 6 months (OF SERIES).\n' +
+        '8. Customer agrees to periodic and sporadic inspection, giving one week\u2019s prior ' +
+        'notice, to conduct periodic compressor and its maintenance routine audits (OF SERIES).\n' +
+        '9. The customer shall maintain the below documents and produce them if requested ' +
+        'prior to any warranty claim: (a) copy of the signed warranty document; (b) proof of ' +
+        'purchase of consumables, lubricant and spares; (c) maintenance log.\n' +
+        '10. In case the customer wants to take services of ELGi or its dealer\u2019s personnel ' +
+        'for carrying out regular maintenance work, the applicable service charges are to be ' +
+        'paid by the customer.\n' +
+        '11. Warranty on factory repaired/replaced parts shall expire along with this warranty.\n' +
+        '12. The benefits of this warranty shall be to the first owner or commercial user only ' +
+        'and cannot be transferred.\n' +
+        'EXCLUSIONS:\n' +
+        '1. Electricals (except motors and controller), rubber parts, seals, and consumables ' +
+        'like air filter, oil filter, separator element, lubricant and similar wear and tear ' +
+        'parts.\n' +
+        '2. Air travel, boarding and lodging expense of service personnel to attend any kind ' +
+        'of service or maintenance.\n' +
+        'CONDITIONS THAT WILL VOID AND INVALIDATE WARRANTY:\n' +
+        '1. Failure to abide by the warranty conditions, unless otherwise given in writing by ' +
+        'ELGi, will make the warranty void.\n' +
+        '2. Repairs carried out on the package without the prior authorisation by ELGi.\n' +
+        '3. Usage of non-genuine spare parts.\n' +
+        '4. Nonconformity to ELGi\u2019s operating instructions, specifications, guidelines, ' +
+        'maintenance and service instructions.\n' +
+        '5. Equipment conditions as a result of normal wear and tear, abnormal and unusually ' +
+        'harsh operating conditions, wilful misuse and negligent use of equipment, accidents ' +
+        'and shipping damage.\n' +
+        '6. Customisation of ELGi supplied compressor package without written consent from ELGi.\n' +
+        '7. Re-installation of compressors from one location to another unless otherwise ' +
+        'recertified by ELGi authorised personnel.\n' +
+        '8. If the compressor is not commissioned within 6 months of receipt unless otherwise ' +
+        'recertified by ELGi authorised personnel.\n' +
+        '9. If there are any dues in payment towards purchase of equipment, service and spares ' +
+        'beyond the agreed payment schedule.\n' +
+        'LIMITATION OF LIABILITY:\n' +
+        '1. ELGi shall not be liable for any loss of profit, loss of production, loss of income ' +
+        'or contract, loss of goodwill, or for indirect or consequential or incidental loss or ' +
+        'damage of any kind whatsoever.\n' +
+        '2. In no event shall ELGi be liable for any claims or loss having a value higher than ' +
+        'the original purchase price of the product.\n' +
+        '3. ELGi reserves the right to alter or terminate the warranty programme for any part ' +
+        'or units not already covered under this policy.\n' +
+        'FORCE MAJEURE:\n' +
+        'ELGi is not liable for failure to perform the company\u2019s obligations if such ' +
+        'failure is as a result of acts of God (including but not limited to fire, flood, ' +
+        'earthquake, storm, hurricane or other natural disaster), war, invasion, act of ' +
+        'foreign enemies, hostilities (regardless of whether war is declared), civil war, ' +
+        'rebellion, revolution, insurrection, military or usurped power or confiscation, ' +
+        'terrorist activities, nationalisation, government sanction, blockage, embargo, labour ' +
+        'dispute, strike, lockout or interruption or failure of electricity or telephone ' +
+        'service.\n' +
+        'USER INFORMATION:\n' +
+        '# Company Name\n' +
+        '# Address\n' +
+        '# Contact Person\n' +
+        '# Contact Details\n' +
+        'COMPRESSOR DETAILS (to be entered by ELGi authorised personnel):\n' +
+        '# Compressor Fab No\n' +
+        '# Airend Serial No\n' +
+        '# Start-up Date\n' +
+        '# Commissioned by\n' +
+        '# Place & Date\n' +
+        'I have read and accepted all the Terms and Conditions of this agreement completely.\n' +
+        '# Customer Seal & Signature\n' +
+        '# ELGi Authorised Signatory\n' +
+        'DISCLAIMER:\n' +
+        'The warranty expressly set forth herein is the only warranty provided by ELGi with ' +
+        'respect to its products, and ELGi expressly denies and disclaims all other ' +
+        'warranties, either express or implied, and specifically disclaims any implied ' +
+        'warranty of merchantability or fitness for a particular purpose.'
     },
 
     // Things stapled to the offer rather than generated by it. The UPTIME Assurance annexure

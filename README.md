@@ -465,11 +465,18 @@ PIE/ELGI/QUOT/26-27/383: eleven blocks from Base & Enclosure to Optional Feature
 renderer already treated a line ending in a colon as a heading, which is exactly how their
 copy reads, so it needed no new code.
 
-**The UPTIME Assurance annexure stays an attachment.** It is ELGi's own legal document —
-warranty periods per series, exclusions, limitation of liability, and a customer signature
-block — and retyping that into a template is how a transcription error reaches a contract. The
-new `ExtraEnclosures` section names it in the enclosure list so the reader is told what is in
-the envelope, and the PDF goes in as it comes.
+**The UPTIME Assurance annexure prints, blanks and all.** I argued for leaving it an
+attachment: it is ELGi's legal document, and a copy held here goes stale silently the day ELGi
+revises a warranty period. PIE's answer settles it, and it is the better argument — the page
+exists to be *filled in by hand and signed by both sides*, and an attachment nobody can sign
+is worth nothing. `Compressor Fab No`, `Airend Serial No`, `Start-up Date`, `Customer Seal &
+Signature`, `ELGi Authorised Signatory`: eleven fields that are completed at commissioning,
+months after the offer.
+
+So it prints as the last page, with each field a ruled blank to write on. The staleness risk
+is real and is now PIE's to manage: when ELGi revises the annexure, the text is edited in
+Settings → Quotation Text. In the template a line ending in a colon is a heading and a line
+starting with `# ` is a field.
 
 ## The compressor catalogue
 
