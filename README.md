@@ -718,6 +718,30 @@ cannot reach a Sheet that has already been set up. **Settings → Quotation Text
 Standard Wording** is the deliberate way to take it. It touches only the sections that ship with
 the system, leaves anything the business wrote alone, and says how many it changed.
 
+## The spares offer is not a compressor offer with different lines
+
+Checked against their own, PIE/ELGI/QUOT spares offer `DO – Sep-02`. Three things differed,
+and each is a real difference of document rather than of data.
+
+**A spares offer states the tax and the amount payable; a compressor offer does not.** Theirs
+prints `Total Tax 18% 51001.74` and `Total Amount 334344.74` — even though its own term 1 says
+GST is extra on the basic value. The compressor offer writes `18% GST EXTRA` with no figure,
+because the machine price is negotiated and GST is charged at the rate prevailing on the date
+of dispatch, so a number printed today would be wrong by then. A spares offer is a firm total
+the customer raises a purchase order against. We were printing EXTRA on both and omitting the
+grand total from the spares annexure entirely.
+
+**The Fab No and Model No open the annexure whether or not the machine is known.** Theirs
+prints them empty — `FAB NO :-` with nothing after. We printed them only when filled, which
+is the same gap-hiding the specification table had: an offer for parts that never says which
+machine they fit reads as complete, and nobody chases a line that was never on the page.
+
+**The Freight row states a freight condition, not a delivery time.** It printed
+`q.deliveryTerms`, so a compressor offer read `Freight: 4-6 weeks` where theirs reads
+`Extra from Ex-works Coimbatore` — a delivery promise standing in for a freight term. That
+wording is standing text, so it moved into the document's Labels. Their spares offer has no
+freight row at all: carting is a line and term 2 covers the rest.
+
 ## Two streams, two price schedules
 
 Their compressor offer and their spares offer schedule prices differently, and each is right

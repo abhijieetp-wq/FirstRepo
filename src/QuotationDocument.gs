@@ -383,14 +383,21 @@ function buildQuotationHtml(quotationId) {
   // The machine the parts belong to. A spare part is meaningless without it — their own spares
   // offer opens the annexure with these two lines, and we were holding both and printing
   // neither.
-  if (!isCompressor && (q.machineModel || q.serialNo)) {
-    push('<table class="machine">' +
-      (q.serialNo ? '<tr><td>' + esc_(L('fabNo', 'Fab No')) + '</td><td>' +
-        esc_(q.serialNo) + '</td></tr>' : '') +
-      (q.machineModel ? '<tr><td>' + esc_(L('modelNo', 'Model No')) + '</td><td>' +
-        esc_(q.machineModel) + '</td></tr>' : '') +
+  // Their spares annexure opens with these two, and prints them empty when the counter has
+  // not been told the machine yet — "FAB NO :-" with nothing after it. Printing the rows only
+  // when they are filled hid the gap: an offer for parts that never says which machine they
+  // fit looks complete, and nobody chases what was never on the page.
+  if (!isCompressor) {
+    push('<table class="spec" style="margin-bottom:10px;">' +
+      '<tr><td>' + esc_(L('fabNo', 'Fab No')) + '</td>' +
+      (q.serialNo ? '<td>' + esc_(q.serialNo) + '</td>'
+                  : '<td class="spec-blank">&nbsp;</td>') + '</tr>' +
+      '<tr><td>' + esc_(L('modelNo', 'Model No')) + '</td>' +
+      (q.machineModel ? '<td>' + esc_(q.machineModel) + '</td>'
+                      : '<td class="spec-blank">&nbsp;</td>') + '</tr>' +
       '</table>');
   }
+
 
   /*
    * The two documents schedule prices differently, and each is right for what it sells.
@@ -469,16 +476,28 @@ function buildQuotationHtml(quotationId) {
   if (isCompressor || Number(q.pfAmount) > 0) {
     totals.push([esc_(L('pf', 'P&F')), Number(q.pfAmount) > 0 ? inr_(q.pfAmount) : 'NIL', '']);
   }
-  if (isCompressor || q.deliveryTerms) {
-    totals.push([esc_(L('freight', 'Freight')), esc_(q.deliveryTerms || 'Extra at actuals'), '']);
+  // Freight terms, not the delivery time. This printed q.deliveryTerms, so a compressor offer
+  // read "Freight: 4-6 weeks" where theirs reads "Extra from Ex-works Coimbatore" — a delivery
+  // promise standing in for a freight condition. The wording is standing text, so it lives
+  // with the rest of the document's wording rather than being typed per quotation. Their
+  // spares offer has no freight row at all: carting is a line and term 2 covers the rest.
+  if (isCompressor) {
+    totals.push([esc_(L('freight', 'Freight')),
+                 esc_(L('freightNote', 'Extra at actuals')), '']);
   }
 
   // The row reading "18% GST" on a compressor offer and "Total Tax 18%" on a spares one — same
   // figure, their two documents word it differently, so the wording is a label with the rate
   // substituted into it.
   var taxRow = esc_(L('taxRow', '{rate}% GST')).replace('{rate}', esc_(headlineTaxRate_(items)));
+  // Their two offers differ here, and not by accident. A compressor offer writes "18% GST
+  // EXTRA" with no figure: the machine price is negotiated and GST is charged at the rate
+  // prevailing on the date of dispatch, so a number printed today would be wrong by then.
+  // A spares offer is a firm total the customer raises a purchase order against, so it states
+  // the tax and the amount payable — theirs reads "Total Tax 18% 51001.74" and
+  // "Total Amount 334344.74" even though its own term 1 says GST is extra on the basic value.
   var taxExtra = String(q.taxMode || 'Extra') === 'Extra';
-  if (taxExtra) {
+  if (isCompressor && taxExtra) {
     totals.push([taxRow, esc_(L('taxExtra', 'EXTRA')), '']);
   } else {
     totals.push([taxRow, inr_(q.taxAmt), '']);

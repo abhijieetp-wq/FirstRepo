@@ -543,6 +543,9 @@ function defaultQuoteTemplates_() {
         'specHeading = Technical specifications\n' +
         'scopeHeading = Scope of supply\n' +
         'priceHeading = Price schedule\n' +
+        // The freight condition, which is standing wording rather than something typed per
+        // quotation — theirs reads the same on every compressor offer they send.
+        'freightNote = Extra from Ex-works Coimbatore\n' +
         'colDescription = Description\n' +
         'colBasicPrice = Basic price\n' +
         'colQty = Qty\n' +
