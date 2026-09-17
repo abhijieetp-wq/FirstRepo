@@ -718,6 +718,19 @@ cannot reach a Sheet that has already been set up. **Settings → Quotation Text
 Standard Wording** is the deliberate way to take it. It touches only the sections that ship with
 the system, leaves anything the business wrote alone, and says how many it changed.
 
+## Telling the two offers apart inside the portal
+
+The printed documents announce themselves — one opens *ELGi ELECTRIC POWERED OIL SCREW AIR
+COMPRESSOR / TECHNICAL OFFER*, the other *ELGi GENUINE SPARE PARTS / OFFER*. Inside the app
+there was nothing: the quotations list showed quote number, customer and machine, and the
+quote number is no help either, because both streams draw from one series — PIE/…/12 and
+PIE/…/13 can be a compressor and a set of spares.
+
+So the list carries a **Stream** column with a badge, a filter beside the search for one
+stream or both, and the search matches on the stream name. The quotation being worked on wears
+the same badge above the customer, because everything below that line looks identical while
+the document it prints does not.
+
 ## The spares offer is not a compressor offer with different lines
 
 Checked against their own, PIE/ELGI/QUOT spares offer `DO – Sep-02`. Three things differed,

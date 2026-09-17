@@ -1923,16 +1923,35 @@
     });
   }
 
+  /**
+   * Which stream a quotation belongs to, said in one word.
+   *
+   * The two documents are different offers — different price schedule, different terms,
+   * different annexures — and the list showed nothing to tell them apart. The quotation
+   * number does not help either: both streams draw from the same series, so PIE/…/12 and
+   * PIE/…/13 can be a compressor and a set of spares.
+   */
+  function streamBadge(stream) {
+    var spares = stream === "Spare Sales";
+    return '<span class="badge ' + (spares ? "badge-quoted" : "badge-followup") + '">' +
+      (spares ? "Spares" : "Compressor") + "</span>";
+  }
+
   function renderQuotations() {
     var q = ($("quotations-search").value || "").toLowerCase();
+    var wantStream = $("quotations-stream").value;
     var rows = quotationsCache.filter(function (r) {
-      return [r.quoteNo, r.customerName, r.machineModel, r.serialNo].join(" ").toLowerCase().indexOf(q) !== -1;
+      if (wantStream && r.businessStream !== wantStream) return false;
+      return [r.quoteNo, r.customerName, r.machineModel, r.serialNo, r.businessStream]
+        .join(" ").toLowerCase().indexOf(q) !== -1;
     });
 
     var tbody = $("quotations-tbody");
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="10"><div class="empty">' +
-        (quotationsCache.length ? "No quotations match your search." : "No quotations yet — raise one from an enquiry.") +
+      tbody.innerHTML = '<tr><td colspan="11"><div class="empty">' +
+        (quotationsCache.length
+          ? "No quotations match your search."
+          : "No quotations yet — raise one from an enquiry.") +
         "</div></td></tr>";
       return;
     }
@@ -1941,6 +1960,7 @@
       return "<tr>" +
         '<td class="mono">' + escapeHtml(r.quoteNo) + "</td>" +
         '<td class="mono">' + escapeHtml(r.revision || "R0") + "</td>" +
+        "<td>" + streamBadge(r.businessStream) + "</td>" +
         "<td>" + escapeHtml(r.date) + "</td>" +
         "<td>" + escapeHtml(r.customerName || "—") + "</td>" +
         "<td>" + escapeHtml(r.machineModel || "—") + "</td>" +
@@ -1960,7 +1980,13 @@
     });
   }
 
+  $("quotations-stream").innerHTML = '<option value="">Both streams</option>' +
+    BUSINESS_STREAMS.map(function (st) {
+      return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
+    }).join("");
+
   $("quotations-search").addEventListener("input", renderQuotations);
+  $("quotations-stream").addEventListener("change", renderQuotations);
   $("quotations-mine").addEventListener("change", loadQuotations);
   $("quotations-closed").addEventListener("change", loadQuotations);
 
@@ -2070,7 +2096,11 @@
     $("qb-empty").style.display = "none";
     $("qb-body").style.display = "";
     $("qb-title").textContent = q.quoteNo + " " + (q.revision || "R0");
-    $("qb-subtitle").textContent = q.customerName + (q.machineModel ? " · " + q.machineModel : "");
+    // Which offer this is, first thing, because the document it prints differs in its price
+    // schedule, its terms and its annexures — and everything below this line looks the same.
+    $("qb-subtitle").innerHTML = streamBadge(q.businessStream) + " " +
+      escapeHtml(q.customerName || "") +
+      (q.machineModel ? " · " + escapeHtml(q.machineModel) : "");
 
     // A locked quotation is read-only by design: it is what the customer received.
     var editable = canEditQuotes() && !q.locked;
