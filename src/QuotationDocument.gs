@@ -282,11 +282,12 @@ function buildQuotationHtml(quotationId) {
     });
   }
 
-  // Only machines with specifications on file get a specification table; the enclosure list
-  // above needs to know that before the letter is written.
+  // Every machine on the offer gets a specification table, whether or not its specifications
+  // are on file. Printing only the ones that were filled in hid the gap: a missing table is
+  // invisible, and nobody goes looking for a page that was never there. A table with empty
+  // rows is a to-do that the next person to read the offer will act on.
   var specced = items.filter(function (i) {
-    var p = products[String(i.itemId)];
-    return i.itemType === 'Product' && p && (p.capacityCfm || p.motorKw || p.maxPressure);
+    return i.itemType === 'Product' && products[String(i.itemId)];
   });
 
   var why = quoteTemplate_('WhyBrand', stream);
@@ -340,22 +341,27 @@ function buildQuotationHtml(quotationId) {
     if (specNote) push('<div class="note">' + esc_(String(specNote.body).trim()) + '</div>');
     specced.forEach(function (i) {
       var p = products[String(i.itemId)];
+      // Every row every time, blanks included. An empty cell is the prompt to go and fill it;
+      // dropping the row leaves the offer looking complete when it is not.
       var rows = [
         ['Model', p.model || p.productCode],
-        ['Capacity', p.capacityCfm],
-        ['Maximum pressure', p.maxPressure],
-        ['Normal working pressure', p.workingPressure],
-        ['Main motor nominal rating', p.motorKw],
-        ['Starter', p.starterType],
-        ['Dimensions', p.dimensionsMm],
-        ['Weight of the package', p.weightKg]
-      ].filter(function (r) { return String(r[1] || '').trim() !== ''; });
+        [L('specCapacity', 'Capacity'), p.capacityCfm],
+        [L('specMaxPressure', 'Maximum pressure'), p.maxPressure],
+        [L('specWorkPressure', 'Normal working pressure'), p.workingPressure],
+        [L('specMotor', 'Main motor nominal rating'), p.motorKw],
+        [L('specStarter', 'Starter'), p.starterType],
+        [L('specDimensions', 'Dimensions'), p.dimensionsMm],
+        [L('specWeight', 'Weight of the package'), p.weightKg]
+      ];
 
       push('<div class="spec-title">' + esc_(p.model || p.productCode) + '</div>');
       push('<table class="spec"><tr><th>' + esc_(L('colDescription', 'Description')) +
         '</th><th>' + esc_(L('colSpecification', 'Specifications')) + '</th></tr>');
       rows.forEach(function (r) {
-        push('<tr><td>' + esc_(r[0]) + '</td><td>' + esc_(r[1]) + '</td></tr>');
+        var value = String(r[1] === undefined || r[1] === null ? '' : r[1]).trim();
+        push('<tr><td>' + esc_(r[0]) + '</td>' +
+          (value ? '<td>' + esc_(value) + '</td>'
+                 : '<td class="spec-blank">&nbsp;</td>') + '</tr>');
       });
       push('</table>');
     });
@@ -642,6 +648,9 @@ function quotationCss_(co) {
     'table.spec{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
     'table.spec th{background:#eee;text-align:left;padding:5px 8px;border:1px solid #999;}' +
     'table.spec td{padding:5px 8px;border:1px solid #999;}' +
+    // An empty specification keeps its row and its box, so the gap is obvious on the page
+    // rather than closing up as if the line had never existed.
+    '.spec-blank{background:#FCFCFC;}' +
     '.scope-head{font-weight:bold;margin:10px 0 3px;}' +
     '.scope-line{margin-left:12px;font-size:10pt;}' +
 

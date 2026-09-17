@@ -2325,6 +2325,26 @@
     }).withFailureHandler(onServerError).listCustomers();
   });
 
+  /**
+   * A line under the items saying which machines will print a half-empty specification table.
+   *
+   * The table prints for every machine whether or not its specifications are on file, because
+   * a table that is simply absent is invisible and nobody chases a page that was never there.
+   * That only becomes useful if somebody is told which rows are blank while the quotation can
+   * still be fixed — so this says it here, next to the lines, not after the PDF is out.
+   */
+  function specGapNote(q) {
+    var gaps = q.specGaps || [];
+    if (!gaps.length) return "";
+    return '<div class="msg msg-error show" style="position:static; margin-top:12px;">' +
+      '<span class="msg-text"><b>The specification table will print with blanks.</b> ' +
+      gaps.map(function (g) {
+        return escapeHtml(g.code) + " has no " + escapeHtml(g.missing.join(", "));
+      }).join("; ") +
+      ". Fill them on Masters → Catalog → Products and the table completes itself; the rows " +
+      "print either way so the gap is visible on the offer.</span></div>";
+  }
+
   function renderQuoteItems(q, editable) {
     var zone = $("qb-items");
     if (!q.items.length) {
@@ -2366,6 +2386,8 @@
         });
       });
     });
+
+    if (q.specGaps && q.specGaps.length) zone.insertAdjacentHTML("beforeend", specGapNote(q));
 
     zone.querySelectorAll("[data-edit-line]").forEach(function (btn) {
       btn.addEventListener("click", function () {

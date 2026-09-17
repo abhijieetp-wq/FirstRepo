@@ -281,7 +281,46 @@ function getQuotation(id) {
   })[0];
   row.customerName = customer ? customer.name : '';
   row.customerGstin = customer ? customer.gstin : '';
+  row.specGaps = specGapsFor_(row.items);
   return row;
+}
+
+/**
+ * Which machines on the offer will print a specification table with empty rows.
+ *
+ * The table prints for every machine now, gaps and all, because a missing table is invisible
+ * and nobody chases a page that was never there. That only helps if somebody is told, so the
+ * screen says which lines are short and of what, while the quotation can still be fixed.
+ */
+function specGapsFor_(items) {
+  var wanted = [
+    { field: 'capacityCfm', label: 'capacity' },
+    { field: 'maxPressure', label: 'maximum pressure' },
+    { field: 'workingPressure', label: 'normal working pressure' },
+    { field: 'motorKw', label: 'motor rating' },
+    { field: 'starterType', label: 'starter' },
+    { field: 'dimensionsMm', label: 'dimensions' },
+    { field: 'weightKg', label: 'weight' }
+  ];
+
+  var products = {};
+  var needed = (items || []).some(function (i) { return i.itemType === 'Product'; });
+  if (!needed) return [];
+  readTable_('Products').forEach(function (p) { products[String(p.id)] = p; });
+
+  var gaps = [];
+  (items || []).forEach(function (i) {
+    if (i.itemType !== 'Product') return;
+    var p = products[String(i.itemId)];
+    if (!p) return;
+    var missing = wanted.filter(function (w) {
+      return String(p[w.field] === undefined ? '' : p[w.field]).trim() === '';
+    }).map(function (w) { return w.label; });
+    if (missing.length) {
+      gaps.push({ itemId: String(i.itemId), code: p.productCode, missing: missing });
+    }
+  });
+  return gaps;
 }
 
 /** Header edits. Refuses to touch a locked quotation — revise it instead. */

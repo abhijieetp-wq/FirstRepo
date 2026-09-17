@@ -450,6 +450,15 @@ form had no field, so `specced` was empty for every machine ever quoted and the 
 never appeared. All three now agree, and the enclosure list says "Technical specifications and
 scope of supply" the way theirs does.
 
+**It prints for every machine, filled in or not, and keeps its empty rows.** Both halves of
+that were wrong before: a machine with no specifications got no table at all, and a machine
+with some got only the rows that had values. Both hid the gap. A table that is absent is
+invisible — nobody goes looking for a page that was never there — and a row that closes up
+leaves the offer looking complete when it is not. An empty cell is a to-do the next person to
+read the offer acts on, which is the whole point. `getQuotation` returns `specGaps` so the
+quotation screen names the short machines and the missing fields while the offer can still be
+fixed, rather than after the PDF has gone out.
+
 **The scope of supply** — the section existed, the document rendered it, and nothing was ever
 seeded, so it printed as nothing. It is now PIE's own text, word for word off
 PIE/ELGI/QUOT/26-27/383: eleven blocks from Base & Enclosure to Optional Features. The
