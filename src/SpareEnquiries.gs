@@ -274,3 +274,72 @@ function nextEnquiryNo_() {
   });
   return prefix + String(highest + 1).padStart(3, '0');
 }
+
+/**
+ * The whole spare catalogue in one trip, lean enough to hold in the browser.
+ *
+ * `suggestSpares` runs the search on the server, which means a fresh Apps Script execution
+ * and a dozen round trips to the Sheet for every keystroke. On a trial catalogue that felt
+ * instant; on 3,500 parts it is seconds per letter, and picking five parts becomes a minute
+ * of waiting. The compute is not the problem — the search itself is about 50 ms — the trips
+ * are.
+ *
+ * So the catalogue comes down once when the picker opens and the typing happens in the
+ * browser, where it costs nothing. Rows are plain arrays rather than objects: at 13,000 parts
+ * the repeated field names are most of the payload, and dropping them roughly halves it.
+ *
+ * `suggestSpares` stays: the spare-enquiry screen still uses it, and it is the right shape
+ * for one lookup.
+ */
+var SPARE_PICKER_COLS = ['id', 'partNo', 'description', 'productGroup', 'category', 'uom',
+                         'hsnCode', 'price', 'available'];
+
+function sparePickerData(productModel) {
+  getCurrentUser();
+
+  var model = String(productModel || '').trim().toLowerCase();
+  var compat = {};
+  if (model) {
+    readTable_('SpareCompatibility').forEach(function (c) {
+      if (String(c.active).toUpperCase() === 'FALSE') return;
+      if (String(c.productModel).trim().toLowerCase() === model) {
+        compat[String(c.spareId)] = String(c.isServiceKit).toUpperCase() === 'TRUE' ? 2 : 1;
+      }
+    });
+  }
+
+  var prices = priceMapFor_('Spare');
+  var onHand = stockOnHandMap_('Spare');
+  var reserved = stockReservedMap_('Spare');
+
+  // One block read, and no object built for a row that will not be sent.
+  var sheet = getSheet_('Spares');
+  var headers = getHeaders_(sheet);
+  var lastRow = sheet.getLastRow();
+  var rows = [];
+  if (lastRow > 1 && headers.length) {
+    var ci = {};
+    headers.forEach(function (h, i) { ci[h] = i; });
+    var block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    for (var r = 0; r < block.length; r++) {
+      var row = block[r];
+      if (String(row[ci.active]).toUpperCase() === 'FALSE') continue;
+      var id = String(row[ci.id]);
+      if (!id) continue;
+      var levels = prices[id] || {};
+      rows.push([
+        id,
+        String(row[ci.partNo] || ''),
+        String(row[ci.description] || ''),
+        String(row[ci.productGroup] || ''),
+        String(row[ci.category] || ''),
+        String(row[ci.uom] || 'Nos'),
+        String(row[ci.hsnCode] || ''),
+        levels[SELLING_PRICE_LEVEL] ? levels[SELLING_PRICE_LEVEL].price : null,
+        (onHand[id] || 0) - (reserved[id] || 0)
+      ]);
+    }
+  }
+
+  return { cols: SPARE_PICKER_COLS, rows: rows, compat: compat, count: rows.length };
+}

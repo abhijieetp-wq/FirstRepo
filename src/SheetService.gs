@@ -244,6 +244,33 @@ function deleteRowsWhere_(sheetName, matches, auditReason) {
   }
 }
 
+/**
+ * One row by its id, without materialising the table to find it.
+ *
+ * `readTable_` builds an object for every row and normalizes every cell. Asking it for one
+ * row out of a spare catalogue means 3,500 objects and 60,000 cell conversions to reach the
+ * one that was wanted — which is what every added quotation line was paying.
+ */
+function findRowById_(sheetName, idValue) {
+  var sheet = getSheet_(sheetName);
+  var headers = getHeaders_(sheet);
+  var lastRow = sheet.getLastRow();
+  var idCol = headers.indexOf('id');
+  if (lastRow < 2 || idCol === -1) return null;
+
+  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  var want = String(idValue);
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) !== want) continue;
+    var row = sheet.getRange(i + 2, 1, 1, headers.length).getValues()[0];
+    var obj = {};
+    headers.forEach(function (h, idx) { obj[h] = normalizeCell_(row[idx]); });
+    obj._row = i + 2;
+    return obj;
+  }
+  return null;
+}
+
 function generateId_(prefix) {
   return (prefix || '') + Utilities.getUuid().slice(0, 8);
 }

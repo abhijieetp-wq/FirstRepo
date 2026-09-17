@@ -837,7 +837,9 @@ function renumberQuotationLines_(quotationId) {
 
 function masterRecordFor_(itemType, itemId) {
   var tab = itemType === 'Product' ? 'Products' : 'Spares';
-  return readTable_(tab).filter(function (r) { return String(r.id) === String(itemId); })[0] || null;
+  // One row, fetched as one row. This read the whole table and threw away all but one of it,
+  // on every line added to every quotation.
+  return findRowById_(tab, itemId);
 }
 
 /**

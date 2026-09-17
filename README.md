@@ -718,6 +718,31 @@ cannot reach a Sheet that has already been set up. **Settings → Quotation Text
 Standard Wording** is the deliberate way to take it. It touches only the sections that ship with
 the system, leaves anything the business wrote alone, and says how many it changed.
 
+## Why picking a spare was slow, and what actually fixed it
+
+Adding a part to a quotation took seconds per keystroke once the real catalogue was in. The
+instinct is to blame the search, and the search was innocent: measured against 3,500 parts it
+runs in about **50 ms**. The cost was never compute — it was trips.
+
+Every keystroke called `suggestSpares`, and every call is a fresh Apps Script execution that
+then makes a dozen round trips to the Sheet: the compatibility map, the price list, the stock
+ledger, the reservations and the spare master, each needing its own `getSheet_`, `getHeaders_`
+and `getValues`. Optimising the loop inside that would have saved nothing worth having.
+
+So the catalogue now comes down **once**, when the picker opens, and the typing happens in the
+browser. Rows travel as plain arrays rather than objects — at 13,000 parts the repeated field
+names are most of the payload, and dropping them roughly halves it: 368 KB for the 3,500
+loaded today, 1.3 MB for the full catalogue. Driven in a browser, opening the picker, typing
+eight characters and filtering by product group is **one server call**, where it used to be
+ten or more. The debounce came down from 250 ms to 60 ms, since it no longer guards anything
+expensive.
+
+`suggestSpares` stays for the spare-enquiry screen, which looks up one part at a time.
+
+**Adding a line was paying the same kind of toll.** `masterRecordFor_` read the entire master
+to find the one row being added — 63,000 cells to reach 18 of them. `findRowById_` fetches the
+id column, finds the row and reads that row: 18× less, and identical output.
+
 ## Telling the two offers apart inside the portal
 
 The printed documents announce themselves — one opens *ELGi ELECTRIC POWERED OIL SCREW AIR

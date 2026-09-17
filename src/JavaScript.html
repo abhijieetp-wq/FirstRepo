@@ -2603,6 +2603,15 @@
         openQuote = nq;
         renderQuoteBuilder();
         closeCompletePanel();
+        // A price was just written to the catalogue, so the cached copy is one row stale.
+        if (spareCatalog && completingType === "Spare") {
+          spareCatalog.rows.forEach(function (r) {
+            if (r[0] === completingSpare.id) {
+              if (needPrice) r[7] = Number(price);
+              if (needHsn) r[6] = hsn;
+            }
+          });
+        }
         runQuoteItemSearch();
         showMsg("Added " + res.code + "." + (res.savedToCatalog.length
           ? " Its " + res.savedToCatalog.join(" and ") + " saved to the catalogue too."
@@ -2704,17 +2713,85 @@
   });
   $("qi-search").addEventListener("input", function () {
     if (quoteSearchTimer) clearTimeout(quoteSearchTimer);
-    quoteSearchTimer = setTimeout(runQuoteItemSearch, 250);
+    // 250 ms was a guard against hitting the server on every letter. The spare search runs in
+    // the browser now, so it only needs to be long enough to avoid re-rendering mid-word.
+    quoteSearchTimer = setTimeout(runQuoteItemSearch, 60);
   });
+
+  /**
+   * The catalogue, held in the browser for as long as this quotation is open.
+   *
+   * Searching on the server meant a fresh Apps Script execution and a dozen trips to the
+   * Sheet for every letter typed. On 3,500 parts that is seconds per keystroke and a minute
+   * to pick five parts. The search itself takes about 50 ms — it was never the compute.
+   *
+   * Keyed by the machine model, because that is the only thing about the quotation that
+   * changes the answer — it decides which parts are marked as fitting. Two quotations for the
+   * same machine share the cache; one for a different machine refetches on its own.
+   */
+  var spareCatalog = null;
+  var spareCatalogKey = null;
+  var spareCatalogLoading = false;
+
+  function spareCatalogRow(r, compat) {
+    var fit = compat[r[0]] || 0;
+    return { id: r[0], partNo: r[1], description: r[2], productGroup: r[3], category: r[4],
+             uom: r[5], hsnCode: r[6], price: r[7], available: r[8],
+             compatibilityConfirmed: fit > 0, isServiceKit: fit === 2 };
+  }
+
+  /** The same matching the server did, run here where it costs nothing. */
+  function searchSpareCatalog(q, group) {
+    var text = String(q || "").trim().toLowerCase();
+    var grp = String(group || "").trim().toLowerCase();
+    var compat = spareCatalog.compat || {};
+    var hits = [];
+    var rows = spareCatalog.rows;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (grp && r[3].toLowerCase().indexOf(grp) === -1) continue;
+      if (text &&
+          r[1].toLowerCase().indexOf(text) === -1 &&
+          r[2].toLowerCase().indexOf(text) === -1 &&
+          r[4].toLowerCase().indexOf(text) === -1) continue;
+      hits.push(r);
+    }
+    hits.sort(function (a, b) {
+      var fa = compat[a[0]] ? 1 : 0, fb = compat[b[0]] ? 1 : 0;
+      if (fa !== fb) return fb - fa;
+      return String(a[1]).localeCompare(String(b[1]));
+    });
+    return { total: hits.length,
+             rows: hits.slice(0, 50).map(function (r) { return spareCatalogRow(r, compat); }) };
+  }
+
+  function withSpareCatalog(then) {
+    var key = (openQuote ? openQuote.machineModel : "") || "";
+    if (spareCatalog && spareCatalogKey === key) { then(); return; }
+    if (spareCatalogLoading) return;
+    spareCatalogLoading = true;
+    $("qi-results").innerHTML = '<div class="empty" style="padding:12px;">' +
+      "Loading the spare catalogue — once per quotation, then searching is instant…</div>";
+    google.script.run.withSuccessHandler(function (data) {
+      spareCatalog = data;
+      spareCatalogKey = key;
+      spareCatalogLoading = false;
+      then();
+    }).withFailureHandler(function (err) {
+      spareCatalogLoading = false;
+      $("qi-results").innerHTML = "";
+      onServerError(err);
+    }).sparePickerData(key);
+  }
 
   function runQuoteItemSearch() {
     var type = $("qi-type").value;
     $("qi-results").innerHTML = '<div class="empty" style="padding:12px;">Searching…</div>';
     if (type === "Spare") {
-      google.script.run.withSuccessHandler(function (rows) { renderQuoteItemResults(rows, "Spare"); })
-        .withFailureHandler(onServerError)
-        .suggestSpares($("qi-search").value.trim(), openQuote ? openQuote.machineModel : "",
-                       $("qi-group").value.trim());
+      withSpareCatalog(function () {
+        var found = searchSpareCatalog($("qi-search").value, $("qi-group").value);
+        renderQuoteItemResults(found.rows, "Spare", found.total);
+      });
     } else {
       google.script.run.withSuccessHandler(function (rows) {
         var q = $("qi-search").value.trim().toLowerCase();
@@ -2725,13 +2802,19 @@
     }
   }
 
-  function renderQuoteItemResults(rows, type) {
+  function renderQuoteItemResults(rows, type, total) {
     var zone = $("qi-results");
     if (!rows.length) {
       zone.innerHTML = '<div class="empty" style="padding:12px;">Nothing matched.</div>';
       return;
     }
-    zone.innerHTML = '<table><thead><tr><th>Code</th><th>Description</th>' +
+    // Fifty rows come back out of thousands, so say so rather than letting the list look
+    // like the whole answer.
+    var more = (total && total > rows.length)
+      ? '<p style="font-size:12px; color:var(--ink-soft); margin:0 0 8px;">Showing ' +
+        rows.length + " of " + fmtInt(total) + " matches — narrow the search to see the rest.</p>"
+      : "";
+    zone.innerHTML = more + '<table><thead><tr><th>Code</th><th>Description</th>' +
       (type === "Spare" ? "<th>Fit</th>" : "") +
       '<th class="num">Price</th><th class="num">Available</th><th></th></tr></thead><tbody>' +
       rows.map(function (r) {
