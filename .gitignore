@@ -1,0 +1,3 @@
+# Screenshots from the headless-browser checks. They are evidence for one run, not
+# source: the repository holds what clasp pushes to the Apps Script project.
+*.png
