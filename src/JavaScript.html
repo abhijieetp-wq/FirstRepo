@@ -294,6 +294,9 @@
     });
 
     var visible = visibleLeaves();
+    // A way back to a list this role cannot open would be a dead end.
+    $("btn-qb-back").style.display =
+      visible.some(function (t) { return t.view === "quotations"; }) ? "" : "none";
     if (visible.length) goToTab(visible[0].view);
   }
 
@@ -2072,6 +2075,14 @@
       });
     };
     openCustomerModal(null);
+  });
+
+  // Getting back to the list meant opening the Quotations menu and picking All Quotations,
+  // from a screen whose whole context is one quotation. The quotation is already saved, so
+  // leaving it costs nothing.
+  $("btn-qb-back").addEventListener("click", function () {
+    releaseMsg();
+    goToTab("quotations");
   });
 
   $("btn-qs-create").addEventListener("click", function () {
