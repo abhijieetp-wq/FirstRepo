@@ -2640,7 +2640,8 @@
           });
         }
         runQuoteItemSearch();
-        showMsg("Added " + res.code + "." + (res.savedToCatalog.length
+        showMsg(quoteAddMsg(nq, 1).replace(/^Added to the quotation\.$/,
+          "Added " + res.code + ".") + (res.savedToCatalog.length
           ? " Its " + res.savedToCatalog.join(" and ") + " saved to the catalogue too."
           : " The catalogue was left unchanged."), "success");
       }).withFailureHandler(onServerError).saveQuotationItem({
@@ -2855,6 +2856,30 @@
     return !r.price || !String(r.hsnCode || "").trim();
   }
 
+  /**
+   * What to say after adding, given that a part already on the offer raises the quantity of
+   * the line it is on instead of starting a second one. That line can be well above the fold,
+   * so the message has to name it — otherwise nothing visibly happens and the part gets added
+   * a third time.
+   */
+  function quoteAddMsg(nq, addedCount) {
+    var merged = nq.merged || [];
+    var added = Math.max(0, (addedCount || 0) - merged.length);
+    if (!merged.length) {
+      return added === 1 ? "Added to the quotation."
+        : "Added " + added + " items to the quotation.";
+    }
+    var grew = merged.length === 1
+      ? "Line " + merged[0].lineNo + ", " + merged[0].description + ", was already on this " +
+        "quotation — its quantity is now " + merged[0].qty + " (was " + merged[0].was + ")."
+      : merged.length + " of these were already on this quotation, so their quantities went " +
+        "up instead: " + merged.map(function (m) {
+          return "line " + m.lineNo + " → " + m.qty;
+        }).join(", ") + ".";
+    if (!added) return grew;
+    return (added === 1 ? "One item added. " : added + " items added. ") + grew;
+  }
+
   function renderQuoteItemResults(rows, type, total) {
     var zone = $("qi-results");
     if (!rows.length) {
@@ -2933,7 +2958,7 @@
       google.script.run.withSuccessHandler(function (nq) {
         openQuote = nq;
         renderQuoteBuilder();
-        showMsg("Added " + chosen.length + (chosen.length === 1 ? " item." : " items."), "success");
+        showMsg(quoteAddMsg(nq, chosen.length), "success");
         runQuoteItemSearch();
       }).withFailureHandler(function (err) {
         btn.disabled = false;
@@ -2961,7 +2986,7 @@
           openQuote = nq;
           renderQuoteBuilder();
           btn.disabled = false;
-          showMsg("Added to the quotation.", "success");
+          showMsg(quoteAddMsg(nq, 1), "success");
         }).withFailureHandler(function (err) {
           btn.disabled = false;
           onServerError(err);

@@ -494,16 +494,89 @@ function saveQuotationItem(input) {
   var record = quoteItemRecord_(input, itemType, master, effective,
     input.id ? Number(input.lineNo) : existingLines.length + 1);
 
+  var merged = [];
   if (input.id) {
     record.id = input.id;
     updateRowById_('QuotationItems', 'id', input.id, record, 'Quotation line updated');
   } else {
-    record.id = generateId_('QI-');
-    appendRow_('QuotationItems', record, 'Quotation line added');
+    var twin = matchingQuoteLine_(existingLines, record);
+    if (twin) {
+      merged.push(mergeIntoQuoteLine_(twin, record));
+    } else {
+      record.id = generateId_('QI-');
+      appendRow_('QuotationItems', record, 'Quotation line added');
+    }
   }
 
   recalcQuotation_(input.quotationId);
-  return getQuotation(input.quotationId);
+  return withMergeNote_(getQuotation(input.quotationId), merged);
+}
+
+/**
+ * The line a part being added is already on, or nothing.
+ *
+ * A part picked twice is nearly always the same part remembered late — the quantity was left
+ * at 1 and the rest of it added afterwards — so it belongs on the line that is already there.
+ * The exception is a part deliberately quoted twice at different money: two rates, or one
+ * discounted batch and one not. Those are genuinely two lines on the offer, so the price, the
+ * discount and the tax all have to agree before two rows become one.
+ */
+function matchingQuoteLine_(lines, record) {
+  var key = quoteLineKey_(record);
+  return lines.filter(function (l) {
+    return String(l.lineType || 'Item') === 'Item' && quoteLineKey_(l) === key;
+  })[0] || null;
+}
+
+function quoteLineKey_(l) {
+  return [
+    String(l.itemType || ''),
+    String(l.itemId || ''),
+    money2_(l.unitPrice),
+    money2_(l.discountPct),
+    money2_(l.taxPct)
+  ].join('|');
+}
+
+/** Two figures that print the same are the same figure; comparing them raw makes 385 and
+ * 385.0000000001 into two lines on a customer's offer. */
+function money2_(v) {
+  return (Math.round((Number(v) || 0) * 100) / 100).toFixed(2);
+}
+
+/** Raises a line's quantity and the money that follows from it, in place. */
+function addQuoteLineQty_(line, extraQty) {
+  line.qty = (Number(line.qty) || 0) + (Number(extraQty) || 0);
+  var net = (Number(line.unitPrice) || 0) * (1 - (Number(line.discountPct) || 0) / 100);
+  line.lineTotal = roundMoney_(net * line.qty);
+  return line.qty;
+}
+
+/** Adds the new quantity to the line already there, and reports what it became. */
+function mergeIntoQuoteLine_(line, record) {
+  var qty = (Number(line.qty) || 0) + (Number(record.qty) || 0);
+  var net = (Number(record.unitPrice) || 0) * (1 - (Number(record.discountPct) || 0) / 100);
+  updateRowById_('QuotationItems', 'id', line.id,
+    { qty: qty, lineTotal: roundMoney_(net * qty) },
+    'Quantity increased on an existing line');
+  return {
+    id: line.id,
+    lineNo: Number(line.lineNo) || 0,
+    itemCode: String(line.itemCode || record.itemCode || ''),
+    description: String(line.description || record.description || ''),
+    was: Number(line.qty) || 0,
+    qty: qty
+  };
+}
+
+/**
+ * Says which lines grew instead of being added, so the screen can tell the difference. A
+ * quantity that changes on a line further up the list is easy to miss, and a coordinator who
+ * does not see their part appear will add it again.
+ */
+function withMergeNote_(row, merged) {
+  if (merged && merged.length) row.merged = merged;
+  return row;
 }
 
 /**
@@ -543,7 +616,11 @@ function saveQuotationItems(input) {
   });
   var nextLineNo = existingLines.length + 1;
 
-  var records = lines.map(function (l, i) {
+  // A selection can contain a part the offer already carries, and — once two selections are
+  // made in a row — two of its own. Both fold into the line that is already there.
+  var settled = existingLines.slice();
+  var records = [], merged = [];
+  lines.forEach(function (l, i) {
     var t = types[i];
     var key = String(l.itemId);
     var record = quoteItemRecord_(
@@ -551,14 +628,30 @@ function saveQuotationItems(input) {
         description: l.description, qty: l.qty, uom: l.uom, unitPrice: l.unitPrice,
         discountPct: l.discountPct, taxPct: l.taxPct,
         availabilityNote: l.availabilityNote, leadTimeDays: l.leadTimeDays },
-      t, masters[t][key] || null, prices[t][key] || null, nextLineNo++);
+      t, masters[t][key] || null, prices[t][key] || null, nextLineNo);
+
+    var twin = matchingQuoteLine_(settled, record);
+    if (twin && records.indexOf(twin) !== -1) {
+      // A twin from this same selection has not been written yet, so it is only a quantity to
+      // carry — updating it by id would be updating a row that does not exist.
+      addQuoteLineQty_(twin, record.qty);
+      return;
+    }
+    if (twin) {
+      var note = mergeIntoQuoteLine_(twin, record);
+      twin.qty = note.qty;                 // so a third copy in the same call lands here too
+      merged.push(note);
+      return;
+    }
     record.id = generateId_('QI-');
-    return record;
+    records.push(record);
+    settled.push(record);
+    nextLineNo++;
   });
 
   appendRows_('QuotationItems', records, 'Quotation lines added');
   recalcQuotation_(input.quotationId);
-  return getQuotation(input.quotationId);
+  return withMergeNote_(getQuotation(input.quotationId), merged);
 }
 
 function quoteItemType_(value) {
