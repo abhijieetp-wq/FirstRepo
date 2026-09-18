@@ -73,24 +73,32 @@
   var currentUser = null;
 
   var msgTimer = null;
+  var stickyMsg = false;
 
   /**
    * Success messages fade after a few seconds; errors stay until dismissed. An error the
    * user can miss by looking away is worse than no error at all.
+   *
+   * A sticky message is neither: it belongs to no action on the screen, and the first screen
+   * to finish loading would otherwise wipe it before anybody read it. It waits for the user
+   * to go somewhere or for a real message to take its place.
    */
-  function showMsg(text, type) {
+  function showMsg(text, type, sticky) {
     var box = $("msg-box");
     var isError = type === "error";
     if (msgTimer) { clearTimeout(msgTimer); msgTimer = null; }
+    stickyMsg = !!sticky;
 
     box.innerHTML = '<span class="msg-text"></span>' +
-      (isError ? '<button class="msg-close" type="button" title="Dismiss">&times;</button>' : "");
+      (isError || sticky
+        ? '<button class="msg-close" type="button" title="Dismiss">&times;</button>' : "");
     box.querySelector(".msg-text").textContent = text;
     box.className = "msg show " + (isError ? "msg-error" : "msg-success");
     window.scrollTo({ top: 0, behavior: "smooth" });
 
-    if (isError) {
+    if (isError || sticky) {
       box.querySelector(".msg-close").addEventListener("click", function () {
+        stickyMsg = false;
         box.className = "msg";
       });
     } else {
@@ -105,8 +113,15 @@
    * dashboard under an error saying the dashboard could not load.
    */
   function clearMsg() {
+    if (stickyMsg) return;
     if (msgTimer) { clearTimeout(msgTimer); msgTimer = null; }
     $("msg-box").className = "msg";
+  }
+
+  /** The user going somewhere is what ends a sticky message. */
+  function releaseMsg() {
+    stickyMsg = false;
+    clearMsg();
   }
 
   function onServerError(err) {
@@ -273,6 +288,7 @@
     $("tabs").querySelectorAll("[data-view]").forEach(function (btn) {
       btn.addEventListener("click", function (e) {
         e.stopPropagation();
+        releaseMsg();
         goToTab(btn.dataset.view);
       });
     });
@@ -7093,7 +7109,14 @@
     WhyBrand: "Why ELGi",
     ScopeOfSupply: "Scope of supply",
     Terms: "Terms & conditions",
-    InstallationNotes: "Installation guidelines"
+    InstallationNotes: "Installation guidelines",
+    UptimeWarranty: "UPTIME Warranty annexure",
+    ExtraEnclosures: "Enclosures attached separately",
+    DocumentTitle: "Document title",
+    Closing: "Closing paragraph",
+    ClosingFinal: "Closing paragraph (last page)",
+    SpecNote: "Specification footnote",
+    Labels: "Wording on the document"
   };
 
   function qtplSectionLabel(section) {
@@ -7515,6 +7538,15 @@
     renderTabs();
     $("boot-screen").style.display = "none";
     $("app").style.display = "block";
+
+    // A section that appears on the printed offer without warning is unsettling, so say which
+    // one arrived with the deployment and where it is edited.
+    if (user.installedSections && user.installedSections.length) {
+      var named = user.installedSections.map(qtplSectionLabel).join(", ");
+      showMsg("This build added " + (user.installedSections.length === 1
+        ? "a standard quotation section" : "standard quotation sections") + " — " + named +
+        ". Edit the wording under Settings → Quotation Text.", "success", true);
+    }
   }
 
   function onBootFailure(err) {

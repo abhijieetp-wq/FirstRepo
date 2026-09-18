@@ -6,7 +6,7 @@
  * a stale deployment from a broken feature except by hunting for the feature. This is shown in
  * the footer of every screen and on Settings → System. Bump it with anything worth deploying.
  */
-var APP_BUILD = '2026-09-18.1';
+var APP_BUILD = '2026-09-18.2';
 
 function doGet(e) {
   // The browser tab is named by the company profile, so a second installation is not called
@@ -44,5 +44,13 @@ function bootstrap() {
     user.appMark = 'ER';
   }
   user.build = APP_BUILD;
+  // Standard quotation text that is new in this build is installed on the first load after a
+  // deployment. A Sheet not yet set up has no QuoteTemplates tab, and that must not be what
+  // stops the app opening.
+  try {
+    user.installedSections = applyBuildUpdates_();
+  } catch (err) {
+    user.installedSections = null;
+  }
   return user;
 }

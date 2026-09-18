@@ -237,18 +237,57 @@ function restoreQuoteTemplates() {
  * reworded clause is never overwritten by a later setup run.
  */
 function installQuoteTemplates_(report) {
+  var added = installMissingQuoteTemplates_();
+  if (added.length && report) {
+    report.seeded.push('QuoteTemplates (' + added.length + ' section(s))');
+  }
+  return added.length;
+}
+
+/** Adds the standard sections that are absent and returns their names. Never touches a row
+ * that is already there — an edited clause stays edited. */
+function installMissingQuoteTemplates_(auditReason) {
   var have = {};
   readTable_('QuoteTemplates').forEach(function (t) { have[String(t.id)] = true; });
 
-  var defaults = defaultQuoteTemplates_();
-  var added = 0;
-  defaults.forEach(function (t) {
+  var added = [];
+  defaultQuoteTemplates_().forEach(function (t) {
     if (have[t.id]) return;
-    appendRow_('QuoteTemplates', t);
-    added++;
+    appendRow_('QuoteTemplates', t, auditReason);
+    added.push(t.section);
   });
-  if (added && report) report.seeded.push('QuoteTemplates (' + added + ' section(s))');
   return added;
+}
+
+var BUILD_STAMP_KEY_ = 'installedBuild';
+
+/**
+ * Standard text that ships with a build reaches a Sheet that was set up earlier only if
+ * somebody thinks to press Restore in Settings. That is how the UPTIME annexure could ship in
+ * one build and still be missing from the printed offer: the renderer prints the section when
+ * the row is there and silently skips it when it is not, so the page simply never appeared.
+ *
+ * So on the first load after a deployment, the standard sections that are absent are
+ * installed. Sections already present are left exactly as they are, including any the business
+ * has reworded. The stamp lives in document properties rather than a column, so this asks
+ * nothing of a Sheet already in use.
+ */
+function applyBuildUpdates_() {
+  var props = PropertiesService.getDocumentProperties();
+  if (!props || props.getProperty(BUILD_STAMP_KEY_) === APP_BUILD) return null;
+
+  // Two people opening the portal at the same moment must not both install the same section.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return null;
+  try {
+    if (props.getProperty(BUILD_STAMP_KEY_) === APP_BUILD) return null;
+    var added = installMissingQuoteTemplates_('Standard quotation text installed with build ' +
+      APP_BUILD);
+    props.setProperty(BUILD_STAMP_KEY_, APP_BUILD);
+    return added.length ? added : null;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function defaultQuoteTemplates_() {
