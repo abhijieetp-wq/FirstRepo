@@ -2802,6 +2802,32 @@
     }
   }
 
+  /**
+   * What the picker calls the item, and what lands on the price schedule. Preferring the
+   * model put "EQ 18-7.5 V" on the offer where PIE writes "Elgi make EQ 18 VFD -7.5 STD" —
+   * the model is already in the Code column.
+   */
+  function quoteItemDesc(r) { return r.description || r.model; }
+
+  function quoteItemLine(r, type, quotationId) {
+    return {
+      quotationId: quotationId,
+      itemType: type,
+      itemId: r.id,
+      itemCode: type === "Spare" ? r.partNo : r.productCode,
+      description: quoteItemDesc(r),
+      qty: Math.max(1, Number($("qi-qty").value) || 1),
+      availabilityNote: r.available !== undefined
+        ? (r.available > 0 ? r.available + " available" : "Out of stock") : ""
+    };
+  }
+
+  /** A row the catalogue never finished: a zero price or a missing HSN is only noticed once
+   * the offer is in front of a customer, so it is completed here rather than added blank. */
+  function quoteItemNeedsDetails(r) {
+    return !r.price || !String(r.hsnCode || "").trim();
+  }
+
   function renderQuoteItemResults(rows, type, total) {
     var zone = $("qi-results");
     if (!rows.length) {
@@ -2814,18 +2840,22 @@
       ? '<p style="font-size:12px; color:var(--ink-soft); margin:0 0 8px;">Showing ' +
         rows.length + " of " + fmtInt(total) + " matches — narrow the search to see the rest.</p>"
       : "";
-    zone.innerHTML = more + '<table><thead><tr><th>Code</th><th>Description</th>' +
+    zone.innerHTML = more +
+      '<div id="qi-bulk" style="display:none; align-items:center; gap:10px; margin:0 0 8px;">' +
+        '<button class="btn btn-sm btn-primary" id="qi-add-selected">Add selected</button>' +
+        '<span id="qi-selected-count" style="font-size:12px; color:var(--ink-soft);"></span>' +
+      "</div>" +
+      '<table><thead><tr><th class="center"><input type="checkbox" id="qi-pick-all"></th>' +
+      "<th>Code</th><th>Description</th>" +
       (type === "Spare" ? "<th>Fit</th>" : "") +
       '<th class="num">Price</th><th class="num">Available</th><th></th></tr></thead><tbody>' +
       rows.map(function (r) {
         var code = type === "Spare" ? r.partNo : r.productCode;
-        // The description is what lands on the price schedule, so it is what the picker
-        // shows. Preferring the model put "EQ 18-7.5 V" on the offer where PIE writes
-        // "Elgi make EQ 18 VFD -7.5 STD" — the model is already in the Code column.
-        var desc = r.description || r.model;
         return "<tr>" +
+          '<td class="center">' + (quoteItemNeedsDetails(r) ? ""
+            : '<input type="checkbox" class="qi-pick" data-pick="' + escapeHtml(r.id) + '">') + "</td>" +
           '<td class="mono">' + escapeHtml(code) + "</td>" +
-          "<td>" + escapeHtml(desc) +
+          "<td>" + escapeHtml(quoteItemDesc(r)) +
             (r.productGroup ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
               escapeHtml(r.productGroup) + "</span>" : "") + "</td>" +
           (type === "Spare" ? "<td>" + (r.compatibilityConfirmed
@@ -2834,35 +2864,81 @@
           '<td class="num mono">' + (r.price ? fmt(r.price)
             : '<span class="badge badge-overdue">no price</span>') + "</td>" +
           '<td class="num mono">' + (r.available === undefined ? "—" : r.available) + "</td>" +
-          '<td class="center"><button class="btn btn-sm" data-add-line="' + r.id + '">Add</button></td>' +
+          '<td class="center"><button class="btn btn-sm" data-add-line="' + escapeHtml(r.id) +
+            '">Add</button></td>' +
           "</tr>";
       }).join("") + "</tbody></table>";
 
+    var rowFor = function (id) {
+      return rows.find(function (x) { return String(x.id) === String(id); });
+    };
+    var picked = function () {
+      return Array.prototype.slice.call(zone.querySelectorAll(".qi-pick"))
+        .filter(function (c) { return c.checked; })
+        .map(function (c) { return rowFor(c.dataset.pick); })
+        .filter(Boolean);
+    };
+    var refreshBulk = function () {
+      var n = picked().length;
+      $("qi-bulk").style.display = n ? "flex" : "none";
+      $("qi-selected-count").textContent = n === 1 ? "1 item selected" : n + " items selected";
+    };
+
+    zone.querySelectorAll(".qi-pick").forEach(function (box) {
+      box.addEventListener("change", refreshBulk);
+    });
+    var all = $("qi-pick-all");
+    if (all) {
+      all.addEventListener("change", function () {
+        zone.querySelectorAll(".qi-pick").forEach(function (box) { box.checked = all.checked; });
+        refreshBulk();
+      });
+    }
+
+    // Every selected part goes over in one call. One call per part meant a fresh server
+    // execution each time, which is what made building a spares offer feel like waiting.
+    $("qi-add-selected").addEventListener("click", function () {
+      var chosen = picked();
+      if (!chosen.length) return;
+      var btn = $("qi-add-selected");
+      btn.disabled = true;
+      btn.textContent = "Adding " + chosen.length + "…";
+      google.script.run.withSuccessHandler(function (nq) {
+        openQuote = nq;
+        renderQuoteBuilder();
+        showMsg("Added " + chosen.length + (chosen.length === 1 ? " item." : " items."), "success");
+        runQuoteItemSearch();
+      }).withFailureHandler(function (err) {
+        btn.disabled = false;
+        btn.textContent = "Add selected";
+        onServerError(err);
+      }).saveQuotationItems({
+        quotationId: openQuote.id,
+        itemType: type,
+        lines: chosen.map(function (r) { return quoteItemLine(r, type, openQuote.id); })
+      });
+    });
+
     zone.querySelectorAll("[data-add-line]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        var r = rows.find(function (x) { return x.id === btn.dataset.addLine; });
-        // A row the catalogue never finished is completed here rather than added blank: a
-        // zero price or a missing HSN is only noticed once the offer is in front of a
-        // customer. This used to apply to spares alone, which left every compressor loaded
-        // from a brochure — and a brochure carries no prices — going on at zero.
-        if (!r.price || !String(r.hsnCode || "").trim()) {
+        var r = rowFor(btn.dataset.addLine);
+        if (!r) return;
+        // This used to apply to spares alone, which left every compressor loaded from a
+        // brochure — and a brochure carries no prices — going on at zero.
+        if (quoteItemNeedsDetails(r)) {
           openCompletePanel(r, type);
           return;
         }
+        btn.disabled = true;
         google.script.run.withSuccessHandler(function (nq) {
           openQuote = nq;
           renderQuoteBuilder();
+          btn.disabled = false;
           showMsg("Added to the quotation.", "success");
-        }).withFailureHandler(onServerError).saveQuotationItem({
-          quotationId: openQuote.id,
-          itemType: type,
-          itemId: r.id,
-          itemCode: type === "Spare" ? r.partNo : r.productCode,
-          description: desc,
-          qty: Math.max(1, Number($("qi-qty").value) || 1),
-          availabilityNote: r.available !== undefined
-            ? (r.available > 0 ? r.available + " available" : "Out of stock") : ""
-        });
+        }).withFailureHandler(function (err) {
+          btn.disabled = false;
+          onServerError(err);
+        }).saveQuotationItem(quoteItemLine(r, type, openQuote.id));
       });
     });
   }

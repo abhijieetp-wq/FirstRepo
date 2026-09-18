@@ -95,11 +95,75 @@ function priceMapFor_(itemType, asOf) {
   return map;
 }
 
-/** The price for one item at one level on a given date, or null. Used by quotations. */
+/**
+ * The price for one item at one level on a given date, or null. Used by quotations.
+ *
+ * This went through priceMapFor_, which reads every column of every price row and indexes the
+ * whole catalogue — 105,000 cells to answer a question about one part, on every line added to
+ * every quotation. Instead: read the single itemId column to find the two or three rows that
+ * could be the answer, then fetch those rows in full. About fifteen times less, and the same
+ * answer, because the narrowing column is the one the map was keyed on anyway.
+ */
 function getEffectivePrice_(itemType, itemId, priceLevel, asOf) {
-  var levels = priceMapFor_(itemType, asOf)[itemId];
-  if (!levels) return null;
-  return levels[priceLevel] || null;
+  var found = getEffectivePrices_(itemType, [itemId], priceLevel, asOf);
+  return found[String(itemId)] || null;
+}
+
+/**
+ * The price in force for each of several items, in one pass over the PriceList.
+ *
+ * Reading the whole table to answer a question about one part is what made adding a quotation
+ * line slow: PriceList is the largest tab in the sheet — two rows for each of 26,000 parts —
+ * and `priceMapFor_` indexed all of it. One read of the id column says which rows can possibly
+ * matter; only those rows are then fetched.
+ */
+function getEffectivePrices_(itemType, itemIds, priceLevel, asOf) {
+  var when = asOf || todayIso_();
+  var out = {};
+
+  var want = {};
+  var any = false;
+  (itemIds || []).forEach(function (v) { want[String(v)] = true; any = true; });
+  if (!any) return out;
+
+  var sheet = getSheet_('PriceList');
+  var headers = getHeaders_(sheet);
+  var lastRow = sheet.getLastRow();
+  var idCol = headers.indexOf('itemId');
+  if (lastRow < 2 || idCol === -1) return out;
+
+  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  var hits = [];
+  for (var i = 0; i < ids.length; i++) {
+    if (want[String(ids[i][0])]) hits.push(i + 2);
+  }
+  if (!hits.length) return out;
+
+  // A bulk import appends every ELGI price and then every PIE price, so one part's two rows
+  // sit a whole catalogue apart. Reading the span between them would be reading the table.
+  rowRuns_(hits).forEach(function (run) {
+    var values = sheet.getRange(run[0], 1, run[1] - run[0] + 1, headers.length).getValues();
+    for (var v = 0; v < values.length; v++) {
+      var row = {};
+      for (var h = 0; h < headers.length; h++) row[headers[h]] = normalizeCell_(values[v][h]);
+      var key = String(row.itemId);
+      if (!want[key]) continue;
+      if (row.itemType !== itemType || row.priceLevel !== priceLevel) continue;
+      if (!priceRowActiveOn_(row, when)) continue;
+      var best = out[key];
+      // Later effectiveFrom wins if two rows somehow overlap.
+      if (best && String(row.effectiveFrom) < String(best.effectiveFrom)) continue;
+      out[key] = {
+        price: Number(row.price) || 0,
+        minPrice: row.minPrice === '' || row.minPrice === null ? null : Number(row.minPrice),
+        maxDiscountPct: row.maxDiscountPct === '' || row.maxDiscountPct === null
+          ? null : Number(row.maxDiscountPct),
+        effectiveFrom: String(row.effectiveFrom || '').slice(0, 10),
+        priceId: row.id
+      };
+    }
+  });
+  return out;
 }
 
 /**

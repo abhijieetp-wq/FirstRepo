@@ -271,6 +271,94 @@ function findRowById_(sheetName, idValue) {
   return null;
 }
 
+/**
+ * The same read for several ids at once. A quotation is built a dozen lines at a time, and
+ * doing it one line per call meant one scan of the id column per line.
+ */
+function findRowsByIds_(sheetName, idValues) {
+  var out = {};
+  var sheet = getSheet_(sheetName);
+  var headers = getHeaders_(sheet);
+  var lastRow = sheet.getLastRow();
+  var idCol = headers.indexOf('id');
+  if (lastRow < 2 || idCol === -1) return out;
+
+  var want = {};
+  (idValues || []).forEach(function (v) { want[String(v)] = true; });
+
+  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  var hits = [];
+  for (var i = 0; i < ids.length; i++) {
+    if (want[String(ids[i][0])]) hits.push(i + 2);
+  }
+  if (!hits.length) return out;
+
+  // Catalogue rows for the parts of one offer are rarely neighbours, so read the runs rather
+  // than the span between the first and the last.
+  rowRuns_(hits).forEach(function (run) {
+    var values = sheet.getRange(run[0], 1, run[1] - run[0] + 1, headers.length).getValues();
+    for (var v = 0; v < values.length; v++) {
+      var key = String(values[v][idCol]);
+      if (!want[key] || out[key]) continue;
+      var obj = {};
+      for (var h = 0; h < headers.length; h++) obj[headers[h]] = normalizeCell_(values[v][h]);
+      obj._row = run[0] + v;
+      out[key] = obj;
+    }
+  });
+  return out;
+}
+
+/**
+ * Turns a sorted list of row numbers into the fewest ranges worth reading. Neighbours share a
+ * read; rows a catalogue apart get their own, so a handful of scattered rows never drags in
+ * everything between them. Past a point the read count costs more than the wasted cells, and
+ * one span wins.
+ */
+var ROW_RUN_GAP_ = 8;
+var ROW_RUN_MAX_ = 12;
+
+function rowRuns_(rows) {
+  if (!rows.length) return [];
+  var runs = [];
+  var from = rows[0], to = rows[0];
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i] - to <= ROW_RUN_GAP_) {
+      to = rows[i];
+    } else {
+      runs.push([from, to]);
+      from = to = rows[i];
+    }
+  }
+  runs.push([from, to]);
+  if (runs.length > ROW_RUN_MAX_) return [[rows[0], rows[rows.length - 1]]];
+  return runs;
+}
+
+/** Appends several rows in one write, sharing one lock and one audit pass. */
+function appendRows_(sheetName, objs, auditReason) {
+  if (!objs || !objs.length) return 0;
+  var lock = acquireLock_(LOCK_WAIT_ROW_MS, 'that save');
+  try {
+    var sheet = getSheet_(sheetName);
+    var headers = getHeaders_(sheet);
+    var rows = objs.map(function (obj) {
+      assertWritableFields_(sheetName, headers, obj);
+      return headers.map(function (h) {
+        return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
+      });
+    });
+    var start = sheet.getLastRow() + 1;
+    sheet.getRange(start, 1, rows.length, headers.length).setValues(rows);
+    objs.forEach(function (obj) {
+      audit_('Create', sheetName, obj.id || '', '', '', '', auditReason);
+    });
+    return sheet.getLastRow();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function generateId_(prefix) {
   return (prefix || '') + Utilities.getUuid().slice(0, 8);
 }

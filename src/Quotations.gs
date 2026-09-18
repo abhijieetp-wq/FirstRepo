@@ -477,26 +477,111 @@ function saveQuotationCharge(input) {
   return getQuotation(input.quotationId);
 }
 
-/**
- * Adds or updates a line. `unitPrice` defaults to the item's selling price on the quotation
- * date, so a coordinator never has to look a price up, but it can be overridden — with the
- * discount that implies recorded explicitly rather than buried in a changed number.
- */
+/** Adds or updates one line. See `quoteItemRecord_` for how the row itself is derived. */
 function saveQuotationItem(input) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);
   var quote = requireUnlockedQuote_(input.quotationId);
 
-  var itemType = String(input.itemType || 'Spare').trim();
-  if (['Spare', 'Product'].indexOf(itemType) === -1) throw new Error('itemType must be Spare or Product.');
+  var itemType = quoteItemType_(input.itemType);
+  var master = masterRecordFor_(itemType, input.itemId);
+  var effective = getEffectivePrice_(itemType, String(input.itemId), SELLING_PRICE_LEVEL, quote.date);
+
+  var existingLines = readTable_('QuotationItems').filter(function (i) {
+    return String(i.quotationId) === String(input.quotationId);
+  });
+
+  var record = quoteItemRecord_(input, itemType, master, effective,
+    input.id ? Number(input.lineNo) : existingLines.length + 1);
+
+  if (input.id) {
+    record.id = input.id;
+    updateRowById_('QuotationItems', 'id', input.id, record, 'Quotation line updated');
+  } else {
+    record.id = generateId_('QI-');
+    appendRow_('QuotationItems', record, 'Quotation line added');
+  }
+
+  recalcQuotation_(input.quotationId);
+  return getQuotation(input.quotationId);
+}
+
+/**
+ * Adds several lines in one call.
+ *
+ * Adding a spares offer's worth of parts one at a time meant one execution per part, each one
+ * starting up, taking the lock, scanning the catalogue's id column and the price list, and
+ * recalculating the quotation. A coordinator picking twelve parts paid all of that twelve
+ * times over. Here every catalogue and price lookup happens once for the whole selection, the
+ * rows are written in a single block, and the quotation is recalculated once.
+ */
+function saveQuotationItems(input) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+  var quote = requireUnlockedQuote_(input.quotationId);
+
+  var lines = (input.lines || []).filter(function (l) { return l && l.itemId; });
+  if (!lines.length) throw new Error('Nothing was selected to add.');
+
+  // One lookup per catalogue, not per line.
+  var types = lines.map(function (l) { return quoteItemType_(l.itemType || input.itemType); });
+  var idsByType = {};
+  types.forEach(function (t, i) {
+    (idsByType[t] = idsByType[t] || []).push(String(lines[i].itemId));
+  });
+
+  var masters = {};
+  var prices = {};
+  Object.keys(idsByType).forEach(function (t) {
+    var tab = t === 'Product' ? 'Products' : 'Spares';
+    masters[t] = findRowsByIds_(tab, idsByType[t]);
+    prices[t] = getEffectivePrices_(t, idsByType[t], SELLING_PRICE_LEVEL, quote.date);
+  });
+
+  var existingLines = readTable_('QuotationItems').filter(function (i) {
+    return String(i.quotationId) === String(input.quotationId);
+  });
+  var nextLineNo = existingLines.length + 1;
+
+  var records = lines.map(function (l, i) {
+    var t = types[i];
+    var key = String(l.itemId);
+    var record = quoteItemRecord_(
+      { quotationId: input.quotationId, itemId: l.itemId, itemCode: l.itemCode,
+        description: l.description, qty: l.qty, uom: l.uom, unitPrice: l.unitPrice,
+        discountPct: l.discountPct, taxPct: l.taxPct,
+        availabilityNote: l.availabilityNote, leadTimeDays: l.leadTimeDays },
+      t, masters[t][key] || null, prices[t][key] || null, nextLineNo++);
+    record.id = generateId_('QI-');
+    return record;
+  });
+
+  appendRows_('QuotationItems', records, 'Quotation lines added');
+  recalcQuotation_(input.quotationId);
+  return getQuotation(input.quotationId);
+}
+
+function quoteItemType_(value) {
+  var itemType = String(value || 'Spare').trim();
+  if (['Spare', 'Product'].indexOf(itemType) === -1) {
+    throw new Error('itemType must be Spare or Product.');
+  }
+  return itemType;
+}
+
+/**
+ * One line's row, built the same way whether it arrived alone or as part of a selection.
+ * `unitPrice` defaults to the item's selling price on the quotation date, so a coordinator
+ * never has to look a price up, but it can be overridden — with the discount that implies
+ * recorded explicitly rather than buried in a changed number.
+ */
+function quoteItemRecord_(input, itemType, master, effective, lineNo) {
   var qty = Number(input.qty);
   if (isNaN(qty) || qty <= 0) throw new Error('Quantity must be greater than zero.');
 
   var discountPct = Number(input.discountPct) || 0;
   if (discountPct < 0 || discountPct > 100) throw new Error('Discount must be between 0 and 100.');
 
-  var master = masterRecordFor_(itemType, input.itemId);
-  var effective = getEffectivePrice_(itemType, String(input.itemId), SELLING_PRICE_LEVEL, quote.date);
   var listPrice = effective ? effective.price : 0;
   var unitPrice = (input.unitPrice === '' || input.unitPrice === undefined || input.unitPrice === null)
     ? listPrice : Number(input.unitPrice);
@@ -507,13 +592,10 @@ function saveQuotationItem(input) {
     : Number(input.taxPct);
 
   var net = unitPrice * (1 - discountPct / 100);
-  var existingLines = readTable_('QuotationItems').filter(function (i) {
-    return String(i.quotationId) === String(input.quotationId);
-  });
 
-  var record = {
+  return {
     quotationId: String(input.quotationId),
-    lineNo: input.id ? Number(input.lineNo) : existingLines.length + 1,
+    lineNo: lineNo,
     lineType: 'Item',
     itemType: itemType,
     itemId: String(input.itemId || '').trim(),
@@ -530,17 +612,6 @@ function saveQuotationItem(input) {
     availabilityNote: String(input.availabilityNote || '').trim(),
     leadTimeDays: input.leadTimeDays === '' || input.leadTimeDays === undefined ? '' : Number(input.leadTimeDays)
   };
-
-  if (input.id) {
-    record.id = input.id;
-    updateRowById_('QuotationItems', 'id', input.id, record, 'Quotation line updated');
-  } else {
-    record.id = generateId_('QI-');
-    appendRow_('QuotationItems', record, 'Quotation line added');
-  }
-
-  recalcQuotation_(input.quotationId);
-  return getQuotation(input.quotationId);
 }
 
 /**
