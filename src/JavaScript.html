@@ -40,6 +40,9 @@
     { label: "Orders", children: [
       { view: "orders", label: "Sales Orders", roles: ALL_ROLES },
       { view: "dispatch", label: "Dispatch & Billing", roles: ALL_ROLES },
+      // The last step of the process: once the goods are known to have arrived, an engineer
+      // goes and fits them.
+      { view: "service", label: "Service Jobs", roles: ALL_ROLES },
       { view: "collections", label: "Collections", roles: ALL_ROLES }
     ] },
     { view: "inventory", label: "Inventory", roles: ALL_ROLES },
@@ -206,6 +209,7 @@
     customers: initCustomersView,
     enquiries: initEnquiriesView,
     quotations: initQuotationsView,
+    service: initServiceView,
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
@@ -3159,6 +3163,170 @@
   }
 
 
+  // ================= SERVICE JOBS =================
+  // PIE's process ends with an engineer going out to fit what was delivered. The field for it
+  // existed on the dispatch from the start and nothing ever set it, so this step lived
+  // entirely on WhatsApp.
+  var serviceCache = [];
+  var openServiceJob = null;
+
+  var SERVICE_BADGE = {
+    "Unassigned": "badge-overdue", "Assigned": "badge-new", "Scheduled": "badge-followup",
+    "In Progress": "badge-quoted", "Completed": "badge-won", "Cancelled": "badge-lost"
+  };
+
+  function initServiceView() { loadServiceJobs(); }
+
+  function loadServiceJobs() {
+    google.script.run.withSuccessHandler(function (rows) {
+      serviceCache = rows;
+      renderServiceJobs();
+    }).withFailureHandler(onServerError).listServiceJobs({
+      mineOnly: $("service-mine").checked,
+      includeClosed: $("service-closed").checked
+    });
+  }
+
+  function renderServiceJobs() {
+    var q = ($("service-search").value || "").toLowerCase();
+    var rows = serviceCache.filter(function (j) {
+      return [j.jobNo, j.customerName, j.machineModel, j.serialNo, j.engineerEmail]
+        .join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+
+    var tbody = $("service-tbody");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="9"><div class="empty">' +
+        (serviceCache.length ? "No jobs match your search."
+          : "No open service jobs. One is raised whenever a delivery is confirmed.") +
+        "</div></td></tr>";
+      return;
+    }
+
+    tbody.innerHTML = rows.map(function (j) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(j.jobNo) + "</td>" +
+        "<td>" + escapeHtml(j.date) + "</td>" +
+        "<td>" + escapeHtml(j.customerName || "—") + "</td>" +
+        "<td>" + escapeHtml(j.machineModel || "—") +
+          (j.serialNo ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
+            escapeHtml(j.serialNo) + "</span>" : "") + "</td>" +
+        '<td class="num">' + (j.partCount === undefined ? "" : j.partCount) + "</td>" +
+        "<td>" + escapeHtml(j.engineerEmail || "—") + "</td>" +
+        "<td>" + escapeHtml(j.scheduledDate || "—") + "</td>" +
+        '<td><span class="badge ' + (SERVICE_BADGE[j.status] || "badge-draft") + '">' +
+          escapeHtml(j.status) + "</span></td>" +
+        '<td class="center"><button class="btn btn-sm" data-open-job="' + escapeHtml(j.id) +
+          '">Open</button></td>' +
+        "</tr>";
+    }).join("");
+
+    tbody.querySelectorAll("[data-open-job]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openServiceJobModal(btn.dataset.openJob); });
+    });
+  }
+
+  ["service-search", "service-mine", "service-closed"].forEach(function (id) {
+    var el = $(id);
+    if (!el) return;
+    el.addEventListener(id === "service-search" ? "input" : "change", function () {
+      if (id === "service-search") renderServiceJobs(); else loadServiceJobs();
+    });
+  });
+
+  function openServiceJobModal(id) {
+    google.script.run.withSuccessHandler(function (job) {
+      openServiceJob = job;
+      renderServiceJobModal();
+      $("service-modal-backdrop").classList.add("show");
+    }).withFailureHandler(onServerError).getServiceJob(id);
+  }
+
+  function renderServiceJobModal() {
+    var j = openServiceJob;
+    $("sj-id").value = j.id;
+    $("sj-title").textContent = j.jobNo;
+    $("sj-sub").textContent = "Raised " + j.date +
+      (j.dispatchId ? " on confirming the delivery." : ".");
+    $("sj-customer").value = j.customerName || "";
+    $("sj-machine").value = j.machineModel || "";
+    $("sj-serial").value = j.serialNo || "";
+    $("sj-scope").value = j.scopeText || "";
+    $("sj-notes").value = j.notes || "";
+    $("sj-scheduled").value = j.scheduledDate || "";
+
+    withPeople(function (p) {
+      fillPeopleSelect("sj-engineer", p.serviceEngineers || [], j.engineerEmail, "Nobody yet");
+      $("sj-status").innerHTML = (p.serviceStatuses || [j.status]).map(function (st) {
+        return '<option value="' + escapeHtml(st) + '"' + (st === j.status ? " selected" : "") +
+          ">" + escapeHtml(st) + "</option>";
+      }).join("");
+    });
+    $("sj-items").innerHTML = (j.items || []).length
+      ? '<table><thead><tr><th>#</th><th>Code</th><th>Description</th>' +
+        '<th class="num">Qty</th></tr></thead><tbody>' +
+        j.items.map(function (i) {
+          return "<tr><td>" + i.lineNo + '</td><td class="mono">' + escapeHtml(i.itemCode) +
+            "</td><td>" + escapeHtml(i.description) + '</td><td class="num">' + i.qty +
+            "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="empty" style="padding:10px;">Nothing was recorded against the dispatch.</div>';
+
+    $("sj-proofs").innerHTML = proofListHtml(j.proofs || []);
+  }
+
+  /** The photographs, as links. The picture is the evidence; the row only points at it. */
+  function proofListHtml(proofs, withRemove) {
+    if (!proofs.length) {
+      return '<div class="empty" style="padding:10px;">No photograph on file.</div>';
+    }
+    return '<ul style="margin:0; padding-left:18px; font-size:12.5px;">' +
+      proofs.map(function (p) {
+        return "<li style=\"margin-bottom:4px;\">" +
+          '<a href="' + escapeHtml(p.fileUrl) + '" target="_blank" rel="noopener">' +
+          escapeHtml(p.fileName) + "</a>" +
+          (p.caption ? " — " + escapeHtml(p.caption) : "") +
+          '<span style="color:var(--ink-soft);"> · ' + escapeHtml(String(p.uploadedBy || "")) +
+          "</span>" +
+          (withRemove ? ' <button class="btn btn-sm btn-ghost" data-drop-proof="' +
+            escapeHtml(p.id) + '" title="Remove">&times;</button>' : "") +
+          "</li>";
+      }).join("") + "</ul>";
+  }
+
+  $("btn-sj-close").addEventListener("click", function () {
+    $("service-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-sj-save").addEventListener("click", function () {
+    var id = $("sj-id").value;
+    var engineer = $("sj-engineer").value;
+    var status = $("sj-status").value;
+    var scheduled = $("sj-scheduled").value;
+    var notes = $("sj-notes").value;
+
+    // Assignment and status are two server calls because they are two different permissions:
+    // a coordinator names the engineer, the engineer moves the job along.
+    var thenStatus = function () {
+      google.script.run.withSuccessHandler(function (job) {
+        openServiceJob = job;
+        renderServiceJobModal();
+        loadServiceJobs();
+        showMsg(job.jobNo + " saved.", "success");
+      }).withFailureHandler(onServerError).setServiceJobStatus(id, status, notes);
+    };
+
+    if (engineer && (engineer !== openServiceJob.engineerEmail ||
+        scheduled !== (openServiceJob.scheduledDate || ""))) {
+      google.script.run.withSuccessHandler(function (job) {
+        openServiceJob = job;
+        thenStatus();
+      }).withFailureHandler(onServerError).assignServiceJob(id, engineer, scheduled);
+    } else {
+      thenStatus();
+    }
+  });
+
   // ================= COMPRESSOR SALES =================
   var CS_MODE = "leads";
   var leadsCache = [];
@@ -5028,7 +5196,15 @@
     $("btn-dm-savedetails").style.display = editable ? "" : "none";
 
     renderDispatchItems();
+    renderDispatchProofs();
     $("dm-line-form").style.display = "none";
+
+    // A photograph can be added from the moment the goods leave — the customer usually sends
+    // it before anybody gets round to confirming.
+    var canAddProof = posted && canDispatch();
+    $("dm-proof-file").disabled = !canAddProof;
+    $("dm-proof-caption").disabled = !canAddProof;
+    $("btn-dm-addproof").style.display = canAddProof ? "" : "none";
 
     $("btn-dm-post").style.display = editable ? "" : "none";
     $("btn-dm-invoice").style.display = posted && !d.invoiceNo && canDispatch() ? "" : "none";
@@ -5155,16 +5331,120 @@
     });
   });
 
+  /**
+   * Reads a photograph and scales it down before it leaves the browser.
+   *
+   * A phone photograph is several megabytes; a proof of delivery only has to be legible. The
+   * work is done here because an Apps Script call carrying 8 MB of base64 is slow and often
+   * simply fails.
+   */
+  function readProofPhoto(file, done, fail) {
+    if (file.type === "application/pdf") {
+      var raw = new FileReader();
+      raw.onerror = function () { fail("The file could not be read."); };
+      raw.onload = function (e) { done(e.target.result); };
+      raw.readAsDataURL(file);
+      return;
+    }
+    if (!/^image\//.test(file.type)) {
+      fail("A proof of delivery should be a photograph or a PDF.");
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function () { fail("The file could not be read."); };
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onerror = function () { fail("That image could not be opened — is the file damaged?"); };
+      img.onload = function () {
+        var max = 1600;
+        var scale = Math.min(1, max / img.width, max / img.height);
+        var w = Math.max(1, Math.round(img.width * scale));
+        var h = Math.max(1, Math.round(img.height * scale));
+        var canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        var cx = canvas.getContext("2d");
+        cx.fillStyle = "#fff"; cx.fillRect(0, 0, w, h);
+        cx.drawImage(img, 0, 0, w, h);
+        done(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  $("btn-dm-addproof").addEventListener("click", function () {
+    var input = $("dm-proof-file");
+    var file = input.files && input.files[0];
+    if (!file) { showMsg("Pick the photograph first.", "error"); return; }
+    var btn = $("btn-dm-addproof");
+    btn.disabled = true; btn.textContent = "Adding…";
+    var restore = function () { btn.disabled = false; btn.textContent = "Add Photo"; };
+
+    readProofPhoto(file, function (dataUrl) {
+      google.script.run.withSuccessHandler(function () {
+        input.value = "";
+        $("dm-proof-caption").value = "";
+        restore();
+        refreshDispatchProofs();
+        showMsg("Photograph stored against this dispatch.", "success");
+      }).withFailureHandler(function (err) { restore(); onServerError(err); })
+        .savePodPhoto(openDispatch.id, {
+          name: file.name,
+          dataUrl: dataUrl,
+          caption: $("dm-proof-caption").value
+        });
+    }, function (msg) { restore(); showMsg(msg, "error"); });
+  });
+
+  function refreshDispatchProofs() {
+    google.script.run.withSuccessHandler(function (proofs) {
+      openDispatch.proofs = proofs;
+      renderDispatchProofs();
+    }).withFailureHandler(onServerError).listPodPhotos(openDispatch.id);
+  }
+
+  function renderDispatchProofs() {
+    var zone = $("dm-proofs");
+    if (!zone) return;
+    zone.innerHTML = proofListHtml(openDispatch.proofs || [], true);
+    zone.querySelectorAll("[data-drop-proof]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        google.script.run.withSuccessHandler(function (proofs) {
+          openDispatch.proofs = proofs;
+          renderDispatchProofs();
+          showMsg("Photograph removed.", "success");
+        }).withFailureHandler(onServerError).deletePodPhoto(btn.dataset.dropProof);
+      });
+    });
+
+    // Once a job exists, say so and where it went — the dispatch is where somebody looks.
+    var job = openDispatch.serviceJob;
+    $("dm-servicejob").innerHTML = job
+      ? '<div class="compare-strip"><b>Service job ' + escapeHtml(job.jobNo) + "</b> — " +
+        escapeHtml(job.status) +
+        (job.engineerEmail ? ", with " + escapeHtml(job.engineerEmail) : ", nobody named yet") +
+        ". It is on the Service Jobs screen.</div>"
+      : "";
+  }
+
   $("btn-dm-delivered").addEventListener("click", function () {
+    var proofs = (openDispatch.proofs || []).length;
     askDialog({
       title: "Confirm delivery",
-      message: "Record the proof of delivery reference from the transporter or the customer.",
-      input: true, inputLabel: "POD Reference", required: false, okLabel: "Confirm Delivery"
+      message: proofs
+        ? "Confirming raises the service job, with the parts that were dispatched on it. " +
+          proofs + (proofs === 1 ? " photograph is" : " photographs are") + " on file."
+        : "There is no photograph on file yet. You can still confirm — a customer who rings " +
+          "instead of sending a picture is a delivery too — but the proof is worth having. " +
+          "Confirming raises the service job.",
+      input: true, inputLabel: "POD Reference (optional)", required: false,
+      okLabel: "Confirm Delivery"
     }, function (ref) {
       if (ref === null) return;
       google.script.run.withSuccessHandler(function (d) {
         openDispatch = d; renderDispatchModal();
-        showMsg("Delivery confirmed.", "success");
+        showMsg("Delivery confirmed. Service job " +
+          (d.serviceJob ? d.serviceJob.jobNo : "") + " raised.", "success");
       }).withFailureHandler(onServerError).confirmDelivery(openDispatch.id, { podRef: ref });
     });
   });

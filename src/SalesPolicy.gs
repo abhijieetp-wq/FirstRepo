@@ -117,7 +117,7 @@ function openCreditCheckFor_(salesOrderId) {
  */
 function listPeople() {
   getCurrentUser();
-  var byRole = { salesEngineers: [], coordinators: [], management: [] };
+  var byRole = { salesEngineers: [], coordinators: [], serviceEngineers: [], management: [] };
   readTable_('Users').forEach(function (u) {
     if (String(u.active).toUpperCase() === 'FALSE') return;
     var person = {
@@ -128,12 +128,15 @@ function listPeople() {
     if (!person.email) return;
     if (person.role === ROLES.SALES_ENGINEER) byRole.salesEngineers.push(person);
     if (person.role === ROLES.SALES_COORDINATOR) byRole.coordinators.push(person);
+    if (person.role === ROLES.SERVICE_ENGINEER) byRole.serviceEngineers.push(person);
     if (person.role === ROLES.MANAGEMENT) byRole.management.push(person);
   });
   var byName = function (a, b) { return a.name.localeCompare(b.name); };
   byRole.salesEngineers.sort(byName);
   byRole.coordinators.sort(byName);
+  byRole.serviceEngineers.sort(byName);
   byRole.management.sort(byName);
   byRole.categories = CUSTOMER_CATEGORIES.slice();
+  byRole.serviceStatuses = SERVICE_JOB_STATUSES.slice();
   return byRole;
 }

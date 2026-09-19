@@ -163,6 +163,12 @@ function getDispatch(id) {
   })[0];
   row.invoiceNo = invoice ? invoice.invoiceNo : '';
   row.invoiceId = invoice ? invoice.id : '';
+
+  // The photographs the customer sent back, and the job they triggered.
+  row.proofs = listPodPhotos(id);
+  var job = findRowsByColumn_('ServiceJobs', 'dispatchId', [String(id)])
+    .filter(function (j) { return j.status !== 'Cancelled'; })[0];
+  row.serviceJob = job ? stripRow_(job) : null;
   return row;
 }
 
@@ -440,7 +446,15 @@ function postDispatch(dispatchId) {
   return getDispatch(dispatchId);
 }
 
-/** Proof of delivery, and the flag the service handoff will hang off in Phase 2 (FR-047). */
+/**
+ * Proof of delivery, and the handoff to service.
+ *
+ * This is the end of PIE's process: the customer's photograph comes back, and the engineer is
+ * told to go and fit what arrived. `serviceNotified` sat on this table from the beginning and
+ * nothing ever set it, so the last step happened entirely on WhatsApp with no record of it.
+ * Confirming a delivery now raises the job — with the customer, the machine and the parts that
+ * were actually dispatched — and names the engineer if one has been chosen.
+ */
 function confirmDelivery(dispatchId, input) {
   var user = getCurrentUser();
   requireRole_(user, DISPATCH_ROLES);
@@ -451,13 +465,26 @@ function confirmDelivery(dispatchId, input) {
   if (!dispatch) throw new Error('Dispatch not found.');
   if (dispatch.status !== 'Dispatched') throw new Error('Post the dispatch before confirming delivery.');
 
+  // The photograph is the proof. Confirming without one is allowed — a customer who rings
+  // instead of sending a picture is still a delivery — but it is worth saying so.
+  var proofs = listPodPhotos(dispatchId);
+
   updateRowById_('Dispatches', 'id', dispatchId, {
     deliveryConfirmed: 'Yes',
     deliveryConfirmedDate: String((input && input.date) || todayIso_()).slice(0, 10),
-    podRef: String((input && input.podRef) || '').trim(),
+    podRef: String((input && input.podRef) || '').trim() ||
+      (proofs.length ? proofs.length + ' photo' + (proofs.length === 1 ? '' : 's') + ' on file' : ''),
     podDate: String((input && input.date) || todayIso_()).slice(0, 10)
   }, 'Delivery confirmed by the customer');
-  return getDispatch(dispatchId);
+
+  var job = raiseServiceJob_(dispatch, input && input.engineerEmail, user);
+  updateRowById_('Dispatches', 'id', dispatchId, { serviceNotified: 'Yes' },
+    'Service job ' + job.jobNo + ' raised');
+
+  var result = getDispatch(dispatchId);
+  result.serviceJob = job;
+  result.proofCount = proofs.length;
+  return result;
 }
 
 /** Orders that can be dispatched now — what the "new dispatch" picker offers. */

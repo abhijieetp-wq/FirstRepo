@@ -488,6 +488,27 @@
     </div>
 
 
+    <div class="view" id="view-service">
+      <div class="page-head">
+        <div><h2>Service Jobs</h2><p>Raised when a delivery is confirmed: the parts that arrived,
+          the machine they are for, and the engineer going to fit them.</p></div>
+      </div>
+      <div class="search-bar">
+        <input id="service-search" placeholder="Search by job no., customer, machine or engineer…" />
+        <label class="check-line"><input type="checkbox" id="service-mine" /> Only mine</label>
+        <label class="check-line"><input type="checkbox" id="service-closed" /> Include completed</label>
+      </div>
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table>
+          <thead><tr>
+            <th>Job No.</th><th>Raised</th><th>Customer</th><th>Machine</th>
+            <th class="num">Parts</th><th>Engineer</th><th>Scheduled</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="service-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="view" id="view-collections">
       <div class="page-head">
         <div>
@@ -844,6 +865,38 @@
     <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
       <button class="btn" id="btn-cancel-qtpl" type="button">Cancel</button>
       <button class="btn btn-primary" id="btn-save-qtpl" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="service-modal-backdrop">
+  <div class="modal" style="max-width:820px;">
+    <h3 id="sj-title" style="margin-bottom:4px;">Service Job</h3>
+    <p id="sj-sub" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;"></p>
+    <input type="hidden" id="sj-id" />
+
+    <div class="grid grid-3">
+      <div class="field"><label>Customer</label><input id="sj-customer" disabled /></div>
+      <div class="field"><label>Machine</label><input id="sj-machine" disabled /></div>
+      <div class="field"><label>Serial No.</label><input id="sj-serial" class="mono" disabled /></div>
+    </div>
+    <div class="grid grid-3" style="margin-top:12px;">
+      <div class="field"><label>Service Engineer</label><select id="sj-engineer"></select></div>
+      <div class="field"><label>Scheduled Date</label><input id="sj-scheduled" type="date" /></div>
+      <div class="field"><label>Status</label><select id="sj-status"></select></div>
+    </div>
+    <div class="field" style="margin-top:12px;"><label>Scope</label><input id="sj-scope" disabled /></div>
+    <div class="field" style="margin-top:12px;"><label>Notes</label><textarea id="sj-notes"></textarea></div>
+
+    <div class="card-title" style="margin-top:20px;">Parts to fit</div>
+    <div id="sj-items"></div>
+
+    <div class="card-title" style="margin-top:20px;">Proof of delivery</div>
+    <div id="sj-proofs"></div>
+
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
+      <button class="btn" id="btn-sj-close">Close</button>
+      <button class="btn btn-primary" id="btn-sj-save">Save</button>
     </div>
   </div>
 </div>
@@ -1434,6 +1487,21 @@
         <button class="btn btn-sm btn-primary" id="btn-dm-saveline" type="button">Save Line</button>
       </div>
     </div>
+
+    <div class="card-title" style="margin-top:22px;">Proof of delivery</div>
+    <p style="font-size:12px; color:var(--ink-soft); margin:-8px 0 10px;">
+      The photograph the customer sends back on WhatsApp. Add it here and it is kept in Drive
+      against this dispatch, so it is still there when somebody asks months later.
+    </p>
+    <div id="dm-proofs"></div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+      <input type="file" id="dm-proof-file" accept="image/*,application/pdf"
+        style="font-size:12.5px;" />
+      <input id="dm-proof-caption" placeholder="Caption (optional)" style="flex:1; min-width:180px;" />
+      <button class="btn btn-sm" id="btn-dm-addproof" type="button">Add Photo</button>
+    </div>
+
+    <div id="dm-servicejob" style="margin-top:16px;"></div>
 
     <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px;">
       <button class="btn btn-ghost" id="btn-dm-delivered" style="display:none;">Confirm Delivery</button>

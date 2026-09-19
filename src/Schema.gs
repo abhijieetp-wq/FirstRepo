@@ -336,6 +336,30 @@ var SCHEMA = {
     columns: ['id', 'dispatchId', 'salesOrderItemId', 'lineNo', 'itemType', 'itemId', 'itemCode',
       'description', 'qtyDispatched', 'serialNos', 'binId', 'notes']
   },
+  // ---------------------------------------------------------------- After delivery
+  DeliveryProofs: {
+    label: 'The photographs a customer sends back on delivery (FR-047)',
+    // PIE take proof of delivery as WhatsApp photos. A reference typed into a cell is not
+    // evidence; the picture is. Each one is a Drive file, so several can hang off one
+    // dispatch and the sheet stays small.
+    columns: ['id', 'dispatchId', 'fileId', 'fileName', 'fileUrl', 'mimeType', 'sizeBytes',
+      'caption', 'uploadedBy', 'uploadedAt']
+  },
+  ServiceJobs: {
+    label: 'Fitting the delivered parts — raised when a delivery is confirmed (FR-047)',
+    // The last step of PIE's process: once the goods are known to have arrived, a service
+    // engineer is told to go and fit them. `serviceNotified` on the dispatch used to be the
+    // only trace of this, and nothing ever set it.
+    columns: ['id', 'jobNo', 'date', 'dispatchId', 'salesOrderId', 'customerId', 'customerName',
+      'machineModel', 'serialNo', 'siteAddressId', 'engineerEmail', 'status', 'scopeText',
+      'scheduledDate', 'completedDate', 'notes', 'createdAt', 'createdBy']
+  },
+  ServiceJobItems: {
+    label: 'The parts a service job is to fit, carried from the dispatch',
+    columns: ['id', 'serviceJobId', 'lineNo', 'itemType', 'itemId', 'itemCode', 'description',
+      'qty']
+  },
+
   Invoices: {
     label: 'Invoice from order + actual dispatch, with Tally sync status (FR-048, FR-050)',
     columns: ['id', 'invoiceNo', 'invoiceDate', 'salesOrderId', 'dispatchId', 'customerId',
@@ -395,6 +419,11 @@ var ORDER_STATUSES = ['Draft', 'Approval Pending', 'Credit Hold', 'Material Pend
 // 'Negotiating' is the step PIE described that had no home here: the customer has the offer
 // and is discussing the terms. Without it a quotation sat on 'Submitted' from the day it was
 // sent until the day it was won, and nobody could tell a live conversation from silence.
+/** A service job's life (FR-047). Unassigned exists because a delivery is confirmed before
+ * anybody has decided which engineer is going. */
+var SERVICE_JOB_STATUSES = ['Unassigned', 'Assigned', 'Scheduled', 'In Progress', 'Completed',
+  'Cancelled'];
+
 var QUOTATION_STATUSES = ['Draft', 'Approved', 'Submitted', 'Negotiating', 'Revised', 'Won',
   'Lost', 'Expired'];
 
