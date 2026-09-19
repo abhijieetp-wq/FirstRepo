@@ -380,6 +380,21 @@ function appendRows_(sheetName, objs, auditReason) {
   }
 }
 
+/** Indian digit grouping: 13,16,600.00 rather than 1,316,600.00. Used by the printed
+ * documents and by any message that quotes a figure back to somebody: 13,16,600.00 rather than 1,316,600.00. */
+function inr_(n) {
+  var v = Math.abs(Number(n) || 0).toFixed(2);
+  var parts = v.split('.');
+  var whole = parts[0];
+  var last3 = whole.length > 3 ? whole.slice(-3) : whole;
+  var rest = whole.length > 3 ? whole.slice(0, -3) : '';
+  if (rest) last3 = ',' + last3;
+  rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+  // A non-breaking space: in a narrow column the symbol was wrapping onto the line above its
+  // own number.
+  return (Number(n) < 0 ? '-' : '') + '₹\u00A0' + rest + last3 + '.' + parts[1];
+}
+
 function generateId_(prefix) {
   return (prefix || '') + Utilities.getUuid().slice(0, 8);
 }

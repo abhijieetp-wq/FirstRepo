@@ -20,6 +20,9 @@
  */
 
 var ORDER_EDITORS = [ROLES.SALES_COORDINATOR, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+// Who may lift a hold is decided per order by `creditReleaseRule_`, because it depends on
+// whether the customer has broken an agreement or merely filled their pipeline. This is the
+// set that can always do it, whatever the rule says.
 var CREDIT_APPROVERS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 
 /**
@@ -103,6 +106,14 @@ function getSalesOrder(id) {
     .map(stripRow_);
 
   row.allowedTransitions = ORDER_TRANSITIONS[row.orderStatus] || [];
+  // Who can lift this particular hold, and why — so the screen says it rather than letting
+  // somebody discover it by pressing a button and being refused.
+  if (row.creditHold) {
+    row.creditRelease = creditReleaseRule_(customer, row.creditChecks.filter(function (c) {
+      return c.result === 'Hold';
+    })[0] || null);
+  }
+  row.customerCategory = customer ? String(customer.customerCategory || '') : '';
   return row;
 }
 
@@ -348,7 +359,6 @@ function runCreditCheck(salesOrderId) {
  */
 function releaseCreditHold(salesOrderId, reason, nextStatus) {
   var user = getCurrentUser();
-  requireRole_(user, CREDIT_APPROVERS);
   if (!String(reason || '').trim()) {
     throw new Error('A reason is required to release a credit hold.');
   }
@@ -357,6 +367,16 @@ function releaseCreditHold(salesOrderId, reason, nextStatus) {
     return String(o.id) === String(salesOrderId);
   })[0];
   if (!order) throw new Error('Order not found.');
+
+  // Not every hold is Management's to lift. A customer inside their agreed limit on money
+  // already invoiced has broken nothing — the hold came from orders still in the pipeline —
+  // and the coordinator can release that. A customer past the limit, or one never given one,
+  // is Management's call.
+  var rule = creditReleaseRule_(findRowById_('Customers', order.customerId),
+    openCreditCheckFor_(salesOrderId));
+  if (rule.approvers.indexOf(user.role) === -1) {
+    throw new Error(rule.why + ' Your role is ' + user.role + '.');
+  }
 
   var target = String(nextStatus || 'Material Pending').trim();
   if ((ORDER_TRANSITIONS['Credit Hold'] || []).indexOf(target) === -1) {

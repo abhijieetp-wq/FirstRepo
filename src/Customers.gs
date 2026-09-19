@@ -14,6 +14,24 @@
  * coordinator editing a phone number never trips over a permission error.
  */
 
+/**
+ * How much trust this customer has earned: Regular, New, or Occasional.
+ *
+ * Left blank rather than guessed. A blank category is treated as the strictest general rule
+ * everywhere it matters, so forgetting to set one can never be the way an offer skips review.
+ */
+function customerCategory_(value) {
+  var v = String(value || '').trim();
+  if (!v) return '';
+  var match = CUSTOMER_CATEGORIES.filter(function (c) {
+    return c.toLowerCase() === v.toLowerCase();
+  })[0];
+  if (!match) {
+    throw new Error('Customer category must be one of: ' + CUSTOMER_CATEGORIES.join(', ') + '.');
+  }
+  return match;
+}
+
 var COMMERCIAL_FIELDS = ['paymentTerms', 'creditLimit', 'creditDays', 'advanceRule', 'riskStatus'];
 var CONTACT_ROLES = ['Purchase', 'Maintenance', 'Accounts', 'Owner', 'Other'];
 var ADDRESS_TYPES = ['Billing', 'Shipping'];
@@ -117,6 +135,9 @@ function saveCustomer(input) {
     pan: String(input.pan || '').trim().toUpperCase(),
     industry: String(input.industry || '').trim(),
     segment: String(input.segment || '').trim(),
+    // Regular / New / Occasional. It decides who must approve this customer's quotations
+    // before they are sent, so it is a commercial fact, not a label.
+    customerCategory: customerCategory_(input.customerCategory),
     assignedSalesperson: String(input.assignedSalesperson || '').trim(),
     territory: String(input.territory || '').trim(),
     brand: String(input.brand || defaultBrand_()).trim(),

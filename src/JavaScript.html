@@ -1285,6 +1285,7 @@
     $("cm-industry").value = c ? (c.industry || "") : "";
     $("cm-territory").value = c ? (c.territory || "") : "";
     $("cm-salesperson").value = c ? (c.assignedSalesperson || "") : "";
+    $("cm-category").value = c ? (c.customerCategory || "") : "";
     $("cm-notes").value = c ? (c.notes || "") : "";
     $("cm-paymentterms").value = c ? (c.paymentTerms || "") : "";
     $("cm-creditlimit").value = c && c.creditLimit !== "" ? c.creditLimit : "";
@@ -1426,6 +1427,7 @@
       industry: $("cm-industry").value.trim(),
       territory: $("cm-territory").value.trim(),
       assignedSalesperson: $("cm-salesperson").value.trim(),
+      customerCategory: $("cm-category").value,
       notes: $("cm-notes").value.trim(),
       paymentTerms: $("cm-paymentterms").value.trim(),
       creditLimit: $("cm-creditlimit").value,
@@ -1704,7 +1706,17 @@
     $("em-urgency").value = e ? (e.urgency || "Normal") : "Normal";
     $("em-nextaction").value = e ? (e.nextActionDate || "") : "";
     $("em-requirement").value = e ? (e.requirementText || "") : "";
-    $("em-owner").value = e ? (e.ownerEmail || currentUser.email) : currentUser.email;
+    withPeople(function (p) {
+      fillPeopleSelect("em-engineer", p.salesEngineers,
+        e ? e.salesEngineerEmail : (currentUser.role === "Sales Engineer" ? currentUser.email : ""),
+        "No engineer");
+      // A new record defaults to whoever is filling it in, but only if they are
+      // actually a coordinator — otherwise it is left unassigned rather than
+      // putting a sales engineer in a coordinator's slot.
+      fillPeopleSelect("em-owner", p.coordinators,
+        e ? (e.ownerEmail || "") : (currentUser.role === "Sales Coordinator"
+          ? currentUser.email : ""), "Unassigned");
+    });
     $("em-status").value = e ? e.status : "New";
 
     $("em-lostreason").innerHTML = '<option value="">—</option>' +
@@ -1827,6 +1839,7 @@
       urgency: $("em-urgency").value,
       nextActionDate: $("em-nextaction").value,
       requirementText: $("em-requirement").value.trim(),
+      salesEngineerEmail: $("em-engineer").value.trim(),
       ownerEmail: $("em-owner").value.trim(),
       status: $("em-status").value,
       lostReasonId: $("em-lostreason").value
@@ -1910,6 +1923,48 @@
   var openQuote = null;
   var quoteSearchTimer = null;
 
+  /**
+   * The people work can be handed to, fetched once.
+   *
+   * PIE run several sales engineers and several coordinators, so "owner" was never one
+   * person: the engineer brings the lead in and a coordinator is put in charge of it. Both
+   * are picked from a list of who actually holds that role, rather than typed as an email
+   * that nobody checks.
+   */
+  var peopleCache = null;
+
+  function withPeople(then) {
+    if (peopleCache) { then(peopleCache); return; }
+    google.script.run.withSuccessHandler(function (data) {
+      peopleCache = data;
+      then(peopleCache);
+    }).withFailureHandler(function () {
+      // A dropdown that cannot be filled must not stop the form opening.
+      peopleCache = { salesEngineers: [], coordinators: [], management: [], categories: [] };
+      then(peopleCache);
+    }).listPeople();
+  }
+
+  function fillPeopleSelect(id, people, chosen, blankLabel) {
+    var sel = $(id);
+    if (!sel) return;
+    var seen = {};
+    var opts = ['<option value="">' + escapeHtml(blankLabel || "Unassigned") + "</option>"];
+    people.forEach(function (p) {
+      seen[p.email.toLowerCase()] = true;
+      opts.push('<option value="' + escapeHtml(p.email) + '">' +
+        escapeHtml(p.name + " \u00b7 " + p.email) + "</option>");
+    });
+    // Somebody already on the record who no longer holds the role still has to show, or
+    // saving the form would quietly reassign their work.
+    if (chosen && !seen[String(chosen).toLowerCase()]) {
+      opts.push('<option value="' + escapeHtml(chosen) + '">' +
+        escapeHtml(chosen) + " (no longer in this role)</option>");
+    }
+    sel.innerHTML = opts.join("");
+    sel.value = chosen || "";
+  }
+
   var QUOTE_BADGE = {
     "Draft": "badge-draft", "Approved": "badge-active", "Submitted": "badge-sent",
     "Negotiating": "badge-followup",
@@ -1924,6 +1979,33 @@
    * screens and joining them by eye, which is the sort of question that gets asked ten times
    * a day and answered from memory.
    */
+  /**
+   * What this customer's category means for sending the offer.
+   *
+   * PIE approve by relationship, not by amount: a regular customer's offer goes straight out,
+   * a new customer's needs Management, an occasional buyer's needs Management or the
+   * coordinator in charge. Saying so on the screen is the difference between knowing the rule
+   * and discovering it by being refused.
+   */
+  function renderApprovalNote(q) {
+    var zone = $("qb-approval-note");
+    var rule = q.approvalRule;
+    if (!zone) return;
+    if (!rule || ["Draft", "Approved"].indexOf(q.status) === -1) { zone.innerHTML = ""; return; }
+
+    if (!rule.required) {
+      zone.innerHTML = '<div class="compare-strip" style="margin-bottom:16px;">' +
+        '<b>' + escapeHtml(rule.category) + ' customer.</b> ' + escapeHtml(rule.why) + "</div>";
+      return;
+    }
+    var approved = q.status === "Approved";
+    zone.innerHTML = '<div class="compare-strip" style="margin-bottom:16px;">' +
+      "<b>" + escapeHtml(rule.category) + " customer.</b> " + escapeHtml(rule.why) +
+      (approved ? " Approved by " + escapeHtml(q.approvedBy || "") +
+        (q.approvalDate ? " on " + escapeHtml(q.approvalDate) : "") + "." : "") +
+      "</div>";
+  }
+
   function renderQuoteJourney(j) {
     var zone = $("qb-journey");
     if (!j || !j.stages) { zone.innerHTML = ""; return; }
@@ -2254,6 +2336,7 @@
     }
 
     renderQuoteJourney(q.journey);
+    renderApprovalNote(q);
     renderQuoteActions(q, editable);
     renderQuoteItems(q, editable);
     renderQuoteTotals(q);
@@ -3278,7 +3361,17 @@
     $("lm-requirement").value = l ? (l.requirementSummary || "") : "";
     $("lm-urgency").value = l ? (l.urgency || "Normal") : "Normal";
     $("lm-budget").value = l && l.budget !== "" ? l.budget : "";
-    $("lm-owner").value = l ? (l.ownerEmail || currentUser.email) : currentUser.email;
+    withPeople(function (p) {
+      fillPeopleSelect("lm-engineer", p.salesEngineers,
+        l ? l.salesEngineerEmail : (currentUser.role === "Sales Engineer" ? currentUser.email : ""),
+        "No engineer");
+      // A new record defaults to whoever is filling it in, but only if they are
+      // actually a coordinator — otherwise it is left unassigned rather than
+      // putting a sales engineer in a coordinator's slot.
+      fillPeopleSelect("lm-owner", p.coordinators,
+        l ? (l.ownerEmail || "") : (currentUser.role === "Sales Coordinator"
+          ? currentUser.email : ""), "Unassigned");
+    });
     $("lm-nextaction").value = l ? (l.nextActionDate || "") : "";
     $("lm-status").value = l ? l.status : "New";
 
@@ -3439,6 +3532,7 @@
       requirementSummary: $("lm-requirement").value.trim(),
       urgency: $("lm-urgency").value,
       budget: $("lm-budget").value,
+      salesEngineerEmail: $("lm-engineer").value.trim(),
       ownerEmail: $("lm-owner").value.trim(),
       nextActionDate: $("lm-nextaction").value,
       status: $("lm-status").value,
@@ -3792,8 +3886,18 @@
   function canEditOrders() {
     return ["Sales Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
   }
-  function canReleaseCredit() {
-    return ["Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  /**
+   * Whether this user can lift this order's hold.
+   *
+   * Not a role check any more. A customer inside their agreed limit on invoiced money has
+   * broken nothing — the hold came from orders still in the pipeline — so the coordinator can
+   * release that one. A customer past the limit, or never given one, is Management's. The
+   * server decides; this only mirrors it so the button is not offered and then refused.
+   */
+  function canReleaseCredit(order) {
+    var rule = order && order.creditRelease;
+    if (!rule) return ["Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+    return rule.approvers.indexOf(currentUser.role) !== -1;
   }
 
   function initOrdersView() {
@@ -3939,9 +4043,10 @@
     $("om2-credit-banner").innerHTML = o.creditHold
       ? '<div class="msg msg-error show" style="margin-bottom:14px;"><span class="msg-text">' +
         "<b>On credit hold.</b> " + escapeHtml(o.creditHoldReason || "") +
-        (canReleaseCredit()
+        (o.creditRelease ? " " + escapeHtml(o.creditRelease.why) : "") +
+        (canReleaseCredit(o)
           ? " You can release it below."
-          : " Management must release it before dispatch.") +
+          : " It is not yours to release.") +
         "</span></div>"
       : "";
 
@@ -4016,7 +4121,7 @@
     var zone = $("om2-status-panel");
     var buttons = "";
 
-    if (o.creditHold && canReleaseCredit()) {
+    if (o.creditHold && canReleaseCredit(o)) {
       buttons += '<button class="btn btn-sm btn-amber" id="btn-release-hold">Release Credit Hold</button> ';
     }
     if (editable && !o.creditHold && ["Draft", "Approval Pending", "Material Pending"].indexOf(o.orderStatus) !== -1) {

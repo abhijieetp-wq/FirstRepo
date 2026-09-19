@@ -110,6 +110,11 @@ function saveLead(input) {
     application: String(input.application || '').trim(),
     urgency: String(input.urgency || 'Normal').trim(),
     budget: input.budget === '' || input.budget === undefined || input.budget === null ? '' : Number(input.budget),
+    // The engineer who brought it in and the coordinator now handling it are two people, and
+    // the record keeps both. Whoever is logged in is assumed to be the engineer unless the
+    // form says otherwise.
+    salesEngineerEmail: String(input.salesEngineerEmail ||
+      (user.role === ROLES.SALES_ENGINEER ? user.email : '')).trim(),
     ownerEmail: String(input.ownerEmail || user.email).trim(),
     status: status,
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
@@ -333,6 +338,11 @@ function saveOpportunity(input) {
     competitor: String(input.competitor || '').trim(),
     lostReasonId: String(input.lostReasonId || '').trim(),
     lostNotes: String(input.lostNotes || '').trim(),
+    // The engineer who brought it in and the coordinator now handling it are two people, and
+    // the record keeps both. Whoever is logged in is assumed to be the engineer unless the
+    // form says otherwise.
+    salesEngineerEmail: String(input.salesEngineerEmail ||
+      (user.role === ROLES.SALES_ENGINEER ? user.email : '')).trim(),
     ownerEmail: String(input.ownerEmail || user.email).trim(),
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
     businessStream: STREAM_COMPRESSOR,

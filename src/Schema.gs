@@ -115,7 +115,11 @@ var SCHEMA = {
     label: 'One customer code used across both streams (FR-001, FR-003)',
     columns: ['id', 'customerCode', 'name', 'legalName', 'gstin', 'pan', 'industry', 'segment',
       'assignedSalesperson', 'territory', 'paymentTerms', 'creditLimit', 'creditDays',
-      'advanceRule', 'riskStatus', 'brand', 'lastOrderDate', 'notes', 'active', 'createdAt', 'createdBy']
+      'advanceRule', 'riskStatus', 'brand', 'lastOrderDate', 'notes', 'active', 'createdAt',
+      'createdBy',
+      // How much trust this customer has earned. It decides who must sign an offer off before
+      // it is sent, which at PIE is a question about the relationship rather than the amount.
+      'customerCategory']
   },
   CustomerContacts: {
     label: 'Purchase / maintenance / accounts / owner contacts (FR-002)',
@@ -178,8 +182,11 @@ var SCHEMA = {
     columns: ['id', 'leadNo', 'date', 'customerId', 'customerName', 'contactName', 'contactPhone',
       'contactEmail', 'prospectCity',
       'source', 'requirementSummary', 'industry', 'application', 'urgency', 'budget',
-      'ownerEmail', 'status', 'nextActionDate', 'lostReasonId', 'businessStream', 'brand',
-      'createdAt', 'createdBy']
+      // Two people, not one. A sales engineer finds the lead; a coordinator is then put in
+      // charge of it. One owner column could not say who did which, so neither could be
+      // credited or chased.
+      'salesEngineerEmail', 'ownerEmail', 'status', 'nextActionDate', 'lostReasonId',
+      'businessStream', 'brand', 'createdAt', 'createdBy']
   },
   LeadRequirements: {
     label: 'What the prospect wants, per compressor type — a lead may want both',
@@ -220,7 +227,9 @@ var SCHEMA = {
   SpareEnquiries: {
     label: 'Spare enquiry by machine/serial with urgency (FR-022)',
     columns: ['id', 'enquiryNo', 'date', 'customerId', 'customerName', 'contactName', 'productModel',
-      'serialNo', 'installedBaseId', 'requirementText', 'urgency', 'source', 'ownerEmail',
+      'serialNo', 'installedBaseId', 'requirementText', 'urgency', 'source',
+      // As on Leads: the engineer who took the enquiry, and the coordinator now handling it.
+      'salesEngineerEmail', 'ownerEmail',
       'status', 'nextActionDate', 'lostReasonId', 'businessStream', 'brand',
       'createdAt', 'createdBy']
   },

@@ -274,6 +274,7 @@
 
       <div id="qb-body" style="display:none;">
         <div id="qb-journey"></div>
+        <div id="qb-approval-note"></div>
         <div id="qb-locked-banner"></div>
 
         <div class="card">
@@ -690,8 +691,16 @@
       <div class="field"><label>Industry</label><input id="cm-industry" list="industry-list" /></div>
       <div class="field"><label>Territory</label><input id="cm-territory" /></div>
     </div>
-    <div class="grid grid-2" style="margin-top:12px;">
+    <div class="grid grid-3" style="margin-top:12px;">
       <div class="field"><label>Assigned Salesperson</label><input id="cm-salesperson" list="users-list" placeholder="Email" /></div>
+      <div class="field"><label>Customer Category</label>
+        <select id="cm-category">
+          <option value="">Not set</option>
+          <option value="Regular">Regular — offers go out without sign-off</option>
+          <option value="New">New — Management must approve</option>
+          <option value="Occasional">Occasional — Management or the coordinator</option>
+        </select>
+      </div>
       <div class="field"><label>Notes</label><input id="cm-notes" /></div>
     </div>
 
@@ -883,7 +892,8 @@
       <textarea id="em-requirement" placeholder="Their words — part names, symptoms, quantities"></textarea>
     </div>
     <div class="grid grid-3" style="margin-top:12px;">
-      <div class="field"><label>Owner</label><input id="em-owner" list="users-list" /></div>
+      <div class="field"><label>Sales Engineer</label><select id="em-engineer"></select></div>
+      <div class="field"><label>Assigned Coordinator</label><select id="em-owner"></select></div>
       <div class="field"><label>Status</label>
         <select id="em-status">
           <option>New</option><option>Identifying</option><option>Quoted</option>
@@ -998,8 +1008,15 @@
         <select id="lm-urgency"><option>Normal</option><option>Urgent</option><option>Immediate</option></select>
       </div>
       <div class="field"><label>Indicative Budget (₹)</label><input id="lm-budget" type="number" min="0" /></div>
-      <div class="field"><label>Owner</label><input id="lm-owner" list="users-list" /></div>
       <div class="field"><label>Next Action Date *</label><input id="lm-nextaction" type="date" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Sales Engineer</label>
+        <select id="lm-engineer"></select>
+      </div>
+      <div class="field"><label>Assigned Coordinator</label>
+        <select id="lm-owner"></select>
+      </div>
     </div>
     <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Status</label>
