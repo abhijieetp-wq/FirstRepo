@@ -281,6 +281,15 @@ function applyBuildUpdates_() {
   if (!lock.tryLock(5000)) return null;
   try {
     if (props.getProperty(BUILD_STAMP_KEY_) === APP_BUILD) return null;
+    // A build that adds a column has the same problem as one that adds standard text: the
+    // code writes a field the sheet has no home for until somebody runs Setup. On its own
+    // failure the text still installs — one repair going wrong must not take the other with
+    // it, nor the load.
+    try {
+      addMissingColumnsEverywhere_();
+    } catch (err) {
+      console.warn('Could not add missing columns: ' + err.message);
+    }
     var added = installMissingQuoteTemplates_('Standard quotation text installed with build ' +
       APP_BUILD);
     props.setProperty(BUILD_STAMP_KEY_, APP_BUILD);

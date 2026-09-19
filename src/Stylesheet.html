@@ -156,6 +156,42 @@
   .msg-error{ background:var(--red-bg); color:var(--red); border:1px solid #F3C6C3; }
   .msg-success{ background:var(--green-bg); color:var(--green); border:1px solid #BEE3CC; }
 
+  /* The order-to-cash strip on a quotation. A row of steps rather than a bar, because the
+     useful part is which step and when, not a percentage. */
+  .journey{ padding:14px 18px 6px; }
+  .jhead{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .jhead-note{ font-size:12px; color:var(--ink-soft); }
+  .jsteps{ list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:0; }
+  .jstep{ position:relative; flex:1 1 92px; min-width:92px; padding:0 6px 14px;
+    text-align:center; }
+  /* The rule joining the steps is drawn behind the dots, and stops at the ends so the strip
+     does not trail off into nothing. */
+  .jstep::before{ content:""; position:absolute; top:6px; left:0; right:50%; height:2px;
+    background:var(--border); }
+  .jstep::after{ content:""; position:absolute; top:6px; left:50%; right:0; height:2px;
+    background:var(--border); }
+  .jstep:first-child::before, .jstep:last-child::after{ display:none; }
+  .jstep.done::before{ background:var(--green); }
+  .jstep.done::after{ background:var(--green); }
+  .jstep.now::after{ background:var(--border); }
+  .jdot{ position:relative; z-index:1; display:block; width:13px; height:13px; margin:0 auto 6px;
+    border-radius:50%; background:#fff; border:2px solid var(--border); }
+  .jstep.done .jdot{ background:var(--green); border-color:var(--green); }
+  .jstep.now .jdot{ background:#fff; border-color:var(--green); box-shadow:0 0 0 3px var(--green-bg); }
+  .jlabel{ display:block; font-size:11.5px; color:var(--ink-soft); line-height:1.3; }
+  .jstep.done .jlabel{ color:var(--ink); }
+  .jstep.now .jlabel{ font-weight:600; }
+  .jdate{ display:block; font-size:10.5px; color:var(--ink-soft); margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  .stage-cell{ white-space:nowrap; }
+  .stage-count{ font-size:10.5px; color:var(--ink-soft); margin-left:6px; }
+
+  @media (max-width: 900px){
+    .jstep{ flex:1 1 78px; min-width:78px; }
+    .jdate{ display:none; }
+  }
+
   .search-bar{ display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
   .search-bar input{ flex:1; min-width:200px; padding:9px 10px; border:1px solid var(--border); border-radius:4px; font-size:13.5px; }
   /* The search field's own styling is meant for the text box; a checkbox sharing the bar

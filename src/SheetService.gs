@@ -272,39 +272,60 @@ function findRowById_(sheetName, idValue) {
 }
 
 /**
- * The same read for several ids at once. A quotation is built a dozen lines at a time, and
- * doing it one line per call meant one scan of the id column per line.
+ * Every row whose `column` holds one of `values`, without reading the tab.
+ *
+ * Asking a table of orders which ones belong to one quotation used to mean building an object
+ * for all of them and throwing away all but one. Here one read of the column being matched
+ * says which rows can possibly qualify, and only those are fetched.
  */
-function findRowsByIds_(sheetName, idValues) {
-  var out = {};
+function findRowsByColumn_(sheetName, column, values) {
   var sheet = getSheet_(sheetName);
   var headers = getHeaders_(sheet);
   var lastRow = sheet.getLastRow();
-  var idCol = headers.indexOf('id');
-  if (lastRow < 2 || idCol === -1) return out;
+  var col = headers.indexOf(column);
+  if (lastRow < 2 || col === -1) return [];
 
   var want = {};
-  (idValues || []).forEach(function (v) { want[String(v)] = true; });
+  var any = false;
+  (values || []).forEach(function (v) {
+    if (v === '' || v === null || v === undefined) return;
+    want[String(v)] = true;
+    any = true;
+  });
+  if (!any) return [];
 
-  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  var keys = sheet.getRange(2, col + 1, lastRow - 1, 1).getValues();
   var hits = [];
-  for (var i = 0; i < ids.length; i++) {
-    if (want[String(ids[i][0])]) hits.push(i + 2);
+  for (var i = 0; i < keys.length; i++) {
+    if (want[String(keys[i][0])]) hits.push(i + 2);
   }
-  if (!hits.length) return out;
+  if (!hits.length) return [];
 
-  // Catalogue rows for the parts of one offer are rarely neighbours, so read the runs rather
-  // than the span between the first and the last.
+  // Matching rows are rarely neighbours, so read the runs rather than the span between the
+  // first and the last.
+  var out = [];
   rowRuns_(hits).forEach(function (run) {
-    var values = sheet.getRange(run[0], 1, run[1] - run[0] + 1, headers.length).getValues();
-    for (var v = 0; v < values.length; v++) {
-      var key = String(values[v][idCol]);
-      if (!want[key] || out[key]) continue;
+    var block = sheet.getRange(run[0], 1, run[1] - run[0] + 1, headers.length).getValues();
+    for (var b = 0; b < block.length; b++) {
+      if (!want[String(block[b][col])]) continue;
       var obj = {};
-      for (var h = 0; h < headers.length; h++) obj[headers[h]] = normalizeCell_(values[v][h]);
-      obj._row = run[0] + v;
-      out[key] = obj;
+      for (var h = 0; h < headers.length; h++) obj[headers[h]] = normalizeCell_(block[b][h]);
+      obj._row = run[0] + b;
+      out.push(obj);
     }
+  });
+  return out;
+}
+
+/**
+ * The same read for several ids at once, keyed by id. A quotation is built a dozen lines at a
+ * time, and doing it one line per call meant one scan of the id column per line.
+ */
+function findRowsByIds_(sheetName, idValues) {
+  var out = {};
+  findRowsByColumn_(sheetName, 'id', idValues).forEach(function (row) {
+    var key = String(row.id);
+    if (!out[key]) out[key] = row;
   });
   return out;
 }

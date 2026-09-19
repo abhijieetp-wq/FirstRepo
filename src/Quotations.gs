@@ -68,7 +68,7 @@ function defaultPartiesFor_(customerId) {
 }
 
 /** Statuses after which the quotation is frozen and further edits fork a revision. */
-var LOCKED_QUOTE_STATUSES = ['Approved', 'Submitted', 'Won', 'Lost', 'Expired'];
+var LOCKED_QUOTE_STATUSES = ['Approved', 'Submitted', 'Negotiating', 'Won', 'Lost', 'Expired'];
 
 function listQuotations(options) {
   var user = getCurrentUser();
@@ -105,6 +105,12 @@ function listQuotations(options) {
   if (opts.businessStream) {
     rows = rows.filter(function (r) { return r.businessStream === opts.businessStream; });
   }
+
+  // The stage is worked out after filtering, and for the whole page in one pass: reading the
+  // orders, dispatches and invoices per quotation would be three scans per row, and reading
+  // them whole would be three tables the screen does not need most of.
+  var journey = journeyIndex_(rows.map(function (r) { return String(r.id); }));
+  rows.forEach(function (r) { r.journey = quotationJourney_(r, journey); });
 
   return rows.sort(function (a, b) {
     return String(b.date + b.quoteNo).localeCompare(String(a.date + a.quoteNo));
@@ -282,6 +288,9 @@ function getQuotation(id) {
   row.customerName = customer ? customer.name : '';
   row.customerGstin = customer ? customer.gstin : '';
   row.specGaps = specGapsFor_(row.items);
+  // Where this offer stands in the order-to-cash run, read off the records that own each
+  // step rather than duplicated onto the quotation.
+  row.journey = quotationJourneyFor_(row);
   return row;
 }
 
@@ -854,6 +863,7 @@ function setQuotationStatus(id, status, lostReasonId) {
   var patch = { status: status, locked: LOCKED_QUOTE_STATUSES.indexOf(status) !== -1 ? 'TRUE' : 'FALSE' };
   if (status === 'Approved') { patch.approvedBy = user.email; patch.approvalDate = todayIso_(); }
   if (status === 'Submitted') patch.submittedDate = todayIso_();
+  if (status === 'Won') patch.wonDate = todayIso_();
   if (status === 'Lost') patch.lostReasonId = lostReasonId;
 
   updateRowById_('Quotations', 'id', id, patch, 'Status set to ' + status);

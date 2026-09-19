@@ -39,13 +39,7 @@ function setupSheet() {
       sheet.getRange(1, 1, 1, def.columns.length).setFontWeight('bold');
       report.created.push(tabName + ' (' + def.columns.length + ' columns)');
     } else {
-      var existing = getHeaders_(sheet);
-      var missing = def.columns.filter(function (c) { return existing.indexOf(c) === -1; });
-      if (missing.length) {
-        sheet.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
-        sheet.getRange(1, 1, 1, existing.length + missing.length).setFontWeight('bold');
-        report.columnsAdded.push(tabName + ': ' + missing.join(', '));
-      }
+      appendMissingColumns_(sheet, tabName, def.columns, report);
     }
 
     // Seed rows are added by id, not only into an empty tab. Seeding only when the tab was
@@ -93,6 +87,38 @@ function setupSheet() {
     // No UI context (e.g. run from the editor without the sheet open) — the log is enough.
   }
   return summary;
+}
+
+/** Appends the columns SCHEMA declares and the tab does not have. Never reorders, renames or
+ * removes one, so running it on a live sheet cannot lose data. */
+function appendMissingColumns_(sheet, tabName, columns, report) {
+  var existing = getHeaders_(sheet);
+  var missing = columns.filter(function (c) { return existing.indexOf(c) === -1; });
+  if (!missing.length) return [];
+  sheet.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
+  sheet.getRange(1, 1, 1, existing.length + missing.length).setFontWeight('bold');
+  if (report) report.columnsAdded.push(tabName + ': ' + missing.join(', '));
+  return missing;
+}
+
+/**
+ * The column half of Setup, for the first load after a deployment.
+ *
+ * A build that adds a column used to need somebody to think of running Setup; until they did,
+ * the code wrote a field the sheet had no home for. Only tabs that already exist are touched —
+ * creating tabs, seeding rows and the legacy migrations stay with Setup, where somebody is
+ * watching.
+ */
+function addMissingColumnsEverywhere_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var added = [];
+  Object.keys(SCHEMA).forEach(function (tabName) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet) return;
+    appendMissingColumns_(sheet, tabName, SCHEMA[tabName].columns, null)
+      .forEach(function (c) { added.push(tabName + '.' + c); });
+  });
+  return added;
 }
 
 /**

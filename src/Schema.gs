@@ -238,7 +238,7 @@ var SCHEMA = {
       'spareEnquiryId', 'machineModel', 'serialNo', 'preparedBy', 'validityDays', 'validUntil',
       'status', 'subtotal', 'discountAmt', 'taxAmt', 'freight', 'grand', 'paymentTerms',
       'deliveryTerms', 'warrantyTerms', 'notes', 'approvedBy', 'approvalDate', 'submittedDate',
-      'emailSentDate', 'lostReasonId', 'locked',
+      'emailSentDate', 'wonDate', 'lostReasonId', 'locked',
       // A package discount off the total, the way their own offers are priced, plus whether
       // GST is added into the total or quoted as extra — their two documents differ on this.
       'packageDiscountPct', 'pfAmount', 'taxMode',
@@ -383,7 +383,11 @@ var ORDER_STATUSES = ['Draft', 'Approval Pending', 'Credit Hold', 'Material Pend
   'Ready for Dispatch', 'Dispatched', 'Invoiced', 'Closed'];
 
 /** Quotation statuses (FR-020). */
-var QUOTATION_STATUSES = ['Draft', 'Approved', 'Submitted', 'Revised', 'Won', 'Lost', 'Expired'];
+// 'Negotiating' is the step PIE described that had no home here: the customer has the offer
+// and is discussing the terms. Without it a quotation sat on 'Submitted' from the day it was
+// sent until the day it was won, and nobody could tell a live conversation from silence.
+var QUOTATION_STATUSES = ['Draft', 'Approved', 'Submitted', 'Negotiating', 'Revised', 'Won',
+  'Lost', 'Expired'];
 
 /** Compressor funnel stages (FR-011). */
 var OPPORTUNITY_STAGES = ['Requirement Identified', 'Technical Discussion', 'Quotation',

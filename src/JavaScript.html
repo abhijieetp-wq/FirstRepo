@@ -1912,8 +1912,60 @@
 
   var QUOTE_BADGE = {
     "Draft": "badge-draft", "Approved": "badge-active", "Submitted": "badge-sent",
+    "Negotiating": "badge-followup",
     "Revised": "badge-followup", "Won": "badge-won", "Lost": "badge-lost", "Expired": "badge-overdue"
   };
+
+  /**
+   * The order-to-cash run drawn as a strip: what has happened, when, and what is next.
+   *
+   * The facts were all in the system already, spread over the quotation, the order, the
+   * invoice and the dispatch. Answering "where has this one got to?" meant opening four
+   * screens and joining them by eye, which is the sort of question that gets asked ten times
+   * a day and answered from memory.
+   */
+  function renderQuoteJourney(j) {
+    var zone = $("qb-journey");
+    if (!j || !j.stages) { zone.innerHTML = ""; return; }
+
+    var steps = j.stages.map(function (st, i) {
+      var isNow = !j.closed && !j.stalled && i === j.reachedIndex;
+      var cls = st.done ? (isNow ? "jstep done now" : "jstep done") : "jstep";
+      // A step reached after one that was skipped is drawn as reached, because it was — the
+      // gap is the story, and smoothing it over would hide a missed approval.
+      return '<li class="' + cls + '" title="' +
+          escapeHtml(st.label + (st.hint ? " — " + st.hint : "") + " · from the " +
+            st.owner.toLowerCase()) + '">' +
+        '<span class="jdot"></span>' +
+        '<span class="jlabel">' + escapeHtml(st.label) + "</span>" +
+        '<span class="jdate">' + escapeHtml(st.date || (st.detail ? st.detail : "")) + "</span>" +
+        "</li>";
+    }).join("");
+
+    var head;
+    if (j.closed) {
+      head = '<span class="badge badge-lost">' + escapeHtml(j.label) + "</span>" +
+        '<span class="jhead-note">This quotation is closed.</span>';
+    } else if (j.stalled) {
+      head = '<span class="badge badge-followup">Revised</span>' +
+        '<span class="jhead-note">Superseded by a later revision — follow that one.</span>';
+    } else {
+      head = '<span class="badge badge-active">' + escapeHtml(j.label) + "</span>" +
+        (j.nextLabel ? '<span class="jhead-note">Next: ' + escapeHtml(j.nextLabel) + "</span>"
+                     : '<span class="jhead-note">Complete.</span>');
+    }
+    if (j.orderNo) {
+      head += '<span class="jhead-note mono">' + escapeHtml(j.orderNo) + "</span>";
+    }
+    if (j.creditHold) {
+      head += '<span class="badge badge-overdue">On credit hold</span>' +
+        (j.creditHoldReason
+          ? '<span class="jhead-note">' + escapeHtml(j.creditHoldReason) + "</span>" : "");
+    }
+
+    zone.innerHTML = '<div class="card journey"><div class="jhead">' + head + "</div>" +
+      '<ol class="jsteps">' + steps + "</ol></div>";
+  }
 
   function canEditMasters() {
     return ["Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
@@ -1956,6 +2008,26 @@
       (spares ? "Spares" : "Compressor") + "</span>";
   }
 
+  /**
+   * The stage a quotation has reached, for the list. Status says what the quotation is;
+   * this says how far the job behind it has got, which is the question actually being asked
+   * when somebody scans this screen.
+   */
+  function stageCell(j) {
+    if (!j) return "—";
+    if (j.closed || j.stalled) {
+      return '<span style="color:var(--ink-soft);">' + escapeHtml(j.label) + "</span>";
+    }
+    var n = j.stages.length;
+    var done = j.reachedIndex + 1;
+    return '<span class="stage-cell" title="' +
+      escapeHtml(j.nextLabel ? "Next: " + j.nextLabel : "Complete") + '">' +
+      escapeHtml(j.label) +
+      '<span class="stage-count">' + done + "/" + n + "</span>" +
+      (j.creditHold ? ' <span class="badge badge-overdue">hold</span>' : "") +
+      "</span>";
+  }
+
   function renderQuotations() {
     var q = ($("quotations-search").value || "").toLowerCase();
     var wantStream = $("quotations-stream").value;
@@ -1967,7 +2039,7 @@
 
     var tbody = $("quotations-tbody");
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="11"><div class="empty">' +
+      tbody.innerHTML = '<tr><td colspan="12"><div class="empty">' +
         (quotationsCache.length
           ? "No quotations match your search."
           : "No quotations yet — raise one from an enquiry.") +
@@ -1987,6 +2059,7 @@
         '<td class="num mono">' + fmt(r.grand) + "</td>" +
         '<td><span class="badge ' + (QUOTE_BADGE[r.status] || "badge-draft") + '">' + escapeHtml(r.status) +
           (r.locked ? " 🔒" : "") + "</span></td>" +
+        "<td>" + stageCell(r.journey) + "</td>" +
         "<td>" + (r.validUntil
           ? (r.expired ? '<span class="badge badge-overdue">' + escapeHtml(r.validUntil) + "</span>" : escapeHtml(r.validUntil))
           : "—") + "</td>" +
@@ -2180,6 +2253,7 @@
       $("qb-charge-panel").style.display = "none";
     }
 
+    renderQuoteJourney(q.journey);
     renderQuoteActions(q, editable);
     renderQuoteItems(q, editable);
     renderQuoteTotals(q);
@@ -2203,6 +2277,12 @@
     }
     if (editable && ["Draft", "Approved"].indexOf(q.status) !== -1) {
       buttons.push('<button class="btn btn-sm btn-primary" data-qs="Submitted">Mark Submitted</button>');
+    }
+    // The step between sending an offer and winning it: the customer has it and is talking
+    // about the terms. Without somewhere to record that, a quotation read as "Submitted"
+    // whether the customer was negotiating or had gone quiet for a month.
+    if (q.status === "Submitted") {
+      buttons.push('<button class="btn btn-sm" data-qs="Negotiating">With Customer</button>');
     }
     if (q.locked && ["Won", "Lost"].indexOf(q.status) === -1) {
       buttons.push('<button class="btn btn-sm" data-qs="Won">Mark Won</button>');
