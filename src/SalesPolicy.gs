@@ -147,5 +147,6 @@ function listPeople() {
   ['salesEngineers', 'coordinators', 'serviceCoordinators', 'serviceEngineers', 'management']
     .forEach(function (k) { byRole[k].sort(byName); });
   byRole.serviceStatuses = SERVICE_JOB_STATUSES.slice();
+  byRole.serviceUrgencies = SERVICE_URGENCIES.slice();
   return byRole;
 }

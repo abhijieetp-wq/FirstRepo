@@ -129,6 +129,9 @@ function raiseServiceJob_(dispatch, engineerEmail, user) {
     siteAddressId: order ? String(order.shippingAddressId || '') : '',
     engineerEmail: engineer,
     status: engineer ? 'Assigned' : 'Unassigned',
+    jobType: 'Installation',
+    urgency: 'Normal',
+    reportedBy: '',
     scopeText: 'Fit the parts delivered on ' + String(dispatch.dispatchNo || '') + '.',
     scheduledDate: '',
     completedDate: '',
@@ -155,6 +158,61 @@ function raiseServiceJob_(dispatch, engineerEmail, user) {
   return job;
 }
 
+/**
+ * Logs a breakdown call.
+ *
+ * Not every job follows a delivery. A customer rings to say a machine has stopped, and that
+ * needs the same engineer, the same allocation and the same record as an installation — but
+ * it arrives with nothing behind it: no dispatch, no parts, often not even a serial number
+ * until somebody is standing in front of the machine. So this asks for what a phone call can
+ * actually supply and no more.
+ *
+ * Anybody who can see service jobs can raise one, because a breakdown call lands on whichever
+ * phone happens to ring. Deciding who goes is still the service coordinator's, so the job
+ * starts unassigned however it was raised.
+ */
+function createServiceJob(input) {
+  var user = getCurrentUser();
+  requireRole_(user, SERVICE_ROLES);
+
+  var customerId = String((input && input.customerId) || '').trim();
+  if (!customerId) throw new Error('Pick the customer whose machine has stopped.');
+  var customer = findRowById_('Customers', customerId);
+  if (!customer) throw new Error('That customer is no longer there.');
+
+  var scope = String((input && input.scopeText) || '').trim();
+  if (!scope) throw new Error('Say what the problem is — the engineer is going on this alone.');
+
+  var urgency = String((input && input.urgency) || 'Normal').trim();
+  if (SERVICE_URGENCIES.indexOf(urgency) === -1) {
+    throw new Error('Urgency must be one of: ' + SERVICE_URGENCIES.join(', ') + '.');
+  }
+
+  var job = {
+    id: generateId_('SVJ-'),
+    jobNo: nextSeriesNo_('ServiceJobs', 'jobNo', 'SVJ'),
+    date: todayIso_(),
+    dispatchId: '',
+    salesOrderId: '',
+    customerId: customerId,
+    customerName: String(customer.name || ''),
+    machineModel: String((input && input.machineModel) || '').trim(),
+    serialNo: String((input && input.serialNo) || '').trim(),
+    siteAddressId: String((input && input.siteAddressId) || '').trim(),
+    engineerEmail: '',
+    status: 'Unassigned',
+    jobType: 'Breakdown',
+    urgency: urgency,
+    reportedBy: String((input && input.reportedBy) || '').trim(),
+    scopeText: scope,
+    scheduledDate: '',
+    completedDate: '',
+    notes: ''
+  };
+  appendRow_('ServiceJobs', job, 'Breakdown call logged');
+  return getServiceJob(job.id);
+}
+
 function listServiceJobs(options) {
   var user = getCurrentUser();
   var opts = options || {};
@@ -163,6 +221,11 @@ function listServiceJobs(options) {
   if (opts.mineOnly) {
     rows = rows.filter(function (j) {
       return String(j.engineerEmail).toLowerCase() === user.email.toLowerCase();
+    });
+  }
+  if (opts.jobType) {
+    rows = rows.filter(function (j) {
+      return String(j.jobType || 'Installation') === opts.jobType;
     });
   }
   if (!opts.includeClosed) {
@@ -177,7 +240,12 @@ function listServiceJobs(options) {
     var k = String(i.serviceJobId);
     counts[k] = (counts[k] || 0) + 1;
   });
-  rows.forEach(function (j) { j.partCount = counts[String(j.id)] || 0; });
+  // Rows raised before breakdown calls existed are installations; that is what they were.
+  rows.forEach(function (j) {
+    j.partCount = counts[String(j.id)] || 0;
+    j.jobType = String(j.jobType || 'Installation');
+    j.urgency = String(j.urgency || 'Normal');
+  });
 
   return rows.sort(function (a, b) {
     return String(b.date + b.jobNo).localeCompare(String(a.date + a.jobNo));
@@ -189,6 +257,8 @@ function getServiceJob(id) {
   var job = findRowById_('ServiceJobs', id);
   if (!job) throw new Error('Service job not found.');
   var row = stripRow_(job);
+  row.jobType = String(row.jobType || 'Installation');
+  row.urgency = String(row.urgency || 'Normal');
   row.items = findRowsByColumn_('ServiceJobItems', 'serviceJobId', [String(id)])
     .map(stripRow_)
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });

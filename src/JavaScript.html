@@ -3176,28 +3176,44 @@
 
   function initServiceView() { loadServiceJobs(); }
 
+  /**
+   * Which kind of job, and how urgent. A breakdown is somebody standing next to a machine
+   * that has stopped, so it is worth being able to pick it out of the list at a glance.
+   */
+  function jobTypeBadge(j) {
+    var breakdown = j.jobType === "Breakdown";
+    var urgent = breakdown && ["Urgent", "Immediate"].indexOf(j.urgency) !== -1;
+    return '<span class="badge ' + (urgent ? "badge-lost" : breakdown ? "badge-overdue"
+      : "badge-new") + '">' + escapeHtml(j.jobType || "Installation") + "</span>" +
+      (urgent ? ' <span style="font-size:11px; color:var(--red);">' +
+        escapeHtml(j.urgency) + "</span>" : "");
+  }
+
   function loadServiceJobs() {
     google.script.run.withSuccessHandler(function (rows) {
       serviceCache = rows;
       renderServiceJobs();
     }).withFailureHandler(onServerError).listServiceJobs({
       mineOnly: $("service-mine").checked,
-      includeClosed: $("service-closed").checked
+      includeClosed: $("service-closed").checked,
+      jobType: $("service-type").value
     });
   }
 
   function renderServiceJobs() {
     var q = ($("service-search").value || "").toLowerCase();
     var rows = serviceCache.filter(function (j) {
-      return [j.jobNo, j.customerName, j.machineModel, j.serialNo, j.engineerEmail]
+      return [j.jobNo, j.customerName, j.machineModel, j.serialNo, j.engineerEmail,
+        j.jobType, j.reportedBy, j.scopeText]
         .join(" ").toLowerCase().indexOf(q) !== -1;
     });
 
     var tbody = $("service-tbody");
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="9"><div class="empty">' +
+      tbody.innerHTML = '<tr><td colspan="10"><div class="empty">' +
         (serviceCache.length ? "No jobs match your search."
-          : "No open service jobs. One is raised whenever a delivery is confirmed.") +
+          : "No open service jobs. One is raised whenever a delivery is confirmed, and a " +
+            "breakdown call can be logged above.") +
         "</div></td></tr>";
       return;
     }
@@ -3205,6 +3221,7 @@
     tbody.innerHTML = rows.map(function (j) {
       return "<tr>" +
         '<td class="mono">' + escapeHtml(j.jobNo) + "</td>" +
+        "<td>" + jobTypeBadge(j) + "</td>" +
         "<td>" + escapeHtml(j.date) + "</td>" +
         "<td>" + escapeHtml(j.customerName || "—") + "</td>" +
         "<td>" + escapeHtml(j.machineModel || "—") +
@@ -3225,11 +3242,55 @@
     });
   }
 
-  ["service-search", "service-mine", "service-closed"].forEach(function (id) {
+  ["service-search", "service-mine", "service-closed", "service-type"].forEach(function (id) {
     var el = $(id);
     if (!el) return;
     el.addEventListener(id === "service-search" ? "input" : "change", function () {
       if (id === "service-search") renderServiceJobs(); else loadServiceJobs();
+    });
+  });
+
+  // ---- Logging a breakdown call ----
+  $("btn-new-breakdown").addEventListener("click", function () {
+    loadQuoteCustomers(function () {
+      $("bd-customer").innerHTML = customerOptions(null);
+      $("bd-reportedby").value = "";
+      $("bd-model").value = "";
+      $("bd-serial").value = "";
+      $("bd-scope").value = "";
+      withPeople(function (p) {
+        var list = p.serviceUrgencies || ["Normal", "Urgent", "Immediate"];
+        $("bd-urgency").innerHTML = list.map(function (u) {
+          return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + "</option>";
+        }).join("");
+      });
+      $("breakdown-modal-backdrop").classList.add("show");
+    });
+  });
+
+  $("btn-bd-cancel").addEventListener("click", function () {
+    $("breakdown-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-bd-save").addEventListener("click", function () {
+    var btn = $("btn-bd-save");
+    btn.disabled = true;
+    google.script.run.withSuccessHandler(function (job) {
+      btn.disabled = false;
+      $("breakdown-modal-backdrop").classList.remove("show");
+      loadServiceJobs();
+      showMsg(job.jobNo + " logged. It is waiting for the service coordinator to send " +
+        "somebody.", "success");
+    }).withFailureHandler(function (err) {
+      btn.disabled = false;
+      onServerError(err);
+    }).createServiceJob({
+      customerId: $("bd-customer").value,
+      reportedBy: $("bd-reportedby").value,
+      machineModel: $("bd-model").value,
+      serialNo: $("bd-serial").value,
+      urgency: $("bd-urgency").value,
+      scopeText: $("bd-scope").value
     });
   });
 
@@ -3244,9 +3305,12 @@
   function renderServiceJobModal() {
     var j = openServiceJob;
     $("sj-id").value = j.id;
+    var breakdown = j.jobType === "Breakdown";
     $("sj-title").textContent = j.jobNo;
-    $("sj-sub").textContent = "Raised " + j.date +
-      (j.dispatchId ? " on confirming the delivery." : ".");
+    $("sj-sub").textContent = breakdown
+      ? "Breakdown call logged " + j.date + (j.urgency ? " \u00b7 " + j.urgency : "") +
+        (j.reportedBy ? " \u00b7 reported by " + j.reportedBy : "")
+      : "Raised " + j.date + (j.dispatchId ? " on confirming the delivery." : ".");
     $("sj-customer").value = j.customerName || "";
     $("sj-machine").value = j.machineModel || "";
     $("sj-serial").value = j.serialNo || "";
@@ -3271,6 +3335,9 @@
           ">" + escapeHtml(st) + "</option>";
       }).join("");
     });
+    // A breakdown call carries no parts — the engineer finds out what is needed on site —
+    // so the heading is about what they are going for, not a list that will stay empty.
+    $("sj-items-title").textContent = breakdown ? "Reported fault" : "Parts to fit";
     $("sj-items").innerHTML = (j.items || []).length
       ? '<table><thead><tr><th>#</th><th>Code</th><th>Description</th>' +
         '<th class="num">Qty</th></tr></thead><tbody>' +
@@ -3279,7 +3346,10 @@
             "</td><td>" + escapeHtml(i.description) + '</td><td class="num">' + i.qty +
             "</td></tr>";
         }).join("") + "</tbody></table>"
-      : '<div class="empty" style="padding:10px;">Nothing was recorded against the dispatch.</div>';
+      : '<div class="empty" style="padding:10px;">' +
+        (breakdown
+          ? "Nothing to fit yet — what the machine needs is decided on site."
+          : "Nothing was recorded against the dispatch.") + "</div>";
 
     $("sj-proofs").innerHTML = proofListHtml(j.proofs || []);
   }

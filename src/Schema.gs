@@ -349,7 +349,11 @@ var SCHEMA = {
     // only trace of this, and nothing ever set it.
     columns: ['id', 'jobNo', 'date', 'dispatchId', 'salesOrderId', 'customerId', 'customerName',
       'machineModel', 'serialNo', 'siteAddressId', 'engineerEmail', 'status', 'scopeText',
-      'scheduledDate', 'completedDate', 'notes', 'createdAt', 'createdBy']
+      'scheduledDate', 'completedDate', 'notes', 'createdAt', 'createdBy',
+      // Not every job follows a delivery. A machine that has stopped is a phone call, and it
+      // needs the same engineer, the same allocation and the same record — but it arrives
+      // with nothing behind it, so what it is and how urgent it is have to be stated.
+      'jobType', 'urgency', 'reportedBy']
   },
   ServiceJobItems: {
     label: 'The parts a service job is to fit, carried from the dispatch',
@@ -416,6 +420,12 @@ var ORDER_STATUSES = ['Draft', 'Approval Pending', 'Credit Hold', 'Material Pend
 // 'Negotiating' is the step PIE described that had no home here: the customer has the offer
 // and is discussing the terms. Without it a quotation sat on 'Submitted' from the day it was
 // sent until the day it was won, and nobody could tell a live conversation from silence.
+/** Why an engineer is going: to fit what was delivered, or because a machine has stopped. */
+var SERVICE_JOB_TYPES = ['Installation', 'Breakdown'];
+
+/** How soon, for a job nobody scheduled in advance. */
+var SERVICE_URGENCIES = ['Normal', 'Urgent', 'Immediate'];
+
 /** A service job's life (FR-047). Unassigned exists because a delivery is confirmed before
  * anybody has decided which engineer is going. */
 var SERVICE_JOB_STATUSES = ['Unassigned', 'Assigned', 'Scheduled', 'In Progress', 'Completed',
