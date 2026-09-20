@@ -1,123 +1,134 @@
 /**
- * Who may approve what, and why.
+ * Who may decide what, and why.
  *
- * PIE do not treat every customer the same, and the rules they work to are about trust earned
- * over time rather than about the size of the order:
+ * PIE's customers all buy the same way: when they need stock. There is no regular-versus-new
+ * distinction to hang rules on, and an earlier attempt to build one was wrong.
  *
- *   - a regular customer's offer goes straight out; nobody signs it off
- *   - a new customer's offer needs Management, and only Management
- *   - an occasional buyer's offer needs Management or the sales coordinator in charge
+ * What the rules actually turn on is who is looking after the customer. Each customer has a
+ * sales coordinator in charge, and that person makes the calls for them — approving the offer
+ * before it goes out, releasing a credit hold. Management can always step in, but the point of
+ * this is that they should not have to: an office where every decision waits for the owner is
+ * an office that waits.
  *
- * The same distinction governs money owed. A customer with an agreed credit limit who is
- * inside it on invoices already raised has not broken anything — the hold came from orders
- * still in the pipeline — so the coordinator can release it. A customer with no limit agreed
- * at all, or one who has genuinely run past the limit on billed money, is Management's call.
- *
- * Keeping these in one file is deliberate: they are the rules the business argues about, and
- * they should be readable in one place rather than inferred from four screens.
+ * So authority here is a question about a relationship, not a role list. `mayActForCustomer_`
+ * is the whole idea in one function, and everything else is a wrapper that says which decision
+ * is being made and puts it in words somebody can read on screen.
  */
-
-var CUSTOMER_CATEGORIES = ['Regular', 'New', 'Occasional'];
 
 /**
- * Whether a quotation needs signing off before it is sent, and by whom.
+ * Whether this user may make a commercial decision about this customer.
  *
- * An unclassified customer follows the general rule PIE stated first — Management or the
- * coordinator — rather than the most permissive one. Somebody forgetting to categorise a
- * customer must not be the way an offer escapes review.
+ * Management and the ERP admin always may. The coordinator in charge of the customer may.
+ * A coordinator who is not in charge of anybody's customer in particular may too, when the
+ * customer has nobody assigned — otherwise a customer nobody has been put in charge of would
+ * be a customer nobody could act on, which is worse than the ambiguity.
+ */
+function mayActForCustomer_(user, customer) {
+  if (!user) return false;
+  if ([ROLES.MANAGEMENT, ROLES.ERP_ADMIN].indexOf(user.role) !== -1) return true;
+  if (user.role !== ROLES.SALES_COORDINATOR) return false;
+
+  var incharge = customer ? String(customer.assignedSalesperson || '').trim() : '';
+  if (!incharge) return true;
+  return incharge.toLowerCase() === String(user.email || '').toLowerCase();
+}
+
+/** The person whose name is against this customer, for saying so in a message. */
+function coordinatorInCharge_(customer) {
+  return customer ? String(customer.assignedSalesperson || '').trim() : '';
+}
+
+/**
+ * Who may sign a quotation off before it is sent.
+ *
+ * Every offer is approved — that has not changed — but it is approved by the coordinator
+ * looking after the customer rather than escalated to Management as a matter of course.
  */
 function quoteApprovalRule_(customer) {
-  var category = customer ? String(customer.customerCategory || '').trim() : '';
-
-  if (category === 'Regular') {
-    return {
-      category: category,
-      required: false,
-      approvers: [],
-      why: 'A regular customer’s offer goes out without sign-off.'
-    };
-  }
-  if (category === 'New') {
-    return {
-      category: category,
-      required: true,
-      approvers: [ROLES.MANAGEMENT, ROLES.ERP_ADMIN],
-      why: 'A new customer’s offer needs Management approval before it is sent.'
-    };
-  }
+  var incharge = coordinatorInCharge_(customer);
   return {
-    category: category || 'Unclassified',
     required: true,
-    approvers: [ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.SALES_COORDINATOR],
-    why: category === 'Occasional'
-      ? 'An occasional buyer’s offer needs Management or the sales coordinator in charge.'
-      : 'This customer has no category set, so the general rule applies: Management or the ' +
-        'sales coordinator in charge must approve before it is sent.'
+    inCharge: incharge,
+    why: incharge
+      ? 'This customer is looked after by ' + incharge + '. They approve the offer before it ' +
+        'is sent; Management can too, but does not have to.'
+      : 'Nobody is named as looking after this customer yet, so any sales coordinator or ' +
+        'Management can approve the offer before it is sent.'
   };
 }
 
 /**
  * Who may lift a credit hold on this order.
  *
- * The question is not how big the exposure is but whether the customer has broken an agreement.
- * Money already invoiced and unpaid is the agreement; orders not yet billed are forecast. So a
- * customer inside their limit on invoiced money is the coordinator's to release, and one who is
- * past it — or who was never given a limit — is Management's.
+ * The question is not how big the exposure is but whether the customer has broken an
+ * agreement. Money already invoiced and unpaid is the agreement; orders not yet billed are
+ * forecast. A customer inside their agreed limit on invoiced money has broken nothing, so the
+ * coordinator looking after them can release it. Past the limit, never given a limit, or short
+ * on an agreed advance, and it is Management's.
  */
 function creditReleaseRule_(customer, check) {
   var limit = customer && customer.creditLimit !== '' && customer.creditLimit !== null
     ? Number(customer.creditLimit) : null;
   var outstanding = Number(check && check.outstandingAmt) || 0;
+  var incharge = coordinatorInCharge_(customer);
 
   if (limit === null || isNaN(limit) || limit <= 0) {
     return {
-      approvers: [ROLES.MANAGEMENT, ROLES.ERP_ADMIN],
-      why: 'No credit limit has been agreed for this customer, so the decision is Management’s.'
+      managementOnly: true,
+      inCharge: incharge,
+      why: 'No credit limit has been agreed for this customer, so the decision is ' +
+        'Management’s.'
     };
   }
   if (outstanding > limit) {
     return {
-      approvers: [ROLES.MANAGEMENT, ROLES.ERP_ADMIN],
-      why: 'Invoiced and unpaid ' + inr_(outstanding) + ' is already past the agreed ' +
-        'limit of ' + inr_(limit) + ', so the decision is Management’s.'
+      managementOnly: true,
+      inCharge: incharge,
+      why: 'Invoiced and unpaid ' + inr_(outstanding) + ' is already past the agreed limit of ' +
+        inr_(limit) + ', so the decision is Management’s.'
     };
   }
   // The advance is a term of this order rather than a standing agreement, so a shortfall on it
   // is not something the coordinator can waive.
   if (Number(check && check.advanceRequired) > Number(check && check.advanceReceived)) {
     return {
-      approvers: [ROLES.MANAGEMENT, ROLES.ERP_ADMIN],
+      managementOnly: true,
+      inCharge: incharge,
       why: 'The advance agreed for this order has not been received, so the decision is ' +
         'Management’s.'
     };
   }
   return {
-    approvers: [ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.SALES_COORDINATOR],
+    managementOnly: false,
+    inCharge: incharge,
     why: 'Invoiced and unpaid ' + inr_(outstanding) + ' is within the agreed limit of ' +
-      inr_(limit) + ' — the hold comes from orders not yet billed, so the sales ' +
-      'coordinator can release it.'
+      inr_(limit) + ' — the hold comes from orders not yet billed, so ' +
+      (incharge ? incharge + ', who looks after this customer, can release it.'
+                : 'the sales coordinator looking after this customer can release it.')
   };
 }
 
-/** The credit check a hold was raised from, newest first. */
-function openCreditCheckFor_(salesOrderId) {
-  var checks = findRowsByColumn_('CreditChecks', 'salesOrderId', [String(salesOrderId)])
-    .filter(function (c) { return c.result === 'Hold'; });
-  return checks.sort(function (a, b) {
-    return String(b.checkDate || '').localeCompare(String(a.checkDate || ''));
-  })[0] || null;
+/** Whether this user may lift this particular hold. */
+function mayReleaseCredit_(user, customer, rule) {
+  if (!user) return false;
+  if ([ROLES.MANAGEMENT, ROLES.ERP_ADMIN].indexOf(user.role) !== -1) return true;
+  if (rule && rule.managementOnly) return false;
+  return mayActForCustomer_(user, customer);
 }
 
 /**
- * The people a lead or an enquiry can be handed to, by role.
+ * The people work can be handed to, by role.
  *
- * PIE run several sales engineers and several coordinators, so assignment is a choice from a
- * list rather than whoever happened to type the record in. Deactivated users are left out —
- * work assigned to somebody who has left is work nobody is doing.
+ * PIE run several of each, so assignment is a choice from a list rather than whoever happened
+ * to type the record in. Deactivated users are left out — work assigned to somebody who has
+ * left is work nobody is doing.
  */
 function listPeople() {
   getCurrentUser();
-  var byRole = { salesEngineers: [], coordinators: [], serviceEngineers: [], management: [] };
+  var byRole = {
+    salesEngineers: [], coordinators: [], serviceCoordinators: [], serviceEngineers: [],
+    management: []
+  };
   readTable_('Users').forEach(function (u) {
     if (String(u.active).toUpperCase() === 'FALSE') return;
     var person = {
@@ -128,15 +139,13 @@ function listPeople() {
     if (!person.email) return;
     if (person.role === ROLES.SALES_ENGINEER) byRole.salesEngineers.push(person);
     if (person.role === ROLES.SALES_COORDINATOR) byRole.coordinators.push(person);
+    if (person.role === ROLES.SERVICE_COORDINATOR) byRole.serviceCoordinators.push(person);
     if (person.role === ROLES.SERVICE_ENGINEER) byRole.serviceEngineers.push(person);
     if (person.role === ROLES.MANAGEMENT) byRole.management.push(person);
   });
   var byName = function (a, b) { return a.name.localeCompare(b.name); };
-  byRole.salesEngineers.sort(byName);
-  byRole.coordinators.sort(byName);
-  byRole.serviceEngineers.sort(byName);
-  byRole.management.sort(byName);
-  byRole.categories = CUSTOMER_CATEGORIES.slice();
+  ['salesEngineers', 'coordinators', 'serviceCoordinators', 'serviceEngineers', 'management']
+    .forEach(function (k) { byRole[k].sort(byName); });
   byRole.serviceStatuses = SERVICE_JOB_STATUSES.slice();
   return byRole;
 }

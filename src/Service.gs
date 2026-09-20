@@ -13,9 +13,11 @@
 
 var POD_FOLDER = 'ERP Delivery Proofs';
 var POD_MAX_BYTES = 8 * 1024 * 1024;
-var SERVICE_ROLES = [ROLES.SALES_COORDINATOR, ROLES.SERVICE_ENGINEER, ROLES.MANAGEMENT,
-  ROLES.ERP_ADMIN];
-var SERVICE_ASSIGNERS = [ROLES.SALES_COORDINATOR, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+var SERVICE_ROLES = [ROLES.SALES_COORDINATOR, ROLES.SERVICE_COORDINATOR,
+  ROLES.SERVICE_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+// Allocating the engineer is the service coordinator's job. The sales coordinator's part is
+// to tell them the delivery has landed — which is what confirming the delivery now does.
+var SERVICE_ASSIGNERS = [ROLES.SERVICE_COORDINATOR, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 
 /**
  * Stores one proof-of-delivery photograph against a dispatch.
@@ -109,7 +111,11 @@ function raiseServiceJob_(dispatch, engineerEmail, user) {
   var customer = order && order.customerId ? findRowById_('Customers', order.customerId) : null;
   var quote = order && order.quotationId ? findRowById_('Quotations', order.quotationId) : null;
 
+  // Sales do not pick the engineer; they raise the need. The job starts unassigned and waits
+  // for the service coordinator — a name offered by somebody not entitled to allocate is
+  // dropped rather than refused, because the delivery is still a fact worth recording.
   var engineer = String(engineerEmail || '').trim();
+  if (engineer && SERVICE_ASSIGNERS.indexOf(user.role) === -1) engineer = '';
   var job = {
     id: generateId_('SVJ-'),
     jobNo: nextSeriesNo_('ServiceJobs', 'jobNo', 'SVJ'),

@@ -18,13 +18,17 @@
 var ROLES = {
   SALES_COORDINATOR: 'Sales Coordinator',
   SALES_ENGINEER: 'Sales Engineer',
+  // Who a service job goes to is not the sales side's call. The sales coordinator tells the
+  // service coordinator that a delivery has landed and installation is needed; the service
+  // coordinator decides which engineer goes.
+  SERVICE_COORDINATOR: 'Service Coordinator',
   SERVICE_ENGINEER: 'Service Engineer',
   MANAGEMENT: 'Management',
   ERP_ADMIN: 'ERP Admin'
 };
 
-var ALL_ROLES = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.SERVICE_ENGINEER,
-  ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+var ALL_ROLES = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.SERVICE_COORDINATOR,
+  ROLES.SERVICE_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 
 /** Roles allowed to maintain the Product/Spare masters and pricing (FR-062). */
 var MASTER_EDITORS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN];

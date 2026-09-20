@@ -712,15 +712,14 @@
       <div class="field"><label>Industry</label><input id="cm-industry" list="industry-list" /></div>
       <div class="field"><label>Territory</label><input id="cm-territory" /></div>
     </div>
-    <div class="grid grid-3" style="margin-top:12px;">
-      <div class="field"><label>Assigned Salesperson</label><input id="cm-salesperson" list="users-list" placeholder="Email" /></div>
-      <div class="field"><label>Customer Category</label>
-        <select id="cm-category">
-          <option value="">Not set</option>
-          <option value="Regular">Regular — offers go out without sign-off</option>
-          <option value="New">New — Management must approve</option>
-          <option value="Occasional">Occasional — Management or the coordinator</option>
-        </select>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field">
+        <label>Coordinator in charge</label>
+        <select id="cm-salesperson"></select>
+        <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">
+          They approve this customer's quotations and can release a credit hold on them.
+          Management can too, but does not have to.
+        </p>
       </div>
       <div class="field"><label>Notes</label><input id="cm-notes" /></div>
     </div>
@@ -881,7 +880,9 @@
       <div class="field"><label>Serial No.</label><input id="sj-serial" class="mono" disabled /></div>
     </div>
     <div class="grid grid-3" style="margin-top:12px;">
-      <div class="field"><label>Service Engineer</label><select id="sj-engineer"></select></div>
+      <div class="field"><label>Service Engineer</label><select id="sj-engineer"></select>
+        <p id="sj-allocation-note" style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;"></p>
+      </div>
       <div class="field"><label>Scheduled Date</label><input id="sj-scheduled" type="date" /></div>
       <div class="field"><label>Status</label><select id="sj-status"></select></div>
     </div>

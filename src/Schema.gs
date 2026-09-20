@@ -116,10 +116,7 @@ var SCHEMA = {
     columns: ['id', 'customerCode', 'name', 'legalName', 'gstin', 'pan', 'industry', 'segment',
       'assignedSalesperson', 'territory', 'paymentTerms', 'creditLimit', 'creditDays',
       'advanceRule', 'riskStatus', 'brand', 'lastOrderDate', 'notes', 'active', 'createdAt',
-      'createdBy',
-      // How much trust this customer has earned. It decides who must sign an offer off before
-      // it is sent, which at PIE is a question about the relationship rather than the amount.
-      'customerCategory']
+      'createdBy']
   },
   CustomerContacts: {
     label: 'Purchase / maintenance / accounts / owner contacts (FR-002)',

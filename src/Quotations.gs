@@ -291,9 +291,10 @@ function getQuotation(id) {
   // Where this offer stands in the order-to-cash run, read off the records that own each
   // step rather than duplicated onto the quotation.
   row.journey = quotationJourneyFor_(row);
-  // What this customer's category means for sending the offer, so the screen can say so
-  // rather than letting a coordinator find out by being refused.
+  // Who approves this offer before it goes out, so the screen says it rather than letting
+  // somebody find out by being refused.
   row.approvalRule = quoteApprovalRule_(customer);
+  row.approvalRule.youMay = mayActForCustomer_(getCurrentUser(), customer);
   return row;
 }
 
@@ -863,14 +864,13 @@ function setQuotationStatus(id, status, lostReasonId) {
     throw new Error('A quotation needs at least one line before it can leave Draft.');
   }
 
-  // Who may sign this off depends on the customer, not the amount: a regular customer's offer
-  // goes straight out, a new customer's needs Management, an occasional buyer's needs
-  // Management or the coordinator in charge.
+  // Who may sign this off is a question about who looks after the customer, not about the
+  // amount: the coordinator in charge makes the call, and Management can but need not.
   var customer = findRowById_('Customers', quote.customerId);
   var rule = quoteApprovalRule_(customer);
 
-  if (status === 'Approved' && rule.required && rule.approvers.indexOf(user.role) === -1) {
-    throw new Error(rule.why + ' Your role is ' + user.role + '.');
+  if (status === 'Approved' && !mayActForCustomer_(user, customer)) {
+    throw new Error(rule.why + ' You are signed in as ' + user.email + '.');
   }
   if (status === 'Submitted' && rule.required && !quote.approvalDate &&
       ['Approved', 'Negotiating'].indexOf(quote.status) === -1) {

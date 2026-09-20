@@ -1288,8 +1288,11 @@
     $("cm-pan").value = c ? (c.pan || "") : "";
     $("cm-industry").value = c ? (c.industry || "") : "";
     $("cm-territory").value = c ? (c.territory || "") : "";
-    $("cm-salesperson").value = c ? (c.assignedSalesperson || "") : "";
-    $("cm-category").value = c ? (c.customerCategory || "") : "";
+    withPeople(function (p) {
+      fillPeopleSelect("cm-salesperson", p.coordinators,
+        c ? (c.assignedSalesperson || "") : (currentUser.role === "Sales Coordinator"
+          ? currentUser.email : ""), "Nobody yet");
+    });
     $("cm-notes").value = c ? (c.notes || "") : "";
     $("cm-paymentterms").value = c ? (c.paymentTerms || "") : "";
     $("cm-creditlimit").value = c && c.creditLimit !== "" ? c.creditLimit : "";
@@ -1431,7 +1434,6 @@
       industry: $("cm-industry").value.trim(),
       territory: $("cm-territory").value.trim(),
       assignedSalesperson: $("cm-salesperson").value.trim(),
-      customerCategory: $("cm-category").value,
       notes: $("cm-notes").value.trim(),
       paymentTerms: $("cm-paymentterms").value.trim(),
       creditLimit: $("cm-creditlimit").value,
@@ -1984,12 +1986,12 @@
    * a day and answered from memory.
    */
   /**
-   * What this customer's category means for sending the offer.
+   * Who signs this offer off before it is sent.
    *
-   * PIE approve by relationship, not by amount: a regular customer's offer goes straight out,
-   * a new customer's needs Management, an occasional buyer's needs Management or the
-   * coordinator in charge. Saying so on the screen is the difference between knowing the rule
-   * and discovering it by being refused.
+   * Approval follows the customer's coordinator rather than going up to Management as a
+   * matter of course — PIE's point being that an office where every decision waits for the
+   * owner is an office that waits. Saying so on screen is the difference between knowing the
+   * rule and discovering it by being refused.
    */
   function renderApprovalNote(q) {
     var zone = $("qb-approval-note");
@@ -1997,16 +1999,13 @@
     if (!zone) return;
     if (!rule || ["Draft", "Approved"].indexOf(q.status) === -1) { zone.innerHTML = ""; return; }
 
-    if (!rule.required) {
-      zone.innerHTML = '<div class="compare-strip" style="margin-bottom:16px;">' +
-        '<b>' + escapeHtml(rule.category) + ' customer.</b> ' + escapeHtml(rule.why) + "</div>";
-      return;
-    }
     var approved = q.status === "Approved";
     zone.innerHTML = '<div class="compare-strip" style="margin-bottom:16px;">' +
-      "<b>" + escapeHtml(rule.category) + " customer.</b> " + escapeHtml(rule.why) +
-      (approved ? " Approved by " + escapeHtml(q.approvedBy || "") +
-        (q.approvalDate ? " on " + escapeHtml(q.approvalDate) : "") + "." : "") +
+      escapeHtml(rule.why) +
+      (approved
+        ? " Approved by " + escapeHtml(q.approvedBy || "") +
+          (q.approvalDate ? " on " + escapeHtml(q.approvalDate) : "") + "."
+        : (rule.youMay ? " That is you." : "")) +
       "</div>";
   }
 
@@ -3255,6 +3254,16 @@
     $("sj-notes").value = j.notes || "";
     $("sj-scheduled").value = j.scheduledDate || "";
 
+    // Allocating the engineer is the service coordinator's call; sales raise the need by
+    // confirming the delivery. Anyone else sees who is going but cannot change it.
+    var mayAllocate = ["Service Coordinator", "Management", "ERP Admin"]
+      .indexOf(currentUser.role) !== -1;
+    $("sj-engineer").disabled = !mayAllocate;
+    $("sj-scheduled").disabled = !mayAllocate;
+    $("sj-allocation-note").textContent = mayAllocate
+      ? ""
+      : "The service coordinator allocates the engineer.";
+
     withPeople(function (p) {
       fillPeopleSelect("sj-engineer", p.serviceEngineers || [], j.engineerEmail, "Nobody yet");
       $("sj-status").innerHTML = (p.serviceStatuses || [j.status]).map(function (st) {
@@ -4065,7 +4074,7 @@
   function canReleaseCredit(order) {
     var rule = order && order.creditRelease;
     if (!rule) return ["Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
-    return rule.approvers.indexOf(currentUser.role) !== -1;
+    return rule.youMay === true;
   }
 
   function initOrdersView() {

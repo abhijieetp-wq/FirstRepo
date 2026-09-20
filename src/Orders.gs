@@ -112,8 +112,9 @@ function getSalesOrder(id) {
     row.creditRelease = creditReleaseRule_(customer, row.creditChecks.filter(function (c) {
       return c.result === 'Hold';
     })[0] || null);
+    row.creditRelease.youMay = mayReleaseCredit_(getCurrentUser(), customer, row.creditRelease);
   }
-  row.customerCategory = customer ? String(customer.customerCategory || '') : '';
+  row.coordinatorInCharge = coordinatorInCharge_(customer);
   return row;
 }
 
@@ -372,10 +373,10 @@ function releaseCreditHold(salesOrderId, reason, nextStatus) {
   // already invoiced has broken nothing — the hold came from orders still in the pipeline —
   // and the coordinator can release that. A customer past the limit, or one never given one,
   // is Management's call.
-  var rule = creditReleaseRule_(findRowById_('Customers', order.customerId),
-    openCreditCheckFor_(salesOrderId));
-  if (rule.approvers.indexOf(user.role) === -1) {
-    throw new Error(rule.why + ' Your role is ' + user.role + '.');
+  var customer = findRowById_('Customers', order.customerId);
+  var rule = creditReleaseRule_(customer, openCreditCheckFor_(salesOrderId));
+  if (!mayReleaseCredit_(user, customer, rule)) {
+    throw new Error(rule.why + ' You are signed in as ' + user.email + '.');
   }
 
   var target = String(nextStatus || 'Material Pending').trim();
