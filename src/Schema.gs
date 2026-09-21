@@ -342,6 +342,14 @@ var SCHEMA = {
     columns: ['id', 'dispatchId', 'fileId', 'fileName', 'fileUrl', 'mimeType', 'sizeBytes',
       'caption', 'uploadedBy', 'uploadedAt']
   },
+  ServiceProofs: {
+    label: 'The photographs taken when a service job is finished (FR-047)',
+    // Same idea as DeliveryProofs, against a job rather than a dispatch: the customer's own
+    // photograph of the finished work, which is what makes a service report evidence rather
+    // than an assertion.
+    columns: ['id', 'serviceJobId', 'fileId', 'fileName', 'fileUrl', 'mimeType', 'sizeBytes',
+      'caption', 'uploadedBy', 'uploadedAt']
+  },
   ServiceJobs: {
     label: 'Fitting the delivered parts — raised when a delivery is confirmed (FR-047)',
     // The last step of PIE's process: once the goods are known to have arrived, a service

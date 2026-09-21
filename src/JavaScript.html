@@ -3351,8 +3351,70 @@
           ? "Nothing to fit yet — what the machine needs is decided on site."
           : "Nothing was recorded against the dispatch.") + "</div>";
 
-    $("sj-proofs").innerHTML = proofListHtml(j.proofs || []);
+    renderServiceProofs();
+
+    $("sj-delivery-proofs-wrap").style.display =
+      (j.deliveryProofs || []).length ? "" : "none";
+    $("sj-delivery-proofs").innerHTML = proofListHtml(j.deliveryProofs || []);
+
+    // A closed job's photographs are part of its report and stay with it.
+    var closed = ["Completed", "Cancelled"].indexOf(j.status) !== -1;
+    $("sj-proof-add").style.display = closed ? "none" : "flex";
   }
+
+  function renderServiceProofs() {
+    var j = openServiceJob;
+    var closed = ["Completed", "Cancelled"].indexOf(j.status) !== -1;
+    var zone = $("sj-proofs");
+    zone.innerHTML = proofListHtml(j.proofs || [], !closed);
+    zone.querySelectorAll("[data-drop-proof]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        google.script.run.withSuccessHandler(function (proofs) {
+          openServiceJob.proofs = proofs;
+          renderServiceProofs();
+          showMsg("Photograph removed.", "success");
+        }).withFailureHandler(onServerError).deleteServiceProof(btn.dataset.dropProof);
+      });
+    });
+  }
+
+  $("btn-sj-addproof").addEventListener("click", function () {
+    var input = $("sj-proof-file");
+    var file = input.files && input.files[0];
+    if (!file) { showMsg("Pick the photograph first.", "error"); return; }
+    var btn = $("btn-sj-addproof");
+    btn.disabled = true; btn.textContent = "Adding…";
+    var restore = function () { btn.disabled = false; btn.textContent = "Add Photo"; };
+
+    readProofPhoto(file, function (dataUrl) {
+      google.script.run.withSuccessHandler(function () {
+        input.value = "";
+        $("sj-proof-caption").value = "";
+        restore();
+        google.script.run.withSuccessHandler(function (proofs) {
+          openServiceJob.proofs = proofs;
+          renderServiceProofs();
+        }).withFailureHandler(onServerError).listServiceProofs(openServiceJob.id);
+        showMsg("Photograph stored against this job.", "success");
+      }).withFailureHandler(function (err) { restore(); onServerError(err); })
+        .saveServiceProof(openServiceJob.id, {
+          name: file.name, dataUrl: dataUrl, caption: $("sj-proof-caption").value
+        });
+    }, function (msg) { restore(); showMsg(msg, "error"); });
+  });
+
+  $("btn-sj-report").addEventListener("click", function () {
+    var btn = $("btn-sj-report");
+    btn.disabled = true; btn.textContent = "Building…";
+    google.script.run.withSuccessHandler(function (res) {
+      btn.disabled = false; btn.textContent = "Service Report";
+      window.open(res.url, "_blank");
+      showMsg("Service report saved to Drive.", "success");
+    }).withFailureHandler(function (err) {
+      btn.disabled = false; btn.textContent = "Service Report";
+      onServerError(err);
+    }).createServiceReportPdf(openServiceJob.id);
+  });
 
   /** The photographs, as links. The picture is the evidence; the row only points at it. */
   function proofListHtml(proofs, withRemove) {

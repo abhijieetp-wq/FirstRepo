@@ -33,6 +33,29 @@ function savePodPhoto(dispatchId, input) {
   var dispatch = findRowById_('Dispatches', dispatchId);
   if (!dispatch) throw new Error('Dispatch not found.');
 
+  return storeProof_('DeliveryProofs', 'dispatchId', dispatchId,
+    String(dispatch.dispatchNo || dispatchId), input, user);
+}
+
+/**
+ * The photograph of a finished service job.
+ *
+ * An installation is complete when the customer says it is. The engineer's word is the report;
+ * the customer's photograph is what makes the report evidence rather than an assertion.
+ */
+function saveServiceProof(serviceJobId, input) {
+  var user = getCurrentUser();
+  requireRole_(user, SERVICE_ROLES);
+
+  var job = findRowById_('ServiceJobs', serviceJobId);
+  if (!job) throw new Error('Service job not found.');
+
+  return storeProof_('ServiceProofs', 'serviceJobId', serviceJobId,
+    String(job.jobNo || serviceJobId), input, user);
+}
+
+/** Decodes one photograph, writes it to Drive and keeps the link. */
+function storeProof_(tabName, keyField, keyValue, label, input, user) {
   var dataUrl = String((input && input.dataUrl) || '');
   var match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
   if (!match) throw new Error('That file could not be read as an image.');
@@ -47,7 +70,7 @@ function savePodPhoto(dispatchId, input) {
   }
 
   var name = String((input && input.name) || 'proof').replace(/[\/\\:*?"<>|]/g, '-');
-  var stamped = String(dispatch.dispatchNo || dispatchId) + ' ' + todayIso_() + ' ' + name;
+  var stamped = label + ' ' + todayIso_() + ' ' + name;
   var blob = Utilities.newBlob(bytes, mimeType, stamped);
 
   var folders = DriveApp.getFoldersByName(POD_FOLDER);
@@ -55,8 +78,7 @@ function savePodPhoto(dispatchId, input) {
   var file = folder.createFile(blob);
 
   var row = {
-    id: generateId_('POD-'),
-    dispatchId: String(dispatchId),
+    id: generateId_('PRF-'),
     fileId: file.getId(),
     fileName: stamped,
     fileUrl: file.getUrl(),
@@ -66,7 +88,8 @@ function savePodPhoto(dispatchId, input) {
     uploadedBy: user.email,
     uploadedAt: new Date().toISOString()
   };
-  appendRow_('DeliveryProofs', row, 'Proof of delivery stored');
+  row[keyField] = String(keyValue);
+  appendRow_(tabName, row, 'Proof photograph stored');
   return row;
 }
 
@@ -78,19 +101,45 @@ function listPodPhotos(dispatchId) {
     .sort(function (a, b) { return String(a.uploadedAt).localeCompare(String(b.uploadedAt)); });
 }
 
+/** The photographs held against a service job, oldest first. */
+function listServiceProofs(serviceJobId) {
+  getCurrentUser();
+  return findRowsByColumn_('ServiceProofs', 'serviceJobId', [String(serviceJobId)])
+    .map(stripRow_)
+    .sort(function (a, b) { return String(a.uploadedAt).localeCompare(String(b.uploadedAt)); });
+}
+
 /** Removes a proof. The Drive file goes to the bin rather than being destroyed. */
 function deletePodPhoto(proofId) {
   var user = getCurrentUser();
   requireRole_(user, DISPATCH_ROLES);
   var proof = findRowById_('DeliveryProofs', proofId);
   if (!proof) throw new Error('That proof is no longer there.');
+  dropProofFile_('DeliveryProofs', proof);
+  return listPodPhotos(proof.dispatchId);
+}
+
+function deleteServiceProof(proofId) {
+  var user = getCurrentUser();
+  requireRole_(user, SERVICE_ROLES);
+  var proof = findRowById_('ServiceProofs', proofId);
+  if (!proof) throw new Error('That proof is no longer there.');
+  var job = findRowById_('ServiceJobs', proof.serviceJobId);
+  if (job && job.status === 'Completed') {
+    throw new Error('This job is closed. Its photographs are part of the service report and ' +
+      'stay with it.');
+  }
+  dropProofFile_('ServiceProofs', proof);
+  return listServiceProofs(proof.serviceJobId);
+}
+
+function dropProofFile_(tabName, proof) {
   try {
     DriveApp.getFileById(proof.fileId).setTrashed(true);
   } catch (err) {
     // The row goes either way: a link to a file somebody already deleted is worse than none.
   }
-  deleteRowById_('DeliveryProofs', 'id', proofId, 'Proof of delivery removed');
-  return listPodPhotos(proof.dispatchId);
+  deleteRowById_(tabName, 'id', proof.id, 'Proof photograph removed');
 }
 
 /**
@@ -262,7 +311,10 @@ function getServiceJob(id) {
   row.items = findRowsByColumn_('ServiceJobItems', 'serviceJobId', [String(id)])
     .map(stripRow_)
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
-  row.proofs = row.dispatchId ? listPodPhotos(row.dispatchId) : [];
+  // Two different photographs, and they answer different questions: the delivery one says the
+  // goods arrived, the service one says the work was finished and accepted.
+  row.deliveryProofs = row.dispatchId ? listPodPhotos(row.dispatchId) : [];
+  row.proofs = listServiceProofs(id);
   return row;
 }
 
@@ -293,6 +345,13 @@ function setServiceJobStatus(id, status, notes) {
   if (!job) throw new Error('Service job not found.');
   if (status !== 'Unassigned' && status !== 'Cancelled' && !String(job.engineerEmail).trim()) {
     throw new Error('Name the engineer before moving this job on.');
+  }
+
+  // An installation is complete when the customer says so. Without their photograph the
+  // report is the engineer's word for it, which is what PIE asked not to rely on.
+  if (status === 'Completed' && !listServiceProofs(id).length) {
+    throw new Error('Add the photograph of the finished work before closing this job \u2014 ' +
+      'it is what the service report stands on.');
   }
 
   var patch = { status: status };

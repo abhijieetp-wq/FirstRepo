@@ -287,17 +287,26 @@ function runCreditCheck(salesOrderId) {
   var orderValue = Number(order.grand) || 0;
   var totalExposure = exposure.existingExposure + orderValue;
   var limit = exposure.creditLimit;
+  var outstanding = Number(exposure.outstandingAmt) || 0;
 
   var advanceRequired = order.advanceRequired === '' || order.advanceRequired === null
     ? 0 : Number(order.advanceRequired);
   var advanceReceived = Number(order.advanceReceived) || 0;
 
+  // Money already invoiced and unpaid is what decides this, not the pipeline. PIE's customers
+  // buy when they need stock, with no pattern to read into the gaps, so a big order in
+  // progress says nothing about whether somebody pays. This used to compare the limit against
+  // outstanding plus every open order plus this one, which held customers who had never been
+  // late and whose only crime was ordering again.
   var reasons = [];
-  if (limit !== null && totalExposure > limit) {
-    reasons.push('Exposure ' + roundMoney_(totalExposure) + ' exceeds the approved limit ' + limit);
+  if (limit !== null && outstanding > limit) {
+    reasons.push('Unpaid invoices of ' + inr_(outstanding) + ' are over the credit limit of ' +
+      inr_(limit) + '. ' + inr_(outstanding - limit) + ' has to come in before this order ' +
+      'can go.');
   }
   if (advanceRequired > advanceReceived) {
-    reasons.push('Advance of ' + advanceRequired + ' required, ' + advanceReceived + ' received');
+    reasons.push('Advance of ' + inr_(advanceRequired) + ' required, ' +
+      inr_(advanceReceived) + ' received');
   }
 
   var result = reasons.length ? 'Hold' : 'Pass';

@@ -899,12 +899,29 @@
     <div class="card-title" style="margin-top:20px;" id="sj-items-title">Parts to fit</div>
     <div id="sj-items"></div>
 
-    <div class="card-title" style="margin-top:20px;">Proof of delivery</div>
+    <div class="card-title" style="margin-top:20px;">Photographs of the finished work</div>
+    <p style="font-size:12px; color:var(--ink-soft); margin:-8px 0 10px;">
+      The customer's own photograph of the completed job. One is needed before the job can be
+      closed — it is what the service report stands on.
+    </p>
     <div id="sj-proofs"></div>
+    <div id="sj-proof-add" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+      <input type="file" id="sj-proof-file" accept="image/*,application/pdf" style="font-size:12.5px;" />
+      <input id="sj-proof-caption" placeholder="Caption (optional)" style="flex:1; min-width:180px;" />
+      <button class="btn btn-sm" id="btn-sj-addproof" type="button">Add Photo</button>
+    </div>
 
-    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
-      <button class="btn" id="btn-sj-close">Close</button>
-      <button class="btn btn-primary" id="btn-sj-save">Save</button>
+    <div id="sj-delivery-proofs-wrap" style="display:none;">
+      <div class="card-title" style="margin-top:20px;">Proof of delivery</div>
+      <div id="sj-delivery-proofs"></div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; gap:10px; margin-top:22px;">
+      <button class="btn btn-ghost" id="btn-sj-report">Service Report</button>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-sj-close">Close</button>
+        <button class="btn btn-primary" id="btn-sj-save">Save</button>
+      </div>
     </div>
   </div>
 </div>

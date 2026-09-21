@@ -60,11 +60,15 @@ function quoteApprovalRule_(customer) {
 /**
  * Who may lift a credit hold on this order.
  *
- * The question is not how big the exposure is but whether the customer has broken an
- * agreement. Money already invoiced and unpaid is the agreement; orders not yet billed are
- * forecast. A customer inside their agreed limit on invoiced money has broken nothing, so the
- * coordinator looking after them can release it. Past the limit, never given a limit, or short
- * on an agreed advance, and it is Management's.
+ * A hold means unpaid invoices have gone past the customer's credit limit, and PIE's rule is
+ * that the order waits until enough money comes in to bring them back under it. So lifting one
+ * while the money is still outstanding is an override of the rule rather than a judgement
+ * call, and that is Management's.
+ *
+ * The other case is a hold that has already been earned out of: the customer paid, the
+ * outstanding is back inside the limit, and the hold is simply stale. Re-running the credit
+ * check clears that on its own, and the coordinator looking after the customer can clear it
+ * too.
  */
 function creditReleaseRule_(customer, check) {
   var limit = customer && customer.creditLimit !== '' && customer.creditLimit !== null
@@ -77,15 +81,17 @@ function creditReleaseRule_(customer, check) {
       managementOnly: true,
       inCharge: incharge,
       why: 'No credit limit has been agreed for this customer, so the decision is ' +
-        'Management’s.'
+        'Management\u2019s.'
     };
   }
   if (outstanding > limit) {
     return {
       managementOnly: true,
+      shortfall: roundMoney_(outstanding - limit),
       inCharge: incharge,
-      why: 'Invoiced and unpaid ' + inr_(outstanding) + ' is already past the agreed limit of ' +
-        inr_(limit) + ', so the decision is Management’s.'
+      why: 'Unpaid invoices of ' + inr_(outstanding) + ' are over the limit of ' + inr_(limit) +
+        '. The order waits until ' + inr_(outstanding - limit) + ' comes in \u2014 releasing ' +
+        'it before that overrides the rule, which is Management\u2019s call.'
     };
   }
   // The advance is a term of this order rather than a standing agreement, so a shortfall on it
@@ -95,16 +101,16 @@ function creditReleaseRule_(customer, check) {
       managementOnly: true,
       inCharge: incharge,
       why: 'The advance agreed for this order has not been received, so the decision is ' +
-        'Management’s.'
+        'Management\u2019s.'
     };
   }
   return {
     managementOnly: false,
     inCharge: incharge,
-    why: 'Invoiced and unpaid ' + inr_(outstanding) + ' is within the agreed limit of ' +
-      inr_(limit) + ' — the hold comes from orders not yet billed, so ' +
-      (incharge ? incharge + ', who looks after this customer, can release it.'
-                : 'the sales coordinator looking after this customer can release it.')
+    why: 'Unpaid invoices of ' + inr_(outstanding) + ' are back inside the limit of ' +
+      inr_(limit) + ', so this hold is stale \u2014 ' +
+      (incharge ? incharge + ', who looks after this customer, can clear it.'
+                : 'the sales coordinator looking after this customer can clear it.')
   };
 }
 
