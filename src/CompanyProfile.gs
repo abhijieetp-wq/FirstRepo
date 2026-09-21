@@ -51,9 +51,11 @@ function defaultCompanyProfile_() {
     // Left blank deliberately: this client stamps the seal on the printed page by hand. Set it
     // and it prints above the signature — which is what the next client will want.
     sealUrl: '',
-    // The number under the signature. Not the letterhead number: the letterhead is the office,
-    // this is who the customer rings about the offer.
-    signOffPhone: '9158004003',
+    // The number under the signature. Not necessarily the letterhead number: the letterhead is
+    // the office, this is who the customer rings about the offer. It carried the old Hingna
+    // Road number long after PIE corrected the letterhead, so every offer went out signed with
+    // a number that no longer reaches them.
+    signOffPhone: '+91-7767014004',
     salutation: 'Dear Sir/Madam,',
     signOffLine: 'Yours sincerely,',
     // Drives the quotation numbering and the default on new records, so a house selling a

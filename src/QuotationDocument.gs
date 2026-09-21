@@ -218,7 +218,11 @@ function buildQuotationHtml(quotationId) {
       '<div><b>' + esc_(preparer.name || '') + '</b>' +
         (preparer.designation || preparer.role
           ? ' | ' + esc_(preparer.designation || preparer.role) : '') + '</div>' +
-      (co.signOffPhone ? '<div>P: ' + esc_(co.signOffPhone) + '</div>' : '') +
+      (co.signOffPhone ? '<div>M: ' + esc_(co.signOffPhone) + '</div>' : '') +
+      // A customer replies to an offer; without an address on it they reply to whoever
+      // forwarded it. Their own offers carry the e-mail under the signature, so ours does.
+      (preparer.email || co.email
+        ? '<div>E: ' + esc_(preparer.email || co.email) + '</div>' : '') +
       '</div>';
   };
 
