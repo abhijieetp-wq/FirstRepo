@@ -67,6 +67,74 @@ function defaultPartiesFor_(customerId) {
   };
 }
 
+/**
+ * The address this offer should print, healing a quotation that was drafted before the
+ * customer had one.
+ *
+ * A quotation stamps its addresses at the moment it is created, so a customer entered in a
+ * hurry leaves the offer pointing at nothing. Fixing the customer record afterwards did
+ * nothing for the quotations already drafted against it — the pointer stayed empty and the
+ * offer kept printing a name over blank space. Resolving it again here means adding the
+ * address is enough; the drafts already open pick it up.
+ *
+ * Deliberately a pure read. Everything that needs an address goes through this function, so
+ * the stored pointer being stale costs nothing, and healing it would put a write on the path
+ * every quotation screen takes.
+ *
+ * Returns the address row, or null when the customer record genuinely has none.
+ */
+function resolveQuoteAddress_(quote) {
+  var addresses = readTable_('CustomerAddresses').filter(function (a) {
+    return String(a.customerId) === String(quote.customerId) &&
+      String(a.active).toUpperCase() !== 'FALSE';
+  });
+  if (!addresses.length) return null;
+
+  var current = addresses.filter(function (a) {
+    return String(a.id) === String(quote.billingAddressId);
+  })[0];
+  if (current) return current;
+
+  // Billing first, because that is what an offer is addressed to — but any address on the
+  // record beats a blank block, so a customer who only has a site address still gets one.
+  return addresses.filter(function (a) {
+      return a.addressType === 'Billing' && String(a.isDefault).toUpperCase() === 'TRUE';
+    })[0] ||
+    addresses.filter(function (a) { return a.addressType === 'Billing'; })[0] ||
+    addresses[0];
+}
+
+/** The address an order should ship to, resolved the same way rather than copied stale. */
+function quoteShippingAddressId_(quote) {
+  if (quote.shippingAddressId) return quote.shippingAddressId;
+  var found = resolveQuoteAddress_(quote);
+  return found ? found.id : '';
+}
+
+/**
+ * What to say when there is no address to print. Empty when there is one.
+ *
+ * The gap is never really on the quotation — it is on the customer record behind it — so the
+ * message names that record and the screen to fix it on. Anything vaguer sends somebody
+ * hunting through the offer for a field that was never there.
+ */
+function quoteAddressGap_(quote) {
+  if (resolveQuoteAddress_(quote)) return '';
+  var customer = readTable_('Customers').filter(function (c) {
+    return String(c.id) === String(quote.customerId);
+  })[0];
+  var name = customer && customer.name ? customer.name : '';
+  return 'The customer record' + (name ? ' for ' + name : '') + ' has no address on it. ' +
+    'Open Customers \u2192 ' + (name || 'that customer') +
+    ' \u2192 Addresses and add one, then try again.';
+}
+
+/** Refuses to let an offer leave the building with an empty address block. */
+function requireQuoteAddress_(quote) {
+  var gap = quoteAddressGap_(quote);
+  if (gap) throw new Error(gap);
+}
+
 /** Statuses after which the quotation is frozen and further edits fork a revision. */
 var LOCKED_QUOTE_STATUSES = ['Approved', 'Submitted', 'Negotiating', 'Won', 'Lost', 'Expired'];
 
@@ -296,6 +364,10 @@ function getQuotation(id) {
   row.customerName = customer ? customer.name : '';
   row.customerGstin = customer ? customer.gstin : '';
   row.specGaps = specGapsFor_(row.items);
+  // The customer record behind this offer may have no address to print. Said here, while the
+  // quotation is still being built, rather than at the print button.
+  row.addressGap = quoteAddressGap_(q);
+  row.billingAddressId = q.billingAddressId;
   // Where this offer stands in the order-to-cash run, read off the records that own each
   // step rather than duplicated onto the quotation.
   row.journey = quotationJourneyFor_(row);
@@ -880,6 +952,9 @@ function setQuotationStatus(id, status, lostReasonId) {
   if (status === 'Approved' && !mayActForCustomer_(user, customer)) {
     throw new Error(rule.why + ' You are signed in as ' + user.email + '.');
   }
+  // The address first: a missing one is a gap in the data, and saying "get it approved" to
+  // somebody whose offer cannot print either only costs them a second trip.
+  if (status === 'Submitted') requireQuoteAddress_(quote);
   if (status === 'Submitted' && rule.required && !quote.approvalDate &&
       ['Approved', 'Negotiating'].indexOf(quote.status) === -1) {
     throw new Error('This quotation has not been approved yet. ' + rule.why);

@@ -17,6 +17,8 @@ function prepareQuotationEmail(quotationId) {
   requireRole_(user, QUOTE_EDITORS);
 
   var quote = getQuotation(quotationId);
+  // Said before they compose the note rather than after, when the attachment fails to build.
+  if (quote.addressGap) throw new Error(quote.addressGap);
   var co = getCompanyProfile();
   var contact = quote.contactId ? findRowById_('CustomerContacts', quote.contactId) : null;
 

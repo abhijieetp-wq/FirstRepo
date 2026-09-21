@@ -178,8 +178,10 @@ function createOrderFromQuotation(input) {
     poAttachmentUrl: String(input.poAttachmentUrl || '').trim(),
     poVerified: variance.length ? 'FALSE' : 'TRUE',
     poVarianceNotes: variance.join('; '),
-    billingAddressId: quote.billingAddressId,
-    shippingAddressId: quote.shippingAddressId,
+    // Resolved rather than copied: a quotation drafted before the customer had an address
+    // still carries an empty pointer, and an order without one cannot be dispatched.
+    billingAddressId: (resolveQuoteAddress_(quote) || {}).id || '',
+    shippingAddressId: quoteShippingAddressId_(quote),
     orderStatus: 'Draft',
     paymentTerms: quote.paymentTerms || (customer ? customer.paymentTerms : ''),
     advanceRequired: input.advanceRequired === '' || input.advanceRequired === undefined ? '' : Number(input.advanceRequired),

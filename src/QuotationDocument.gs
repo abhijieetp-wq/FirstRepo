@@ -138,9 +138,9 @@ function buildQuotationHtml(quotationId) {
   var contact = readTable_('CustomerContacts').filter(function (c) {
     return String(c.id) === String(q.contactId);
   })[0] || {};
-  var address = readTable_('CustomerAddresses').filter(function (a) {
-    return String(a.id) === String(q.billingAddressId);
-  })[0] || {};
+  // Refuses rather than prints a name over blank space; the message names the record to fix.
+  requireQuoteAddress_(q);
+  var address = resolveQuoteAddress_(q) || {};
 
   var items = readTable_('QuotationItems')
     .filter(function (i) { return String(i.quotationId) === String(quotationId); })

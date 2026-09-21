@@ -43,6 +43,8 @@ function getDispatchReadiness(salesOrderId) {
   var shipping = readTable_('CustomerAddresses').filter(function (a) {
     return String(a.id) === String(order.shippingAddressId);
   })[0];
+  var customer = findRowById_('Customers', order.customerId);
+  var customerName = customer && customer.name ? customer.name : '';
 
   var checks = [
     {
@@ -81,7 +83,11 @@ function getDispatchReadiness(salesOrderId) {
       key: 'address',
       label: 'Shipping address on the order',
       pass: !!shipping,
-      detail: shipping ? [shipping.line1, shipping.city].filter(Boolean).join(', ') : 'No shipping address set'
+      detail: shipping
+        ? [shipping.line1, shipping.city].filter(Boolean).join(', ')
+        : 'The customer record' + (customerName ? ' for ' + customerName : '') +
+          ' has no address on it. Open Customers \u2192 ' + (customerName || 'that customer') +
+          ' \u2192 Addresses and add one.'
     }
   ];
 

@@ -2312,11 +2312,18 @@
 
     // A locked quotation is read-only by design: it is what the customer received.
     var editable = canEditQuotes() && !q.locked;
-    $("qb-locked-banner").innerHTML = q.locked
+    $("qb-locked-banner").innerHTML = (q.locked
       ? '<div class="compare-strip" style="margin-bottom:16px;">This quotation is <b>' +
         escapeHtml(q.status) + '</b> and locked. Use <b>Revise</b> to create the next revision — ' +
         'the version already sent stays untouched.</div>'
-      : "";
+      : "") +
+      // An offer cannot print or send without an address, and the gap is on the customer
+      // record, not on this screen. Said here, while there is still time to fix it quietly.
+      (q.addressGap
+        ? '<div class="msg msg-error show" style="position:static; margin-bottom:16px;">' +
+          '<span class="msg-text"><b>No address to print.</b> ' + escapeHtml(q.addressGap) +
+          ' Until then this quotation can be built, but not printed, emailed or sent.</span></div>'
+        : "");
 
     // A draft can still be re-addressed; anything locked shows the name as plain text.
     var canRepoint = editable;
