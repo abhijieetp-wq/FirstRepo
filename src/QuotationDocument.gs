@@ -117,6 +117,24 @@ function ddmmyyyy_(iso) {
 }
 
 /**
+ * One line of address, the way it would be written on an envelope.
+ *
+ * The block used to stop at the city, which reads fine on screen and is short of what a
+ * courier or a GST officer expects. State and PIN go on because an offer is a document that
+ * gets filed, forwarded and occasionally posted — and because the fields are already on the
+ * customer record, so leaving them out was losing information rather than saving space.
+ */
+function postalAddress_(address) {
+  var parts = [address.line1, address.line2, address.city, address.state]
+    .map(function (p) { return String(p === undefined || p === null ? '' : p).trim(); })
+    .filter(Boolean);
+  var line = parts.join(', ');
+  var pin = String(address.pincode === undefined || address.pincode === null
+    ? '' : address.pincode).trim();
+  return pin ? (line ? line + ' - ' + pin : pin) : line;
+}
+
+/**
  * Renders the whole document. Returned to the screen for preview and handed to the PDF
  * converter unchanged, so what is previewed is what is sent.
  */
@@ -254,7 +272,7 @@ function buildQuotationHtml(quotationId) {
 
   push('<div class="to">To,<br />' +
     '<b>M/s. ' + esc_(customer.name) + '</b><br />' +
-    (address.line1 ? esc_([address.line1, address.line2, address.city].filter(Boolean).join(', ')) + '<br />' : '') +
+    (address.line1 ? esc_(postalAddress_(address)) + '<br />' : '') +
     (contact.name ? esc_(L('attention', 'Kind Attention')) + ': ' + esc_(contact.name) + '<br />' : '') +
     (contact.phone ? esc_(L('mobile', 'Mobile No')) + ': ' + esc_(contact.phone) + '<br />' : '') +
     (contact.email ? esc_(L('email', 'Email Id')) + ': ' + esc_(contact.email) : '') +
