@@ -24,7 +24,7 @@ var TALLY_SYNC_STATUSES = ['Pending', 'Synced', 'Failed', 'Not Required'];
 var TERM_CREDIT_DAYS = { ADV100: 0, ADV_PART: 0, NET30: 30, NET45: 45, NET60: 60 };
 
 function listInvoices(options) {
-  getCurrentUser();
+  var user = getCurrentUser();
   var opts = options || {};
 
   var customerNames = {};
@@ -45,6 +45,7 @@ function listInvoices(options) {
   return readTable_('Invoices')
     .filter(function (inv) {
       if (!opts.includeCancelled && inv.status === 'Cancelled') return false;
+      if (!streamAllowed_(user, inv.businessStream)) return false;
       if (opts.businessStream && inv.businessStream !== opts.businessStream) return false;
       if (opts.customerId && String(inv.customerId) !== String(opts.customerId)) return false;
       if (opts.unpaidOnly) {
@@ -68,9 +69,10 @@ function listInvoices(options) {
 }
 
 function getInvoice(id) {
-  getCurrentUser();
+  var reader = getCurrentUser();
   var inv = readTable_('Invoices').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!inv) throw new Error('Invoice not found.');
+  requireStream_(reader, inv.businessStream, 'This invoice');
   var row = stripRow_(inv);
 
   row.items = readTable_('InvoiceItems')

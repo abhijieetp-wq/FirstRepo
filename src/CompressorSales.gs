@@ -48,6 +48,8 @@ function listLeads(options) {
       (reqsByLead[key] = reqsByLead[key] || []).push(stripRow_(r));
     });
 
+  requireStream_(user, STREAM_COMPRESSOR, 'Compressor leads');
+
   var rows = readTable_('Leads').map(function (l) {
     var row = stripRow_(l);
     // A linked customer's name wins, because it is the one that gets maintained; an
@@ -74,6 +76,7 @@ function listLeads(options) {
 function saveLead(input) {
   var user = getCurrentUser();
   requireRole_(user, LEAD_EDITORS);
+  requireStream_(user, STREAM_COMPRESSOR, 'Compressor work');
 
   // A lead is a prospect, not a customer. Someone a salesperson has just approached has
   // bought nothing yet, and forcing a Customer record for them would fill the master with
@@ -254,6 +257,7 @@ function convertLeadToOpportunity(leadId, input) {
 
 function listOpportunities(options) {
   var user = getCurrentUser();
+  requireStream_(user, STREAM_COMPRESSOR, 'The compressor funnel');
   var opts = options || {};
 
   var customerNames = {};
@@ -304,6 +308,7 @@ function listOpportunities(options) {
 function saveOpportunity(input) {
   var user = getCurrentUser();
   requireRole_(user, LEAD_EDITORS);
+  requireStream_(user, STREAM_COMPRESSOR, 'Compressor work');
 
   if (!input.customerId) throw new Error('An opportunity needs a customer.');
   var stage = String(input.stage || 'Requirement Identified').trim();
@@ -363,7 +368,7 @@ function saveOpportunity(input) {
 }
 
 function getOpportunity(id) {
-  getCurrentUser();
+  requireStream_(getCurrentUser(), STREAM_COMPRESSOR, 'This opportunity');
   var o = readTable_('Opportunities').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!o) throw new Error('Opportunity not found.');
   var row = stripRow_(o);

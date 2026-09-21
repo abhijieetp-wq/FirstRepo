@@ -74,13 +74,15 @@ function listSalesOrders(options) {
   if (opts.creditHoldOnly) {
     rows = rows.filter(function (r) { return r.creditHold || r.orderStatus === 'Credit Hold'; });
   }
+  rows = forStream_(user, rows);
   return rows.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
 }
 
 function getSalesOrder(id) {
-  getCurrentUser();
+  var reader = getCurrentUser();
   var o = readTable_('SalesOrders').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!o) throw new Error('Order not found.');
+  requireStream_(reader, o.businessStream, 'This order');
   var row = stripRow_(o);
   row.creditHold = String(row.creditHold).toUpperCase() === 'TRUE';
 

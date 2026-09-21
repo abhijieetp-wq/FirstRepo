@@ -32,6 +32,9 @@ function getDashboard(options) {
   var opts = options || {};
   // Must be the stored spelling, not a short form — see BUSINESS_STREAMS in Schema.gs.
   var stream = BUSINESS_STREAMS.indexOf(opts.stream) !== -1 ? opts.stream : '';
+  // Somebody who works in one stream gets that stream's dashboard whatever they ask for.
+  // The cache key already carries the user, so one person's view cannot leak to another.
+  if (String(user.businessStream) !== STREAM_ALL) stream = user.businessStream;
 
   var cache = CacheService.getUserCache();
   var cacheKey = 'dash:' + user.email + ':' + stream;

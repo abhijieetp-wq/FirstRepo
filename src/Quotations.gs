@@ -105,6 +105,8 @@ function listQuotations(options) {
   if (opts.businessStream) {
     rows = rows.filter(function (r) { return r.businessStream === opts.businessStream; });
   }
+  // A spare-sales coordinator has no business reading compressor deals.
+  rows = forStream_(user, rows);
 
   // The stage is worked out after filtering, and for the whole page in one pass: reading the
   // orders, dispatches and invoices per quotation would be three scans per row, and reading
@@ -144,6 +146,7 @@ function createBlankQuotation(input) {
 
   var stream = BUSINESS_STREAMS.indexOf(input.businessStream) !== -1
     ? input.businessStream : STREAM_SPARE;
+  requireStream_(user, stream, 'A quotation in that stream');
 
   var parties = defaultPartiesFor_(customer.id);
 
@@ -184,6 +187,8 @@ function createBlankQuotation(input) {
 function createQuotationFromEnquiry(spareEnquiryId) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);
+
+  requireStream_(user, STREAM_SPARE, 'Spare enquiries');
 
   var enquiry = readTable_('SpareEnquiries').filter(function (e) {
     return String(e.id) === String(spareEnquiryId);
@@ -272,9 +277,10 @@ function createQuotationFromEnquiry(spareEnquiryId) {
 }
 
 function getQuotation(id) {
-  getCurrentUser();
+  var reader = getCurrentUser();
   var q = readTable_('Quotations').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!q) throw new Error('Quotation not found.');
+  requireStream_(reader, q.businessStream, 'This quotation');
   var row = stripRow_(q);
   row.items = readTable_('QuotationItems')
     .filter(function (i) { return String(i.quotationId) === String(id); })
@@ -1008,6 +1014,9 @@ function requireUnlockedQuote_(quotationId) {
     return String(q.id) === String(quotationId);
   })[0];
   if (!quote) throw new Error('Quotation not found.');
+  // Every edit to a quotation comes through here, so this is the one place the stream has to
+  // be checked on the way in.
+  requireStream_(getCurrentUser(), quote.businessStream, 'This quotation');
   if (String(quote.locked).toUpperCase() === 'TRUE') {
     throw new Error('Quotation ' + quote.quoteNo + ' ' + quote.revision + ' is ' + quote.status +
       ' and cannot be edited. Use "Revise" to create the next revision.');
@@ -1091,6 +1100,8 @@ function roundMoney_(n) {
 function createQuotationFromOpportunity(opportunityId) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);
+
+  requireStream_(user, STREAM_COMPRESSOR, 'The compressor funnel');
 
   var opportunity = readTable_('Opportunities').filter(function (o) {
     return String(o.id) === String(opportunityId);

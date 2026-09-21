@@ -96,12 +96,14 @@ function getDispatchReadiness(salesOrderId) {
 }
 
 function listDispatches(options) {
-  getCurrentUser();
+  var user = getCurrentUser();
   var opts = options || {};
 
+  // A dispatch has no stream of its own; it belongs to the stream its order belongs to.
   var orders = {};
   readTable_('SalesOrders').forEach(function (o) {
-    orders[String(o.id)] = { orderNo: o.orderNo, customerId: o.customerId, grand: o.grand };
+    orders[String(o.id)] = { orderNo: o.orderNo, customerId: o.customerId, grand: o.grand,
+      businessStream: o.businessStream };
   });
   var customerNames = {};
   readTable_('Customers').forEach(function (c) { customerNames[String(c.id)] = c.name; });
@@ -119,6 +121,10 @@ function listDispatches(options) {
 
   return readTable_('Dispatches')
     .filter(function (d) { return opts.includeClosed || d.status !== 'Cancelled'; })
+    .filter(function (d) {
+      var o = orders[String(d.salesOrderId)];
+      return streamAllowed_(user, o && o.businessStream);
+    })
     .map(function (d) {
       var row = stripRow_(d);
       var order = orders[String(row.salesOrderId)] || {};
@@ -135,9 +141,11 @@ function listDispatches(options) {
 }
 
 function getDispatch(id) {
-  getCurrentUser();
+  var reader = getCurrentUser();
   var d = readTable_('Dispatches').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!d) throw new Error('Dispatch not found.');
+  var parent = d.salesOrderId ? findRowById_('SalesOrders', d.salesOrderId) : null;
+  requireStream_(reader, parent && parent.businessStream, 'This dispatch');
   var row = stripRow_(d);
 
   row.items = readTable_('DispatchItems')

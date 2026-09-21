@@ -13,7 +13,8 @@
   }
 
   // Five roles per decision D4. Order here is the display order.
-  var ALL_ROLES = ["Sales Coordinator", "Sales Engineer", "Service Engineer", "Management", "ERP Admin"];
+  var ALL_ROLES = ["Sales Coordinator", "Sales Engineer", "Service Coordinator",
+    "Service Engineer", "Management", "ERP Admin"];
 
   // Must match BUSINESS_STREAMS in Schema.gs exactly — these strings are stored on every
   // transaction and filtered on by value, so a short form here silently matches nothing.
@@ -31,8 +32,10 @@
     // The two streams are the two front offices (D2) and sit at the same level as each other,
     // never inside a shared "Sales" heading — a stream and a document are different kinds of
     // thing, and putting them in one list is what made the old grouping read wrong.
-    { view: "compressor", label: "Compressor Sales", roles: SALES_SIDE },
-    { view: "enquiries", label: "Spare Sales", roles: SALES_SIDE },
+    // A screen that belongs to one stream is not offered to somebody who works in the other.
+    // The server refuses either way; this is so nobody is shown a door that will not open.
+    { view: "compressor", label: "Compressor Sales", roles: SALES_SIDE, stream: "Compressor Sales" },
+    { view: "enquiries", label: "Spare Sales", roles: SALES_SIDE, stream: "Spare Sales" },
     { label: "Quotations", children: [
       { view: "quote", label: "New Quotation", roles: SALES_SIDE },
       { view: "quotations", label: "All Quotations", roles: SALES_SIDE }
@@ -64,7 +67,13 @@
   }
 
   function visibleLeaves() {
-    return navLeaves().filter(function (t) { return t.roles.indexOf(currentUser.role) !== -1; });
+    return navLeaves().filter(function (t) {
+      if (t.roles.indexOf(currentUser.role) === -1) return false;
+      // 'All' — Management and the ERP admin — sees both front offices.
+      if (!t.stream) return true;
+      var mine = currentUser.businessStream || "All";
+      return mine === "All" || mine === t.stream;
+    });
   }
 
   // Master data (Products/Spares/pricing) is Management + ERP Admin only — mirrors
@@ -245,18 +254,20 @@
   }
 
   function renderTabs() {
-    var role = currentUser.role;
     var html = "";
+    // One rule for who sees a screen, used here and by visibleLeaves, so the menu and the
+    // screen the app opens on can never disagree.
+    var allowed = function (t) { return visibleLeaves().indexOf(t) !== -1; };
 
     NAV.forEach(function (group, gi) {
       if (!group.children) {
-        if (group.roles.indexOf(role) === -1) return;
+        if (!allowed(group)) return;
         html += '<button class="tab-btn" data-view="' + group.view +
           '" data-views="' + group.view + '">' + escapeHtml(group.label) + "</button>";
         return;
       }
 
-      var kids = group.children.filter(function (c) { return c.roles.indexOf(role) !== -1; });
+      var kids = group.children.filter(allowed);
       if (!kids.length) return;
 
       // One child left after role filtering — show it directly rather than a menu of one.

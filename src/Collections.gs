@@ -38,7 +38,7 @@ var FOLLOWUP_STATUSES = ['Open', 'Promised', 'Broken', 'Closed'];
  * re-implementing the arithmetic slightly differently.
  */
 function getReceivables(options) {
-  getCurrentUser();
+  var user = getCurrentUser();
   var opts = options || {};
   var today = todayIso_();
 
@@ -66,6 +66,7 @@ function getReceivables(options) {
 
   return readTable_('Invoices')
     .filter(function (inv) { return inv.status === 'Issued'; })
+    .filter(function (inv) { return streamAllowed_(user, inv.businessStream); })
     .map(function (inv) {
       var received = receivedByInvoice[String(inv.id)] || 0;
       var balance = roundMoney_((Number(inv.grand) || 0) - received);
