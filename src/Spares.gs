@@ -78,7 +78,8 @@ function listSpares(includeInactive) {
  */
 function saveSpare(input) {
   var user = getCurrentUser();
-  requireRole_(user, MASTER_EDITORS);
+  requireRole_(user, CATALOG_EDITORS);
+  requireStream_(user, STREAM_SPARE, 'The spare catalogue');
 
   var partNo = String(input.partNo || '').trim();
   var description = String(input.description || '').trim();
@@ -222,7 +223,7 @@ function removeSpareDependents_(ids) {
 /** Links a substitute part. Either point at another spare, or record a free-text equivalent. */
 function saveSpareAlternate(input) {
   var user = getCurrentUser();
-  requireRole_(user, MASTER_EDITORS);
+  requireRole_(user, CATALOG_EDITORS);
   if (!input.spareId) throw new Error('spareId is required.');
   if (!input.alternateSpareId && !String(input.altPartNo || '').trim()) {
     throw new Error('Pick an alternate part from the catalog, or type an alternate part number.');
@@ -257,7 +258,7 @@ function deleteSpareAlternate(id) {
 /** Maps a spare to a compressor model it fits (FR-023). */
 function saveSpareCompatibility(input) {
   var user = getCurrentUser();
-  requireRole_(user, MASTER_EDITORS);
+  requireRole_(user, CATALOG_EDITORS);
   if (!input.spareId) throw new Error('spareId is required.');
   var model = String(input.productModel || '').trim();
   if (!model) throw new Error('A compressor model is required.');

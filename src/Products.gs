@@ -46,7 +46,8 @@ function listProducts(includeInactive) {
 
 function saveProduct(input) {
   var user = getCurrentUser();
-  requireRole_(user, MASTER_EDITORS);
+  requireRole_(user, CATALOG_EDITORS);
+  requireStream_(user, STREAM_COMPRESSOR, 'The compressor catalogue');
 
   var productCode = String(input.productCode || '').trim();
   var model = String(input.model || '').trim();

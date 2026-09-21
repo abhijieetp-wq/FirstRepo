@@ -30,7 +30,20 @@ var ROLES = {
 var ALL_ROLES = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.SERVICE_COORDINATOR,
   ROLES.SERVICE_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 
-/** Roles allowed to maintain the Product/Spare masters and pricing (FR-062). */
+/**
+ * Two different questions about the catalogue, and they deserve two different answers.
+ *
+ * Adding a part and pricing it is ordinary work. A coordinator half way through an offer who
+ * finds the part is not listed should not have to stop and find a manager — that is the
+ * bottleneck this system exists to remove, and every change is audited anyway.
+ *
+ * Removing a part, importing over the whole catalogue, or editing the dropdowns the rest of
+ * the system is built on is not ordinary work. A mistake there is felt by everybody and is
+ * hard to see, so it stays with Management.
+ */
+var CATALOG_EDITORS = [ROLES.SALES_COORDINATOR, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+
+/** Roles allowed to remove from the masters, import over them, or change the config lists. */
 var MASTER_EDITORS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 
 /**

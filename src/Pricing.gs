@@ -281,7 +281,7 @@ function savePricesBulk_(entries, reason) {
 
 function savePrice(input) {
   var user = getCurrentUser();
-  requireRole_(user, MASTER_EDITORS);
+  requireRole_(user, CATALOG_EDITORS);
 
   var itemType = String(input.itemType || '').trim();
   var itemId = String(input.itemId || '').trim();

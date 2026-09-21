@@ -48,7 +48,7 @@ function completeCatalogDetails(input) {
     throw new Error('The price must be a number, zero or more.');
   }
 
-  var canWriteMaster = MASTER_EDITORS.indexOf(user.role) !== -1;
+  var canWriteMaster = CATALOG_EDITORS.indexOf(user.role) !== -1;
   var written = [];
 
   if (canWriteMaster && hsn && hsn !== String(row.hsnCode || '').trim()) {

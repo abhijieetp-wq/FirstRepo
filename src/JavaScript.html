@@ -88,7 +88,15 @@
 
   // Master data (Products/Spares/pricing) is Management + ERP Admin only — mirrors
   // MASTER_EDITORS in Auth.gs, which is where the rule is actually enforced.
+  /**
+   * Adding a part and pricing it is ordinary work, so a coordinator can do it. Removing one,
+   * or importing over the whole catalogue, is not — that stays with Management.
+   */
   function canEditCatalog() {
+    return ["Sales Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
+
+  function canRemoveFromCatalog() {
     return currentUser.role === "Management" || currentUser.role === "ERP Admin";
   }
 
@@ -401,9 +409,9 @@
 
   function initCatalogView() {
     $("btn-new-catalog-item").style.display = canEditCatalog() ? "inline-flex" : "none";
-    $("btn-bulk-upload").style.display = canEditCatalog() ? "inline-flex" : "none";
+    $("btn-bulk-upload").style.display = canRemoveFromCatalog() ? "inline-flex" : "none";
     // Only the people who can reactivate a row have any use for seeing deactivated ones.
-    $("catalog-inactive-wrap").style.display = canEditCatalog() ? "inline-flex" : "none";
+    $("catalog-inactive-wrap").style.display = canRemoveFromCatalog() ? "inline-flex" : "none";
     switchCatalogMode(CATALOG_MODE);
   }
 
@@ -424,13 +432,13 @@
     var btn = $("btn-delete-selected");
     if (!btn) return;
     var n = compareSelection.size;
-    btn.style.display = (canEditCatalog() && n) ? "inline-flex" : "none";
+    btn.style.display = (canRemoveFromCatalog() && n) ? "inline-flex" : "none";
     btn.textContent = "Delete Selected (" + n + ")";
   }
 
   function showingInactive() {
     var box = $("catalog-show-inactive");
-    return !!(box && box.checked && canEditCatalog());
+    return !!(box && box.checked && canRemoveFromCatalog());
   }
 
   /**
@@ -1208,8 +1216,8 @@
 
   function initCustomersView() {
     $("btn-new-customer").style.display = canEditCustomers() ? "inline-flex" : "none";
-    // Bulk upload writes to the master, so it sits with the other master-data privileges.
-    $("btn-customer-bulk").style.display = canEditCatalog() ? "inline-flex" : "none";
+    // Bulk upload writes over the master, so it sits with the other master-data privileges.
+    $("btn-customer-bulk").style.display = canRemoveFromCatalog() ? "inline-flex" : "none";
     if (!configLists) loadConfigLists();
     if (customersLoaded) { renderCustomers(); return; }
     loadCustomers();
@@ -2709,6 +2717,79 @@
       onServerError(err);
     }).buildQuotationHtml(openQuote.id);
   }
+
+  /**
+   * Sending the offer from the portal.
+   *
+   * The last step of preparing a quotation used to happen outside the system — download,
+   * open Gmail, find the address, type a note, attach, send — and every part of that is
+   * somewhere the wrong file or the wrong address gets picked. It goes from the
+   * coordinator's own account, so the customer's reply comes back to them.
+   */
+  $("btn-qd-email").addEventListener("click", function () {
+    var btn = $("btn-qd-email");
+    btn.disabled = true;
+    google.script.run.withSuccessHandler(function (draft) {
+      btn.disabled = false;
+      $("qmail-sub").textContent = draft.quoteNo +
+        (draft.revision && draft.revision !== "R0" ? " " + draft.revision : "") +
+        " to " + draft.customerName + " \u00b7 " + fmt(draft.grand);
+      $("qmail-to").value = draft.to || "";
+      $("qmail-cc").value = draft.cc || "";
+      $("qmail-subject").value = draft.subject || "";
+      $("qmail-body").value = draft.body || "";
+      // A customer with no address on file is the usual reason this fails, and it is worth
+      // saying so before somebody types one in by hand that nobody will ever maintain.
+      $("qmail-warning").innerHTML = draft.to
+        ? (draft.alreadySent
+            ? '<div class="compare-strip" style="margin-bottom:14px;">This offer was already ' +
+              "emailed on " + escapeHtml(draft.alreadySent) + ". Sending again is fine — it " +
+              "will go with the offer as it stands now.</div>"
+            : "")
+        : '<div class="msg msg-error show" style="margin-bottom:14px;"><span class="msg-text">' +
+          "No email address on this customer's contacts. Type one below to send now, and add " +
+          "it to the customer record so the next offer finds it.</span></div>";
+      $("qmail-foot").textContent = "The PDF is built fresh and attached. It goes from your " +
+        "own account, so the reply comes back to you.";
+      $("qmail-modal-backdrop").classList.add("show");
+    }).withFailureHandler(function (err) {
+      btn.disabled = false;
+      onServerError(err);
+    }).prepareQuotationEmail(openQuote.id);
+  });
+
+  $("btn-qmail-cancel").addEventListener("click", function () {
+    $("qmail-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-qmail-send").addEventListener("click", function () {
+    var btn = $("btn-qmail-send");
+    btn.disabled = true;
+    btn.textContent = "Sending\u2026";
+    google.script.run.withSuccessHandler(function (res) {
+      btn.disabled = false;
+      btn.textContent = "Send";
+      $("qmail-modal-backdrop").classList.remove("show");
+      $("quotedoc-modal-backdrop").classList.remove("show");
+      // Sending moves it to Submitted, so the screen behind has to catch up.
+      google.script.run.withSuccessHandler(function (q) {
+        openQuote = q;
+        renderQuoteBuilder();
+      }).withFailureHandler(onServerError).getQuotation(openQuote.id);
+      showMsg(res.quoteNo + " sent to " + res.sentTo + " with " + res.attachment +
+        " attached. It is now " + res.statusNow + ".", "success");
+    }).withFailureHandler(function (err) {
+      btn.disabled = false;
+      btn.textContent = "Send";
+      onServerError(err);
+    }).sendQuotationEmail({
+      quotationId: openQuote.id,
+      to: $("qmail-to").value,
+      cc: $("qmail-cc").value,
+      subject: $("qmail-subject").value,
+      body: $("qmail-body").value
+    });
+  });
 
   $("btn-qd-close").addEventListener("click", function () {
     $("quotedoc-modal-backdrop").classList.remove("show");

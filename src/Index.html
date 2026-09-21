@@ -837,7 +837,8 @@
     <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
       <button class="btn" id="btn-qd-close" type="button">Close</button>
       <button class="btn" id="btn-qd-print" type="button">Print</button>
-      <button class="btn btn-primary" id="btn-qd-pdf" type="button">Save PDF to Drive</button>
+      <button class="btn" id="btn-qd-pdf" type="button">Save PDF to Drive</button>
+      <button class="btn btn-primary" id="btn-qd-email" type="button">Email to Customer</button>
     </div>
   </div>
 </div>
@@ -986,6 +987,30 @@
     <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
       <button class="btn" id="btn-sjenq-cancel">Cancel</button>
       <button class="btn btn-primary" id="btn-sjenq-save">Raise Enquiry</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="qmail-modal-backdrop">
+  <div class="modal" style="max-width:760px;">
+    <h3 style="margin-bottom:4px;">Email the offer</h3>
+    <p id="qmail-sub" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;"></p>
+    <div id="qmail-warning"></div>
+    <div class="grid grid-2">
+      <div class="field"><label>To *</label><input id="qmail-to" placeholder="customer@example.com" /></div>
+      <div class="field"><label>Copy to</label><input id="qmail-cc" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Subject *</label><input id="qmail-subject" />
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Message *</label>
+      <textarea id="qmail-body" rows="12" style="min-height:220px; font-family:inherit;"></textarea>
+    </div>
+    <p id="qmail-foot" style="font-size:11.5px; color:var(--ink-soft); margin:12px 0 0;"></p>
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
+      <button class="btn" id="btn-qmail-cancel" type="button">Cancel</button>
+      <button class="btn btn-primary" id="btn-qmail-send" type="button">Send</button>
     </div>
   </div>
 </div>
