@@ -39,6 +39,7 @@ var FOLLOWUP_STATUSES = ['Open', 'Promised', 'Broken', 'Closed'];
  */
 function getReceivables(options) {
   var user = getCurrentUser();
+  requireCommercial_(user, 'Collections');
   var opts = options || {};
   var today = todayIso_();
 

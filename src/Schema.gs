@@ -216,6 +216,9 @@ var SCHEMA = {
     label: 'Compressor funnel: 7 stages, weighted pipeline (FR-011, FR-012, FR-013)',
     columns: ['id', 'opportunityNo', 'date', 'customerId', 'leadId', 'title', 'stage',
       'expectedValue', 'probability', 'expectedCloseDate', 'competitor', 'lostReasonId',
+      // Unit Sales runs an engineer under a coordinator, so an opportunity records both. This
+      // was being written without a column to write it into, and silently dropped.
+      'salesEngineerEmail',
       'lostNotes', 'ownerEmail', 'nextActionDate', 'businessStream', 'brand',
       'createdAt', 'createdBy']
   },
@@ -225,8 +228,11 @@ var SCHEMA = {
     label: 'Spare enquiry by machine/serial with urgency (FR-022)',
     columns: ['id', 'enquiryNo', 'date', 'customerId', 'customerName', 'contactName', 'productModel',
       'serialNo', 'installedBaseId', 'requirementText', 'urgency', 'source',
-      // As on Leads: the engineer who took the enquiry, and the coordinator now handling it.
-      'salesEngineerEmail', 'ownerEmail',
+      // No engineer here. PIE's Spare Sales office is a coordinator and nobody else — the
+      // engineers sit under Unit Sales and Service — so a field for one would never be
+      // filled, and an empty box on a form is a question somebody has to keep deciding not
+      // to answer.
+      'ownerEmail',
       'status', 'nextActionDate', 'lostReasonId', 'businessStream', 'brand',
       'createdAt', 'createdBy']
   },
@@ -361,7 +367,12 @@ var SCHEMA = {
       // Not every job follows a delivery. A machine that has stopped is a phone call, and it
       // needs the same engineer, the same allocation and the same record — but it arrives
       // with nothing behind it, so what it is and how urgent it is have to be stated.
-      'jobType', 'urgency', 'reportedBy']
+      'jobType', 'urgency', 'reportedBy',
+      // The handover. When the goods land, the sales coordinator passes the customer to
+      // service — in practice by sharing the contact. Copying it onto the job is that act:
+      // service can ring the customer without being given the customer master, which carries
+      // credit limits and pricing they have no business seeing.
+      'contactName', 'contactPhone', 'contactEmail', 'handedOverBy']
   },
   ServiceJobItems: {
     label: 'The parts a service job is to fit, carried from the dispatch',

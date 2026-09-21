@@ -79,6 +79,7 @@ function buildServiceReportHtml(serviceJobId) {
     push(srRow_('Site', [address.line1, address.line2, address.city, address.pincode]
       .filter(Boolean).join(', ')));
   }
+  push(srRow_('Contact', [job.contactName, job.contactPhone].filter(Boolean).join(' \u00b7 ')));
   push(srRow_('Machine', job.machineModel));
   push(srRow_('Serial No.', job.serialNo));
   push(srRow_('Attended by', engineer ? (engineer.name + ' (' + engineer.email + ')')

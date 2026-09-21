@@ -80,11 +80,6 @@ function saveSpareEnquiry(input) {
     requirementText: String(input.requirementText || '').trim(),
     urgency: String(input.urgency || 'Normal').trim(),
     source: String(input.source || '').trim(),
-    // The engineer who brought it in and the coordinator now handling it are two people, and
-    // the record keeps both. Whoever is logged in is assumed to be the engineer unless the
-    // form says otherwise.
-    salesEngineerEmail: String(input.salesEngineerEmail ||
-      (user.role === ROLES.SALES_ENGINEER ? user.email : '')).trim(),
     ownerEmail: String(input.ownerEmail || user.email).trim(),
     status: status,
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),

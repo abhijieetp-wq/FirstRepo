@@ -25,6 +25,7 @@ var TERM_CREDIT_DAYS = { ADV100: 0, ADV_PART: 0, NET30: 30, NET45: 45, NET60: 60
 
 function listInvoices(options) {
   var user = getCurrentUser();
+  requireCommercial_(user, 'Invoices');
   var opts = options || {};
 
   var customerNames = {};
@@ -72,6 +73,7 @@ function getInvoice(id) {
   var reader = getCurrentUser();
   var inv = readTable_('Invoices').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!inv) throw new Error('Invoice not found.');
+  requireCommercial_(reader, 'An invoice');
   requireStream_(reader, inv.businessStream, 'This invoice');
   var row = stripRow_(inv);
 

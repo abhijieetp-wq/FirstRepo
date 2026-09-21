@@ -72,6 +72,7 @@ var LOCKED_QUOTE_STATUSES = ['Approved', 'Submitted', 'Negotiating', 'Won', 'Los
 
 function listQuotations(options) {
   var user = getCurrentUser();
+  requireCommercial_(user, 'Quotations');
   var opts = options || {};
 
   var itemsByQuote = {};
@@ -280,6 +281,7 @@ function getQuotation(id) {
   var reader = getCurrentUser();
   var q = readTable_('Quotations').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!q) throw new Error('Quotation not found.');
+  requireCommercial_(reader, 'A quotation');
   requireStream_(reader, q.businessStream, 'This quotation');
   var row = stripRow_(q);
   row.items = readTable_('QuotationItems')

@@ -887,6 +887,11 @@
       <div class="field"><label>Serial No.</label><input id="sj-serial" class="mono" disabled /></div>
     </div>
     <div class="grid grid-3" style="margin-top:12px;">
+      <div class="field"><label>Contact</label><input id="sj-contact" disabled /></div>
+      <div class="field"><label>Phone</label><input id="sj-phone" class="mono" disabled /></div>
+      <div class="field"><label>Email</label><input id="sj-email" disabled /></div>
+    </div>
+    <div class="grid grid-3" style="margin-top:12px;">
       <div class="field"><label>Service Engineer</label><select id="sj-engineer"></select>
         <p id="sj-allocation-note" style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;"></p>
       </div>
@@ -937,6 +942,10 @@
       <div class="field"><label>Customer *</label><select id="bd-customer"></select></div>
       <div class="field"><label>Reported by</label>
         <input id="bd-reportedby" placeholder="Name and phone, as given" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Site contact</label><input id="bd-contact" placeholder="Who the engineer asks for" /></div>
+      <div class="field"><label>Contact phone</label><input id="bd-phone" class="mono" /></div>
     </div>
     <div class="grid grid-3" style="margin-top:12px;">
       <div class="field"><label>Machine Model</label><input id="bd-model" placeholder="If known" /></div>
@@ -998,7 +1007,6 @@
       <textarea id="em-requirement" placeholder="Their words — part names, symptoms, quantities"></textarea>
     </div>
     <div class="grid grid-3" style="margin-top:12px;">
-      <div class="field"><label>Sales Engineer</label><select id="em-engineer"></select></div>
       <div class="field"><label>Assigned Coordinator</label><select id="em-owner"></select></div>
       <div class="field"><label>Status</label>
         <select id="em-status">

@@ -33,6 +33,39 @@ var ALL_ROLES = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.SERVICE_CO
 /** Roles allowed to maintain the Product/Spare masters and pricing (FR-062). */
 var MASTER_EDITORS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 
+/**
+ * The service office, and what it is not.
+ *
+ * Service picks a customer up after the goods have landed: the sales coordinator hands the
+ * customer over, service installs, writes the report, and then carries the relationship for
+ * breakdowns. What they never need is the commercial side of it — the quotation, the
+ * discount, the order value, what the customer owes. A coordinator who only has to decide
+ * which engineer goes out has no business reading a price list.
+ */
+var SERVICE_SIDE = [ROLES.SERVICE_COORDINATOR, ROLES.SERVICE_ENGINEER];
+
+/** Everything commercial: quotations, orders, dispatch, invoices, collections, masters. */
+var COMMERCIAL_SIDE = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.MANAGEMENT,
+  ROLES.ERP_ADMIN];
+
+/** True for somebody whose work begins at the handover and ends at the machine. */
+function isServiceOnly_(user) {
+  return !!user && SERVICE_SIDE.indexOf(user.role) !== -1;
+}
+
+/**
+ * Refuses the commercial side to the service office.
+ *
+ * Named for what the screen is rather than for the role, because the person reading the
+ * message wants to know why they cannot see a thing, not which list they are missing from.
+ */
+function requireCommercial_(user, what) {
+  if (!isServiceOnly_(user)) return;
+  throw new Error((what || 'That') + ' is sales work. Service sees the jobs handed over to ' +
+    'it, the machine and the customer\u2019s contact \u2014 not the commercial side of the ' +
+    'order.');
+}
+
 /** Roles that approve exceptions — discount, credit release, dispatch deviation (A01–A11). */
 var APPROVERS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 

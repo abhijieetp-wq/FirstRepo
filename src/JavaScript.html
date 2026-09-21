@@ -22,6 +22,16 @@
   var SALES_SIDE = ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"];
 
   /**
+   * Service picks a customer up at the handover and carries them from there: installation,
+   * the report, then breakdowns. What they never need is the commercial side — the
+   * quotation, the discount, the order value, what the customer owes. So the office they
+   * work in is one screen, and everything else in Orders is somebody else's.
+   */
+  var COMMERCIAL_SIDE = ["Sales Coordinator", "Sales Engineer", "Management", "ERP Admin"];
+  var SERVICE_VIEW = ["Service Coordinator", "Service Engineer", "Sales Coordinator",
+    "Management", "ERP Admin"];
+
+  /**
    * Navigation. Screens are grouped behind a handful of headings rather than laid out as one
    * long strip of tabs — a flat bar was already wrapping onto a second row at ten screens, and
    * dashboards, collections and settings are still to come. A group with a single visible
@@ -41,17 +51,17 @@
       { view: "quotations", label: "All Quotations", roles: SALES_SIDE }
     ] },
     { label: "Orders", children: [
-      { view: "orders", label: "Sales Orders", roles: ALL_ROLES },
-      { view: "dispatch", label: "Dispatch & Billing", roles: ALL_ROLES },
-      // The last step of the process: once the goods are known to have arrived, an engineer
-      // goes and fits them.
-      { view: "service", label: "Service Jobs", roles: ALL_ROLES },
-      { view: "collections", label: "Collections", roles: ALL_ROLES }
+      { view: "orders", label: "Sales Orders", roles: COMMERCIAL_SIDE },
+      { view: "dispatch", label: "Dispatch & Billing", roles: COMMERCIAL_SIDE },
+      // The last step of the process, and the first of service's: once the goods are known to
+      // have arrived, the customer is handed over and an engineer goes to fit them.
+      { view: "service", label: "Service Jobs", roles: SERVICE_VIEW },
+      { view: "collections", label: "Collections", roles: COMMERCIAL_SIDE }
     ] },
-    { view: "inventory", label: "Inventory", roles: ALL_ROLES },
+    { view: "inventory", label: "Inventory", roles: COMMERCIAL_SIDE },
     { label: "Masters", children: [
-      { view: "customers", label: "Customers", roles: ALL_ROLES },
-      { view: "catalog", label: "Catalog", roles: ALL_ROLES }
+      { view: "customers", label: "Customers", roles: COMMERCIAL_SIDE },
+      { view: "catalog", label: "Catalog", roles: COMMERCIAL_SIDE }
     ] },
     { view: "settings", label: "Settings", roles: ["Management", "ERP Admin"] }
   ];
@@ -1723,13 +1733,8 @@
     $("em-urgency").value = e ? (e.urgency || "Normal") : "Normal";
     $("em-nextaction").value = e ? (e.nextActionDate || "") : "";
     $("em-requirement").value = e ? (e.requirementText || "") : "";
+    // Spare Sales is a coordinator and nobody else, so there is no engineer to name here.
     withPeople(function (p) {
-      fillPeopleSelect("em-engineer", p.salesEngineers,
-        e ? e.salesEngineerEmail : (currentUser.role === "Sales Engineer" ? currentUser.email : ""),
-        "No engineer");
-      // A new record defaults to whoever is filling it in, but only if they are
-      // actually a coordinator — otherwise it is left unassigned rather than
-      // putting a sales engineer in a coordinator's slot.
       fillPeopleSelect("em-owner", p.coordinators,
         e ? (e.ownerEmail || "") : (currentUser.role === "Sales Coordinator"
           ? currentUser.email : ""), "Unassigned");
@@ -1856,7 +1861,6 @@
       urgency: $("em-urgency").value,
       nextActionDate: $("em-nextaction").value,
       requirementText: $("em-requirement").value.trim(),
-      salesEngineerEmail: $("em-engineer").value.trim(),
       ownerEmail: $("em-owner").value.trim(),
       status: $("em-status").value,
       lostReasonId: $("em-lostreason").value
@@ -3266,6 +3270,8 @@
     loadQuoteCustomers(function () {
       $("bd-customer").innerHTML = customerOptions(null);
       $("bd-reportedby").value = "";
+      $("bd-contact").value = "";
+      $("bd-phone").value = "";
       $("bd-model").value = "";
       $("bd-serial").value = "";
       $("bd-scope").value = "";
@@ -3298,6 +3304,8 @@
     }).createServiceJob({
       customerId: $("bd-customer").value,
       reportedBy: $("bd-reportedby").value,
+      contactName: $("bd-contact").value,
+      contactPhone: $("bd-phone").value,
       machineModel: $("bd-model").value,
       serialNo: $("bd-serial").value,
       urgency: $("bd-urgency").value,
@@ -3325,6 +3333,11 @@
     $("sj-customer").value = j.customerName || "";
     $("sj-machine").value = j.machineModel || "";
     $("sj-serial").value = j.serialNo || "";
+    // The handover in practice: service can ring the customer without being handed the
+    // customer master, which carries credit limits and pricing they have no business seeing.
+    $("sj-contact").value = j.contactName || "";
+    $("sj-phone").value = j.contactPhone || "";
+    $("sj-email").value = j.contactEmail || "";
     $("sj-scope").value = j.scopeText || "";
     $("sj-notes").value = j.notes || "";
     $("sj-scheduled").value = j.scheduledDate || "";

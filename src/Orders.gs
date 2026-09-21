@@ -43,6 +43,7 @@ var ORDER_TRANSITIONS = {
 
 function listSalesOrders(options) {
   var user = getCurrentUser();
+  requireCommercial_(user, 'Sales orders');
   var opts = options || {};
 
   var customerNames = {};
@@ -82,6 +83,7 @@ function getSalesOrder(id) {
   var reader = getCurrentUser();
   var o = readTable_('SalesOrders').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!o) throw new Error('Order not found.');
+  requireCommercial_(reader, 'A sales order');
   requireStream_(reader, o.businessStream, 'This order');
   var row = stripRow_(o);
   row.creditHold = String(row.creditHold).toUpperCase() === 'TRUE';

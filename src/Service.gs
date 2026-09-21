@@ -159,6 +159,7 @@ function raiseServiceJob_(dispatch, engineerEmail, user) {
   var order = dispatch.salesOrderId ? findRowById_('SalesOrders', dispatch.salesOrderId) : null;
   var customer = order && order.customerId ? findRowById_('Customers', order.customerId) : null;
   var quote = order && order.quotationId ? findRowById_('Quotations', order.quotationId) : null;
+  var contact = customerContactFor_(order, customer);
 
   // Sales do not pick the engineer; they raise the need. The job starts unassigned and waits
   // for the service coordinator — a name offered by somebody not entitled to allocate is
@@ -181,6 +182,10 @@ function raiseServiceJob_(dispatch, engineerEmail, user) {
     jobType: 'Installation',
     urgency: 'Normal',
     reportedBy: '',
+    contactName: contact.name,
+    contactPhone: contact.phone,
+    contactEmail: contact.email,
+    handedOverBy: user.email,
     scopeText: 'Fit the parts delivered on ' + String(dispatch.dispatchNo || '') + '.',
     scheduledDate: '',
     completedDate: '',
@@ -253,6 +258,10 @@ function createServiceJob(input) {
     jobType: 'Breakdown',
     urgency: urgency,
     reportedBy: String((input && input.reportedBy) || '').trim(),
+    contactName: String((input && input.contactName) || '').trim(),
+    contactPhone: String((input && input.contactPhone) || '').trim(),
+    contactEmail: String((input && input.contactEmail) || '').trim(),
+    handedOverBy: user.email,
     scopeText: scope,
     scheduledDate: '',
     completedDate: '',
@@ -260,6 +269,42 @@ function createServiceJob(input) {
   };
   appendRow_('ServiceJobs', job, 'Breakdown call logged');
   return getServiceJob(job.id);
+}
+
+/**
+ * The person service should ring.
+ *
+ * The quotation names a contact if one was chosen when the offer was raised; failing that the
+ * customer's primary contact is the right guess, and failing that anybody active on the
+ * record beats handing service a job with no phone number on it.
+ */
+function customerContactFor_(order, customer) {
+  var blank = { name: '', phone: '', email: '' };
+  if (!customer) return blank;
+
+  // A phone number is worth having and is never worth failing a delivery over, so everything
+  // here degrades to blank rather than throwing.
+  var chosen = null;
+  try {
+    var quote = order && order.quotationId ? findRowById_('Quotations', order.quotationId) : null;
+    chosen = quote && quote.contactId ? findRowById_('CustomerContacts', quote.contactId) : null;
+
+    if (!chosen) {
+      var contacts = findRowsByColumn_('CustomerContacts', 'customerId', [String(customer.id)])
+        .filter(function (c) { return String(c.active).toUpperCase() !== 'FALSE'; });
+      chosen = contacts.filter(function (c) {
+        return String(c.isPrimary).toUpperCase() === 'TRUE';
+      })[0] || contacts[0] || null;
+    }
+  } catch (err) {
+    return blank;
+  }
+  if (!chosen) return blank;
+  return {
+    name: String(chosen.name || ''),
+    phone: String(chosen.phone || ''),
+    email: String(chosen.email || '')
+  };
 }
 
 function listServiceJobs(options) {

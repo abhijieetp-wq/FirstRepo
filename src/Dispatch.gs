@@ -97,6 +97,7 @@ function getDispatchReadiness(salesOrderId) {
 
 function listDispatches(options) {
   var user = getCurrentUser();
+  requireCommercial_(user, 'Dispatches');
   var opts = options || {};
 
   // A dispatch has no stream of its own; it belongs to the stream its order belongs to.
@@ -145,6 +146,7 @@ function getDispatch(id) {
   var d = readTable_('Dispatches').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!d) throw new Error('Dispatch not found.');
   var parent = d.salesOrderId ? findRowById_('SalesOrders', d.salesOrderId) : null;
+  requireCommercial_(reader, 'A dispatch');
   requireStream_(reader, parent && parent.businessStream, 'This dispatch');
   var row = stripRow_(d);
 
