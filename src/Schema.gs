@@ -233,6 +233,9 @@ var SCHEMA = {
       // filled, and an empty box on a form is a question somebody has to keep deciding not
       // to answer.
       'ownerEmail',
+      // Set when the enquiry came out of a service visit rather than a phone call, so the
+      // parts can be traced back to the machine that needed them.
+      'serviceJobId',
       'status', 'nextActionDate', 'lostReasonId', 'businessStream', 'brand',
       'createdAt', 'createdBy']
   },
@@ -372,7 +375,9 @@ var SCHEMA = {
       // service — in practice by sharing the contact. Copying it onto the job is that act:
       // service can ring the customer without being given the customer master, which carries
       // credit limits and pricing they have no business seeing.
-      'contactName', 'contactPhone', 'contactEmail', 'handedOverBy']
+      'contactName', 'contactPhone', 'contactEmail', 'handedOverBy',
+      // The enquiry this visit raised, if the engineer found something that had to be quoted.
+      'spareEnquiryId']
   },
   ServiceJobItems: {
     label: 'The parts a service job is to fit, carried from the dispatch',

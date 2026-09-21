@@ -3381,6 +3381,14 @@
       (j.deliveryProofs || []).length ? "" : "none";
     $("sj-delivery-proofs").innerHTML = proofListHtml(j.deliveryProofs || []);
 
+    // Service cannot open a spare enquiry, so the number is all they get — and all they need,
+    // since the spares office carries it from here.
+    $("sj-enquiry-note").innerHTML = j.spareEnquiryNo
+      ? '<div class="compare-strip">This visit raised spare enquiry <b>' +
+        escapeHtml(j.spareEnquiryNo) + "</b>. Spare Sales quote it from there.</div>"
+      : "";
+    $("btn-sj-enquiry").style.display = j.spareEnquiryNo ? "none" : "";
+
     // A closed job's photographs are part of its report and stay with it.
     var closed = ["Completed", "Cancelled"].indexOf(j.status) !== -1;
     $("sj-proof-add").style.display = closed ? "none" : "flex";
@@ -3425,6 +3433,46 @@
           name: file.name, dataUrl: dataUrl, caption: $("sj-proof-caption").value
         });
     }, function (msg) { restore(); showMsg(msg, "error"); });
+  });
+
+  // ---- Parts the engineer found ----
+  $("btn-sj-enquiry").addEventListener("click", function () {
+    var j = openServiceJob;
+    $("sjenq-sub").textContent = j.customerName +
+      (j.machineModel ? " \u00b7 " + j.machineModel : "") +
+      (j.serialNo ? " \u00b7 " + j.serialNo : "") +
+      " \u2014 carried across from " + j.jobNo + ".";
+    $("sjenq-need").value = "";
+    withPeople(function (p) {
+      var list = p.serviceUrgencies || ["Normal", "Urgent", "Immediate"];
+      $("sjenq-urgency").innerHTML = list.map(function (u) {
+        return '<option value="' + escapeHtml(u) + '"' +
+          (u === j.urgency ? " selected" : "") + ">" + escapeHtml(u) + "</option>";
+      }).join("");
+    });
+    $("sjenq-modal-backdrop").classList.add("show");
+  });
+
+  $("btn-sjenq-cancel").addEventListener("click", function () {
+    $("sjenq-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-sjenq-save").addEventListener("click", function () {
+    var btn = $("btn-sjenq-save");
+    btn.disabled = true;
+    google.script.run.withSuccessHandler(function (res) {
+      btn.disabled = false;
+      $("sjenq-modal-backdrop").classList.remove("show");
+      openServiceJobModal(openServiceJob.id);
+      showMsg("Spare enquiry " + res.enquiryNo + " raised for " + res.customerName +
+        ". Spare Sales quote it from here.", "success");
+    }).withFailureHandler(function (err) {
+      btn.disabled = false;
+      onServerError(err);
+    }).raiseSpareEnquiryFromServiceJob(openServiceJob.id, {
+      requirementText: $("sjenq-need").value,
+      urgency: $("sjenq-urgency").value
+    });
   });
 
   $("btn-sj-report").addEventListener("click", function () {

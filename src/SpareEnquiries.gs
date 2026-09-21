@@ -17,6 +17,7 @@ var ENQUIRY_EDITORS = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.MANA
 
 function listSpareEnquiries(options) {
   var user = getCurrentUser();
+  requireCommercial_(user, 'Spare enquiries');
   requireStream_(user, STREAM_SPARE, 'Spare enquiries');
   var opts = options || {};
 
@@ -57,6 +58,7 @@ function listSpareEnquiries(options) {
 function saveSpareEnquiry(input) {
   var user = getCurrentUser();
   requireRole_(user, ENQUIRY_EDITORS);
+  requireCommercial_(user, 'Spare enquiries');
   requireStream_(user, STREAM_SPARE, 'Spare enquiries');
 
   if (!input.customerId) throw new Error('Pick the customer this enquiry is from.');

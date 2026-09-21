@@ -921,8 +921,13 @@
       <div id="sj-delivery-proofs"></div>
     </div>
 
-    <div style="display:flex; justify-content:space-between; gap:10px; margin-top:22px;">
-      <button class="btn btn-ghost" id="btn-sj-report">Service Report</button>
+    <div id="sj-enquiry-note" style="margin-top:16px;"></div>
+
+    <div style="display:flex; justify-content:space-between; gap:10px; margin-top:22px; flex-wrap:wrap;">
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-ghost" id="btn-sj-report">Service Report</button>
+        <button class="btn btn-ghost" id="btn-sj-enquiry">Raise Spare Enquiry</button>
+      </div>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-sj-close">Close</button>
         <button class="btn btn-primary" id="btn-sj-save">Save</button>
@@ -959,6 +964,28 @@
     <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
       <button class="btn" id="btn-bd-cancel">Cancel</button>
       <button class="btn btn-primary" id="btn-bd-save">Log Call</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="sjenq-modal-backdrop">
+  <div class="modal" style="max-width:620px;">
+    <h3 style="margin-bottom:4px;">Raise a Spare Enquiry</h3>
+    <p id="sjenq-sub" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;"></p>
+    <div class="field">
+      <label>What does the machine need? *</label>
+      <textarea id="sjenq-need" placeholder="Part names, part numbers if you have them, quantities — whatever the engineer found"></textarea>
+    </div>
+    <div class="field" style="margin-top:12px; max-width:220px;">
+      <label>Urgency</label><select id="sjenq-urgency"></select>
+    </div>
+    <p style="font-size:11.5px; color:var(--ink-soft); margin:12px 0 0;">
+      This goes to Spare Sales unassigned. They quote it, the customer approves, and then an
+      engineer goes out to fit it.
+    </p>
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
+      <button class="btn" id="btn-sjenq-cancel">Cancel</button>
+      <button class="btn btn-primary" id="btn-sjenq-save">Raise Enquiry</button>
     </div>
   </div>
 </div>

@@ -307,6 +307,75 @@ function customerContactFor_(order, customer) {
   };
 }
 
+/**
+ * Hands a job back the other way: the engineer found something that has to be quoted.
+ *
+ * PIE's spares almost never sell at installation. They sell later — a part fails, or starts
+ * making a noise — and from there it is the ordinary spares run: enquiry, quotation to the
+ * customer, their signature, then an engineer goes out to fit it. That run already exists.
+ * What did not exist was the join: somebody closed the service job and then retyped the
+ * customer and the machine into the Spare Sales screen from memory.
+ *
+ * The enquiry it raises belongs to Spare Sales, not to whoever pressed the button. Service
+ * cannot see spare enquiries and should not: they are reporting that parts are needed, not
+ * taking the sale. So it goes in unassigned, for a spares coordinator to pick up, and the
+ * raiser is told the number so they can say which one they mean.
+ */
+function raiseSpareEnquiryFromServiceJob(serviceJobId, input) {
+  var user = getCurrentUser();
+  requireRole_(user, SERVICE_ROLES);
+
+  var job = findRowById_('ServiceJobs', serviceJobId);
+  if (!job) throw new Error('Service job not found.');
+
+  var need = String((input && input.requirementText) || '').trim();
+  if (!need) {
+    throw new Error('Say what the machine needs. A spares coordinator has to quote from this.');
+  }
+  if (job.spareEnquiryId) {
+    var already = findRowById_('SpareEnquiries', job.spareEnquiryId);
+    if (already) {
+      throw new Error('This visit already raised enquiry ' + already.enquiryNo +
+        '. Add to that one rather than starting a second.');
+    }
+  }
+
+  var urgency = String((input && input.urgency) || job.urgency || 'Normal').trim();
+  if (SERVICE_URGENCIES.indexOf(urgency) === -1) urgency = 'Normal';
+
+  // Written straight rather than through saveSpareEnquiry, which refuses anybody outside
+  // Spare Sales — correctly, for an ordinary enquiry. This one is a handover, not a sale.
+  var enquiry = {
+    id: generateId_('SE-'),
+    enquiryNo: nextEnquiryNo_(),
+    date: todayIso_(),
+    customerId: String(job.customerId || ''),
+    customerName: String(job.customerName || ''),
+    contactName: String(job.contactName || ''),
+    productModel: String(job.machineModel || ''),
+    serialNo: String(job.serialNo || ''),
+    installedBaseId: '',
+    requirementText: need,
+    urgency: urgency,
+    source: 'Service visit ' + String(job.jobNo || ''),
+    ownerEmail: '',
+    serviceJobId: String(job.id),
+    status: 'New',
+    nextActionDate: todayIso_(),
+    lostReasonId: '',
+    businessStream: STREAM_SPARE,
+    brand: 'ELGI',
+    createdAt: todayIso_(),
+    createdBy: user.email
+  };
+  appendRow_('SpareEnquiries', enquiry, 'Raised from service job ' + job.jobNo);
+
+  updateRowById_('ServiceJobs', 'id', serviceJobId, { spareEnquiryId: enquiry.id },
+    'Spare enquiry ' + enquiry.enquiryNo + ' raised from this visit');
+
+  return { id: enquiry.id, enquiryNo: enquiry.enquiryNo, customerName: enquiry.customerName };
+}
+
 function listServiceJobs(options) {
   var user = getCurrentUser();
   var opts = options || {};
@@ -360,6 +429,10 @@ function getServiceJob(id) {
   // goods arrived, the service one says the work was finished and accepted.
   row.deliveryProofs = row.dispatchId ? listPodPhotos(row.dispatchId) : [];
   row.proofs = listServiceProofs(id);
+  // Service cannot open a spare enquiry, so the number is all they get — and all they need,
+  // since it is the spares office that carries it from here.
+  var raised = row.spareEnquiryId ? findRowById_('SpareEnquiries', row.spareEnquiryId) : null;
+  row.spareEnquiryNo = raised ? String(raised.enquiryNo || '') : '';
   return row;
 }
 

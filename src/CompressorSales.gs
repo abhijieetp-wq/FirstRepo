@@ -48,6 +48,7 @@ function listLeads(options) {
       (reqsByLead[key] = reqsByLead[key] || []).push(stripRow_(r));
     });
 
+  requireCommercial_(user, 'Compressor leads');
   requireStream_(user, STREAM_COMPRESSOR, 'Compressor leads');
 
   var rows = readTable_('Leads').map(function (l) {
@@ -257,6 +258,7 @@ function convertLeadToOpportunity(leadId, input) {
 
 function listOpportunities(options) {
   var user = getCurrentUser();
+  requireCommercial_(user, 'The compressor funnel');
   requireStream_(user, STREAM_COMPRESSOR, 'The compressor funnel');
   var opts = options || {};
 
@@ -368,7 +370,9 @@ function saveOpportunity(input) {
 }
 
 function getOpportunity(id) {
-  requireStream_(getCurrentUser(), STREAM_COMPRESSOR, 'This opportunity');
+  var reader = getCurrentUser();
+  requireCommercial_(reader, 'An opportunity');
+  requireStream_(reader, STREAM_COMPRESSOR, 'This opportunity');
   var o = readTable_('Opportunities').filter(function (r) { return String(r.id) === String(id); })[0];
   if (!o) throw new Error('Opportunity not found.');
   var row = stripRow_(o);
