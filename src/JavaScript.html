@@ -2321,7 +2321,28 @@
     $("qs-stream").innerHTML = BUSINESS_STREAMS.map(function (st) {
       return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
     }).join("");
+    syncStartMachineFields();
   }
+
+  /**
+   * A spares offer does not start with a machine.
+   *
+   * On a compressor quotation the model is what is being sold, so naming it before the lines
+   * go on narrows everything that follows. Spares are the other way round: which machine the
+   * parts belong to is settled by the parts themselves, and the builder asks for the model
+   * again on the quotation. Two blank boxes before anything has been chosen, repeated a
+   * moment later, read as fields somebody had forgotten to fill.
+   */
+  function syncStartMachineFields() {
+    var spares = $("qs-stream").value === "Spare Sales";
+    ["qs-machine-model", "qs-machine-serial"].forEach(function (id) {
+      var el = $(id);
+      if (el) el.style.display = spares ? "none" : "";
+    });
+    if (spares) { $("qs-model").value = ""; $("qs-serial").value = ""; }
+  }
+
+  $("qs-stream").addEventListener("change", syncStartMachineFields);
 
   /**
    * Adding a customer without leaving the quotation. A walk-in wanting two filters has no
@@ -2400,8 +2421,16 @@
     var editable = canEditQuotes() && !q.locked;
     $("qb-locked-banner").innerHTML = (q.locked
       ? '<div class="compare-strip" style="margin-bottom:16px;">This quotation is <b>' +
-        escapeHtml(q.status) + '</b> and locked. Use <b>Revise</b> to create the next revision — ' +
-        'the version already sent stays untouched.</div>'
+        escapeHtml(q.status) + '</b> and locked. ' +
+        // Approving locks the offer because it is the version about to go out — but nothing
+        // has gone out yet, so telling them the sent version stays untouched named a version
+        // that does not exist, and said nothing about the step they were actually on.
+        (q.status === "Approved"
+          ? 'Send it to the customer, then press <b>Mark Sent</b> — or use <b>Revise</b> if it ' +
+            'still needs changing.'
+          : 'Use <b>Revise</b> to create the next revision — the version already sent stays ' +
+            'untouched.') +
+        "</div>"
       : "") +
       // An offer cannot print or send without an address, and the gap is on the customer
       // record, not on this screen. Said here, while there is still time to fix it quietly.
@@ -2472,25 +2501,33 @@
     // in hand, so the only way to start another was to finish this one first. Both ways out
     // live here — keep it and come back, or throw it away.
     buttons.push('<button class="btn btn-sm" id="btn-qb-new">+ New Quotation</button>');
+    // Changing a quotation's content needs it unlocked; moving it to the next step does not,
+    // and conflating the two left an Approved quotation with no way forward. Approving locks
+    // it — that is the point, it is the version about to go out — and the button that would
+    // have sent it was hidden by the same lock. The only route to Sent was to email it.
+    var mayAdvance = canEditQuotes();
+
     if (editable && q.status === "Draft") {
       buttons.push('<button class="btn btn-sm" id="btn-qb-discard">Discard Draft</button>');
     }
-    if (editable && q.status === "Draft") {
-      buttons.push('<button class="btn btn-sm" data-qs="Approved">Mark Approved</button>');
+    if (mayAdvance && q.status === "Draft") {
+      buttons.push('<button class="btn btn-sm btn-primary" data-qs="Approved">Mark Approved</button>');
     }
-    if (editable && ["Draft", "Approved"].indexOf(q.status) !== -1) {
-      buttons.push('<button class="btn btn-sm btn-primary" data-qs="Submitted">Mark Submitted</button>');
+    // "Submitted" is the stored status; "Sent" is what the journey calls it and what actually
+    // happened, so that is what the button says.
+    if (mayAdvance && ["Draft", "Approved"].indexOf(q.status) !== -1) {
+      buttons.push('<button class="btn btn-sm btn-primary" data-qs="Submitted">Mark Sent</button>');
     }
     // The step between sending an offer and winning it: the customer has it and is talking
     // about the terms. Without somewhere to record that, a quotation read as "Submitted"
     // whether the customer was negotiating or had gone quiet for a month.
-    if (q.status === "Submitted") {
+    if (mayAdvance && q.status === "Submitted") {
       buttons.push('<button class="btn btn-sm" data-qs="Negotiating">With Customer</button>');
     }
     // Won and Lost are the customer's answer, so they only make sense once the customer has
     // been asked. These used to appear the moment a quotation was approved — it locks at
     // Approved — offering to win an offer that had never left the building.
-    if (["Submitted", "Negotiating"].indexOf(q.status) !== -1) {
+    if (mayAdvance && ["Submitted", "Negotiating"].indexOf(q.status) !== -1) {
       buttons.push('<button class="btn btn-sm" data-qs="Won">Mark Won</button>');
       buttons.push('<button class="btn btn-sm" data-qs="Lost">Mark Lost</button>');
     }

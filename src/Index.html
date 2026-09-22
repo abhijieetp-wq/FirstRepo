@@ -256,8 +256,11 @@
             <div class="field"><label>Business Stream</label><select id="qs-stream"></select></div>
           </div>
           <div class="grid grid-3" style="margin-top:12px;">
-            <div class="field"><label>Machine Model</label><input id="qs-model" placeholder="optional" /></div>
-            <div class="field"><label>Serial No.</label><input id="qs-serial" class="mono" placeholder="optional" /></div>
+            <!-- Which machine the offer is for. Asked here only where it narrows the offer
+                 before it is built; a spares quotation notes the machine on the line, and
+                 asking twice before anything has been picked read as two more blanks. -->
+            <div class="field" id="qs-machine-model"><label>Machine Model</label><input id="qs-model" placeholder="optional" /></div>
+            <div class="field" id="qs-machine-serial"><label>Serial No.</label><input id="qs-serial" class="mono" placeholder="optional" /></div>
             <div class="field"><label>Validity (days)</label>
               <input id="qs-validity" type="number" min="1" max="30" value="30" />
             </div>
