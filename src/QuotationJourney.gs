@@ -12,11 +12,20 @@
  * record that owns it, so a stage cannot disagree with the screen it came from.
  */
 
+/**
+ * Every stage here is a step that has to happen. "With customer" used to sit between Sent and
+ * Accepted, and it was the exception: it ticked only when somebody pressed the button, which
+ * in the ordinary run of things — offer goes out, customer says yes — nobody does. So a
+ * quotation that went perfectly showed a permanent grey gap, and the one signal the strip
+ * exists to give, that a step was missed, became noise.
+ *
+ * Whether the customer is actively talking is still worth knowing; it is just not a stop on
+ * the way. It rides on Sent as a note, below.
+ */
 var QUOTE_JOURNEY = [
   { key: 'prepared',   label: 'Prepared',     owner: 'Quotation' },
   { key: 'approved',   label: 'Approved',     owner: 'Quotation', hint: 'by management' },
   { key: 'sent',       label: 'Sent',         owner: 'Quotation', hint: 'to the customer' },
-  { key: 'discussing', label: 'With customer', owner: 'Quotation', hint: 'terms under discussion' },
   { key: 'accepted',   label: 'Accepted',     owner: 'Quotation' },
   { key: 'po',         label: 'PO received',  owner: 'Sales order' },
   { key: 'order',      label: 'Sales order',  owner: 'Sales order' },
@@ -136,10 +145,11 @@ function quotationJourney_(quote, idx) {
     // that predate these dates still read correctly.)
     approved:   { done: !!quote.approvalDate || quote.status === 'Approved',
                   date: quote.approvalDate, detail: quote.approvedBy || '' },
+    // Negotiating means it went out — pressing "With Customer" is itself evidence of Sent.
     sent:       { done: !!(quote.submittedDate || quote.emailSentDate) ||
-                    quote.status === 'Submitted',
-                  date: quote.submittedDate || quote.emailSentDate },
-    discussing: { done: quote.status === 'Negotiating' },
+                    ['Submitted', 'Negotiating'].indexOf(quote.status) !== -1,
+                  date: quote.submittedDate || quote.emailSentDate,
+                  note: quote.status === 'Negotiating' ? 'with the customer' : '' },
     accepted:   { done: quote.status === 'Won', date: quote.wonDate },
     po:         { done: !!(order && order.poNo), date: order ? order.poDate : '',
                   detail: order ? String(order.poNo || '') : '' },
@@ -166,7 +176,8 @@ function quotationJourney_(quote, idx) {
       key: st.key, label: st.label, owner: st.owner, hint: st.hint || '',
       done: !!f.done,
       date: f.date ? String(f.date).slice(0, 10) : '',
-      detail: f.detail || ''
+      detail: f.detail || '',
+      note: f.note || ''
     };
   });
 
@@ -178,8 +189,17 @@ function quotationJourney_(quote, idx) {
   var closed = ['Lost', 'Expired'].indexOf(quote.status) !== -1;
   var stalled = quote.status === 'Revised';
 
+  // An offer the customer turned down did not travel any further along this line, so it gets
+  // a stop at the point it stopped rather than a stage of its own. Drawing "Declined" in the
+  // run of stages would put a refusal on the road to delivery, which is not where it belongs.
+  var declined = quote.status === 'Lost'
+    ? { after: reached, reason: lostReasonText_(quote.lostReasonId), date: '' }
+    : null;
+
   return {
     stages: stages,
+    declined: declined,
+    expired: quote.status === 'Expired',
     reachedIndex: reached,
     reachedKey: reached >= 0 ? stages[reached].key : '',
     // The one line a list column shows.
@@ -193,6 +213,23 @@ function quotationJourney_(quote, idx) {
     creditHold: !!(order && isTrue_(order.creditHold)),
     creditHoldReason: order ? String(order.creditHoldReason || '') : ''
   };
+}
+
+/**
+ * The reason an offer was turned down, in the words the business chose for it.
+ *
+ * Tolerant of a missing tab for the same reason the rest of this module is: the strip is a
+ * summary, and a summary that takes the whole screen down with it when one lookup fails is
+ * worse than one missing a line. A Sheet set up before LostReasons existed still opens.
+ */
+function lostReasonText_(lostReasonId) {
+  if (!lostReasonId) return '';
+  try {
+    var row = findRowById_('LostReasons', lostReasonId);
+    return row ? String(row.reasonText || '') : '';
+  } catch (err) {
+    return '';
+  }
 }
 
 function journeyLabel_(quote, stages, reached, closed, stalled) {

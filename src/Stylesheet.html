@@ -184,6 +184,27 @@
   .jdate{ display:block; font-size:10.5px; color:var(--ink-soft); margin-top:2px;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
+  /* A refusal ends the line rather than continuing it: red, square rather than round, and
+     with no rule running out of its right side, because nothing follows a no. */
+  .jstep.declined::after{ display:none; }
+  .jstep.declined::before{ background:var(--red); }
+  .jstep.declined .jdot{ background:var(--red); border-color:var(--red); border-radius:2px; }
+  .jstep.declined .jlabel{ color:var(--red); font-weight:600; }
+  .jstep.declined .jdate{ color:var(--red); }
+  /* A note on a stage that is otherwise ordinary — the customer is talking about terms. */
+  .jnote{ display:block; font-size:10.5px; color:var(--amber-dark); margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* Whose quotation this is, on one line above the offer itself. */
+  .owners{ display:flex; flex-wrap:wrap; gap:22px; align-items:baseline;
+    padding:10px 18px; margin-bottom:16px; border:1px solid var(--border);
+    border-radius:var(--radius); background:var(--paper); }
+  .owner-k{ font-size:10.5px; letter-spacing:.04em; text-transform:uppercase;
+    color:var(--ink-soft); display:block; margin-bottom:2px; }
+  .owner-v{ font-size:12.5px; color:var(--ink); }
+  .owner-v.none{ color:var(--ink-soft); font-style:italic; }
+  .owner-assign{ margin-left:8px; }
+
   .stage-cell{ white-space:nowrap; }
   .stage-count{ font-size:10.5px; color:var(--ink-soft); margin-left:6px; }
 

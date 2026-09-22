@@ -2016,6 +2016,76 @@
    * owner is an office that waits. Saying so on screen is the difference between knowing the
    * rule and discovering it by being refused.
    */
+  /**
+   * Whose quotation this is: who built it, who signed it off, and which coordinator looks
+   * after the customer. All three facts were recorded from the beginning and none of them
+   * were shown, so the only way to answer "whose is this?" was to open the spreadsheet.
+   *
+   * The coordinator is set from here too. The banner below already says when nobody is
+   * named; sending somebody three screens away to fix a gap this screen raised was the
+   * whole problem.
+   */
+  function renderOwnership(q) {
+    var zone = $("qb-ownership");
+    if (!zone) return;
+    var o = q.ownership;
+    if (!o) { zone.innerHTML = ""; return; }
+
+    var cell = function (label, value, none) {
+      return '<div><span class="owner-k">' + escapeHtml(label) + "</span>" +
+        '<span class="owner-v' + (value ? "" : " none") + '">' +
+        escapeHtml(value || none) + "</span></div>";
+    };
+
+    zone.innerHTML = '<div class="owners">' +
+      cell("Prepared by", o.preparedBy, "—") +
+      cell("Approved by", o.approvedBy
+        ? o.approvedBy + (o.approvalDate ? " · " + o.approvalDate : "")
+        : "", "not yet approved") +
+      '<div><span class="owner-k">Customer looked after by</span>' +
+        '<span class="owner-v' + (o.coordinatorInCharge ? "" : " none") + '" id="qb-incharge">' +
+        escapeHtml(o.coordinatorInCharge || "nobody yet") + "</span>" +
+        (o.youMayAssign
+          ? ' <button class="btn-ghost owner-assign" id="btn-qb-assign">' +
+            (o.coordinatorInCharge ? "Change" : "Assign") + "</button>"
+          : "") +
+      "</div>" +
+      "</div>";
+
+    var assign = $("btn-qb-assign");
+    if (assign) assign.addEventListener("click", function () { openAssignDialog(q); });
+  }
+
+  /** Puts a coordinator's name against the customer, without leaving the quotation. */
+  function openAssignDialog(q) {
+    withPeople(function (p) {
+      var options = [{ value: "", label: "Nobody yet" }].concat(
+        (p.coordinators || []).map(function (c) {
+          return { value: c.email, label: c.name ? c.name + " (" + c.email + ")" : c.email };
+        }));
+      askDialog({
+        title: "Who looks after " + (q.customerName || "this customer") + "?",
+        message: "They approve this customer's quotations and can release a credit hold on " +
+          "them. Management can too, but does not have to.",
+        options: options,
+        optionsLabel: "Coordinator in charge",
+        // "Nobody yet" is a real answer here, so an empty choice must not be refused.
+        required: false,
+        okLabel: "Save"
+      }, function (picked) {
+        if (picked === null) return;   // cancelled, as distinct from "nobody"
+
+        google.script.run.withSuccessHandler(function () {
+          showMsg(picked ? "This customer is now looked after by " + picked + "."
+                         : "This customer is no longer assigned to anybody.", "success");
+          // The approval rule and the banner both read off this, so reload rather than patch.
+          openQuotation(q.id);
+        }).withFailureHandler(onServerError).assignCustomerCoordinator(q.customerId, picked);
+      });
+      $("ask-select").value = q.ownership.coordinatorInCharge || "";
+    });
+  }
+
   function renderApprovalNote(q) {
     var zone = $("qb-approval-note");
     var rule = q.approvalRule;
@@ -2047,8 +2117,24 @@
         '<span class="jdot"></span>' +
         '<span class="jlabel">' + escapeHtml(st.label) + "</span>" +
         '<span class="jdate">' + escapeHtml(st.date || (st.detail ? st.detail : "")) + "</span>" +
+        (st.note ? '<span class="jnote">' + escapeHtml(st.note) + "</span>" : "") +
         "</li>";
-    }).join("");
+    });
+
+    // An offer the customer turned down stops where it stopped. Drawn straight after the last
+    // stage actually reached, so the refusal sits at the point it happened rather than at the
+    // far end of a line of stages that never came.
+    if (j.declined) {
+      steps.splice(Math.max(0, j.declined.after + 1), 0,
+        '<li class="jstep declined" title="' +
+          escapeHtml("The customer did not take this offer" +
+            (j.declined.reason ? " — " + j.declined.reason : "")) + '">' +
+          '<span class="jdot"></span>' +
+          '<span class="jlabel">Declined</span>' +
+          '<span class="jdate">' + escapeHtml(j.declined.reason || "") + "</span>" +
+        "</li>");
+    }
+    steps = steps.join("");
 
     var head;
     if (j.closed) {
@@ -2369,6 +2455,7 @@
     }
 
     renderQuoteJourney(q.journey);
+    renderOwnership(q);
     renderApprovalNote(q);
     renderQuoteActions(q, editable);
     renderQuoteItems(q, editable);
@@ -2400,7 +2487,10 @@
     if (q.status === "Submitted") {
       buttons.push('<button class="btn btn-sm" data-qs="Negotiating">With Customer</button>');
     }
-    if (q.locked && ["Won", "Lost"].indexOf(q.status) === -1) {
+    // Won and Lost are the customer's answer, so they only make sense once the customer has
+    // been asked. These used to appear the moment a quotation was approved — it locks at
+    // Approved — offering to win an offer that had never left the building.
+    if (["Submitted", "Negotiating"].indexOf(q.status) !== -1) {
       buttons.push('<button class="btn btn-sm" data-qs="Won">Mark Won</button>');
       buttons.push('<button class="btn btn-sm" data-qs="Lost">Mark Lost</button>');
     }

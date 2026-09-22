@@ -39,6 +39,47 @@ function coordinatorInCharge_(customer) {
 }
 
 /**
+ * Puts a coordinator's name against a customer, from wherever the gap was noticed.
+ *
+ * The field has always existed on the customer record, three screens away from the quotation
+ * whose banner complains that nobody is named. Anyone who may act for the customer may set
+ * it: while nobody is named any coordinator can act, so any coordinator may claim it, and
+ * once a name is there only that coordinator or Management may change it. Handing a customer
+ * to somebody else is a decision, not a correction.
+ */
+function assignCustomerCoordinator(customerId, email) {
+  var user = getCurrentUser();
+  requireCommercial_(user, 'Customers');
+
+  var customer = findRowById_('Customers', customerId);
+  if (!customer) throw new Error('Customer not found.');
+  requireStream_(user, customer.businessStream, 'This customer');
+
+  if (!mayActForCustomer_(user, customer)) {
+    throw new Error(quoteApprovalRule_(customer).why +
+      ' You are signed in as ' + user.email + '.');
+  }
+
+  var wanted = String(email || '').trim();
+  if (wanted) {
+    var person = readTable_('Users').filter(function (u) {
+      return String(u.email).toLowerCase() === wanted.toLowerCase() &&
+        String(u.active).toUpperCase() !== 'FALSE';
+    })[0];
+    if (!person) throw new Error('No active user with the address ' + wanted + '.');
+    if (person.role !== ROLES.SALES_COORDINATOR) {
+      throw new Error(person.name + ' is a ' + person.role + '. A customer is looked after ' +
+        'by a Sales Coordinator.');
+    }
+    wanted = person.email;
+  }
+
+  updateRowById_('Customers', 'id', customerId, { assignedSalesperson: wanted },
+    wanted ? 'Customer assigned to ' + wanted : 'Customer left unassigned');
+  return { customerId: String(customerId), assignedSalesperson: wanted };
+}
+
+/**
  * Who may sign a quotation off before it is sent.
  *
  * Every offer is approved — that has not changed — but it is approved by the coordinator

@@ -374,7 +374,17 @@ function getQuotation(id) {
   // Who approves this offer before it goes out, so the screen says it rather than letting
   // somebody find out by being refused.
   row.approvalRule = quoteApprovalRule_(customer);
-  row.approvalRule.youMay = mayActForCustomer_(getCurrentUser(), customer);
+  row.approvalRule.youMay = mayActForCustomer_(reader, customer);
+  // Who built it, who signed it off, and whose customer it is. All three were already on the
+  // records; none of them reached the screen, so the only answer to "whose is this?" was to
+  // read the sheet.
+  row.ownership = {
+    preparedBy: String(row.preparedBy || ''),
+    approvedBy: String(row.approvedBy || ''),
+    approvalDate: String(row.approvalDate || ''),
+    coordinatorInCharge: coordinatorInCharge_(customer),
+    youMayAssign: mayActForCustomer_(reader, customer)
+  };
   return row;
 }
 
