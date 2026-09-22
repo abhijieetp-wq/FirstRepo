@@ -6,7 +6,7 @@
  * a stale deployment from a broken feature except by hunting for the feature. This is shown in
  * the footer of every screen and on Settings → System. Bump it with anything worth deploying.
  */
-var APP_BUILD = '2026-09-21.8';
+var APP_BUILD = '2026-09-22.1';
 
 function doGet(e) {
   // The browser tab is named by the company profile, so a second installation is not called

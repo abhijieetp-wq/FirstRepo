@@ -51,7 +51,7 @@ function priceMapFor_(itemType, asOf) {
   // products. It is the difference between the catalogue screen opening and appearing empty
   // for half a minute while it loads.
   var sheet = getSheet_('PriceList');
-  var headers = getHeaders_(sheet);
+  var headers = getHeaders_(sheet, 'PriceList');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2 || !headers.length) return map;
 
@@ -127,7 +127,7 @@ function getEffectivePrices_(itemType, itemIds, priceLevel, asOf) {
   if (!any) return out;
 
   var sheet = getSheet_('PriceList');
-  var headers = getHeaders_(sheet);
+  var headers = getHeaders_(sheet, 'PriceList');
   var lastRow = sheet.getLastRow();
   var idCol = headers.indexOf('itemId');
   if (lastRow < 2 || idCol === -1) return out;
@@ -204,7 +204,7 @@ function savePricesBulk_(entries, reason) {
   var lock = acquireLock_(LOCK_WAIT_BULK_MS, 'this price load');
   try {
     var sheet = getSheet_('PriceList');
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, 'PriceList');
     var lastRow = sheet.getLastRow();
 
     // One read. Index the open rows by item+level so superseding is a lookup, not a scan.
@@ -245,7 +245,10 @@ function savePricesBulk_(entries, reason) {
       });
       changing.push(w);
     });
-    if (superseded && block) sheet.getRange(2, 1, block.length, headers.length).setValues(block);
+    if (superseded && block) {
+      invalidateTable_('PriceList');
+      sheet.getRange(2, 1, block.length, headers.length).setValues(block);
+    }
     if (!changing.length) return 0;
 
     var rows = changing.map(function (w) {
@@ -268,6 +271,7 @@ function savePricesBulk_(entries, reason) {
         }
       });
     });
+    invalidateTable_('PriceList');
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
 
     // One audit line for the batch: 26,000 would bury everything else in the log.

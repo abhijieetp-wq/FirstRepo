@@ -318,7 +318,7 @@ function sparePickerData(productModel) {
 
   // One block read, and no object built for a row that will not be sent.
   var sheet = getSheet_('Spares');
-  var headers = getHeaders_(sheet);
+  var headers = getHeaders_(sheet, 'Spares');
   var lastRow = sheet.getLastRow();
   var rows = [];
   if (lastRow > 1 && headers.length) {

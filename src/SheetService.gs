@@ -4,7 +4,56 @@
  * so a tab's columns are the single source of truth for its schema.
  */
 
+/**
+ * Everything below reads through a cache that lives for one request and no longer.
+ *
+ * Apps Script charges by the round trip, not the cell: every getRange().getValues() is an
+ * RPC to Google's servers costing tens of milliseconds whether it fetches one cell or ten
+ * thousand. Reading a tab therefore cost two trips — one for the header row, one for the
+ * body — and a screen that touched six tabs paid twelve. Printing an offer read the
+ * QuoteTemplates header twelve separate times.
+ *
+ * A server-side script instance handles one request and is then discarded, so these caches
+ * cannot outlive the call that filled them and there is no cross-user staleness to reason
+ * about. Within a call, headers only move when a column is added, which is why the structural
+ * operations below drop them explicitly.
+ */
+var SHEET_CACHE_ = {};
+var HEADER_CACHE_ = {};
+// The raw cell block per tab, exactly as it came back from the sheet. Objects are still built
+// fresh on every readTable_ call, so a caller that mutates a row cannot affect the next one —
+// what is saved is the round trip, not the work.
+var TABLE_CACHE_ = {};
+
+/** Forgets a tab's cached headers. Called wherever a column is added or the tab is rebuilt. */
+function invalidateHeaders_(name) {
+  if (name === undefined) {
+    HEADER_CACHE_ = {}; SHEET_CACHE_ = {}; TABLE_CACHE_ = {};
+    return;
+  }
+  delete HEADER_CACHE_[name];
+  delete TABLE_CACHE_[name];
+}
+
+/**
+ * Forgets a tab's cached rows. Every write must call this, including the handful that reach
+ * the sheet directly instead of through the helpers below — a write whose tab stays cached
+ * would be invisible to the rest of the same request, which is the one way this cache can
+ * do harm. Called with no argument it drops everything, which is what the bulk operations do.
+ */
+function invalidateTable_(name) {
+  if (name === undefined) { TABLE_CACHE_ = {}; return; }
+  delete TABLE_CACHE_[name];
+}
+
+/** Registers a Sheet fetched without getSheet_, so its headers cache like any other. */
+function rememberSheet_(name, sheet) {
+  if (!SHEET_CACHE_.hasOwnProperty(name)) SHEET_CACHE_[name] = sheet;
+  return sheet;
+}
+
 function getSheet_(name) {
+  if (SHEET_CACHE_.hasOwnProperty(name)) return SHEET_CACHE_[name];
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
@@ -15,15 +64,28 @@ function getSheet_(name) {
         ? ' Run setupSheet() from the Apps Script editor to create it — the schema has been updated since this Sheet was last set up.'
         : ' This tab is not part of the declared schema, which suggests a code error rather than a setup step.'));
   }
+  SHEET_CACHE_[name] = sheet;
   return sheet;
 }
 
-function getHeaders_(sheet) {
+/**
+ * The header row, cached per tab for the life of the request.
+ *
+ * `name` is how the cache is keyed. Every caller already knows it — they asked getSheet_ for
+ * the tab a line earlier — and passing it beats deriving it, which would mean either a
+ * getName() round trip or a reverse lookup that fails quietly on a Sheet fetched some other
+ * way. A caller that genuinely has only the Sheet may omit it and pay for getName().
+ */
+function getHeaders_(sheet, name) {
+  var key = name === undefined ? sheet.getName() : name;
+  if (HEADER_CACHE_.hasOwnProperty(key)) return HEADER_CACHE_[key];
   var lastCol = sheet.getLastColumn();
   if (lastCol === 0) return [];
-  return sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
     return String(h).trim();
   });
+  HEADER_CACHE_[key] = headers;
+  return headers;
 }
 
 function normalizeCell_(v) {
@@ -37,10 +99,21 @@ function normalizeCell_(v) {
  *  Each object also carries `_row`, the 1-indexed sheet row, for later update/delete calls. */
 function readTable_(sheetName) {
   var sheet = getSheet_(sheetName);
-  var headers = getHeaders_(sheet);
   var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastCol === 0) return [];
+
+  // One round trip, not two. The header row used to be fetched separately from the body,
+  // which doubled the cost of reading any tab — and reading a tab is what this application
+  // spends its time on. Taking the block from row 1 gets both, and the headers are kept so
+  // the next caller in this request does not pay for them again.
+  var block = TABLE_CACHE_.hasOwnProperty(sheetName)
+    ? TABLE_CACHE_[sheetName]
+    : (TABLE_CACHE_[sheetName] = sheet.getRange(1, 1, lastRow, lastCol).getValues());
+  var headers = HEADER_CACHE_[sheetName] ||
+    (HEADER_CACHE_[sheetName] = block[0].map(function (h) { return String(h).trim(); }));
   if (lastRow < 2 || headers.length === 0) return [];
-  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var values = block.slice(1);
   var rows = [];
   for (var i = 0; i < values.length; i++) {
     var row = values[i];
@@ -95,11 +168,12 @@ function appendRow_(sheetName, obj, auditReason) {
   var lock = acquireLock_(LOCK_WAIT_ROW_MS, 'that save');
   try {
     var sheet = getSheet_(sheetName);
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, sheetName);
     assertWritableFields_(sheetName, headers, obj);
     var row = headers.map(function (h) {
       return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
     });
+    invalidateTable_(sheetName);
     sheet.appendRow(row);
     audit_('Create', sheetName, obj.id || '', '', '', '', auditReason);
     return sheet.getLastRow();
@@ -113,17 +187,25 @@ function updateRowById_(sheetName, idField, idValue, patch, auditReason) {
   var lock = acquireLock_(LOCK_WAIT_ROW_MS, 'that save');
   try {
     var sheet = getSheet_(sheetName);
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, sheetName);
     var idCol = headers.indexOf(idField);
     if (idCol === -1) throw new Error('Column "' + idField + '" not found in ' + sheetName);
     assertWritableFields_(sheetName, headers, patch);
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) throw new Error('No rows in ' + sheetName + ' yet.');
-    var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+    // The tab is usually already in hand — the caller read it to decide on this very update.
+    // When it is, finding the row and reading its current values costs nothing; when it is
+    // not, the id column is fetched as before rather than pulling the whole tab in.
+    var cached = TABLE_CACHE_[sheetName];
+    var ids = cached
+      ? cached.slice(1).map(function (r) { return [r[idCol]]; })
+      : sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
     for (var i = 0; i < ids.length; i++) {
       if (String(ids[i][0]) === String(idValue)) {
         var rowNum = i + 2;
-        var current = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
+        var current = cached
+          ? cached[i + 1].slice(0, headers.length)
+          : sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
         var changes = [];
         var updated = headers.map(function (h, idx) {
           if (!patch.hasOwnProperty(h)) return current[idx];
@@ -132,10 +214,12 @@ function updateRowById_(sheetName, idField, idValue, patch, auditReason) {
           }
           return patch[h];
         });
+        invalidateTable_(sheetName);
         sheet.getRange(rowNum, 1, 1, headers.length).setValues([updated]);
-        changes.forEach(function (c) {
-          audit_('Update', sheetName, idValue, c.field, c.oldValue, c.newValue, auditReason);
-        });
+        auditMany_(changes.map(function (c) {
+          return { action: 'Update', tableName: sheetName, recordId: idValue,
+            fieldName: c.field, oldValue: c.oldValue, newValue: c.newValue, reason: auditReason };
+        }));
         return true;
       }
     }
@@ -149,7 +233,7 @@ function deleteRowById_(sheetName, idField, idValue, auditReason) {
   var lock = acquireLock_(LOCK_WAIT_ROW_MS, 'that delete');
   try {
     var sheet = getSheet_(sheetName);
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, sheetName);
     var idCol = headers.indexOf(idField);
     if (idCol === -1) throw new Error('Column "' + idField + '" not found in ' + sheetName);
     var lastRow = sheet.getLastRow();
@@ -158,6 +242,7 @@ function deleteRowById_(sheetName, idField, idValue, auditReason) {
     for (var i = 0; i < ids.length; i++) {
       if (String(ids[i][0]) === String(idValue)) {
         var doomed = sheet.getRange(i + 2, 1, 1, headers.length).getValues()[0].join(' | ');
+        invalidateTable_(sheetName);
         sheet.deleteRow(i + 2);
         audit_('Delete', sheetName, idValue, '', doomed, '', auditReason);
         return true;
@@ -214,7 +299,7 @@ function deleteRowsWhere_(sheetName, matches, auditReason) {
   var lock = acquireLock_(LOCK_WAIT_BULK_MS, 'that clear-out');
   try {
     var sheet = getSheet_(sheetName);
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, sheetName);
     var lastRow = sheet.getLastRow();
     if (lastRow < 2 || !headers.length) return 0;
 
@@ -233,6 +318,7 @@ function deleteRowsWhere_(sheetName, matches, auditReason) {
 
     if (!removed) return 0;
 
+    invalidateTable_(sheetName);
     sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
     if (survivors.length) {
       sheet.getRange(2, 1, survivors.length, headers.length).setValues(survivors);
@@ -253,7 +339,7 @@ function deleteRowsWhere_(sheetName, matches, auditReason) {
  */
 function findRowById_(sheetName, idValue) {
   var sheet = getSheet_(sheetName);
-  var headers = getHeaders_(sheet);
+  var headers = getHeaders_(sheet, sheetName);
   var lastRow = sheet.getLastRow();
   var idCol = headers.indexOf('id');
   if (lastRow < 2 || idCol === -1) return null;
@@ -280,7 +366,7 @@ function findRowById_(sheetName, idValue) {
  */
 function findRowsByColumn_(sheetName, column, values) {
   var sheet = getSheet_(sheetName);
-  var headers = getHeaders_(sheet);
+  var headers = getHeaders_(sheet, sheetName);
   var lastRow = sheet.getLastRow();
   var col = headers.indexOf(column);
   if (lastRow < 2 || col === -1) return [];
@@ -362,7 +448,7 @@ function appendRows_(sheetName, objs, auditReason) {
   var lock = acquireLock_(LOCK_WAIT_ROW_MS, 'that save');
   try {
     var sheet = getSheet_(sheetName);
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, sheetName);
     var rows = objs.map(function (obj) {
       assertWritableFields_(sheetName, headers, obj);
       return headers.map(function (h) {
@@ -370,6 +456,7 @@ function appendRows_(sheetName, objs, auditReason) {
       });
     });
     var start = sheet.getLastRow() + 1;
+    invalidateTable_(sheetName);
     sheet.getRange(start, 1, rows.length, headers.length).setValues(rows);
     objs.forEach(function (obj) {
       audit_('Create', sheetName, obj.id || '', '', '', '', auditReason);
@@ -406,11 +493,16 @@ function generateId_(prefix) {
  */
 function audit_(action, tableName, recordId, fieldName, oldValue, newValue, reason) {
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(AUDIT_TAB);
+    // Not getSheet_, which throws when the tab is absent — an audit write must stay silent.
+    // Registered all the same, so its header row is read once per request rather than once
+    // per entry, and a save that writes four audit rows pays for one.
+    var sheet = SHEET_CACHE_[AUDIT_TAB] ||
+      SpreadsheetApp.getActiveSpreadsheet().getSheetByName(AUDIT_TAB);
     if (!sheet) return;
+    rememberSheet_(AUDIT_TAB, sheet);
     var email = '';
     try { email = Session.getActiveUser().getEmail(); } catch (e) { email = 'unknown'; }
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, AUDIT_TAB);
     var row = {
       id: generateId_('AUD-'),
       timestamp: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Etc/UTC', 'yyyy-MM-dd HH:mm:ss'),
@@ -423,11 +515,55 @@ function audit_(action, tableName, recordId, fieldName, oldValue, newValue, reas
       newValue: truncateForAudit_(newValue),
       reason: reason || ''
     };
+    invalidateTable_(AUDIT_TAB);
     sheet.appendRow(headers.map(function (h) {
       return row.hasOwnProperty(h) && row[h] !== undefined && row[h] !== null ? row[h] : '';
     }));
   } catch (e) {
     Logger.log('Audit write failed: ' + e.message);
+  }
+}
+
+/**
+ * Writes several AuditLog rows in one go.
+ *
+ * A save that changes four fields records four entries, and appending them one at a time cost
+ * four round trips for what is a single logical event. Same rows, same order, one write.
+ * Silent on failure for the same reason audit_ is: the record must never block what it records.
+ */
+function auditMany_(entries) {
+  if (!entries || !entries.length) return;
+  if (entries.length === 1) {
+    var e = entries[0];
+    audit_(e.action, e.tableName, e.recordId, e.fieldName, e.oldValue, e.newValue, e.reason);
+    return;
+  }
+  try {
+    var sheet = SHEET_CACHE_[AUDIT_TAB] ||
+      SpreadsheetApp.getActiveSpreadsheet().getSheetByName(AUDIT_TAB);
+    if (!sheet) return;
+    rememberSheet_(AUDIT_TAB, sheet);
+    var email = '';
+    try { email = Session.getActiveUser().getEmail(); } catch (err) { email = 'unknown'; }
+    var stamp = Utilities.formatDate(new Date(),
+      Session.getScriptTimeZone() || 'Etc/UTC', 'yyyy-MM-dd HH:mm:ss');
+    var headers = getHeaders_(sheet, AUDIT_TAB);
+    var rows = entries.map(function (entry) {
+      var row = {
+        id: generateId_('AUD-'), timestamp: stamp, userEmail: email,
+        action: entry.action, tableName: entry.tableName, recordId: entry.recordId,
+        fieldName: entry.fieldName || '',
+        oldValue: truncateForAudit_(entry.oldValue), newValue: truncateForAudit_(entry.newValue),
+        reason: entry.reason || ''
+      };
+      return headers.map(function (h) {
+        return row.hasOwnProperty(h) && row[h] !== undefined && row[h] !== null ? row[h] : '';
+      });
+    });
+    invalidateTable_(AUDIT_TAB);
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+  } catch (err) {
+    Logger.log('Audit batch write failed: ' + err.message);
   }
 }
 

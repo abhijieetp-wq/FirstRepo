@@ -26,6 +26,8 @@ var LEGACY_ROLE_MAP = {
 
 function setupSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Setup creates tabs and adds columns, so nothing cached before it can be trusted after.
+  invalidateHeaders_();
   var report = { created: [], columnsAdded: [], seeded: [], migrated: [], skipped: [] };
 
   Object.keys(SCHEMA).forEach(function (tabName) {
@@ -34,6 +36,7 @@ function setupSheet() {
 
     if (!sheet) {
       sheet = ss.insertSheet(tabName);
+      invalidateTable_(tabName);
       sheet.getRange(1, 1, 1, def.columns.length).setValues([def.columns]);
       sheet.setFrozenRows(1);
       sheet.getRange(1, 1, 1, def.columns.length).setFontWeight('bold');
@@ -47,7 +50,7 @@ function setupSheet() {
     // silently never appeared on any sheet that already existed, which is a bug that looks
     // like an empty dropdown and gives no clue why.
     if (def.seed && def.seed.length) {
-      var headers = getHeaders_(sheet);
+      var headers = getHeaders_(sheet, tabName);
       var idCol = headers.indexOf('id');
       var present = {};
       if (idCol !== -1 && sheet.getLastRow() > 1) {
@@ -65,6 +68,7 @@ function setupSheet() {
             return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
           });
         });
+        invalidateTable_(tabName);
         sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
         report.seeded.push(tabName + ' (' + rows.length + ' row' +
           (rows.length === 1 ? '' : 's') + ')');
@@ -92,11 +96,13 @@ function setupSheet() {
 /** Appends the columns SCHEMA declares and the tab does not have. Never reorders, renames or
  * removes one, so running it on a live sheet cannot lose data. */
 function appendMissingColumns_(sheet, tabName, columns, report) {
-  var existing = getHeaders_(sheet);
+  var existing = getHeaders_(sheet, tabName);
   var missing = columns.filter(function (c) { return existing.indexOf(c) === -1; });
   if (!missing.length) return [];
   sheet.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
   sheet.getRange(1, 1, 1, existing.length + missing.length).setFontWeight('bold');
+  // Headers are cached for the request, and this call is the one thing that moves them.
+  invalidateHeaders_(tabName);
   if (report) report.columnsAdded.push(tabName + ': ' + missing.join(', '));
   return missing;
 }
@@ -169,7 +175,7 @@ function backfillIds_(ss, report) {
     var sheet = ss.getSheetByName(tabName);
     if (!sheet || sheet.getLastRow() < 2) return;
 
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, tabName);
     var lastRow = sheet.getLastRow();
     var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
     var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
@@ -184,6 +190,7 @@ function backfillIds_(ss, report) {
       }
     }
     if (count) {
+      invalidateTable_();
       sheet.getRange(2, 1, ids.length, 1).setValues(ids);
       filled.push(tabName + ': ' + count + ' row(s)');
     }
@@ -221,7 +228,7 @@ function migrateUsers_(ss, report) {
   var sheet = ss.getSheetByName('Users');
   if (!sheet || sheet.getLastRow() < 2) return;
 
-  var headers = getHeaders_(sheet);
+  var headers = getHeaders_(sheet, 'Users');
   var roleCol = headers.indexOf('role');
   var streamCol = headers.indexOf('businessStream');
   var idCol = headers.indexOf('id');
@@ -252,6 +259,7 @@ function migrateUsers_(ss, report) {
     }
   }
 
+  invalidateTable_();
   sheet.getRange(2, 1, values.length, headers.length).setValues(values);
   if (changed) report.migrated.push('Users: remapped ' + changed + ' legacy role value(s)');
 }
@@ -294,6 +302,7 @@ function migrateLegacyCatalog_(ss, fromTab, toTab, report) {
   });
 
   if (out.length) {
+    invalidateTable_();
     dest.getRange(2, 1, out.length, destHeaders.length).setValues(out);
     report.migrated.push(fromTab + ' → ' + toTab + ': copied ' + out.length + ' row(s). ' +
       'Rates were NOT copied — they now live in PriceList (FR-016).');

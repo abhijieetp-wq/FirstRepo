@@ -371,7 +371,7 @@ function purgeSpares(confirmText) {
   // Rewritten as one block rather than deleted row by row: on a catalogue this size, a
   // per-row delete does not finish inside an execution.
   var sheet = getSheet_('Spares');
-  var headers = getHeaders_(sheet);
+  var headers = getHeaders_(sheet, 'Spares');
   var idCol = headers.indexOf('id');
   var activeCol = headers.indexOf('active');
   var lastRow = sheet.getLastRow();
@@ -384,6 +384,7 @@ function purgeSpares(confirmText) {
     return true;
   });
 
+  invalidateTable_('Spares');
   if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
   if (survivors.length) {
     sheet.getRange(2, 1, survivors.length, headers.length).setValues(survivors);
@@ -551,8 +552,9 @@ function purgeSparesWithDocuments(confirmText) {
   var removed = removeSpareDependents_(ids);
 
   var sheet = getSheet_('Spares');
-  var headers = getHeaders_(sheet);
+  var headers = getHeaders_(sheet, 'Spares');
   var lastRow = sheet.getLastRow();
+  invalidateTable_('Spares');
   if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
 
   var count = Object.keys(ids).length;

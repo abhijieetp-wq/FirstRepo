@@ -131,7 +131,7 @@ function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
   var lock = acquireLock_(LOCK_WAIT_BULK_MS, 'this import');
   try {
     var sheet = getSheet_(spec.tab);
-    var headers = getHeaders_(sheet);
+    var headers = getHeaders_(sheet, spec.tab);
 
     // One bulk write for changed existing rows.
     if (analysis.updates.length) {
@@ -152,6 +152,7 @@ function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
         // catalogue that had just loaded it.
         if (activeCol !== -1) target[activeCol] = 'TRUE';
       });
+      invalidateTable_(spec.tab);
       sheet.getRange(2, 1, block.length, headers.length).setValues(block);
     }
 
@@ -168,6 +169,7 @@ function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
           return c.values[h] === undefined ? '' : c.values[h];
         });
       });
+      invalidateTable_(spec.tab);
       sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, headers.length).setValues(newRows);
     }
   } finally {
