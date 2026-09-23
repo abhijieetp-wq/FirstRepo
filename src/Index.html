@@ -1408,11 +1408,23 @@
       <div class="field"><label>Promised Dispatch</label><input id="om2-promised" type="date" /></div>
     </div>
     <div class="grid grid-2" style="margin-top:12px;">
-      <div class="field"><label>PO Attachment URL</label><input id="om2-attachment" /></div>
       <div class="field"><label>Notes</label><input id="om2-notes" /></div>
     </div>
     <div style="display:flex; justify-content:flex-end; margin-top:14px;">
       <button class="btn btn-sm" id="btn-om2-save">Save Details</button>
+    </div>
+
+    <div class="card-title" style="margin-top:20px;">Documents</div>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 10px;">
+      The customer's purchase order and anything else that came with it. The few fields above
+      are what the system checks against; this is the paper it checks against them.
+    </p>
+    <div id="om2-docs"></div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+      <select id="om2-doctype" style="max-width:190px;"></select>
+      <input type="file" id="om2-docfile" accept="application/pdf,image/*" style="font-size:12.5px;" />
+      <input id="om2-doccaption" placeholder="Note (optional)" style="flex:1; min-width:160px;" />
+      <button class="btn btn-sm" id="btn-om2-adddoc" type="button">Attach</button>
     </div>
 
     <div class="card-title" style="margin-top:20px;">Items</div>
@@ -1680,6 +1692,33 @@
     <div class="card-title" style="margin-top:20px;">Lines</div>
     <div id="im-items"></div>
     <div id="im-totals"></div>
+
+    <div class="card-title" style="margin-top:20px;">E-Invoice Reference</div>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 10px;">
+      What the GST portal gave back when this invoice was registered. It arrives after the
+      invoice is raised, which is why it is recorded separately from the figures above — an
+      invoice number without an IRN is a note about an invoice rather than the invoice.
+    </p>
+    <div class="grid grid-3">
+      <div class="field"><label>IRN</label><input id="im-irn" class="mono" /></div>
+      <div class="field"><label>Acknowledgement No.</label><input id="im-ackno" class="mono" /></div>
+      <div class="field"><label>Acknowledgement Date</label><input id="im-ackdate" type="date" /></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; margin-top:12px;">
+      <button class="btn btn-sm" id="btn-im-saveirn">Save Reference</button>
+    </div>
+
+    <div class="card-title" style="margin-top:20px;">Documents</div>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 10px;">
+      The tax invoice as PIE raised it, and anything that travels with it.
+    </p>
+    <div id="im-docs"></div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+      <select id="im-doctype" style="max-width:190px;"></select>
+      <input type="file" id="im-docfile" accept="application/pdf,image/*" style="font-size:12.5px;" />
+      <input id="im-doccaption" placeholder="Note (optional)" style="flex:1; min-width:160px;" />
+      <button class="btn btn-sm" id="btn-im-adddoc" type="button">Attach</button>
+    </div>
 
     <div class="card-title" style="margin-top:20px;">Receipts</div>
     <div id="im-receipts"></div>

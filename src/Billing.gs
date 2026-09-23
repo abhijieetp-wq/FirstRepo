@@ -106,6 +106,11 @@ function getInvoice(id) {
     return String(d.id) === String(row.dispatchId);
   })[0];
   row.dispatchNo = dispatch ? dispatch.dispatchNo : '';
+
+  // PIE raise the invoice in Tally; what the portal holds is the document and the few fields
+  // the ageing and the credit check read off it.
+  row.documents = listDocuments('Invoice', row.id);
+  row.documentTypes = DOC_TYPES.Invoice.slice();
   row.lrNumber = dispatch ? dispatch.lrNumber : '';
 
   row.receipts = readTable_('Receipts')
@@ -325,6 +330,48 @@ function saveInvoiceDetails(input) {
     notes: String(input.notes || '').trim()
   }, 'Invoice details updated');
   return getInvoice(input.id);
+}
+
+/**
+ * Records the e-invoice acknowledgement against an invoice.
+ *
+ * Deliberately not part of saveInvoiceDetails, which refuses an issued invoice — and issued
+ * is exactly when this arrives. The IRN comes back from the GST portal after the invoice has
+ * been raised, so a rule that protects the figures on an issued invoice would, applied here,
+ * make it impossible to record that it was registered at all.
+ *
+ * Nothing about the invoice changes: the amounts, the date and the number are untouched. What
+ * is added is the proof that the portal accepted it, which is what an auditor asks for and
+ * what makes this row the invoice rather than a note about one.
+ */
+function saveEInvoiceReference(input) {
+  var user = getCurrentUser();
+  requireRole_(user, BILLING_ROLES);
+
+  var invoice = findRowById_('Invoices', input && input.id);
+  if (!invoice) throw new Error('Invoice not found.');
+  if (invoice.status === 'Cancelled') {
+    throw new Error('Invoice ' + invoice.invoiceNo + ' is cancelled.');
+  }
+
+  var irn = String((input && input.irn) || '').trim();
+  var ackNo = String((input && input.ackNo) || '').trim();
+  var ackDate = String((input && input.ackDate) || '').slice(0, 10);
+
+  // Clearing all three is how a mistyped reference is taken back; a partial one is not a
+  // reference at all, and half of it in the sheet is worse than none.
+  var given = [irn, ackNo, ackDate].filter(Boolean).length;
+  if (given && given < 3) {
+    throw new Error('An e-invoice reference is the IRN, the acknowledgement number and its ' +
+      'date. Enter all three, or clear all three.');
+  }
+  if (irn && irn.length < 20) {
+    throw new Error('That does not look like an IRN — they are long hashes, not short codes.');
+  }
+
+  updateRowById_('Invoices', 'id', invoice.id, { irn: irn, ackNo: ackNo, ackDate: ackDate },
+    given ? 'E-invoice reference recorded' : 'E-invoice reference cleared');
+  return getInvoice(invoice.id);
 }
 
 /**

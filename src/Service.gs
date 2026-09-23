@@ -54,36 +54,30 @@ function saveServiceProof(serviceJobId, input) {
     String(job.jobNo || serviceJobId), input, user);
 }
 
-/** Decodes one photograph, writes it to Drive and keeps the link. */
+/**
+ * Decodes one photograph, writes it to Drive and keeps the link.
+ *
+ * The Drive half of this now lives in Documents.gs, shared with the purchase orders and tax
+ * invoices that arrive from customers — they are the same operation, and a size limit or a
+ * file-name rule changed in one place should hold for every attachment in the system.
+ */
 function storeProof_(tabName, keyField, keyValue, label, input, user) {
-  var dataUrl = String((input && input.dataUrl) || '');
-  var match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
-  if (!match) throw new Error('That file could not be read as an image.');
-  var mimeType = match[1];
-  if (mimeType.indexOf('image/') !== 0 && mimeType !== 'application/pdf') {
-    throw new Error('A proof of delivery should be a photograph or a PDF.');
-  }
-
-  var bytes = Utilities.base64Decode(match[2]);
-  if (bytes.length > POD_MAX_BYTES) {
-    throw new Error('That file is too large. Send a photograph rather than a full-resolution scan.');
-  }
-
-  var name = String((input && input.name) || 'proof').replace(/[\/\\:*?"<>|]/g, '-');
-  var stamped = label + ' ' + todayIso_() + ' ' + name;
-  var blob = Utilities.newBlob(bytes, mimeType, stamped);
-
-  var folders = DriveApp.getFoldersByName(POD_FOLDER);
-  var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(POD_FOLDER);
-  var file = folder.createFile(blob);
+  var stored = storeDriveFile_({
+    input: input,
+    folder: POD_FOLDER,
+    label: label,
+    maxBytes: POD_MAX_BYTES,
+    rejectMessage: 'That file could not be read as an image.',
+    typeMessage: 'A proof of delivery should be a photograph or a PDF.'
+  });
 
   var row = {
     id: generateId_('PRF-'),
-    fileId: file.getId(),
-    fileName: stamped,
-    fileUrl: file.getUrl(),
-    mimeType: mimeType,
-    sizeBytes: bytes.length,
+    fileId: stored.fileId,
+    fileName: stored.fileName,
+    fileUrl: stored.fileUrl,
+    mimeType: stored.mimeType,
+    sizeBytes: stored.sizeBytes,
     caption: String((input && input.caption) || '').trim(),
     uploadedBy: user.email,
     uploadedAt: new Date().toISOString()

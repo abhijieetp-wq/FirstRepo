@@ -359,6 +359,28 @@ var SCHEMA = {
     columns: ['id', 'serviceJobId', 'fileId', 'fileName', 'fileUrl', 'mimeType', 'sizeBytes',
       'caption', 'uploadedBy', 'uploadedAt']
   },
+  /**
+   * The customer's own paperwork, held rather than referred to.
+   *
+   * A purchase order used to be a Drive link somebody was asked to paste into a text box,
+   * which meant it was usually empty: PIE receive the PO as an email attachment, and nobody
+   * uploads it to Drive and copies a link on the way past. A tax invoice had nowhere to go at
+   * all — twenty-five columns on Invoices and not one for the document.
+   *
+   * The division of labour is the point. A few fields stay on the order and the invoice,
+   * because the code acts on them: dispatch refuses without a PO number, the variance check
+   * compares the PO's value against what was quoted, receivables age from the invoice date.
+   * The rest is evidence, and evidence belongs in the document rather than retyped out of it.
+   *
+   * One tab rather than one per record type, because a purchase order and a tax invoice are
+   * the same kind of thing — paper that arrived from outside — and the delivery challan and
+   * the packing list will be too.
+   */
+  Documents: {
+    label: 'Purchase orders, tax invoices and the rest of the paperwork that arrives',
+    columns: ['id', 'recordType', 'recordId', 'docType', 'fileId', 'fileName', 'fileUrl',
+      'mimeType', 'sizeBytes', 'caption', 'uploadedBy', 'uploadedAt']
+  },
   ServiceJobs: {
     label: 'Fitting the delivered parts — raised when a delivery is confirmed (FR-047)',
     // The last step of PIE's process: once the goods are known to have arrived, a service
@@ -390,6 +412,9 @@ var SCHEMA = {
     columns: ['id', 'invoiceNo', 'invoiceDate', 'salesOrderId', 'dispatchId', 'customerId',
       'billingAddressId', 'businessStream', 'brand', 'subtotal', 'discountAmt', 'taxAmt',
       'freight', 'grand', 'amountReceived', 'paymentTerms', 'dueDate', 'warrantyTerms',
+      // Every invoice PIE raise carries an IRN and an acknowledgement from the GST portal.
+      // An invoice number without them is a note about an invoice rather than the invoice.
+      'irn', 'ackNo', 'ackDate',
       'status', 'tallySyncStatus', 'tallySyncDate', 'tallySyncError', 'notes',
       'createdAt', 'createdBy']
   },

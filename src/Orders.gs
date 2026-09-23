@@ -119,6 +119,9 @@ function getSalesOrder(id) {
     row.creditRelease.youMay = mayReleaseCredit_(getCurrentUser(), customer, row.creditRelease);
   }
   row.coordinatorInCharge = coordinatorInCharge_(customer);
+  // The customer's own paperwork, so the screen can show the PO rather than a link to it.
+  row.documents = listDocuments('SalesOrder', id);
+  row.documentTypes = DOC_TYPES.SalesOrder.slice();
   return row;
 }
 

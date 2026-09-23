@@ -4675,15 +4675,15 @@
     $("om2-advreq").value = o.advanceRequired !== "" ? o.advanceRequired : "";
     $("om2-advrec").value = o.advanceReceived !== "" ? o.advanceReceived : "";
     $("om2-promised").value = o.promisedDispatchDate || "";
-    $("om2-attachment").value = o.poAttachmentUrl || "";
     $("om2-notes").value = o.notes || "";
 
     ["om2-pono", "om2-podate", "om2-povalue", "om2-paymentterms", "om2-advreq",
-     "om2-advrec", "om2-promised", "om2-attachment", "om2-notes"].forEach(function (f) {
+     "om2-advrec", "om2-promised", "om2-notes"].forEach(function (f) {
       $(f).disabled = !editable;
     });
     $("btn-om2-save").style.display = editable ? "" : "none";
 
+    renderDocuments("om2", "SalesOrder", o.id, o.documents, o.documentTypes, editable);
     renderCreditPanel(o);
     renderOrderItems(o);
     renderStatusPanel(o, editable);
@@ -4833,7 +4833,6 @@
       advanceRequired: $("om2-advreq").value,
       advanceReceived: $("om2-advrec").value,
       promisedDispatchDate: $("om2-promised").value,
-      poAttachmentUrl: $("om2-attachment").value.trim(),
       notes: $("om2-notes").value.trim()
     });
   });
@@ -5293,6 +5292,11 @@
   var dspCache = [];
   var openDispatch = null;
   var openInvoice = null;
+
+  /** Mirrors BILLING_ROLES in Billing.gs, which is where the rule is actually enforced. */
+  function canDoBilling() {
+    return ["Sales Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1;
+  }
 
   var DISPATCH_BADGE = {
     "Planned": "badge-draft", "Dispatched": "badge-dispatched", "Cancelled": "badge-lost"
@@ -5783,6 +5787,118 @@
    * work is done here because an Apps Script call carrying 8 MB of base64 is slow and often
    * simply fails.
    */
+  /**
+   * The paperwork held against a record, and the control that adds to it.
+   *
+   * One renderer for the sales order and the invoice, because a purchase order and a tax
+   * invoice are the same kind of thing: paper that arrived from outside and has to still be
+   * there when somebody asks in a year. `prefix` is the modal's field prefix, which is the
+   * only thing that differs between the two.
+   */
+  function renderDocuments(prefix, recordType, recordId, docs, types, editable) {
+    var zone = $(prefix + "-docs");
+    if (!zone) return;
+    docs = docs || [];
+
+    zone.innerHTML = docs.length
+      ? '<div class="card" style="padding:0; overflow-x:auto;"><table><thead><tr>' +
+        "<th>Document</th><th>File</th><th>Added</th><th>By</th><th></th>" +
+        "</tr></thead><tbody>" +
+        docs.map(function (d) {
+          return "<tr>" +
+            "<td>" + escapeHtml(d.docType || "—") +
+              (d.caption ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
+                escapeHtml(d.caption) + "</span>" : "") + "</td>" +
+            '<td><a href="' + escapeHtml(d.fileUrl) + '" target="_blank" rel="noopener">' +
+              escapeHtml(d.fileName || "open") + "</a>" +
+              '<span style="font-size:11px; color:var(--ink-soft);"> · ' +
+              Math.max(1, Math.round((Number(d.sizeBytes) || 0) / 1024)) + " KB</span></td>" +
+            "<td>" + escapeHtml(String(d.uploadedAt || "").slice(0, 10)) + "</td>" +
+            "<td>" + escapeHtml(d.uploadedBy || "") + "</td>" +
+            '<td class="center">' + (editable
+              ? '<button class="btn-ghost" data-doc-del="' + escapeHtml(d.id) +
+                '" title="Remove">✕</button>' : "") + "</td>" +
+            "</tr>";
+        }).join("") + "</tbody></table></div>"
+      : '<div class="empty">Nothing attached yet.</div>';
+
+    var picker = $(prefix + "-doctype");
+    if (picker) {
+      picker.innerHTML = (types || []).map(function (t) {
+        return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + "</option>";
+      }).join("");
+    }
+    ["-doctype", "-docfile", "-doccaption"].forEach(function (f) {
+      var el = $(prefix + f);
+      if (el) el.disabled = !editable;
+    });
+    var add = $("btn-" + prefix + "-adddoc");
+    if (add) add.style.display = editable ? "" : "none";
+
+    zone.querySelectorAll("[data-doc-del]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({ title: "Remove this document?", okLabel: "Remove", danger: true,
+          message: "The file goes to the Drive bin; it is not destroyed." }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function () {
+            showMsg("Document removed.", "success");
+            reopenDocumentOwner(recordType, recordId);
+          }).withFailureHandler(onServerError).deleteDocument(btn.dataset.docDel);
+        });
+      });
+    });
+  }
+
+  /** Reloads whichever screen a document was attached to, so the list is the stored one. */
+  function reopenDocumentOwner(recordType, recordId) {
+    if (recordType === "SalesOrder") openOrderModal(recordId);
+    else openInvoiceModal(recordId);
+  }
+
+  /** Wires the Attach button on one of the two modals. */
+  function wireDocumentUpload(prefix, recordType, currentId) {
+    $("btn-" + prefix + "-adddoc").addEventListener("click", function () {
+      var recordId = currentId();
+      if (!recordId) return;
+      var input = $(prefix + "-docfile");
+      var file = input.files && input.files[0];
+      if (!file) { showMsg("Choose the file first.", "error"); return; }
+
+      var btn = $("btn-" + prefix + "-adddoc");
+      btn.disabled = true; btn.textContent = "Attaching…";
+      var restore = function () { btn.disabled = false; btn.textContent = "Attach"; };
+
+      readDocumentFile(file, function (dataUrl) {
+        google.script.run.withSuccessHandler(function () {
+          restore();
+          input.value = ""; $(prefix + "-doccaption").value = "";
+          showMsg("Attached.", "success");
+          reopenDocumentOwner(recordType, recordId);
+        }).withFailureHandler(function (err) { restore(); onServerError(err); })
+          .saveDocument({
+            recordType: recordType, recordId: recordId,
+            docType: $(prefix + "-doctype").value,
+            caption: $(prefix + "-doccaption").value.trim(),
+            name: file.name, dataUrl: dataUrl
+          });
+      }, function (msg) { restore(); showMsg(msg, "error"); });
+    });
+  }
+
+  /**
+   * A document is read as it is.
+   *
+   * Unlike a proof photograph, which is downscaled because a phone camera produces far more
+   * detail than a picture of a signed challan needs, a purchase order is a document of
+   * record: re-encoding it would make the copy differ from the paper the customer sent.
+   */
+  function readDocumentFile(file, done, fail) {
+    var reader = new FileReader();
+    reader.onerror = function () { fail("The file could not be read."); };
+    reader.onload = function (e) { done(e.target.result); };
+    reader.readAsDataURL(file);
+  }
+
   function readProofPhoto(file, done, fail) {
     if (file.type === "application/pdf") {
       var raw = new FileReader();
@@ -5993,6 +6109,17 @@
     });
     $("btn-im-save").style.display = editable ? "" : "none";
 
+    // The e-invoice reference arrives after the invoice is issued, so it stays editable when
+    // the figures above no longer are. Cancelled is the one state with nothing left to record.
+    var mayReference = inv.status !== "Cancelled" && canDoBilling();
+    $("im-irn").value = inv.irn || "";
+    $("im-ackno").value = inv.ackNo || "";
+    $("im-ackdate").value = inv.ackDate || "";
+    ["im-irn", "im-ackno", "im-ackdate"].forEach(function (f) { $(f).disabled = !mayReference; });
+    $("btn-im-saveirn").style.display = mayReference ? "" : "none";
+
+    renderDocuments("im", "Invoice", inv.id, inv.documents, inv.documentTypes, mayReference);
+
     $("im-items").innerHTML = '<div class="card" style="padding:0; overflow-x:auto;"><table>' +
       "<thead><tr><th>#</th><th>Item</th><th>Description</th>" +
       '<th class="num">Qty</th><th class="num">Rate</th><th class="num">Disc %</th>' +
@@ -6049,6 +6176,21 @@
     $("invoice-modal-backdrop").classList.remove("show");
     loadDispatchData();
   });
+
+  $("btn-im-saveirn").addEventListener("click", function () {
+    google.script.run.withSuccessHandler(function (inv) {
+      openInvoice = inv; renderInvoiceModal();
+      showMsg(inv.irn ? "E-invoice reference saved." : "E-invoice reference cleared.", "success");
+    }).withFailureHandler(onServerError).saveEInvoiceReference({
+      id: openInvoice.id,
+      irn: $("im-irn").value.trim(),
+      ackNo: $("im-ackno").value.trim(),
+      ackDate: $("im-ackdate").value
+    });
+  });
+
+  wireDocumentUpload("im", "Invoice", function () { return openInvoice && openInvoice.id; });
+  wireDocumentUpload("om2", "SalesOrder", function () { return openOrder && openOrder.id; });
 
   $("btn-im-save").addEventListener("click", function () {
     google.script.run.withSuccessHandler(function (inv) {
