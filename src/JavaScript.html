@@ -2001,6 +2001,23 @@
   };
 
   /**
+   * What a quotation's status is called on screen.
+   *
+   * The stored values are the ones the sheet has always held and the reports are written
+   * against, so they stay. What they were not is what anybody says: a quotation is Sent, not
+   * Submitted, and the customer Accepts or Declines it rather than us winning or losing it —
+   * winning is what happens to a deal, and a deal is an opportunity, which has its own Won
+   * and Lost and keeps them. Two vocabularies for one thing is what left somebody looking for
+   * an Accept button next to a journey stage called Accepted.
+   */
+  var QUOTE_STATUS_LABEL = {
+    "Submitted": "Sent", "Negotiating": "Sent", "Won": "Accepted", "Lost": "Declined"
+  };
+  function quoteStatusLabel(status) {
+    return QUOTE_STATUS_LABEL[status] || status || "";
+  }
+
+  /**
    * The order-to-cash run drawn as a strip: what has happened, when, and what is next.
    *
    * The facts were all in the system already, spread over the quotation, the order, the
@@ -2117,7 +2134,6 @@
         '<span class="jdot"></span>' +
         '<span class="jlabel">' + escapeHtml(st.label) + "</span>" +
         '<span class="jdate">' + escapeHtml(st.date || (st.detail ? st.detail : "")) + "</span>" +
-        (st.note ? '<span class="jnote">' + escapeHtml(st.note) + "</span>" : "") +
         "</li>";
     });
 
@@ -2251,7 +2267,8 @@
         "<td>" + escapeHtml(r.machineModel || "—") + "</td>" +
         '<td class="num">' + r.itemCount + "</td>" +
         '<td class="num mono">' + fmt(r.grand) + "</td>" +
-        '<td><span class="badge ' + (QUOTE_BADGE[r.status] || "badge-draft") + '">' + escapeHtml(r.status) +
+        '<td><span class="badge ' + (QUOTE_BADGE[r.status] || "badge-draft") + '">' +
+          escapeHtml(quoteStatusLabel(r.status)) +
           (r.locked ? " 🔒" : "") + "</span></td>" +
         "<td>" + stageCell(r.journey) + "</td>" +
         "<td>" + (r.validUntil
@@ -2421,7 +2438,7 @@
     var editable = canEditQuotes() && !q.locked;
     $("qb-locked-banner").innerHTML = (q.locked
       ? '<div class="compare-strip" style="margin-bottom:16px;">This quotation is <b>' +
-        escapeHtml(q.status) + '</b> and locked. ' +
+        escapeHtml(quoteStatusLabel(q.status)) + '</b> and locked. ' +
         // Approving locks the offer because it is the version about to go out — but nothing
         // has gone out yet, so telling them the sent version stays untouched named a version
         // that does not exist, and said nothing about the step they were actually on.
@@ -2518,18 +2535,16 @@
     if (mayAdvance && ["Draft", "Approved"].indexOf(q.status) !== -1) {
       buttons.push('<button class="btn btn-sm btn-primary" data-qs="Submitted">Mark Sent</button>');
     }
-    // The step between sending an offer and winning it: the customer has it and is talking
-    // about the terms. Without somewhere to record that, a quotation read as "Submitted"
-    // whether the customer was negotiating or had gone quiet for a month.
-    if (mayAdvance && q.status === "Submitted") {
-      buttons.push('<button class="btn btn-sm" data-qs="Negotiating">With Customer</button>');
-    }
+    // No "With Customer" button. Once an offer is out there are two things worth recording —
+    // that it went out, and what the customer said — and a third press in between, which
+    // changed nothing anyone downstream reads, only stood between the two.
     // Won and Lost are the customer's answer, so they only make sense once the customer has
     // been asked. These used to appear the moment a quotation was approved — it locks at
     // Approved — offering to win an offer that had never left the building.
     if (mayAdvance && ["Submitted", "Negotiating"].indexOf(q.status) !== -1) {
-      buttons.push('<button class="btn btn-sm" data-qs="Won">Mark Won</button>');
-      buttons.push('<button class="btn btn-sm" data-qs="Lost">Mark Lost</button>');
+      // Named for the stage each one reaches, not for the status it stores.
+      buttons.push('<button class="btn btn-sm btn-primary" data-qs="Won">Mark Accepted</button>');
+      buttons.push('<button class="btn btn-sm" data-qs="Lost">Mark Declined</button>');
     }
     if (canEditQuotes() && q.locked) {
       buttons.push('<button class="btn btn-sm btn-amber" id="btn-qb-revise">Revise</button>');
@@ -2629,11 +2644,11 @@
       return;
     }
     askDialog({
-      title: "Mark this quotation Lost?",
-      message: "The reason feeds lost-order analysis.",
+      title: "The customer declined this quotation?",
+      message: "The reason feeds lost-order analysis, and prints on the journey strip.",
       options: lostReasonsCache.map(function (r) { return { value: r.id, label: r.reasonText }; }),
       optionsLabel: "Lost reason",
-      okLabel: "Mark Lost",
+      okLabel: "Mark Declined",
       danger: true
     }, function (reasonId) {
       if (reasonId === null) return;
@@ -2645,7 +2660,7 @@
     google.script.run.withSuccessHandler(function (q) {
       openQuote = q;
       renderQuoteBuilder();
-      showMsg("Quotation marked " + status + ".", "success");
+      showMsg("Quotation marked " + quoteStatusLabel(status) + ".", "success");
     }).withFailureHandler(onServerError).setQuotationStatus(openQuote.id, status, reasonId);
   }
 
@@ -4444,7 +4459,8 @@
         return "<tr>" +
           '<td class="mono">' + escapeHtml(q.quoteNo) + "</td>" +
           '<td class="mono">' + escapeHtml(q.revision || "R0") + "</td>" +
-          '<td><span class="badge ' + (QUOTE_BADGE[q.status] || "badge-draft") + '">' + escapeHtml(q.status) + "</span></td>" +
+          '<td><span class="badge ' + (QUOTE_BADGE[q.status] || "badge-draft") + '">' +
+            escapeHtml(quoteStatusLabel(q.status)) + "</span></td>" +
           '<td class="num mono">' + fmt(q.grand) + "</td>" +
           '<td class="center"><button class="btn btn-sm" data-open-oq="' + q.id + '">Open</button></td>' +
           "</tr>";
@@ -4565,7 +4581,8 @@
   $("btn-new-order").addEventListener("click", function () {
     google.script.run.withSuccessHandler(function (quotes) {
       if (!quotes.length) {
-        showMsg("No won quotations are waiting to be converted. Mark a quotation Won first.", "error");
+        showMsg("No accepted quotations are waiting to be converted. Mark a quotation " +
+          "Accepted first.", "error");
         return;
       }
       $("no-quotation").innerHTML = quotes.map(function (q) {
@@ -8341,7 +8358,7 @@
     google.script.run.withSuccessHandler(function (plan) {
       var quoteLines = plan.quotations.map(function (q) {
         return "<li>quotation <span class=\"mono\">" + escapeHtml(q.quoteNo) + "</span> (" +
-          escapeHtml(q.status) + ")</li>";
+          escapeHtml(quoteStatusLabel(q.status)) + ")</li>";
       }).join("");
 
       $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +

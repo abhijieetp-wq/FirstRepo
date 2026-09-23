@@ -145,11 +145,11 @@ function quotationJourney_(quote, idx) {
     // that predate these dates still read correctly.)
     approved:   { done: !!quote.approvalDate || quote.status === 'Approved',
                   date: quote.approvalDate, detail: quote.approvedBy || '' },
-    // Negotiating means it went out — pressing "With Customer" is itself evidence of Sent.
+    // Negotiating is no longer offered as a step, but rows carrying it from before still
+    // have to read correctly, and it has only ever meant one thing: the offer went out.
     sent:       { done: !!(quote.submittedDate || quote.emailSentDate) ||
                     ['Submitted', 'Negotiating'].indexOf(quote.status) !== -1,
-                  date: quote.submittedDate || quote.emailSentDate,
-                  note: quote.status === 'Negotiating' ? 'with the customer' : '' },
+                  date: quote.submittedDate || quote.emailSentDate },
     accepted:   { done: quote.status === 'Won', date: quote.wonDate },
     po:         { done: !!(order && order.poNo), date: order ? order.poDate : '',
                   detail: order ? String(order.poNo || '') : '' },
@@ -176,8 +176,7 @@ function quotationJourney_(quote, idx) {
       key: st.key, label: st.label, owner: st.owner, hint: st.hint || '',
       done: !!f.done,
       date: f.date ? String(f.date).slice(0, 10) : '',
-      detail: f.detail || '',
-      note: f.note || ''
+      detail: f.detail || ''
     };
   });
 
@@ -233,7 +232,9 @@ function lostReasonText_(lostReasonId) {
 }
 
 function journeyLabel_(quote, stages, reached, closed, stalled) {
-  if (quote.status === 'Lost') return 'Lost';
+  // Named for what happened, matching the stage on the strip and the button that got it
+  // there. 'Lost' is what the sheet stores; 'Declined' is what the customer did.
+  if (quote.status === 'Lost') return 'Declined';
   if (quote.status === 'Expired') return 'Expired';
   if (stalled) return 'Revised';
   if (reached < 0) return 'Not started';
