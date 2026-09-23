@@ -19,10 +19,25 @@ roles and process; those two remain useful only for UX patterns already locked i
 ## Architecture
 
 - The Sheet is the database. Every tab is a table; row 1 is the header row.
-- `Session.getActiveUser().getEmail()` identifies the caller; the `Users` tab is the
-  authorization list (email → name/role/businessStream/active).
-- The frontend (`Index.html` + `JavaScript.html`) reaches the backend only through
-  `google.script.run` — there is no REST API.
+- **The web app runs as its owner (`executeAs: USER_DEPLOYING`), and the Sheet is shared with
+  nobody.** It used to run as whoever opened it, which required every user's Google account to
+  hold access to the Sheet — so anyone could open it in Drive and read every price, cost and
+  credit limit with none of the role checks applying. The rules were enforced by the
+  application while the data sat behind it in the open.
+- Identity is a password, not a Google account: PIE's staff have none, and the business does
+  not want their personal ones holding company data. `Session.gs` owns signing in — salted and
+  iterated password per user, lockout after five wrong guesses, session tokens stored hashed.
+  The `Users` tab is still the authorization list (email → name/role/businessStream/active);
+  `email` is simply no longer a Google account.
+- Because nobody signs into Google, Google cannot be the gate: `access` is `ANYONE_ANONYMOUS`,
+  the `/exec` URL is reachable by anyone, and **the password is the whole boundary**. That is a
+  deliberate trade — a lock on the office in place of a guard at the street door who was
+  handing out filing-cabinet keys. It is sound at ten users; at fifty, or with anything more
+  sensitive than quotations, revisit Workspace accounts.
+- The frontend (`Index.html` + `JavaScript.html`) reaches the backend through the `srv` shim,
+  which is shaped exactly like `google.script.run` but routes everything through one
+  `call(token, name, args)` — a script run remembers nothing between requests, so the session
+  token has to travel with each one. There is no REST API.
 - All storage access goes through `SheetService.gs`. Nothing else touches `SpreadsheetApp`.
   That single seam is what makes a later move to a real database a swap rather than a rewrite.
 - Prices are effective-dated and stock is an append-only ledger, so history is never
@@ -37,6 +52,24 @@ roles and process; those two remain useful only for UX patterns already locked i
 hand.** Run `setupSheet()` once from the Apps Script editor and it creates everything, seeds
 the reference data and migrates legacy rows. It only ever adds tabs and appends columns —
 never reorders, renames or deletes — so it is safe to re-run at any time.
+
+## Getting the first person in
+
+Nobody can sign in until somebody has a password, and setting one needs a signed-in admin —
+so there is one door that needs no password, and it is not reachable from the web app.
+
+1. Deploy, so the manifest's `executeAs`/`access` settings take effect.
+2. In the Apps Script editor, run once:
+   `setInitialAdminPassword('you@example.com', 'somethingYouChoose')`
+   Running a function from the editor requires owning the script, which Google has already
+   checked. That is the whole of its authority, and why it is on the deny-list in `call`.
+3. Sign in with it. You will be made to choose your own before anything else opens.
+4. Set a password for each person under **Settings → Users → Set password**. They must change
+   it on first use, so the one you know is never the one left in service.
+
+**Then unshare the Sheet from everyone it is currently shared with.** The code stops needing
+those grants; it cannot revoke ones already given. Until that is done the old Drive back-door
+is still open and none of the above has bought anything.
 
 ## Working routine
 
