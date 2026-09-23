@@ -500,8 +500,9 @@ function audit_(action, tableName, recordId, fieldName, oldValue, newValue, reas
       SpreadsheetApp.getActiveSpreadsheet().getSheetByName(AUDIT_TAB);
     if (!sheet) return;
     rememberSheet_(AUDIT_TAB, sheet);
-    var email = '';
-    try { email = Session.getActiveUser().getEmail(); } catch (e) { email = 'unknown'; }
+    // Who acted comes from the session this request arrived with, not from Google — the app
+    // runs as its owner now, so Google would name the owner on every entry.
+    var email = (CURRENT_USER_ && CURRENT_USER_.email) || 'system';
     var headers = getHeaders_(sheet, AUDIT_TAB);
     var row = {
       id: generateId_('AUD-'),
@@ -543,8 +544,7 @@ function auditMany_(entries) {
       SpreadsheetApp.getActiveSpreadsheet().getSheetByName(AUDIT_TAB);
     if (!sheet) return;
     rememberSheet_(AUDIT_TAB, sheet);
-    var email = '';
-    try { email = Session.getActiveUser().getEmail(); } catch (err) { email = 'unknown'; }
+    var email = (CURRENT_USER_ && CURRENT_USER_.email) || 'system';
     var stamp = Utilities.formatDate(new Date(),
       Session.getScriptTimeZone() || 'Etc/UTC', 'yyyy-MM-dd HH:mm:ss');
     var headers = getHeaders_(sheet, AUDIT_TAB);

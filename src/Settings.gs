@@ -45,6 +45,16 @@ function getSettings() {
     users: readTable_('Users').map(function (u) {
       var row = stripRow_(u);
       row.isSelf = String(row.email).toLowerCase() === String(user.email).toLowerCase();
+      // Whether they can sign in, said plainly. The stored password never leaves the sheet —
+      // not the hash, not the salt, not the iteration count — because none of it has any use
+      // on the screen and all of it is worth something to somebody who should not have it.
+      row.hasPassword = !!row.passwordHash;
+      row.mustChangePassword = String(row.mustChangePassword).toUpperCase() === 'TRUE';
+      row.locked = !!(row.lockedUntil && new Date(row.lockedUntil) > new Date());
+      delete row.passwordHash;
+      delete row.passwordSalt;
+      delete row.passwordIterations;
+      delete row.failedAttempts;
       return row;
     }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }),
     configLists: readTable_('ConfigLists').map(stripRow_)
@@ -143,6 +153,12 @@ function saveUser(input) {
 
   if (input.id) {
     updateRowById_('Users', 'id', input.id, record, 'User updated');
+    // A change of role or a deactivation has to reach somebody already signed in, or they
+    // keep the access they had until their session happens to lapse.
+    if (existing && (existing.role !== record.role || existing.active !== record.active ||
+        existing.businessStream !== record.businessStream)) {
+      forgetSessionsFor_(email);
+    }
   } else {
     record.id = generateId_('USR-');
     record.createdAt = todayIso_();
@@ -150,6 +166,54 @@ function saveUser(input) {
     appendRow_('Users', record, 'User added');
   }
   return getSettings();
+}
+
+/**
+ * Gives somebody a password, or replaces the one they have.
+ *
+ * An ERP Admin's job, and deliberately one-way: it sets a password rather than revealing
+ * one, and the person must change it the first time they use it, so the password an admin
+ * knows is never the password that stays in use. Their sessions end immediately — a reset
+ * that leaves the old session working is not a reset.
+ */
+function setUserPassword(input) {
+  var user = getCurrentUser();
+  requireRole_(user, SETTINGS_ROLES);
+
+  var row = findRowById_('Users', input && input.id);
+  if (!row) throw new Error('That user is no longer on the list.');
+
+  storePassword_(row, String((input && input.password) || ''), true);
+  forgetSessionsFor_(row.email);
+  return { email: row.email,
+           message: row.name + ' can sign in with this password once, and must then change it.' };
+}
+
+/**
+ * Changing your own password.
+ *
+ * The current one is required even though the session already proves who you are: it is what
+ * stops a walked-away-from screen becoming a permanent handover of the account.
+ */
+function changeMyPassword(currentPassword, newPassword) {
+  var user = getCurrentUser();
+  var row = userRowByEmail_(user.email);
+  if (!row) throw new Error('Your account is no longer on the list.');
+
+  var iterations = Number(row.passwordIterations) || PASSWORD_ITERATIONS;
+  var offered = derivePassword_(String(currentPassword || ''), row.passwordSalt, iterations);
+  if (!row.passwordHash || !constantTimeEquals_(offered, row.passwordHash)) {
+    throw new Error('Your current password is not right.');
+  }
+  if (String(currentPassword) === String(newPassword)) {
+    throw new Error('The new password has to be different from the old one.');
+  }
+
+  storePassword_(row, String(newPassword || ''), false);
+  // Every other session ends; this one is reissued so the person is not thrown out of the
+  // screen they are standing in front of.
+  forgetSessionsFor_(row.email);
+  return login(row.email, newPassword);
 }
 
 // -------------------------------------------------------------- lists, reasons, locations

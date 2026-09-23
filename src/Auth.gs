@@ -1,7 +1,12 @@
 /**
- * Identity comes from Session.getActiveUser() (the deployment runs "as user accessing the
- * app", domain-restricted) — there is no separate password system. The Users tab is the
- * authorization list: email → name/role/businessStream/active.
+ * The Users tab is the authorization list: email → name/role/businessStream/active.
+ *
+ * Identity used to come from Session.getActiveUser(), with the app running as whoever opened
+ * it. That also required every person's Google account to hold access to the spreadsheet, so
+ * anybody could open it in Drive and read everything with none of the rules below applying.
+ * The app now runs as its owner, the sheet is shared with nobody, and the caller proves who
+ * they are with a password — see Session.gs. `email` is still the identity; it simply no
+ * longer has to be a Google account.
  *
  * Roles (D4 — five, collapsed from the blueprint's eleven):
  *   Sales Coordinator — quotations, orders, stores/dispatch/billing/collection operations
@@ -93,36 +98,21 @@ var LEGACY_ROLE_ALIASES = {
   'Admin': ROLES.ERP_ADMIN
 };
 
-function getCurrentUserEmail_() {
-  var email = Session.getActiveUser().getEmail();
-  if (!email) {
-    throw new Error('Could not identify your Google account. Make sure you opened this app while logged into your Workspace account.');
-  }
-  return email;
-}
-
-/** Looks up the caller in the Users tab. Throws if they're missing or deactivated. */
-function getCurrentUser() {
-  var email = getCurrentUserEmail_();
-  var users = readTable_('Users');
-  var match = users.filter(function (u) {
-    return String(u.email).toLowerCase() === email.toLowerCase();
-  })[0];
-
-  if (!match) {
-    throw new Error('Your account (' + email + ') is not set up yet. Ask your ERP Admin to add you to the Users tab.');
-  }
-  if (match.active !== true && String(match.active).toUpperCase() !== 'TRUE') {
-    throw new Error('Your account (' + email + ') has been deactivated. Contact your ERP Admin.');
-  }
-
+/**
+ * Turns a Users row into the object every server function works with.
+ *
+ * Kept separate from whoever is asking, so that signing in and being signed in build the
+ * same thing from the same rules — a role alias resolved at login and not afterwards would
+ * be a difference nobody would find until it mattered.
+ */
+function userFromRow_(match) {
+  var email = String(match.email);
   var role = String(match.role).trim();
   if (LEGACY_ROLE_ALIASES[role]) role = LEGACY_ROLE_ALIASES[role];
   if (ALL_ROLES.indexOf(role) === -1) {
     throw new Error('Your account (' + email + ') has an unrecognized role "' + match.role +
       '". Valid roles are: ' + ALL_ROLES.join(', ') + '.');
   }
-
   var crossStream = (role === ROLES.ERP_ADMIN || role === ROLES.MANAGEMENT);
   return {
     email: email,
@@ -130,6 +120,20 @@ function getCurrentUser() {
     role: role,
     businessStream: crossStream ? 'All' : (match.businessStream || 'Spare Sales')
   };
+}
+
+/**
+ * Who this request is for.
+ *
+ * Identity used to come from Google, because the web app ran as whoever opened it — which
+ * also meant handing every user access to the spreadsheet itself. It now runs as its owner,
+ * the sheet is shared with nobody, and the caller proves who they are with a token that
+ * `call` has already checked before anything else runs. So this reads what that established
+ * rather than asking Google, and the hundred and eighty places that call it are unchanged.
+ */
+function getCurrentUser() {
+  if (CURRENT_USER_) return CURRENT_USER_;
+  throw new Error('SESSION_ENDED');
 }
 
 /** Call at the top of any server function that must be restricted to specific roles. */

@@ -28,8 +28,23 @@ var SCHEMA = {
     // `role` is what they may do; `designation` is what prints under their signature on a
     // quotation. They are not the same thing and conflating them puts "ERP Admin" on a
     // document a customer reads.
+    //
+    // The password columns are the sign-in itself. PIE's staff have no company Google
+    // addresses and the business does not want their personal ones holding access to company
+    // data, so the portal checks the password rather than Google doing it. `email` is still
+    // the identity — it is what the audit trail records and what a quotation is signed with —
+    // it simply no longer has to be a Google account. The hash is salted per user and the
+    // iteration count is stored beside it so the cost can be raised later without locking
+    // anybody out.
     columns: ['id', 'email', 'name', 'role', 'designation', 'businessStream', 'active',
+      'passwordHash', 'passwordSalt', 'passwordIterations', 'passwordSetAt',
+      'mustChangePassword', 'failedAttempts', 'lockedUntil',
       'createdAt', 'createdBy']
+  },
+  Sessions: {
+    label: 'Live sign-ins. The token is stored hashed, so a copy of this sheet is not a set of keys',
+    columns: ['id', 'tokenHash', 'userEmail', 'createdAt', 'expiresAt', 'lastSeenAt',
+      'revokedAt']
   },
   CompanyProfile: {
     label: 'The seller as it appears on every printed document — one row, edited in Settings',

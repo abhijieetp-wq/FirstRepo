@@ -4,6 +4,67 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var fmt = function (n) { return "₹" + (Math.round((n || 0) * 100) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+
+  // ================= TALKING TO THE SERVER =================
+  /**
+   * `srv` stands where `google.script.run` used to, and behaves identically.
+   *
+   * The app no longer runs as the person using it — it runs as its owner, so the spreadsheet
+   * is shared with nobody and Google no longer says who is calling. The session token has to
+   * travel with every request instead, and a script instance remembers nothing between
+   * requests, so it cannot be established once and relied on.
+   *
+   * Rather than add a token argument to a hundred and seventy-seven calls, every one goes
+   * through a single `call(token, name, args)` on the server. This object presents the same
+   * chainable shape those calls already use, so the call sites themselves never changed:
+   *
+   *     srv.withSuccessHandler(ok).withFailureHandler(no).listQuotations({})
+   *
+   * It also gives one place to notice a session that has ended and send the person back to
+   * the sign-in screen, rather than a hundred and seventy-seven identical error toasts.
+   */
+  var SESSION_KEY = "pie.erp.session";
+  var sessionToken = null;
+  try { sessionToken = window.localStorage.getItem(SESSION_KEY) || null; } catch (e) { /* private mode */ }
+
+  function rememberSession(token) {
+    sessionToken = token || null;
+    try {
+      if (token) window.localStorage.setItem(SESSION_KEY, token);
+      else window.localStorage.removeItem(SESSION_KEY);
+    } catch (e) { /* the session still works, it just will not outlive the tab */ }
+  }
+
+  var srv = (function () {
+    function chain(handlers) {
+      return new Proxy({}, {
+        get: function (_, name) {
+          if (name === "withSuccessHandler") {
+            return function (fn) { return chain({ ok: fn, fail: handlers.fail }); };
+          }
+          if (name === "withFailureHandler") {
+            return function (fn) { return chain({ ok: handlers.ok, fail: fn }); };
+          }
+          return function () {
+            var args = Array.prototype.slice.call(arguments);
+            google.script.run
+              .withSuccessHandler(handlers.ok || function () {})
+              .withFailureHandler(function (err) {
+                // One place to catch the session ending, wherever it happened.
+                if (err && /SESSION_ENDED/.test(String(err.message || err))) {
+                  rememberSession(null);
+                  showSignIn("Your session has ended. Please sign in again.");
+                  return;
+                }
+                (handlers.fail || function () {})(err);
+              })
+              .call(sessionToken, String(name), args);
+          };
+        }
+      });
+    }
+    return chain({});
+  })();
   // Plain counts, grouped the Indian way like every other number on screen — 13,126 not 13126.
   var fmtInt = function (n) { return Number(n || 0).toLocaleString("en-IN"); };
   function escapeHtml(str) {
@@ -490,11 +551,11 @@
     };
 
     if (mode === "spares") {
-      google.script.run.withSuccessHandler(ok(function (rows) {
+      srv.withSuccessHandler(ok(function (rows) {
         sparesCache = rows.map(decorateSpare); catalogLoaded.spares = true;
       })).withFailureHandler(failed).listSpares(scope);
     } else {
-      google.script.run.withSuccessHandler(ok(function (rows) {
+      srv.withSuccessHandler(ok(function (rows) {
         productsCache = rows; catalogLoaded.products = true;
       })).withFailureHandler(failed).listProducts(scope);
     }
@@ -617,7 +678,7 @@
     $("compare-strip-zone").innerHTML =
       '<div class="compare-strip">Working out what this would remove…</div>';
 
-    google.script.run.withSuccessHandler(function (plan) {
+    srv.withSuccessHandler(function (plan) {
       var list = function (title, items, render) {
         if (!items.length) return "";
         return "<div style=\"margin-top:10px;\"><b>" + title + "</b><ul style=\"margin:6px 0 0 18px; padding:0;\">" +
@@ -673,7 +734,7 @@
             return;
           }
           $("compare-strip-zone").innerHTML = '<div class="compare-strip">Deleting…</div>';
-          google.script.run.withSuccessHandler(function (res) {
+          srv.withSuccessHandler(function (res) {
             compareSelection = new Set();
             syncDeleteSelected();
             catalogLoaded.spares = false;
@@ -785,7 +846,7 @@
     $("bulk-target").textContent = CATALOG_MODE === "spares" ? "Spares" : "Products (Compressors)";
     $("bulk-key").textContent = CATALOG_MODE === "spares" ? "Part No." : "Product Code";
     resetBulkState();
-    google.script.run.withSuccessHandler(function (tpl) {
+    srv.withSuccessHandler(function (tpl) {
       $("bulk-template").value = tpl.header + "\n" + tpl.example;
       $("bulk-required").textContent = "Required columns: " + tpl.required.join(", ") +
         ". Any other column may be left blank. Prices are optional — leave them out and " +
@@ -818,7 +879,7 @@
     reader.onload = function () {
       bulkCsvText = reader.result;
       $("bulk-preview").innerHTML = '<div class="empty" style="padding:12px;">Checking what would change…</div>';
-      google.script.run.withSuccessHandler(renderBulkPreview)
+      srv.withSuccessHandler(renderBulkPreview)
         .withFailureHandler(function (err) {
           $("bulk-preview").innerHTML = "";
           bulkCsvText = null;
@@ -927,7 +988,7 @@
     progress(0, 0);
 
     var step = function (fromRow) {
-      google.script.run.withSuccessHandler(function (res) {
+      srv.withSuccessHandler(function (res) {
         total.newCount += res.newCount;
         total.updateCount += res.updateCount;
         total.reactivatedCount += res.reactivatedCount;
@@ -1038,7 +1099,7 @@
       elgiPrice: $("pm-elgiprice").value,
       openingStock: $("pm-opening").value
     };
-    google.script.run.withSuccessHandler(function (saved) {
+    srv.withSuccessHandler(function (saved) {
       catalogLoaded.spares = false;
       $("part-modal-backdrop").classList.remove("show");
       loadCatalog();
@@ -1066,7 +1127,7 @@
         loadCatalog();
         showMsg(reviving ? "Spare reactivated." : "Spare deactivated.", "success");
       };
-      var call = google.script.run.withSuccessHandler(done).withFailureHandler(onServerError);
+      var call = srv.withSuccessHandler(done).withFailureHandler(onServerError);
       if (reviving) call.reactivateSpare(id, reason); else call.deleteSpare(id, reason);
     });
   });
@@ -1087,7 +1148,7 @@
         showMsg("That is not the part number — nothing was deleted.", "error");
         return;
       }
-      google.script.run.withSuccessHandler(function (res) {
+      srv.withSuccessHandler(function (res) {
         catalogLoaded.spares = false;
         $("part-modal-backdrop").classList.remove("show");
         loadCatalog();
@@ -1150,7 +1211,7 @@
       piePrice: $("um-pieprice").value,
       elgiPrice: $("um-elgiprice").value
     };
-    google.script.run.withSuccessHandler(function (saved) {
+    srv.withSuccessHandler(function (saved) {
       catalogLoaded.products = false;
       $("unit-modal-backdrop").classList.remove("show");
       loadCatalog();
@@ -1178,7 +1239,7 @@
         loadCatalog();
         showMsg(reviving ? "Product reactivated." : "Product deactivated.", "success");
       };
-      var call = google.script.run.withSuccessHandler(done).withFailureHandler(onServerError);
+      var call = srv.withSuccessHandler(done).withFailureHandler(onServerError);
       if (reviving) call.reactivateProduct(id, reason); else call.deleteProduct(id, reason);
     });
   });
@@ -1199,7 +1260,7 @@
         showMsg("That is not the product code — nothing was deleted.", "error");
         return;
       }
-      google.script.run.withSuccessHandler(function (res) {
+      srv.withSuccessHandler(function (res) {
         catalogLoaded.products = false;
         $("unit-modal-backdrop").classList.remove("show");
         loadCatalog();
@@ -1225,7 +1286,7 @@
 
   /** Refetches the customer list, bypassing the cache flag — used after a bulk import. */
   function loadCustomers() {
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       customersCache = rows; customersLoaded = true; renderCustomers();
     }).withFailureHandler(onServerError).listCustomers();
   }
@@ -1240,13 +1301,13 @@
   }
 
   function loadConfigLists() {
-    google.script.run.withSuccessHandler(function (lists) {
+    srv.withSuccessHandler(function (lists) {
       configLists = lists;
       fillDatalist("industry-list", (lists.Industry || []).map(function (i) { return i.label; }));
       fillDatalist("paymentterms-list", (lists.PaymentTerms || []).map(function (i) { return i.label; }));
     }).withFailureHandler(function () { configLists = {}; }).getConfigLists();
 
-    google.script.run.withSuccessHandler(function (users) {
+    srv.withSuccessHandler(function (users) {
       fillDatalist("users-list", users.map(function (u) { return u.email; }));
     }).withFailureHandler(function () {}).listActiveUsers();
   }
@@ -1385,7 +1446,7 @@
           title: "Remove this contact?", okLabel: "Remove", danger: true
         }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function () {
+          srv.withSuccessHandler(function () {
             reloadCustomersKeepingModal();
             showMsg("Contact removed.", "success");
           }).withFailureHandler(onServerError).deleteCustomerContact(btn.dataset.delContact);
@@ -1415,7 +1476,7 @@
     }
     $("btn-add-itemcode").disabled = !canEditCustomers();
     zone.innerHTML = '<div class="empty" style="padding:14px;">Loading…</div>';
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       itemCodesCache = rows || [];
       renderItemCodes(c);
     }).withFailureHandler(function () {
@@ -1460,7 +1521,7 @@
         askDialog({ title: "Remove this code?", okLabel: "Remove", danger: true,
           message: "Their orders will need reading by hand again." }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function (rows) {
+          srv.withSuccessHandler(function (rows) {
             itemCodesCache = rows || []; renderItemCodes(c);
             showMsg("Code removed.", "success");
           }).withFailureHandler(onServerError).deleteCustomerItemCode(btn.dataset.delCode);
@@ -1512,7 +1573,7 @@
     if (!c) { showMsg("Save the customer first.", "error"); return; }
     var itemId = $("icf-item").value;
     if (!itemId) { showMsg("Find the part this code refers to.", "error"); return; }
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       itemCodesCache = rows || [];
       hideItemCodeForm();
       renderItemCodes(c);
@@ -1565,7 +1626,7 @@
           title: "Remove this address?", okLabel: "Remove", danger: true
         }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function () {
+          srv.withSuccessHandler(function () {
             reloadCustomersKeepingModal();
             showMsg("Address removed.", "success");
           }).withFailureHandler(onServerError).deleteCustomerAddress(btn.dataset.delAddr);
@@ -1577,7 +1638,7 @@
   /** Refreshes the cache and re-renders the open modal, so nested edits appear immediately. */
   function reloadCustomersKeepingModal() {
     var openId = $("cm-id").value;
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       customersCache = rows;
       renderCustomers();
       if (openId) {
@@ -1607,7 +1668,7 @@
     if (!obj.name) { showMsg("Customer name is required.", "error"); return; }
 
     // Advisory duplicate check first — a GSTIN clash is refused server-side regardless.
-    google.script.run.withSuccessHandler(function (dupes) {
+    srv.withSuccessHandler(function (dupes) {
       var advisory = dupes.filter(function (d) { return !d.blocking; });
       if (advisory.length && !$("cm-id").value) {
         var names = advisory.map(function (d) { return "• " + d.name + " (" + d.reasons + ")"; }).join("\n");
@@ -1632,9 +1693,9 @@
 
   function commitCustomer(obj) {
     var isNew = !$("cm-id").value;
-    google.script.run.withSuccessHandler(function (saved) {
+    srv.withSuccessHandler(function (saved) {
       customersLoaded = false;
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         customersCache = rows; customersLoaded = true; renderCustomers();
         if (onCustomerSaved) onCustomerSaved(saved, isNew);
         // Stay open on a new record so contacts/addresses can be added straight away.
@@ -1658,7 +1719,7 @@
       input: true, inputLabel: "Reason", okLabel: "Deactivate", danger: true
     }, function (reason) {
       if (reason === null) return;
-      google.script.run.withSuccessHandler(function () {
+      srv.withSuccessHandler(function () {
         customersLoaded = false;
         $("customer-modal-backdrop").classList.remove("show");
         initCustomersView();
@@ -1696,7 +1757,7 @@
     var name = $("cf-name").value.trim();
     if (!name) { showMsg("Contact name is required.", "error"); $("cf-name").focus(); return; }
 
-    google.script.run.withSuccessHandler(function () {
+    srv.withSuccessHandler(function () {
       hideContactForm();
       reloadCustomersKeepingModal();
       showMsg("Contact saved.", "success");
@@ -1744,7 +1805,7 @@
     var line1 = $("af-line1").value.trim();
     if (!line1) { showMsg("Address line 1 is required.", "error"); $("af-line1").focus(); return; }
 
-    google.script.run.withSuccessHandler(function () {
+    srv.withSuccessHandler(function () {
       hideAddressForm();
       reloadCustomersKeepingModal();
       showMsg("Address saved.", "success");
@@ -1772,18 +1833,18 @@
   function initEnquiriesView() {
     $("btn-new-enquiry").style.display = canEditEnquiries() ? "inline-flex" : "none";
     if (!customersLoaded) {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         customersCache = rows; customersLoaded = true; fillCustomerDatalist();
       }).withFailureHandler(function () {}).listCustomers();
     } else {
       fillCustomerDatalist();
     }
     if (!lostReasonsCache.length) {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         lostReasonsCache = rows;
       }).withFailureHandler(function () {}).listLostReasons();
     }
-    google.script.run.withSuccessHandler(function (models) {
+    srv.withSuccessHandler(function (models) {
       fillDatalist("models-list", models);
     }).withFailureHandler(function () {}).listKnownModels();
     if (!configLists) loadConfigLists();
@@ -1799,7 +1860,7 @@
   }
 
   function loadEnquiries() {
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       enquiriesCache = rows; renderEnquiries();
     }).withFailureHandler(onServerError).listSpareEnquiries({
       mineOnly: $("enquiry-mine").checked,
@@ -1903,7 +1964,7 @@
   $("btn-quote-enquiry").addEventListener("click", function () {
     var e = currentEnquiry();
     if (!e) return;
-    google.script.run.withSuccessHandler(function (q) {
+    srv.withSuccessHandler(function (q) {
       openQuote = q;
       $("enquiry-modal-backdrop").classList.remove("show");
       renderQuoteBuilder();
@@ -1951,7 +2012,7 @@
         askDialog({ title: "Remove this part from the enquiry?", okLabel: "Remove", danger: true },
           function (ok) {
             if (ok === null) return;
-            google.script.run.withSuccessHandler(function () {
+            srv.withSuccessHandler(function () {
               reloadEnquiriesKeepingModal();
               showMsg("Part removed.", "success");
             }).withFailureHandler(onServerError).deleteSpareEnquiryItem(btn.dataset.delItem);
@@ -1962,7 +2023,7 @@
 
   function reloadEnquiriesKeepingModal() {
     var openId = $("em-id").value;
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       enquiriesCache = rows;
       renderEnquiries();
       if (openId) {
@@ -1987,7 +2048,7 @@
       return;
     }
 
-    google.script.run.withSuccessHandler(function (saved) {
+    srv.withSuccessHandler(function (saved) {
       $("em-id").value = saved.id;
       $("em-no").textContent = saved.enquiryNo || "";
       $("enquiry-modal-title").textContent = "Spare Enquiry";
@@ -2035,7 +2096,7 @@
     var e = currentEnquiry();
     if (!e) return;
     $("idf-results").innerHTML = '<div class="empty" style="padding:14px;">Searching…</div>';
-    google.script.run.withSuccessHandler(renderIdentifyResults)
+    srv.withSuccessHandler(renderIdentifyResults)
       .withFailureHandler(onServerError)
       .suggestSpares($("idf-search").value.trim(), $("em-model").value.trim());
   }
@@ -2068,7 +2129,7 @@
         var note = r.available >= qty
           ? "In stock (" + r.available + " available)"
           : (r.available > 0 ? "Short — only " + r.available + " available" : "Out of stock");
-        google.script.run.withSuccessHandler(function () {
+        srv.withSuccessHandler(function () {
           reloadEnquiriesKeepingModal();
           showMsg(r.partNo + " added to the enquiry.", "success");
         }).withFailureHandler(onServerError).saveSpareEnquiryItem({
@@ -2099,7 +2160,7 @@
 
   function withPeople(then) {
     if (peopleCache) { then(peopleCache); return; }
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       peopleCache = data;
       then(peopleCache);
     }).withFailureHandler(function () {
@@ -2227,7 +2288,7 @@
       }, function (picked) {
         if (picked === null) return;   // cancelled, as distinct from "nobody"
 
-        google.script.run.withSuccessHandler(function () {
+        srv.withSuccessHandler(function () {
           showMsg(picked ? "This customer is now looked after by " + picked + "."
                          : "This customer is no longer assigned to anybody.", "success");
           // The approval rule and the banner both read off this, so reload rather than patch.
@@ -2324,14 +2385,14 @@
   function initQuotationsView() {
     if (!configLists) loadConfigLists();
     if (!lostReasonsCache.length) {
-      google.script.run.withSuccessHandler(function (rows) { lostReasonsCache = rows; })
+      srv.withSuccessHandler(function (rows) { lostReasonsCache = rows; })
         .withFailureHandler(function () {}).listLostReasons();
     }
     loadQuotations();
   }
 
   function loadQuotations() {
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       quotationsCache = rows; renderQuotations();
     }).withFailureHandler(onServerError).listQuotations({
       mineOnly: $("quotations-mine").checked,
@@ -2430,7 +2491,7 @@
 
   // ---- Builder ----
   function openQuotation(id) {
-    google.script.run.withSuccessHandler(function (q) {
+    srv.withSuccessHandler(function (q) {
       openQuote = q;
       renderQuoteBuilder();
       goToTab("quote");
@@ -2456,7 +2517,7 @@
   }
 
   function loadQuoteCustomers(then) {
-    google.script.run.withSuccessHandler(function (customers) {
+    srv.withSuccessHandler(function (customers) {
       quoteCustomers = customers.filter(function (c) {
         return String(c.active).toUpperCase() !== "FALSE";
       });
@@ -2530,7 +2591,7 @@
       showMsg("Add a customer first, on the Customers screen.", "error");
       return;
     }
-    google.script.run.withSuccessHandler(function (quote) {
+    srv.withSuccessHandler(function (quote) {
       openQuote = quote;
       renderQuoteBuilder();
       showMsg("Quotation " + quote.quoteNo + " started. Add lines from the catalog.", "success");
@@ -2721,7 +2782,7 @@
           input: true, inputLabel: "Reason", okLabel: "Reopen"
         }, function (reason) {
           if (reason === null) return;
-          google.script.run.withSuccessHandler(function (q) {
+          srv.withSuccessHandler(function (q) {
             openQuote = q;
             renderQuoteBuilder();
             showMsg(q.quoteNo + " is a draft again.", "success");
@@ -2742,7 +2803,7 @@
           danger: true
         }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function (res) {
+          srv.withSuccessHandler(function (res) {
             openQuote = null;
             renderQuoteEmpty();
             clearMsg();
@@ -2760,7 +2821,7 @@
           okLabel: "Revise"
         }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function (nq) {
+          srv.withSuccessHandler(function (nq) {
             openQuote = nq;
             renderQuoteBuilder();
             showMsg("Now editing " + nq.quoteNo + " " + nq.revision + ".", "success");
@@ -2792,7 +2853,7 @@
   }
 
   function applyQuoteStatus(status, reasonId) {
-    google.script.run.withSuccessHandler(function (q) {
+    srv.withSuccessHandler(function (q) {
       openQuote = q;
       renderQuoteBuilder();
       showMsg("Quotation marked " + quoteStatusLabel(status) + ".", "success");
@@ -2800,7 +2861,7 @@
   }
 
   $("btn-qb-save-header").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (q) {
+    srv.withSuccessHandler(function (q) {
       openQuote = q;
       renderQuoteBuilder();
       showMsg("Quotation details saved.", "success");
@@ -2843,13 +2904,13 @@
     onCustomerSaved = function () {
       onCustomerSaved = null;
       // Pull the quotation again so a corrected GSTIN shows here without a reload.
-      google.script.run.withSuccessHandler(function (q) {
+      srv.withSuccessHandler(function (q) {
         openQuote = q;
         renderQuoteBuilder();
       }).withFailureHandler(onServerError).getQuotation(quotationId);
     };
     if (customersLoaded) { openCustomerModal(openQuote.customerId); return; }
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       customersCache = rows; customersLoaded = true;
       openCustomerModal(openQuote.customerId);
     }).withFailureHandler(onServerError).listCustomers();
@@ -2910,7 +2971,7 @@
       btn.addEventListener("click", function () {
         askDialog({ title: "Remove this line?", okLabel: "Remove", danger: true }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function (nq) {
+          srv.withSuccessHandler(function (nq) {
             openQuote = nq; renderQuoteBuilder(); showMsg("Line removed.", "success");
           }).withFailureHandler(onServerError).deleteQuotationItem(btn.dataset.delLine);
         });
@@ -2935,7 +2996,7 @@
         }, function (val) {
           if (val === null) return;
           var parts = val.split(",").map(function (x) { return x.trim(); });
-          google.script.run.withSuccessHandler(function (nq) {
+          srv.withSuccessHandler(function (nq) {
             openQuote = nq; renderQuoteBuilder(); showMsg("Line updated.", "success");
           }).withFailureHandler(onServerError).saveQuotationItem({
             id: line.id, quotationId: q.id, lineNo: line.lineNo,
@@ -2989,7 +3050,7 @@
     $("btn-qd-print").disabled = true;
     $("quotedoc-modal-backdrop").classList.add("show");
 
-    google.script.run.withSuccessHandler(function (html) {
+    srv.withSuccessHandler(function (html) {
       $("qd-frame").srcdoc = html;
       $("qd-sub").textContent = openQuote.quoteNo + " " + (openQuote.revision || "R0") +
         " for " + openQuote.customerName +
@@ -3013,7 +3074,7 @@
   $("btn-qd-email").addEventListener("click", function () {
     var btn = $("btn-qd-email");
     btn.disabled = true;
-    google.script.run.withSuccessHandler(function (draft) {
+    srv.withSuccessHandler(function (draft) {
       btn.disabled = false;
       $("qmail-sub").textContent = draft.quoteNo +
         (draft.revision && draft.revision !== "R0" ? " " + draft.revision : "") +
@@ -3050,13 +3111,13 @@
     var btn = $("btn-qmail-send");
     btn.disabled = true;
     btn.textContent = "Sending\u2026";
-    google.script.run.withSuccessHandler(function (res) {
+    srv.withSuccessHandler(function (res) {
       btn.disabled = false;
       btn.textContent = "Send";
       $("qmail-modal-backdrop").classList.remove("show");
       $("quotedoc-modal-backdrop").classList.remove("show");
       // Sending moves it to Submitted, so the screen behind has to catch up.
-      google.script.run.withSuccessHandler(function (q) {
+      srv.withSuccessHandler(function (q) {
         openQuote = q;
         renderQuoteBuilder();
       }).withFailureHandler(onServerError).getQuotation(openQuote.id);
@@ -3096,7 +3157,7 @@
   $("btn-qd-pdf").addEventListener("click", function () {
     $("btn-qd-pdf").disabled = true;
     $("qd-result").innerHTML = '<div class="empty" style="padding:10px;">Creating the PDF…</div>';
-    google.script.run.withSuccessHandler(function (file) {
+    srv.withSuccessHandler(function (file) {
       $("qd-result").innerHTML =
         '<div class="compare-strip doc-link"><b>' + escapeHtml(file.name) + '</b> saved to your ' +
         'Drive, in the folder <b>ERP Quotations</b>. ' +
@@ -3171,8 +3232,8 @@
     var itemCode = isSpare ? completingSpare.partNo : completingSpare.productCode;
     var itemDesc = completingSpare.description || completingSpare.model;
 
-    google.script.run.withSuccessHandler(function (res) {
-      google.script.run.withSuccessHandler(function (nq) {
+    srv.withSuccessHandler(function (res) {
+      srv.withSuccessHandler(function (nq) {
         openQuote = nq;
         renderQuoteBuilder();
         closeCompletePanel();
@@ -3231,7 +3292,7 @@
       showMsg("Enter the amount for this charge.", "error");
       return;
     }
-    google.script.run.withSuccessHandler(function (nq) {
+    srv.withSuccessHandler(function (nq) {
       openQuote = nq;
       renderQuoteBuilder();
       showMsg("Charge saved.", "success");
@@ -3264,7 +3325,7 @@
   function loadProductGroups() {
     if (productGroupsLoaded) return;
     productGroupsLoaded = true;
-    google.script.run.withSuccessHandler(function (groups) {
+    srv.withSuccessHandler(function (groups) {
       $("productgroups-list").innerHTML = groups.map(function (g) {
         return '<option value="' + escapeHtml(g) + '"></option>';
       }).join("");
@@ -3356,7 +3417,7 @@
     spareCatalogLoading = true;
     $("qi-results").innerHTML = '<div class="empty" style="padding:12px;">' +
       "Loading the spare catalogue — once per quotation, then searching is instant…</div>";
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       spareCatalog = data;
       spareCatalogKey = key;
       spareCatalogLoading = false;
@@ -3378,7 +3439,7 @@
         renderQuoteItemResults(found.rows, "Spare", found.total);
       });
     } else {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         var q = $("qi-search").value.trim().toLowerCase();
         renderQuoteItemResults(rows.filter(function (p) {
           return !q || [p.productCode, p.model, p.family].join(" ").toLowerCase().indexOf(q) !== -1;
@@ -3516,7 +3577,7 @@
       var btn = $("qi-add-selected");
       btn.disabled = true;
       btn.textContent = "Adding " + chosen.length + "…";
-      google.script.run.withSuccessHandler(function (nq) {
+      srv.withSuccessHandler(function (nq) {
         openQuote = nq;
         renderQuoteBuilder();
         showMsg(quoteAddMsg(nq, chosen.length), "success");
@@ -3543,7 +3604,7 @@
           return;
         }
         btn.disabled = true;
-        google.script.run.withSuccessHandler(function (nq) {
+        srv.withSuccessHandler(function (nq) {
           openQuote = nq;
           renderQuoteBuilder();
           btn.disabled = false;
@@ -3585,7 +3646,7 @@
   }
 
   function loadServiceJobs() {
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       serviceCache = rows;
       renderServiceJobs();
     }).withFailureHandler(onServerError).listServiceJobs({
@@ -3672,7 +3733,7 @@
   $("btn-bd-save").addEventListener("click", function () {
     var btn = $("btn-bd-save");
     btn.disabled = true;
-    google.script.run.withSuccessHandler(function (job) {
+    srv.withSuccessHandler(function (job) {
       btn.disabled = false;
       $("breakdown-modal-backdrop").classList.remove("show");
       loadServiceJobs();
@@ -3694,7 +3755,7 @@
   });
 
   function openServiceJobModal(id) {
-    google.script.run.withSuccessHandler(function (job) {
+    srv.withSuccessHandler(function (job) {
       openServiceJob = job;
       renderServiceJobModal();
       $("service-modal-backdrop").classList.add("show");
@@ -3781,7 +3842,7 @@
     zone.innerHTML = proofListHtml(j.proofs || [], !closed);
     zone.querySelectorAll("[data-drop-proof]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        google.script.run.withSuccessHandler(function (proofs) {
+        srv.withSuccessHandler(function (proofs) {
           openServiceJob.proofs = proofs;
           renderServiceProofs();
           showMsg("Photograph removed.", "success");
@@ -3799,11 +3860,11 @@
     var restore = function () { btn.disabled = false; btn.textContent = "Add Photo"; };
 
     readProofPhoto(file, function (dataUrl) {
-      google.script.run.withSuccessHandler(function () {
+      srv.withSuccessHandler(function () {
         input.value = "";
         $("sj-proof-caption").value = "";
         restore();
-        google.script.run.withSuccessHandler(function (proofs) {
+        srv.withSuccessHandler(function (proofs) {
           openServiceJob.proofs = proofs;
           renderServiceProofs();
         }).withFailureHandler(onServerError).listServiceProofs(openServiceJob.id);
@@ -3840,7 +3901,7 @@
   $("btn-sjenq-save").addEventListener("click", function () {
     var btn = $("btn-sjenq-save");
     btn.disabled = true;
-    google.script.run.withSuccessHandler(function (res) {
+    srv.withSuccessHandler(function (res) {
       btn.disabled = false;
       $("sjenq-modal-backdrop").classList.remove("show");
       openServiceJobModal(openServiceJob.id);
@@ -3858,7 +3919,7 @@
   $("btn-sj-report").addEventListener("click", function () {
     var btn = $("btn-sj-report");
     btn.disabled = true; btn.textContent = "Building…";
-    google.script.run.withSuccessHandler(function (res) {
+    srv.withSuccessHandler(function (res) {
       btn.disabled = false; btn.textContent = "Service Report";
       window.open(res.url, "_blank");
       showMsg("Service report saved to Drive.", "success");
@@ -3901,7 +3962,7 @@
     // Assignment and status are two server calls because they are two different permissions:
     // a coordinator names the engineer, the engineer moves the job along.
     var thenStatus = function () {
-      google.script.run.withSuccessHandler(function (job) {
+      srv.withSuccessHandler(function (job) {
         openServiceJob = job;
         renderServiceJobModal();
         loadServiceJobs();
@@ -3911,7 +3972,7 @@
 
     if (engineer && (engineer !== openServiceJob.engineerEmail ||
         scheduled !== (openServiceJob.scheduledDate || ""))) {
-      google.script.run.withSuccessHandler(function (job) {
+      srv.withSuccessHandler(function (job) {
         openServiceJob = job;
         thenStatus();
       }).withFailureHandler(onServerError).assignServiceJob(id, engineer, scheduled);
@@ -3971,11 +4032,11 @@
   function loadCsRows() {
     var opts = { mineOnly: $("cs-mine").checked, includeClosed: $("cs-closed").checked };
     if (CS_MODE === "leads") {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         leadsCache = rows; renderCsRows();
       }).withFailureHandler(onServerError).listLeads(opts);
     } else {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         opportunitiesCache = rows; renderCsRows();
       }).withFailureHandler(onServerError).listOpportunities(opts);
     }
@@ -4192,19 +4253,19 @@
   /** Fetches whatever the form needs and is missing, then refills. */
   function ensureLeadFormData() {
     if (!customersCache.length) {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         customersCache = rows; customersLoaded = true;
         fillCustomerDatalist(); fillLeadCustomerSelect();
       }).withFailureHandler(onServerError).listCustomers();
     }
     if (!((configLists || {}).CompressorType || []).length) {
-      google.script.run.withSuccessHandler(function (lists) {
+      srv.withSuccessHandler(function (lists) {
         configLists = lists;
         fillLeadTypeSelect();
       }).withFailureHandler(onServerError).getConfigLists();
     }
     if (!lostReasonsCache.length) {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         lostReasonsCache = rows;
       }).withFailureHandler(onServerError).listLostReasons();
     }
@@ -4271,7 +4332,7 @@
       showMsg("Enter the company name this lead is from.", "error");
       return;
     }
-    google.script.run.withSuccessHandler(function (saved) {
+    srv.withSuccessHandler(function (saved) {
       $("lm-id").value = saved.id;
       $("lm-no").textContent = saved.leadNo || "";
       $("lead-modal-title").textContent = "Lead";
@@ -4310,7 +4371,7 @@
       okLabel: "Convert"
     }, function (ok) {
       if (ok === null) return;
-      google.script.run.withSuccessHandler(function (opp) {
+      srv.withSuccessHandler(function (opp) {
         $("lead-modal-backdrop").classList.remove("show");
         switchCsMode("pipeline");
         openOpportunity = opp;
@@ -4328,7 +4389,7 @@
   });
 
   function openOpportunityModal(id) {
-    google.script.run.withSuccessHandler(function (o) {
+    srv.withSuccessHandler(function (o) {
       openOpportunity = o;
       renderOpportunityModal();
       $("opp-modal-backdrop").classList.add("show");
@@ -4385,7 +4446,7 @@
   });
 
   $("btn-save-opp").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (o) {
+    srv.withSuccessHandler(function (o) {
       openOpportunity = o;
       renderOpportunityModal();
       loadCsRows();
@@ -4440,7 +4501,7 @@
     $("om-tech-form").style.display = "none";
   });
   $("btn-tech-save").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (o) {
+    srv.withSuccessHandler(function (o) {
       openOpportunity = o; renderOpportunityModal(); loadCsRows();
       showMsg("Technical requirement saved.", "success");
     }).withFailureHandler(onServerError).saveTechnicalRequirement({
@@ -4481,7 +4542,7 @@
       btn.addEventListener("click", function () {
         askDialog({ title: "Remove this selection?", okLabel: "Remove", danger: true }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function (o2) {
+          srv.withSuccessHandler(function (o2) {
             openOpportunity = o2; renderOpportunityModal();
           }).withFailureHandler(onServerError).deleteCompressorSelection(btn.dataset.delSel);
         });
@@ -4491,7 +4552,7 @@
 
   $("btn-selection-form").addEventListener("click", function () {
     $("om-selection-form").style.display = "";
-    google.script.run.withSuccessHandler(function (products) {
+    srv.withSuccessHandler(function (products) {
       $("sel-product").innerHTML = products.map(function (p) {
         return '<option value="' + p.id + '">' + escapeHtml(p.productCode + " — " + (p.model || "")) +
           (p.price ? " (" + fmt(p.price) + ")" : "") + "</option>";
@@ -4503,7 +4564,7 @@
   });
   $("btn-selection-save").addEventListener("click", function () {
     if (!$("sel-product").value) { showMsg("Pick a compressor.", "error"); return; }
-    google.script.run.withSuccessHandler(function (o) {
+    srv.withSuccessHandler(function (o) {
       openOpportunity = o; renderOpportunityModal();
       showMsg("Selection saved.", "success");
     }).withFailureHandler(onServerError).saveCompressorSelection({
@@ -4543,7 +4604,7 @@
     $("om-visit-form").style.display = "none";
   });
   $("btn-visit-save").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (o) {
+    srv.withSuccessHandler(function (o) {
       openOpportunity = o; renderOpportunityModal();
       showMsg("Site visit logged.", "success");
     }).withFailureHandler(onServerError).saveSiteVisit({
@@ -4584,7 +4645,7 @@
   });
   $("btn-activity-save").addEventListener("click", function () {
     if (!$("ac-notes").value.trim()) { showMsg("Write what happened.", "error"); return; }
-    google.script.run.withSuccessHandler(function () {
+    srv.withSuccessHandler(function () {
       openOpportunityModal(openOpportunity.id);
       loadCsRows();
       showMsg("Activity logged.", "success");
@@ -4625,7 +4686,7 @@
   }
 
   $("btn-quote-opp").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (q) {
+    srv.withSuccessHandler(function (q) {
       openQuote = q;
       $("opp-modal-backdrop").classList.remove("show");
       renderQuoteBuilder();
@@ -4668,7 +4729,7 @@
   }
 
   function loadOrders() {
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       ordersCache = rows; renderOrders();
     }).withFailureHandler(onServerError).listSalesOrders({
       mineOnly: $("orders-mine").checked,
@@ -4729,7 +4790,7 @@
 
   // ---- Create from quotation ----
   $("btn-new-order").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (quotes) {
+    srv.withSuccessHandler(function (quotes) {
       if (!quotes.length) {
         showMsg("No accepted quotations are waiting to be converted. Mark a quotation " +
           "Accepted first.", "error");
@@ -4762,7 +4823,7 @@
 
   $("btn-save-neworder").addEventListener("click", function () {
     if (!$("no-pono").value.trim()) { showMsg("Enter the customer's PO number.", "error"); return; }
-    google.script.run.withSuccessHandler(function (order) {
+    srv.withSuccessHandler(function (order) {
       $("neworder-modal-backdrop").classList.remove("show");
       loadOrders();
       openOrder = order;
@@ -4787,7 +4848,7 @@
   });
 
   function openOrderModal(id) {
-    google.script.run.withSuccessHandler(function (o) {
+    srv.withSuccessHandler(function (o) {
       openOrder = o;
       renderOrderModal();
       $("order-modal-backdrop").classList.add("show");
@@ -4908,7 +4969,7 @@
     zone.querySelectorAll("[data-order-status]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var target = btn.dataset.orderStatus;
-        google.script.run.withSuccessHandler(function (updated) {
+        srv.withSuccessHandler(function (updated) {
           openOrder = updated; renderOrderModal(); loadOrders();
           showMsg("Order moved to " + target + ".", "success");
         }).withFailureHandler(onServerError).setOrderStatus(o.id, target, "");
@@ -4917,7 +4978,7 @@
 
     if ($("btn-reserve-stock")) {
       $("btn-reserve-stock").addEventListener("click", function () {
-        google.script.run.withSuccessHandler(function (res) {
+        srv.withSuccessHandler(function (res) {
           openOrderModal(o.id);
           loadOrders();
           var msg = res.reserved.length
@@ -4942,7 +5003,7 @@
           input: true, inputLabel: "Reason for release", okLabel: "Release hold", danger: true
         }, function (reason) {
           if (reason === null) return;
-          google.script.run.withSuccessHandler(function (updated) {
+          srv.withSuccessHandler(function (updated) {
             openOrder = updated; renderOrderModal(); loadOrders();
             showMsg("Credit hold released.", "success");
           }).withFailureHandler(onServerError).releaseCreditHold(o.id, reason, "Material Pending");
@@ -4971,7 +5032,7 @@
   }
 
   $("btn-om2-save").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (updated) {
+    srv.withSuccessHandler(function (updated) {
       openOrder = updated; renderOrderModal(); loadOrders();
       showMsg("Order details saved. Credit check re-run.", "success");
     }).withFailureHandler(onServerError).saveOrderDetails({
@@ -5036,19 +5097,19 @@
 
   function loadInvRows() {
     if (INV_MODE === "stock") {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         inventoryCache = rows; renderInvRows();
       }).withFailureHandler(onServerError).listInventory($("inv-type").value);
     } else if (INV_MODE === "reservations") {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         reservationsCache = rows; renderInvRows();
       }).withFailureHandler(onServerError).listReservations({});
     } else if (INV_MODE === "inward") {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         grnsCache = rows; renderInvRows();
       }).withFailureHandler(onServerError).listGRNs({ includeVerified: true });
     } else {
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         serialsCache = rows; renderInvRows();
       }).withFailureHandler(onServerError).listSerialNumbers({});
     }
@@ -5142,7 +5203,7 @@
           input: true, inputLabel: "Reason", okLabel: "Release", danger: true
         }, function (reason) {
           if (reason === null) return;
-          google.script.run.withSuccessHandler(function () {
+          srv.withSuccessHandler(function () {
             loadInvRows(); showMsg("Reservation released.", "success");
           }).withFailureHandler(onServerError).releaseReservation(btn.dataset.releaseRes, reason);
         });
@@ -5251,7 +5312,7 @@
       $("grn-modal-backdrop").classList.add("show");
       return;
     }
-    google.script.run.withSuccessHandler(function (g) {
+    srv.withSuccessHandler(function (g) {
       openGrn = g;
       renderGrnModal();
       $("grn-modal-backdrop").classList.add("show");
@@ -5318,7 +5379,7 @@
       btn.addEventListener("click", function () {
         askDialog({ title: "Remove this line?", okLabel: "Remove", danger: true }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function (updated) {
+          srv.withSuccessHandler(function (updated) {
             openGrn = updated; renderGrnModal();
           }).withFailureHandler(onServerError).deleteGRNItem(btn.dataset.delGrni);
         });
@@ -5327,7 +5388,7 @@
   }
 
   $("btn-grn-save").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (g) {
+    srv.withSuccessHandler(function (g) {
       openGrn = g; renderGrnModal(); loadInvRows();
       showMsg("GRN " + g.grnNo + " saved.", "success");
     }).withFailureHandler(onServerError).saveGRN({
@@ -5360,7 +5421,7 @@
   });
 
   function runGrnItemSearch() {
-    google.script.run.withSuccessHandler(function (items) {
+    srv.withSuccessHandler(function (items) {
       $("gi-item").innerHTML = items.map(function (i) {
         return '<option value="' + i.id + '">' + escapeHtml(i.code + " — " + i.description) + "</option>";
       }).join("");
@@ -5369,7 +5430,7 @@
 
   $("btn-grn-saveitem").addEventListener("click", function () {
     if (!$("gi-item").value) { showMsg("Pick the item received.", "error"); return; }
-    google.script.run.withSuccessHandler(function (g) {
+    srv.withSuccessHandler(function (g) {
       openGrn = g; renderGrnModal();
       showMsg("Line added.", "success");
     }).withFailureHandler(onServerError).saveGRNItem({
@@ -5393,7 +5454,7 @@
       okLabel: "Verify and post"
     }, function (notes) {
       if (notes === null) return;
-      google.script.run.withSuccessHandler(function (g) {
+      srv.withSuccessHandler(function (g) {
         openGrn = g; renderGrnModal(); loadInvRows();
         showMsg("GRN verified — stock posted.", "success");
       }).withFailureHandler(onServerError).verifyGRN($("grn-id").value, notes);
@@ -5412,7 +5473,7 @@
     $("sn-status").value = sn ? sn.status : "In Stock";
     $("sn-notes").value = sn ? (sn.notes || "") : "";
 
-    google.script.run.withSuccessHandler(function (products) {
+    srv.withSuccessHandler(function (products) {
       $("sn-product").innerHTML = products.map(function (p) {
         return '<option value="' + p.id + '"' + (sn && sn.productId === p.id ? " selected" : "") + ">" +
           escapeHtml(p.productCode + " — " + (p.model || "")) + "</option>";
@@ -5423,7 +5484,7 @@
 
   $("btn-save-serial").addEventListener("click", function () {
     if (!$("sn-serial").value.trim()) { showMsg("Enter the serial number.", "error"); return; }
-    google.script.run.withSuccessHandler(function () {
+    srv.withSuccessHandler(function () {
       $("serial-modal-backdrop").classList.remove("show");
       loadInvRows();
       showMsg("Serial saved.", "success");
@@ -5495,13 +5556,13 @@
   function loadDispatchData() {
     var done = function (rows) { dspCache = rows; renderDspTable(); };
     if (dspMode === "dispatches") {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listDispatches({});
+      srv.withSuccessHandler(done).withFailureHandler(onServerError).listDispatches({});
     } else if (dspMode === "invoices") {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listInvoices({});
+      srv.withSuccessHandler(done).withFailureHandler(onServerError).listInvoices({});
     } else if (dspMode === "uninvoiced") {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listDispatchedNotInvoiced();
+      srv.withSuccessHandler(done).withFailureHandler(onServerError).listDispatchedNotInvoiced();
     } else {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listTallySyncQueue();
+      srv.withSuccessHandler(done).withFailureHandler(onServerError).listTallySyncQueue();
     }
   }
 
@@ -5696,7 +5757,7 @@
   var newDispatchOrders = [];
 
   function startNewDispatch() {
-    google.script.run.withSuccessHandler(function (orders) {
+    srv.withSuccessHandler(function (orders) {
       newDispatchOrders = orders;
       if (!orders.length) {
         showMsg("No orders are at Material Pending or Ready for Dispatch yet.", "error");
@@ -5717,7 +5778,7 @@
 
   function refreshNewDispatchReadiness() {
     var id = $("nd-order").value;
-    google.script.run.withSuccessHandler(function (readiness) {
+    srv.withSuccessHandler(function (readiness) {
       $("nd-readiness").innerHTML = readinessHtml(readiness);
       var blocked = !readiness.ready;
       $("nd-override-wrap").style.display = blocked && canOverrideDispatch() ? "" : "none";
@@ -5734,7 +5795,7 @@
   });
 
   $("btn-save-newdispatch").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (dispatch) {
+    srv.withSuccessHandler(function (dispatch) {
       $("newdispatch-modal-backdrop").classList.remove("show");
       openDispatch = dispatch;
       renderDispatchModal();
@@ -5757,7 +5818,7 @@
 
   // ---- Dispatch detail ----
   function openDispatchModal(id) {
-    google.script.run.withSuccessHandler(function (d) {
+    srv.withSuccessHandler(function (d) {
       openDispatch = d;
       renderDispatchModal();
       $("dispatch-modal-backdrop").classList.add("show");
@@ -5850,7 +5911,7 @@
           okLabel: "Remove", danger: true
         }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function (d2) {
+          srv.withSuccessHandler(function (d2) {
             openDispatch = d2; renderDispatchModal();
           }).withFailureHandler(onServerError).deleteDispatchItem(btn.dataset.delDline);
         });
@@ -5879,7 +5940,7 @@
       return String(i.id) === String($("dm-line-id").value);
     })[0];
     if (!line) return;
-    google.script.run.withSuccessHandler(function (d) {
+    srv.withSuccessHandler(function (d) {
       openDispatch = d; renderDispatchModal();
       showMsg("Line updated.", "success");
     }).withFailureHandler(onServerError).saveDispatchItem({
@@ -5894,7 +5955,7 @@
   });
 
   $("btn-dm-savedetails").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (d) {
+    srv.withSuccessHandler(function (d) {
       openDispatch = d; renderDispatchModal();
       showMsg("Logistics saved.", "success");
     }).withFailureHandler(onServerError).saveDispatchDetails({
@@ -5923,7 +5984,7 @@
       okLabel: "Post Dispatch"
     }, function (ok) {
       if (ok === null) return;
-      google.script.run.withSuccessHandler(function (d) {
+      srv.withSuccessHandler(function (d) {
         openDispatch = d; renderDispatchModal();
         showMsg("Dispatch " + d.dispatchNo + " posted. Raise the invoice next.", "success");
       }).withFailureHandler(onServerError).postDispatch(openDispatch.id);
@@ -5990,7 +6051,7 @@
         askDialog({ title: "Remove this document?", okLabel: "Remove", danger: true,
           message: "The file goes to the Drive bin; it is not destroyed." }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function () {
+          srv.withSuccessHandler(function () {
             showMsg("Document removed.", "success");
             reopenDocumentOwner(recordType, recordId);
           }).withFailureHandler(onServerError).deleteDocument(btn.dataset.docDel);
@@ -6019,7 +6080,7 @@
       var restore = function () { btn.disabled = false; btn.textContent = "Attach"; };
 
       readDocumentFile(file, function (dataUrl) {
-        google.script.run.withSuccessHandler(function () {
+        srv.withSuccessHandler(function () {
           restore();
           input.value = ""; $(prefix + "-doccaption").value = "";
           showMsg("Attached.", "success");
@@ -6092,7 +6153,7 @@
     var restore = function () { btn.disabled = false; btn.textContent = "Add Photo"; };
 
     readProofPhoto(file, function (dataUrl) {
-      google.script.run.withSuccessHandler(function () {
+      srv.withSuccessHandler(function () {
         input.value = "";
         $("dm-proof-caption").value = "";
         restore();
@@ -6108,7 +6169,7 @@
   });
 
   function refreshDispatchProofs() {
-    google.script.run.withSuccessHandler(function (proofs) {
+    srv.withSuccessHandler(function (proofs) {
       openDispatch.proofs = proofs;
       renderDispatchProofs();
     }).withFailureHandler(onServerError).listPodPhotos(openDispatch.id);
@@ -6120,7 +6181,7 @@
     zone.innerHTML = proofListHtml(openDispatch.proofs || [], true);
     zone.querySelectorAll("[data-drop-proof]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        google.script.run.withSuccessHandler(function (proofs) {
+        srv.withSuccessHandler(function (proofs) {
           openDispatch.proofs = proofs;
           renderDispatchProofs();
           showMsg("Photograph removed.", "success");
@@ -6152,7 +6213,7 @@
       okLabel: "Confirm Delivery"
     }, function (ref) {
       if (ref === null) return;
-      google.script.run.withSuccessHandler(function (d) {
+      srv.withSuccessHandler(function (d) {
         openDispatch = d; renderDispatchModal();
         showMsg("Delivery confirmed. Service job " +
           (d.serviceJob ? d.serviceJob.jobNo : "") + " raised.", "success");
@@ -6168,7 +6229,7 @@
 
   // ---- Raise invoice ----
   function startNewInvoice() {
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       if (!rows.length) {
         showMsg("Every posted dispatch is already invoiced.", "error");
         return;
@@ -6190,7 +6251,7 @@
   });
 
   $("btn-save-newinvoice").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (inv) {
+    srv.withSuccessHandler(function (inv) {
       $("newinvoice-modal-backdrop").classList.remove("show");
       openInvoice = inv;
       renderInvoiceModal();
@@ -6206,7 +6267,7 @@
   });
 
   function createInvoiceFor(dispatchId, before) {
-    google.script.run.withSuccessHandler(function (inv) {
+    srv.withSuccessHandler(function (inv) {
       if (before) before();
       openInvoice = inv;
       renderInvoiceModal();
@@ -6218,7 +6279,7 @@
 
   // ---- Invoice detail ----
   function openInvoiceModal(id) {
-    google.script.run.withSuccessHandler(function (inv) {
+    srv.withSuccessHandler(function (inv) {
       openInvoice = inv;
       renderInvoiceModal();
       $("invoice-modal-backdrop").classList.add("show");
@@ -6328,7 +6389,7 @@
   });
 
   $("btn-im-saveirn").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (inv) {
+    srv.withSuccessHandler(function (inv) {
       openInvoice = inv; renderInvoiceModal();
       showMsg(inv.irn ? "E-invoice reference saved." : "E-invoice reference cleared.", "success");
     }).withFailureHandler(onServerError).saveEInvoiceReference({
@@ -6343,7 +6404,7 @@
   wireDocumentUpload("om2", "SalesOrder", function () { return openOrder && openOrder.id; });
 
   $("btn-im-save").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (inv) {
+    srv.withSuccessHandler(function (inv) {
       openInvoice = inv; renderInvoiceModal();
       showMsg("Invoice details saved.", "success");
     }).withFailureHandler(onServerError).saveInvoiceDetails({
@@ -6364,7 +6425,7 @@
       okLabel: "Issue Invoice"
     }, function (ok) {
       if (ok === null) return;
-      google.script.run.withSuccessHandler(function (inv) {
+      srv.withSuccessHandler(function (inv) {
         openInvoice = inv; renderInvoiceModal();
         showMsg("Invoice " + inv.invoiceNo + " issued.", "success");
       }).withFailureHandler(onServerError).issueInvoice(openInvoice.id);
@@ -6378,7 +6439,7 @@
       input: true, inputLabel: "Reason *", okLabel: "Cancel Invoice", danger: true
     }, function (reason) {
       if (reason === null) return;
-      google.script.run.withSuccessHandler(function (inv) {
+      srv.withSuccessHandler(function (inv) {
         openInvoice = inv; renderInvoiceModal();
         showMsg("Invoice cancelled.", "success");
       }).withFailureHandler(onServerError).cancelInvoice(openInvoice.id, reason);
@@ -6386,7 +6447,7 @@
   });
 
   $("btn-im-tally").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (inv) {
+    srv.withSuccessHandler(function (inv) {
       openInvoice = inv; renderInvoiceModal();
       showMsg("Invoice sent to Tally.", "success");
     }).withFailureHandler(onServerError).pushInvoiceToTally(openInvoice.id);
@@ -6399,7 +6460,7 @@
       input: true, inputLabel: "Tally Reference", required: false, okLabel: "Mark as Synced"
     }, function (ref) {
       if (ref === null) return;
-      google.script.run.withSuccessHandler(function (inv) {
+      srv.withSuccessHandler(function (inv) {
         openInvoice = inv; renderInvoiceModal();
         showMsg("Marked as entered in Tally.", "success");
       }).withFailureHandler(onServerError).markInvoiceSyncedManually(openInvoice.id, ref);
@@ -6456,7 +6517,7 @@
 
   function loadCollections() {
     // The ageing strip is the same for every sub-tab, so it is fetched once alongside the rows.
-    google.script.run.withSuccessHandler(function (summary) {
+    srv.withSuccessHandler(function (summary) {
       colSummary = summary;
       renderColSummary();
     }).withFailureHandler(onServerError).getAgeingSummary();
@@ -6465,15 +6526,15 @@
     var overdue = $("col-overdue").checked;
 
     if (colMode === "ageing") {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).getAgeingByCustomer();
+      srv.withSuccessHandler(done).withFailureHandler(onServerError).getAgeingByCustomer();
     } else if (colMode === "receivables") {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError)
+      srv.withSuccessHandler(done).withFailureHandler(onServerError)
         .getReceivables({ overdueOnly: overdue });
     } else if (colMode === "followups") {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError)
+      srv.withSuccessHandler(done).withFailureHandler(onServerError)
         .listFollowups({ openOnly: true });
     } else {
-      google.script.run.withSuccessHandler(done).withFailureHandler(onServerError).listReceipts({});
+      srv.withSuccessHandler(done).withFailureHandler(onServerError).listReceipts({});
     }
   }
 
@@ -6659,7 +6720,7 @@
           input: true, inputLabel: "Reason *", okLabel: "Reverse Receipt", danger: true
         }, function (reason) {
           if (reason === null) return;
-          google.script.run.withSuccessHandler(function () {
+          srv.withSuccessHandler(function () {
             loadCollections();
             showMsg("Receipt reversed.", "success");
           }).withFailureHandler(onServerError).reverseReceipt(btn.dataset.reverse, reason);
@@ -6672,7 +6733,7 @@
   var receivablesForPicker = [];
 
   function startReceipt(invoiceId) {
-    google.script.run.withSuccessHandler(function (rows) {
+    srv.withSuccessHandler(function (rows) {
       receivablesForPicker = rows;
       if (!rows.length) {
         showMsg("There are no unpaid invoices to receipt against.", "error");
@@ -6713,7 +6774,7 @@
   });
 
   $("btn-save-receipt").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function () {
+    srv.withSuccessHandler(function () {
       $("receipt-modal-backdrop").classList.remove("show");
       loadCollections();
       showMsg("Receipt recorded.", "success");
@@ -6756,7 +6817,7 @@
   });
 
   $("btn-save-followup").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function () {
+    srv.withSuccessHandler(function () {
       $("followup-modal-backdrop").classList.remove("show");
       loadCollections();
       showMsg("Follow-up saved.", "success");
@@ -6785,7 +6846,7 @@
     $("btn-ri-commit").style.display = "none";
     setRiMode("file");
     clearRiFile();
-    google.script.run.withSuccessHandler(function (tpl) {
+    srv.withSuccessHandler(function (tpl) {
       $("ri-header").textContent = tpl.split("\n")[0];
     }).withFailureHandler(onServerError).getReceiptImportTemplate();
     $("rcpimport-modal-backdrop").classList.add("show");
@@ -6882,7 +6943,7 @@
       showMsg(riMode === "file" ? "Choose a CSV file first." : "Paste the CSV first.", "error");
       return;
     }
-    google.script.run.withSuccessHandler(renderImportPreview)
+    srv.withSuccessHandler(renderImportPreview)
       .withFailureHandler(onServerError).previewReceiptImport(text);
   });
 
@@ -6896,7 +6957,7 @@
       okLabel: "Pull"
     }, function (from) {
       if (from === null) return;
-      google.script.run.withSuccessHandler(function (result) {
+      srv.withSuccessHandler(function (result) {
         // Importing sends the text, not the preview. Drop what Tally returned into the paste
         // box and switch to it, so the rows on screen are the rows Import will actually write
         // — and so anyone can see and correct them before committing.
@@ -6945,7 +7006,7 @@
 
   $("btn-ri-commit").addEventListener("click", function () {
     if (!riPreview || !riPreview.valid.length) return;
-    google.script.run.withSuccessHandler(function (result) {
+    srv.withSuccessHandler(function (result) {
       $("rcpimport-modal-backdrop").classList.remove("show");
       loadCollections();
       showMsg(result.imported + " receipt(s) imported" +
@@ -6955,7 +7016,7 @@
 
   // ---- Customer statement ----
   function openStatement(customerId) {
-    google.script.run.withSuccessHandler(function (st) {
+    srv.withSuccessHandler(function (st) {
       $("statement-modal-title").textContent = st.customerName;
       $("st-sub").textContent = (st.paymentTerms || "No terms set") +
         (st.creditDays !== null ? " · " + st.creditDays + " days credit" : "") +
@@ -7049,7 +7110,7 @@
 
   function loadDashboard(refresh) {
     $("dash-stamp").textContent = "Loading…";
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       dashData = data;
       clearMsg();
       renderDashboard();
@@ -7319,7 +7380,7 @@
   function initSettingsView() { loadSettings(); }
 
   function loadSettings() {
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       setData = data;
       clearMsg();
       renderBrandTiles();
@@ -7419,7 +7480,7 @@
     var rows = setData.users;
     var body = rows.length
       ? '<div style="overflow-x:auto;"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th>' +
-        "<th>Stream</th><th>Status</th><th></th></tr></thead><tbody>" +
+        "<th>Stream</th><th>Status</th><th>Password</th><th></th></tr></thead><tbody>" +
         rows.map(function (u) {
           var active = String(u.active).toUpperCase() !== "FALSE";
           return "<tr>" +
@@ -7430,21 +7491,61 @@
             "<td>" + escapeHtml(u.businessStream || "All") + "</td>" +
             '<td><span class="badge ' + (active ? "badge-won" : "badge-lost") + '">' +
               (active ? "Active" : "Inactive") + "</span></td>" +
-            '<td class="center"><button class="btn btn-sm" data-user="' + u.id + '">Edit</button></td>' +
+            // Whether they can get in at all, which is not the same question as whether their
+            // row is active — a new user has one and no way to use it until this is set.
+            "<td>" + (u.hasPassword
+              ? (u.mustChangePassword
+                  ? '<span class="badge badge-overdue">must change</span>'
+                  : '<span class="badge badge-won">set</span>')
+              : '<span class="badge badge-lost">not set</span>') +
+              (u.locked ? ' <span class="badge badge-lost">locked</span>' : "") + "</td>" +
+            '<td class="center" style="white-space:nowrap;">' +
+              '<button class="btn btn-sm" data-user="' + u.id + '">Edit</button> ' +
+              '<button class="btn btn-sm" data-user-pw="' + u.id + '">Set password</button></td>' +
             "</tr>";
         }).join("") + "</tbody></table></div>"
       : '<div class="empty">No users yet.</div>';
 
     $("set-panel").innerHTML = panelCard(
       "Users",
-      "Sign-in is by Google account — there are no passwords here. This list decides who gets " +
-        "in and what they may do.",
+      "This list decides who gets in and what they may do. People sign in with the email " +
+        "address here and a password you set — no Google account is involved, and the " +
+        "spreadsheet behind the portal is shared with nobody.",
       '<button class="btn btn-primary btn-sm" id="btn-add-user">+ Add User</button>',
       body);
 
     $("btn-add-user").addEventListener("click", function () { openUserModal(null); });
     $("set-panel").querySelectorAll("[data-user]").forEach(function (btn) {
       btn.addEventListener("click", function () { openUserModal(btn.dataset.user); });
+    });
+    $("set-panel").querySelectorAll("[data-user-pw]").forEach(function (btn) {
+      btn.addEventListener("click", function () { setPasswordFor(btn.dataset.userPw); });
+    });
+  }
+
+  /**
+   * An admin giving somebody a password.
+   *
+   * It sets one rather than showing one — there is nothing to look up, because only the
+   * derived form is stored. Whoever receives it must change it before doing anything else,
+   * so the password an admin knows is never the one left in use.
+   */
+  function setPasswordFor(id) {
+    var u = setData.users.filter(function (x) { return String(x.id) === String(id); })[0];
+    if (!u) return;
+    askDialog({
+      title: "Set a password for " + u.name,
+      message: "Tell it to them yourself — it is not stored anywhere readable, and they will " +
+        "be made to choose their own the first time they sign in. Any sessions they have open " +
+        "will end.",
+      input: true, inputLabel: "New password (8+ characters, a letter and a number)",
+      okLabel: "Set password"
+    }, function (password) {
+      if (password === null) return;
+      srv.withSuccessHandler(function (result) {
+        loadSettings();
+        showMsg(result.message, "success");
+      }).withFailureHandler(onServerError).setUserPassword({ id: id, password: password });
     });
   }
 
@@ -7473,7 +7574,7 @@
   });
 
   $("btn-save-user").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       setData = data;
       $("user-modal-backdrop").classList.remove("show");
       renderBrandTiles(); renderSetPanel();
@@ -7554,7 +7655,7 @@
   });
 
   $("btn-save-listitem").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function () {
+    srv.withSuccessHandler(function () {
       $("listitem-modal-backdrop").classList.remove("show");
       loadSettings();
       showMsg("List item saved.", "success");
@@ -7612,7 +7713,7 @@
   });
 
   $("btn-save-reason").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       setData = data;
       $("reason-modal-backdrop").classList.remove("show");
       renderSetPanel();
@@ -7685,7 +7786,7 @@
   });
 
   $("btn-save-warehouse").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       setData = data;
       $("warehouse-modal-backdrop").classList.remove("show");
       renderSetPanel();
@@ -7718,7 +7819,7 @@
   });
 
   $("btn-save-brand").addEventListener("click", function () {
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       setData = data;
       $("brand-modal-backdrop").classList.remove("show");
       renderBrandTiles();
@@ -7781,7 +7882,7 @@
   }
 
   function saveTally(clearCredential) {
-    google.script.run.withSuccessHandler(function (data) {
+    srv.withSuccessHandler(function (data) {
       setData = data;
       renderSetPanel();
       showMsg(clearCredential ? "Credential cleared." : "Tally connection saved.", "success");
@@ -7795,7 +7896,7 @@
 
   function testTally() {
     $("tly-result").innerHTML = '<p style="font-size:12.5px; color:var(--ink-soft); margin-top:14px;">Testing…</p>';
-    google.script.run.withSuccessHandler(function (r) {
+    srv.withSuccessHandler(function (r) {
       $("tly-result").innerHTML =
         '<div class="card" style="margin:14px 0 0; border-color:' +
           (r.ok ? "var(--st-good)" : "var(--st-critical)") + ';">' +
@@ -7848,7 +7949,7 @@
     };
 
     if (importSpecs) { show(); return; }
-    google.script.run.withSuccessHandler(function (specs) {
+    srv.withSuccessHandler(function (specs) {
       importSpecs = specs;
       show();
     }).withFailureHandler(onServerError).getTallyImportSpecs();
@@ -7991,7 +8092,7 @@
   $("btn-ti-preview").addEventListener("click", function () {
     if (!importCsvText) { showMsg("Choose a CSV file first.", "error"); return; }
     $("ti-preview").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Checking…</p>';
-    google.script.run.withSuccessHandler(function (result) {
+    srv.withSuccessHandler(function (result) {
       importPreview = result;
       renderTallyPreview(result);
     }).withFailureHandler(function (err) {
@@ -8082,7 +8183,7 @@
     }, function (ok) {
       if (ok === null) return;
       var kind = $("ti-kind").value;
-      google.script.run.withSuccessHandler(function (result) {
+      srv.withSuccessHandler(function (result) {
         showMsg(result.imported + " row(s) imported from " + importFileName +
           (result.rejected ? ", " + result.rejected + " rejected." : "."), "success");
         $("tallyimport-modal-backdrop").classList.remove("show");
@@ -8332,7 +8433,7 @@
         payload[IMAGE_TO_FIELD[k]] = pendingImages[k];
       });
       payload.logoShowsName = $("co-logoShowsName").checked;
-      google.script.run.withSuccessHandler(function () {
+      srv.withSuccessHandler(function () {
         // re-read from what was actually stored
         pendingImages = { logo: null, partner: null, seal: null };
         loadSettings();
@@ -8415,7 +8516,7 @@
           danger: true
         }, function (ok) {
           if (ok === null) return;
-          google.script.run.withSuccessHandler(function (res) {
+          srv.withSuccessHandler(function (res) {
             loadSettings();
             if (res.unchanged) {
               showMsg("Nothing to change — the standard wording is already in place.", "success");
@@ -8466,7 +8567,7 @@
       showMsg("The text cannot be empty.", "error");
       return;
     }
-    google.script.run.withSuccessHandler(function () {
+    srv.withSuccessHandler(function () {
       $("qtpl-modal-backdrop").classList.remove("show");
       loadSettings();
       showMsg("Quotation text saved.", "success");
@@ -8567,7 +8668,7 @@
         return;
       }
       $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Clearing…</p>';
-      google.script.run.withSuccessHandler(function (res) {
+      srv.withSuccessHandler(function (res) {
         catalogLoaded.spares = false;
         var kept = res.keptTotal || 0;
         $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +
@@ -8615,7 +8716,7 @@
       out('<p style="font-size:12.5px; margin-top:14px;">Running…</p>');
       showMsg("Running setup…", "success");
 
-      google.script.run.withSuccessHandler(function (report) {
+      srv.withSuccessHandler(function (report) {
         var line = function (label, arr) {
           return arr && arr.length
             ? "<div><b>" + label + ":</b> " + escapeHtml(arr.join(", ")) + "</div>" : "";
@@ -8647,7 +8748,7 @@
    */
   function purgeSparesDeepNow() {
     $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Working out what this would remove…</p>';
-    google.script.run.withSuccessHandler(function (plan) {
+    srv.withSuccessHandler(function (plan) {
       var quoteLines = plan.quotations.map(function (q) {
         return "<li>quotation <span class=\"mono\">" + escapeHtml(q.quoteNo) + "</span> (" +
           escapeHtml(quoteStatusLabel(q.status)) + ")</li>";
@@ -8706,7 +8807,7 @@
           return;
         }
         $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Clearing…</p>';
-        google.script.run.withSuccessHandler(function (res) {
+        srv.withSuccessHandler(function (res) {
           catalogLoaded.spares = false;
           $("sys-result").innerHTML = '<div class="card" style="margin-top:14px; font-size:12.5px;">' +
             "<b>Done.</b> " + res.deleted + " spare(s) deleted, with " + res.prices +
@@ -8735,7 +8836,7 @@
   function wireAuditButton() {
     $("btn-view-audit").addEventListener("click", function () {
       $("sys-result").innerHTML = '<p style="font-size:12.5px; margin-top:14px;">Loading…</p>';
-      google.script.run.withSuccessHandler(function (rows) {
+      srv.withSuccessHandler(function (rows) {
         $("sys-result").innerHTML = rows.length
           ? '<div class="card" style="padding:0; overflow-x:auto; max-height:420px; margin-top:14px;">' +
             "<table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Table</th>" +
@@ -8775,7 +8876,12 @@
         "<span>" + escapeHtml(user.role) + "</span></span>";
     renderTabs();
     $("boot-screen").style.display = "none";
+    $("signin-screen").style.display = "none";
     $("app").style.display = "block";
+
+    $("whoami").addEventListener("click", openAccountMenu);
+    // A password somebody else chose is a way in, not a password — so this is not dismissable.
+    if (pendingPasswordChange) { openPasswordModal(true); return; }
 
     // A section that appears on the printed offer without warning is unsettling, so say which
     // one arrived with the deployment and where it is edited.
@@ -8788,13 +8894,145 @@
   }
 
   function onBootFailure(err) {
+    var text = err && err.message ? err.message : String(err);
+    // No session, or one that has lapsed, is not a fault — it is somebody arriving.
+    if (/SESSION_ENDED/.test(text)) { showSignIn(""); return; }
     $("boot-screen").style.display = "none";
     $("error-screen").style.display = "flex";
-    $("error-text").textContent = err && err.message ? err.message : String(err);
+    $("error-text").textContent = text;
   }
 
+  /** Clicking your own name: change the password, or leave. */
+  function openAccountMenu() {
+    askDialog({
+      title: currentUser.name,
+      message: currentUser.email + " · " + currentUser.role +
+        (currentUser.businessStream && currentUser.businessStream !== "All"
+          ? " · " + currentUser.businessStream : ""),
+      options: [{ value: "password", label: "Change my password" },
+                { value: "signout", label: "Sign out" }],
+      optionsLabel: "What would you like to do?",
+      okLabel: "Go"
+    }, function (choice) {
+      if (choice === "password") { openPasswordModal(false); return; }
+      if (choice === "signout") {
+        var token = sessionToken;
+        rememberSession(null);
+        // Told to forget it server-side too, so a token copied from this browser is dead.
+        google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {})
+          .logout(token);
+        showSignIn("You have signed out.");
+      }
+    });
+  }
+
+  // ---------------- Signing in ----------------
+  /**
+   * The sign-in screen, and the only place a password is handled.
+   *
+   * `login` is called on google.script.run directly rather than through `srv`, because srv
+   * sends a session token and the whole point of this call is that there is not one yet.
+   */
+  function showSignIn(message) {
+    $("boot-screen").style.display = "none";
+    $("app").style.display = "none";
+    $("error-screen").style.display = "none";
+    $("signin-screen").style.display = "flex";
+    $("signin-msg").innerHTML = message
+      ? '<div class="msg msg-error show" style="position:static; margin-bottom:14px;">' +
+        '<span class="msg-text">' + escapeHtml(message) + "</span></div>"
+      : "";
+    $("signin-password").value = "";
+    ($("signin-email").value ? $("signin-password") : $("signin-email")).focus();
+  }
+
+  function attemptSignIn() {
+    var email = $("signin-email").value.trim();
+    var password = $("signin-password").value;
+    if (!email || !password) { showSignIn("Enter your email address and password."); return; }
+
+    var btn = $("btn-signin");
+    btn.disabled = true; btn.textContent = "Signing in…";
+    var restore = function () { btn.disabled = false; btn.textContent = "Sign in"; };
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        restore();
+        rememberSession(result.token);
+        $("signin-screen").style.display = "none";
+        $("boot-screen").style.display = "flex";
+        // A password an admin set is a way in, not a password. Change it before anything else.
+        pendingPasswordChange = !!result.user.mustChangePassword;
+        init();
+      })
+      .withFailureHandler(function (err) {
+        restore();
+        showSignIn(err && err.message ? err.message : String(err));
+      })
+      .login(email, password);
+  }
+
+  $("btn-signin").addEventListener("click", attemptSignIn);
+  ["signin-email", "signin-password"].forEach(function (id) {
+    $(id).addEventListener("keydown", function (e) {
+      if (e.key === "Enter") attemptSignIn();
+    });
+  });
+
+  // ---------------- Changing a password ----------------
+  var pendingPasswordChange = false;
+
+  function openPasswordModal(forced) {
+    $("password-modal-title").textContent = forced
+      ? "Choose your own password" : "Change your password";
+    $("password-modal-sub").textContent = forced
+      ? "Your ERP Admin set the one you just used. Pick one only you know."
+      : "";
+    $("btn-pw-cancel").style.display = forced ? "none" : "";
+    $("password-modal-msg").innerHTML = "";
+    $("pw-current").value = ""; $("pw-new").value = ""; $("pw-confirm").value = "";
+    $("password-modal-backdrop").classList.add("show");
+    $("pw-current").focus();
+  }
+
+  function passwordModalError(text) {
+    $("password-modal-msg").innerHTML =
+      '<div class="msg msg-error show" style="position:static; margin-bottom:14px;">' +
+      '<span class="msg-text">' + escapeHtml(text) + "</span></div>";
+  }
+
+  $("btn-pw-cancel").addEventListener("click", function () {
+    $("password-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-pw-save").addEventListener("click", function () {
+    var next = $("pw-new").value;
+    if (next !== $("pw-confirm").value) {
+      passwordModalError("The two new passwords are not the same."); return;
+    }
+    var btn = $("btn-pw-save");
+    btn.disabled = true; btn.textContent = "Changing…";
+    var restore = function () { btn.disabled = false; btn.textContent = "Change password"; };
+
+    srv.withSuccessHandler(function (result) {
+      restore();
+      // Changing a password ends every session, including this one — the server hands back a
+      // fresh token so the person is not thrown out of the screen in front of them.
+      rememberSession(result.token);
+      pendingPasswordChange = false;
+      $("password-modal-backdrop").classList.remove("show");
+      showMsg("Password changed.", "success");
+    }).withFailureHandler(function (err) {
+      restore();
+      passwordModalError(err && err.message ? err.message : String(err));
+    }).changeMyPassword($("pw-current").value, next);
+  });
+
   function init() {
-    google.script.run.withSuccessHandler(onBootSuccess).withFailureHandler(onBootFailure).bootstrap();
+    if (!sessionToken) { showSignIn(""); return; }
+    $("signin-screen").style.display = "none";
+    $("boot-screen").style.display = "flex";
+    srv.withSuccessHandler(onBootSuccess).withFailureHandler(onBootFailure).bootstrap();
   }
 
   init();

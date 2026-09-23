@@ -10,7 +10,59 @@
 <div id="boot-screen" class="boot-screen">
   <div class="card">
     <h3 style="margin-bottom:10px;">Loading…</h3>
-    <p style="color:var(--ink-soft); font-size:13px;">Checking your account against the Users tab.</p>
+    <p style="color:var(--ink-soft); font-size:13px;">Checking your session.</p>
+  </div>
+</div>
+
+<!-- Signing in. The portal checks the password itself: PIE's staff have no company Google
+     addresses, and the app no longer runs as whoever opens it, so Google is not asked. -->
+<div id="signin-screen" class="boot-screen" style="display:none;">
+  <div class="card" style="max-width:380px;">
+    <h3 style="margin-bottom:4px;" id="signin-title">Sign in</h3>
+    <p style="color:var(--ink-soft); font-size:13px; margin:0 0 18px;" id="signin-sub">
+      Use the email address and password your ERP Admin set up for you.
+    </p>
+    <div id="signin-msg"></div>
+    <div class="field" style="margin-bottom:12px;">
+      <label>Email</label>
+      <input id="signin-email" type="email" autocomplete="username" />
+    </div>
+    <div class="field" style="margin-bottom:18px;">
+      <label>Password</label>
+      <input id="signin-password" type="password" autocomplete="current-password" />
+    </div>
+    <button class="btn btn-primary" id="btn-signin" style="width:100%;">Sign in</button>
+    <p style="color:var(--ink-soft); font-size:11.5px; margin:14px 0 0;">
+      Forgotten it? Your ERP Admin can set a new one — nobody can look up the old.
+    </p>
+  </div>
+</div>
+
+<!-- Forced on a password an admin set, and reachable afterwards from the header. -->
+<div class="modal-backdrop" id="password-modal-backdrop">
+  <div class="modal" style="max-width:420px;">
+    <h3 id="password-modal-title" style="margin-bottom:4px;">Change your password</h3>
+    <p id="password-modal-sub" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;"></p>
+    <div id="password-modal-msg"></div>
+    <div class="field" style="margin-bottom:12px;">
+      <label>Current password</label>
+      <input id="pw-current" type="password" autocomplete="current-password" />
+    </div>
+    <div class="field" style="margin-bottom:12px;">
+      <label>New password</label>
+      <input id="pw-new" type="password" autocomplete="new-password" />
+    </div>
+    <div class="field" style="margin-bottom:6px;">
+      <label>New password again</label>
+      <input id="pw-confirm" type="password" autocomplete="new-password" />
+    </div>
+    <p style="font-size:11.5px; color:var(--ink-soft); margin:0 0 16px;">
+      At least 8 characters, with a letter and a number.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-sm" id="btn-pw-cancel">Cancel</button>
+      <button class="btn btn-sm btn-primary" id="btn-pw-save">Change password</button>
+    </div>
   </div>
 </div>
 
