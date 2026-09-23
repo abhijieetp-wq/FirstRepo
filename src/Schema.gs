@@ -157,6 +157,24 @@ var SCHEMA = {
     columns: ['id', 'spareId', 'alternateSpareId', 'altPartNo', 'altDescription', 'altSource',
       'notes', 'active']
   },
+  /**
+   * What a customer calls a part in their own system.
+   *
+   * Sanvijay's purchase orders name each line by their material code — 2000004278 for an oil
+   * filter — and mention ELGi's part number, if at all, somewhere inside the description:
+   * "PART NO. X017503" on one line, "PRE FILTER 015400889" with no label on the next. Every
+   * repeat order therefore begins with somebody reading prose to work out which part is
+   * meant, and the prose is not written the same way twice.
+   *
+   * Their code is meaningless outside their system, so this is a mapping per customer, not a
+   * column on the spare: two customers will have different codes for the same filter, and
+   * neither is the part's own number.
+   */
+  CustomerItemCodes: {
+    label: "The customer's own code for a part, so their next order can be read directly",
+    columns: ['id', 'customerId', 'itemType', 'itemId', 'theirCode', 'theirDescription',
+      'notes', 'active', 'createdAt', 'createdBy']
+  },
   PriceList: {
     label: 'Effective-dated prices; old quotes keep old prices (FR-016, FR-017). Two levels: ' +
       'PIE is the buying/cost price, ELGI is the selling price. Quotations use ELGI, shown ' +

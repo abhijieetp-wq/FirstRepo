@@ -448,6 +448,10 @@ function buildQuotationHtml(quotationId) {
     '</tr>');
 
   var gross = 0;
+  // What this customer calls each part, looked up once rather than per line. Resolved
+  // here rather than stored on the line, so correcting a mapping corrects the offers
+  // that have not gone out yet.
+  var theirCodes = customerCodeMap_(q.customerId);
   items.forEach(function (i) {
     var isCharge = i.lineType === 'Charge';
     var qty = Number(i.qty) || 0;
@@ -464,7 +468,13 @@ function buildQuotationHtml(quotationId) {
         '<td>' + (hsn || '—') + '</td>' +
         '<td class="num">' + (isCharge ? '—' : esc_((Number(i.taxPct) || 0).toFixed(2)) + '%') + '</td>'
       // A charge has no part number and no extended rate — it is simply an amount.
-      : '<td class="mono">' + (isCharge ? '' : esc_(i.itemCode)) + '</td>' +
+      : '<td class="mono">' + (isCharge ? '' : esc_(i.itemCode) +
+          // Their own code under ours, where they have one. Their stores department receipts
+          // goods against the code on their purchase order, not against ELGi's.
+          (theirCodes[i.itemType + '|' + i.itemId]
+            ? '<div class="their-code">' +
+              esc_(theirCodes[i.itemType + '|' + i.itemId].theirCode) + '</div>'
+            : '')) + '</td>' +
         '<td>' + esc_(i.description || i.itemCode) + '</td>' +
         '<td class="num">' + (isCharge ? '' : inr_(unit)) + '</td>' +
         '<td class="num">' + (isCharge ? '' : esc_(qty)) + '</td>' +
@@ -664,6 +674,10 @@ function quotationCss_(co) {
     'table.page > tbody > tr > td{padding:14px 0 0;vertical-align:top;}' +
     'table.page > thead > tr > td{padding:0;}' +
     'table.page > tfoot > tr > td{padding:0;}' +
+
+    // The customer's own code, under ours in the part-number cell: quieter than the part
+    // number, because it is a cross-reference rather than what we are selling.
+    '.their-code{font-size:8.5pt;color:#555;margin-top:1px;}' +
 
     '.lh{width:100%;border-collapse:collapse;}' +
     '.lh td{padding:0;vertical-align:middle;}' +

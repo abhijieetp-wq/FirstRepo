@@ -53,7 +53,10 @@ function assignCustomerCoordinator(customerId, email) {
 
   var customer = findRowById_('Customers', customerId);
   if (!customer) throw new Error('Customer not found.');
-  requireStream_(user, customer.businessStream, 'This customer');
+  // No stream check: a customer is one record used by both front offices — "One customer
+  // code used across both streams" — so there is no stream to check against. Reading
+  // customer.businessStream looked like a guard and was one only by accident of always
+  // being undefined. mayActForCustomer_ below is the rule that actually decides this.
 
   if (!mayActForCustomer_(user, customer)) {
     throw new Error(quoteApprovalRule_(customer).why +

@@ -1341,8 +1341,10 @@
 
     hideContactForm();
     hideAddressForm();
+    hideItemCodeForm();
     renderContacts(c);
     renderAddresses(c);
+    loadItemCodes(c);
     $("customer-modal-backdrop").classList.add("show");
   }
 
@@ -1391,6 +1393,139 @@
       });
     });
   }
+
+  /**
+   * What this customer calls each part, and the form that records it.
+   *
+   * Their purchase orders name every line by their own code and mention ours, when at all,
+   * somewhere inside the description — differently worded on each line. Recorded once here,
+   * their code finds the part in the picker and prints beside ours on the offer, and nobody
+   * reads prose to work out which filter was meant.
+   */
+  var itemCodesCache = [];
+
+  function loadItemCodes(c) {
+    var zone = $("cm-itemcodes");
+    if (!c) {
+      itemCodesCache = [];
+      zone.innerHTML = '<div class="empty" style="padding:14px;">' +
+        "Save the customer first, then record their codes.</div>";
+      $("btn-add-itemcode").disabled = true;
+      return;
+    }
+    $("btn-add-itemcode").disabled = !canEditCustomers();
+    zone.innerHTML = '<div class="empty" style="padding:14px;">Loading…</div>';
+    google.script.run.withSuccessHandler(function (rows) {
+      itemCodesCache = rows || [];
+      renderItemCodes(c);
+    }).withFailureHandler(function () {
+      // A Sheet set up before this existed has no tab; nothing recorded is the honest answer.
+      itemCodesCache = [];
+      renderItemCodes(c);
+    }).listCustomerItemCodes(c.id);
+  }
+
+  function renderItemCodes(c) {
+    var zone = $("cm-itemcodes");
+    if (!itemCodesCache.length) {
+      zone.innerHTML = '<div class="empty" style="padding:14px;">No codes recorded yet.</div>';
+      return;
+    }
+    zone.innerHTML = "<table><thead><tr><th>Their code</th><th>Their description</th>" +
+      "<th>Our part</th><th>Description</th><th></th></tr></thead><tbody>" +
+      itemCodesCache.map(function (r) {
+        return "<tr>" +
+          '<td class="mono">' + escapeHtml(r.theirCode) + "</td>" +
+          "<td>" + escapeHtml(r.theirDescription || "—") + "</td>" +
+          '<td class="mono">' + escapeHtml(r.ourCode || "—") + "</td>" +
+          "<td>" + escapeHtml(r.ourDescription || "") +
+            // A part removed from the catalogue leaves the mapping pointing at nothing.
+            (r.missing ? ' <span class="badge badge-lost">part no longer in the catalogue</span>'
+                       : "") + "</td>" +
+          '<td class="center" style="white-space:nowrap;">' +
+            '<button class="btn-ghost" data-edit-code="' + escapeHtml(r.id) + '" title="Edit">✎</button>' +
+            '<button class="btn-ghost" data-del-code="' + escapeHtml(r.id) + '" title="Remove">✕</button>' +
+          "</td></tr>";
+      }).join("") + "</tbody></table>";
+
+    zone.querySelectorAll("[data-edit-code]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var row = itemCodesCache.filter(function (x) {
+          return String(x.id) === btn.dataset.editCode; })[0];
+        showItemCodeForm(row);
+      });
+    });
+    zone.querySelectorAll("[data-del-code]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        askDialog({ title: "Remove this code?", okLabel: "Remove", danger: true,
+          message: "Their orders will need reading by hand again." }, function (ok) {
+          if (ok === null) return;
+          google.script.run.withSuccessHandler(function (rows) {
+            itemCodesCache = rows || []; renderItemCodes(c);
+            showMsg("Code removed.", "success");
+          }).withFailureHandler(onServerError).deleteCustomerItemCode(btn.dataset.delCode);
+        });
+      });
+    });
+  }
+
+  function hideItemCodeForm() {
+    var form = $("cm-itemcode-form");
+    if (form) form.style.display = "none";
+  }
+
+  function showItemCodeForm(row) {
+    $("icf-id").value = row ? row.id : "";
+    $("icf-theircode").value = row ? row.theirCode : "";
+    $("icf-theirdesc").value = row ? (row.theirDescription || "") : "";
+    $("icf-search").value = "";
+    fillItemCodeParts(row ? row.itemId : "");
+    $("cm-itemcode-form").style.display = "";
+    $("icf-theircode").focus();
+  }
+
+  /** The catalogue, narrowed by whatever was typed — a dropdown of 3,500 is not a chooser. */
+  function fillItemCodeParts(selectedId) {
+    var q = $("icf-search").value.trim().toLowerCase();
+    var rows = (sparesCache || []).filter(function (sp) {
+      if (String(sp.id) === String(selectedId)) return true;
+      if (!q) return false;
+      return String(sp.partNo).toLowerCase().indexOf(q) !== -1 ||
+             String(sp.description).toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 50);
+    $("icf-item").innerHTML = rows.length
+      ? rows.map(function (sp) {
+          return '<option value="' + escapeHtml(sp.id) + '"' +
+            (String(sp.id) === String(selectedId) ? " selected" : "") + ">" +
+            escapeHtml(sp.partNo + " — " + sp.description) + "</option>";
+        }).join("")
+      : '<option value="">' + (q ? "Nothing matched" : "Type above to find the part") +
+        "</option>";
+  }
+
+  $("btn-add-itemcode").addEventListener("click", function () { showItemCodeForm(null); });
+  $("btn-cancel-itemcode").addEventListener("click", hideItemCodeForm);
+  $("icf-search").addEventListener("input", function () { fillItemCodeParts(""); });
+
+  $("btn-save-itemcode").addEventListener("click", function () {
+    var c = currentCustomer();
+    if (!c) { showMsg("Save the customer first.", "error"); return; }
+    var itemId = $("icf-item").value;
+    if (!itemId) { showMsg("Find the part this code refers to.", "error"); return; }
+    google.script.run.withSuccessHandler(function (rows) {
+      itemCodesCache = rows || [];
+      hideItemCodeForm();
+      renderItemCodes(c);
+      showMsg("Code saved.", "success");
+    }).withFailureHandler(onServerError).saveCustomerItemCode({
+      id: $("icf-id").value || null,
+      customerId: c.id,
+      itemType: "Spare",
+      itemId: itemId,
+      theirCode: $("icf-theircode").value.trim(),
+      theirDescription: $("icf-theirdesc").value.trim()
+    });
+  });
 
   function renderAddresses(c) {
     var zone = $("cm-addresses");
@@ -3174,9 +3309,11 @@
 
   function spareCatalogRow(r, compat) {
     var fit = compat[r[0]] || 0;
+    var theirs = (spareCatalog && spareCatalog.theirCodes) || {};
     return { id: r[0], partNo: r[1], description: r[2], productGroup: r[3], category: r[4],
              uom: r[5], hsnCode: r[6], price: r[7], available: r[8],
-             compatibilityConfirmed: fit > 0, isServiceKit: fit === 2 };
+             compatibilityConfirmed: fit > 0, isServiceKit: fit === 2,
+             theirCode: theirs[r[0]] || "" };
   }
 
   /** The same matching the server did, run here where it costs nothing. */
@@ -3184,6 +3321,9 @@
     var text = String(q || "").trim().toLowerCase();
     var grp = String(group || "").trim().toLowerCase();
     var compat = spareCatalog.compat || {};
+    // The customer's own code searches like any other: their purchase order names the part
+    // by it, and typing what is on the order in front of you should find the part.
+    var theirs = spareCatalog.theirCodes || {};
     var hits = [];
     var rows = spareCatalog.rows;
     for (var i = 0; i < rows.length; i++) {
@@ -3192,7 +3332,8 @@
       if (text &&
           r[1].toLowerCase().indexOf(text) === -1 &&
           r[2].toLowerCase().indexOf(text) === -1 &&
-          r[4].toLowerCase().indexOf(text) === -1) continue;
+          r[4].toLowerCase().indexOf(text) === -1 &&
+          String(theirs[r[0]] || "").toLowerCase().indexOf(text) === -1) continue;
       hits.push(r);
     }
     hits.sort(function (a, b) {
@@ -3205,7 +3346,11 @@
   }
 
   function withSpareCatalog(then) {
-    var key = (openQuote ? openQuote.machineModel : "") || "";
+    // Keyed by the machine model and the customer: the model decides which parts are marked
+    // as fitting, and the customer decides whose codes come with it. Serving one customer's
+    // codes on another's quotation would be worse than having none.
+    var key = ((openQuote ? openQuote.machineModel : "") || "") + "|" +
+              ((openQuote ? openQuote.customerId : "") || "");
     if (spareCatalog && spareCatalogKey === key) { then(); return; }
     if (spareCatalogLoading) return;
     spareCatalogLoading = true;
@@ -3220,7 +3365,8 @@
       spareCatalogLoading = false;
       $("qi-results").innerHTML = "";
       onServerError(err);
-    }).sparePickerData(key);
+    }).sparePickerData((openQuote ? openQuote.machineModel : "") || "",
+                       (openQuote ? openQuote.customerId : "") || "");
   }
 
   function runQuoteItemSearch() {
@@ -3317,7 +3463,11 @@
         return "<tr>" +
           '<td class="center">' + (quoteItemNeedsDetails(r) ? ""
             : '<input type="checkbox" class="qi-pick" data-pick="' + escapeHtml(r.id) + '">') + "</td>" +
-          '<td class="mono">' + escapeHtml(code) + "</td>" +
+          '<td class="mono">' + escapeHtml(code) +
+            // Their code under ours, so a coordinator reading the customer's order can see
+            // the two are the same part rather than taking it on trust.
+            (r.theirCode ? '<br><span style="font-size:11px; color:var(--ink-soft);">their ' +
+              escapeHtml(r.theirCode) + "</span>" : "") + "</td>" +
           "<td>" + escapeHtml(quoteItemDesc(r)) +
             (r.productGroup ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
               escapeHtml(r.productGroup) + "</span>" : "") + "</td>" +

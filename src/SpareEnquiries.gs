@@ -298,10 +298,19 @@ function nextEnquiryNo_() {
 var SPARE_PICKER_COLS = ['id', 'partNo', 'description', 'productGroup', 'category', 'uom',
                          'hsnCode', 'price', 'available'];
 
-function sparePickerData(productModel) {
+function sparePickerData(productModel, customerId) {
   getCurrentUser();
 
   var model = String(productModel || '').trim().toLowerCase();
+  // What this customer calls each part, sent with the catalogue so searching by their code
+  // stays as instant as searching by ours. Small: one row per part a customer has ever
+  // ordered, not one per part in the catalogue.
+  var theirCodes = {};
+  var codeMap = customerCodeMap_(customerId);
+  Object.keys(codeMap).forEach(function (key) {
+    if (key.indexOf('Spare|') !== 0) return;
+    theirCodes[key.slice('Spare|'.length)] = codeMap[key].theirCode;
+  });
   var compat = {};
   if (model) {
     readTable_('SpareCompatibility').forEach(function (c) {
@@ -345,5 +354,6 @@ function sparePickerData(productModel) {
     }
   }
 
-  return { cols: SPARE_PICKER_COLS, rows: rows, compat: compat, count: rows.length };
+  return { cols: SPARE_PICKER_COLS, rows: rows, compat: compat, count: rows.length,
+           theirCodes: theirCodes };
 }
