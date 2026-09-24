@@ -3033,7 +3033,14 @@
     srv.withSuccessHandler(function (q) {
       openQuote = q;
       renderQuoteBuilder();
-      showMsg("Quotation marked " + quoteStatusLabel(status) + ".", "success");
+      // Accepted and Declined close a quotation, and All Quotations hides closed ones. Saying
+      // so here is the difference between a quotation that has moved on and one that looks
+      // like it was deleted by the button you just pressed.
+      showMsg("Quotation marked " + quoteStatusLabel(status) + "." +
+        (["Won", "Lost"].indexOf(status) !== -1
+          ? " It is closed now, so All Quotations hides it unless " +
+            "\u2018Include accepted & declined\u2019 is ticked."
+          : ""), "success");
       if (done) done(null);
     }).withFailureHandler(function (err) {
       if (done) { done(err); return; }
