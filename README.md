@@ -59,13 +59,32 @@ Nobody can sign in until somebody has a password, and setting one needs a signed
 so there is one door that needs no password, and it is not reachable from the web app.
 
 1. Deploy, so the manifest's `executeAs`/`access` settings take effect.
-2. In the Apps Script editor, run once:
-   `setInitialAdminPassword('you@example.com', 'somethingYouChoose')`
-   Running a function from the editor requires owning the script, which Google has already
-   checked. That is the whole of its authority, and why it is on the deny-list in `call`.
-3. Sign in with it. You will be made to choose your own before anything else opens.
-4. Set a password for each person under **Settings → Users → Set password**. They must change
-   it on first use, so the one you know is never the one left in service.
+2. Make sure everybody who needs an account has a row in the **Users** tab.
+3. In the Apps Script editor, pick **`createSignInPasswords`** from the function dropdown next
+   to Run, and press **Run**. It gives a password to every active user who has none and prints
+   them to the execution log:
+
+   ```
+   3 passwords set:
+
+     priya@pie.in  amber-ember-t957      (Priya, Sales Coordinator)
+     boss@pie.in   marble-zephyr-r482    (Abhijeet, ERP Admin)
+     arun@pie.in   kettle-nutmeg-a367    (Arun Deshmukh, Sales Coordinator)
+   ```
+
+   It takes no arguments because **the editor's Run button cannot pass any**, and it invents
+   the passwords rather than accepting them so that none is ever typed into a file that gets
+   committed. Running a function from the editor requires owning the script, which Google has
+   already checked; that is the whole of its authority, and why it is on the deny-list in
+   `call`. The words are pickable-out-loud and the random tail leaves out every character that
+   gets argued about on the phone — no O or 0, no l or 1 or I.
+4. Give each person their own. Every one must be changed on first use, so none of the
+   passwords you just read stays in service. Afterwards, replacements are set inside the
+   portal under **Settings → Users → Set password**.
+
+If the only admin is ever locked out, **`resetAllSignInPasswords`** — also zero-argument, also
+editor-only — replaces everybody's and prints the new set. Blunt on purpose: it exists for the
+case where a precise tool would need somebody already inside to aim it.
 
 **Then unshare the Sheet from everyone it is currently shared with.** The code stops needing
 those grants; it cannot revoke ones already given. Until that is done the old Drive back-door

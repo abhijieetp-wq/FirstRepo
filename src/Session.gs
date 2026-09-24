@@ -266,7 +266,10 @@ function forgetSessionsFor_(email) {
  * ending in an underscore is internal by this codebase's convention, and the auth functions
  * are named here so a token cannot be used to mint another.
  */
-var CALL_DENY_ = ['call', 'doGet', 'include', 'login', 'logout', 'setInitialAdminPassword'];
+var CALL_DENY_ = ['call', 'doGet', 'include', 'login', 'logout',
+  // The editor-only doors. Their authority is that Google checked who opened the editor, so
+  // reaching them from the web app would be handing that authority to anybody with the URL.
+  'setInitialAdminPassword', 'createSignInPasswords', 'resetAllSignInPasswords'];
 
 function call(token, fnName, args) {
   var user = userForToken_(token);
@@ -284,12 +287,109 @@ function call(token, fnName, args) {
 }
 
 /**
- * Sets the very first password, from the Apps Script editor.
+ * A password somebody can read over the phone.
  *
- * There has to be one way in that does not need a password, or a new installation has nobody
- * who can create one. Running a function from the editor requires being the script's owner,
- * which Google has already checked — so that is the door, and it is not reachable from the
- * web app at all.
+ * Three short pieces and a number: long enough to be worth something, plain enough to dictate
+ * without spelling out. The alphabet leaves out every character that is argued about out loud
+ * — no O or 0, no l or 1 or I — because the first thing that happens to one of these is that
+ * it gets read to somebody.
+ *
+ * It is a way in, not a password: whoever receives it must choose their own before anything
+ * else opens.
+ */
+var PASSWORD_WORDS_ = ['amber', 'anvil', 'basalt', 'cedar', 'copper', 'delta', 'ember',
+  'falcon', 'garnet', 'harbour', 'indigo', 'jasper', 'kettle', 'lantern', 'marble', 'nutmeg',
+  'quartz', 'rattan', 'saffron', 'teak', 'umber', 'velvet', 'walnut', 'yarrow', 'zephyr'];
+
+function readablePassword_() {
+  var pick = function (list) {
+    return list[Math.floor(Math.random() * list.length)];
+  };
+  // The tail is where ambiguity bites: a stray character carries no meaning to correct a
+  // mishearing, so i, l and o go, and 0 and 1 with them. The words keep theirs — "basalt"
+  // read aloud is not in doubt because it is a word.
+  var letters = 'abcdefghjkmnpqrstuvwxyz'.split('');
+  var digits = '23456789'.split('');
+  // "anvil-anvil" is as random as any other pair and reads like a mistake, which is enough
+  // reason for somebody to ring up and check before using it.
+  var first = pick(PASSWORD_WORDS_);
+  var second = pick(PASSWORD_WORDS_);
+  while (second === first) second = pick(PASSWORD_WORDS_);
+  return first + '-' + second + '-' +
+    pick(letters) + pick(digits) + pick(digits) + pick(digits);
+}
+
+/**
+ * Gives a password to everybody who has none, and prints them. Run from the editor.
+ *
+ * There has to be one way in that does not itself need a password, or a new installation has
+ * nobody who can create one. Running a function from the editor requires being the script's
+ * owner, which Google has already checked — that is the whole of this function's authority,
+ * and it is on the deny-list above so the web app cannot reach it.
+ *
+ * It takes no arguments because the editor's Run button cannot pass any, and it invents the
+ * passwords rather than accepting them so that none is ever typed into a file that gets
+ * committed. They are printed once, to the execution log, which only the owner can see.
+ */
+function createSignInPasswords() {
+  var made = [];
+  readTable_('Users').forEach(function (row) {
+    if (String(row.active).toUpperCase() === 'FALSE') return;
+    if (row.passwordHash) return;
+    var password = readablePassword_();
+    storePassword_(row, password, true);
+    made.push({ email: row.email, name: row.name, role: row.role, password: password });
+  });
+
+  if (!made.length) {
+    return 'Everybody active already has a password. To replace one, use Settings → Users → ' +
+      'Set password inside the portal, or resetAllSignInPasswords() if nobody can get in.';
+  }
+  return describePasswords_(made);
+}
+
+/**
+ * Replaces everybody's password. The way back in when nobody can get in.
+ *
+ * Blunt on purpose: it exists for the case where the only admin has forgotten theirs, and in
+ * that situation a precise tool is one that needs somebody already inside to aim it.
+ */
+function resetAllSignInPasswords() {
+  var made = [];
+  readTable_('Users').forEach(function (row) {
+    if (String(row.active).toUpperCase() === 'FALSE') return;
+    var password = readablePassword_();
+    storePassword_(row, password, true);
+    forgetSessionsFor_(row.email);
+    made.push({ email: row.email, name: row.name, role: row.role, password: password });
+  });
+  if (!made.length) return 'There are no active users in the Users tab.';
+  return describePasswords_(made);
+}
+
+/** Lays the new passwords out so they can be read off and handed over. */
+function describePasswords_(made) {
+  var width = 0;
+  made.forEach(function (m) { width = Math.max(width, String(m.email).length); });
+  var lines = made.map(function (m) {
+    var pad = new Array(width - String(m.email).length + 3).join(' ');
+    return '  ' + m.email + pad + m.password + '   (' + m.name + ', ' + m.role + ')';
+  });
+  var text = made.length + (made.length === 1 ? ' password set:' : ' passwords set:') + '\n\n' +
+    lines.join('\n') +
+    '\n\nGive each person their own. Every one has to be changed the first time it is used, ' +
+    'so none of these stays in service. They are shown here once and nowhere else — nothing ' +
+    'stores a password in a form anybody can read back, including this function.';
+  // Logged as well as returned: the return value of a long list is awkward to read in the
+  // dialog the editor shows, and the log holds it until it is needed.
+  Logger.log(text);
+  return text;
+}
+
+/**
+ * Sets one known password for one person, for anybody driving the script from outside the
+ * editor — clasp, or a test. The editor's Run button cannot reach it usefully, which is what
+ * createSignInPasswords() above exists for.
  */
 function setInitialAdminPassword(email, password) {
   var row = userRowByEmail_(email);
