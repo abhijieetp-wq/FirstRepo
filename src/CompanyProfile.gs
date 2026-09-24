@@ -292,6 +292,14 @@ function applyBuildUpdates_() {
     } catch (err) {
       console.warn('Could not add missing columns: ' + err.message);
     }
+    // A column added above starts empty, and an empty username is one nobody can sign in
+    // with. Filling it from the address they already used means the change does not begin by
+    // locking out everybody who was working yesterday.
+    try {
+      backfillUsernames_();
+    } catch (err) {
+      console.warn('Could not fill in usernames: ' + err.message);
+    }
     var added = installMissingQuoteTemplates_('Standard quotation text installed with build ' +
       APP_BUILD);
     props.setProperty(BUILD_STAMP_KEY_, APP_BUILD);

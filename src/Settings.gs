@@ -108,6 +108,20 @@ function saveUser(input) {
   if (!String(input.name || '').trim()) throw new Error('Enter the person’s name.');
   if (ALL_ROLES.indexOf(input.role) === -1) throw new Error('Pick one of the five roles.');
 
+  // What they sign in with. Typed, it is checked and a clash refused — signing somebody in as
+  // arun2 when they asked for arun would be worse than saying so. Left blank it is derived,
+  // and a derivation that clashes is nudged aside rather than refused, because a second Arun
+  // should get an account and not an error message.
+  var username;
+  if (String(input.username || '').trim()) {
+    username = String(input.username).trim();
+    var problem = usernameComplaint_(username, input.id);
+    if (problem) throw new Error(problem);
+  } else {
+    username = freeUsername_(
+      derivedUsername_({ email: email, name: input.name, id: input.id }), input.id);
+  }
+
   var users = readTable_('Users');
   var existing = users.filter(function (u) {
     return String(u.email).trim().toLowerCase() === email;
@@ -141,6 +155,7 @@ function saveUser(input) {
   }
 
   var record = {
+    username: username,
     email: email,
     name: String(input.name).trim(),
     role: input.role,
@@ -185,8 +200,9 @@ function setUserPassword(input) {
 
   storePassword_(row, String((input && input.password) || ''), true);
   forgetSessionsFor_(row.email);
-  return { email: row.email,
-           message: row.name + ' can sign in with this password once, and must then change it.' };
+  return { email: row.email, username: loginNameFor_(row),
+           message: row.name + ' can sign in as ' + loginNameFor_(row) +
+             ' with this password once, and must then change it.' };
 }
 
 /**

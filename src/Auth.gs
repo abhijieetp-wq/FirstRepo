@@ -116,6 +116,10 @@ function userFromRow_(match) {
   var crossStream = (role === ROLES.ERP_ADMIN || role === ROLES.MANAGEMENT);
   return {
     email: email,
+    // What they sign in with. `email` is still the identity everything else is stored
+    // against — the audit trail, who prepared a quotation, who looks after a customer — so
+    // the username is carried beside it rather than in place of it.
+    username: String(match.username || '').trim() || derivedUsername_(match),
     name: match.name || email,
     role: role,
     businessStream: crossStream ? 'All' : (match.businessStream || 'Spare Sales')

@@ -7479,13 +7479,16 @@
   function renderUsersPanel() {
     var rows = setData.users;
     var body = rows.length
-      ? '<div style="overflow-x:auto;"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th>' +
+      ? '<div style="overflow-x:auto;"><table><thead><tr><th>Name</th><th>Username</th>' +
+        "<th>Email</th><th>Role</th>" +
         "<th>Stream</th><th>Status</th><th>Password</th><th></th></tr></thead><tbody>" +
         rows.map(function (u) {
           var active = String(u.active).toUpperCase() !== "FALSE";
           return "<tr>" +
             "<td><b>" + escapeHtml(u.name) + "</b>" +
               (u.isSelf ? ' <span class="badge badge-dormant">you</span>' : "") + "</td>" +
+            // What they sign in with, first — it is the thing an admin is asked for.
+            '<td class="mono"><b>' + escapeHtml(u.username || "—") + "</b></td>" +
             '<td class="mono" style="font-size:12px;">' + escapeHtml(u.email) + "</td>" +
             "<td>" + escapeHtml(u.role) + "</td>" +
             "<td>" + escapeHtml(u.businessStream || "All") + "</td>" +
@@ -7555,6 +7558,8 @@
     $("usr-id").value = u ? u.id : "";
     $("usr-email").value = u ? u.email : "";
     $("usr-email").disabled = !!u;   // the email is the identity; changing it makes a new person
+    // The username is only what they type, so unlike the email it can be corrected later.
+    $("usr-username").value = u ? (u.username || "") : "";
     $("usr-name").value = u ? u.name : "";
     $("usr-role").innerHTML = setData.roles.map(function (r) {
       return '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + "</option>";
@@ -7582,6 +7587,7 @@
     }).withFailureHandler(onServerError).saveUser({
       id: $("usr-id").value || null,
       email: $("usr-email").value.trim(),
+      username: $("usr-username").value.trim(),
       name: $("usr-name").value.trim(),
       role: $("usr-role").value,
       designation: $("usr-designation").value.trim(),
@@ -8906,7 +8912,7 @@
   function openAccountMenu() {
     askDialog({
       title: currentUser.name,
-      message: currentUser.email + " · " + currentUser.role +
+      message: (currentUser.username || currentUser.email) + " · " + currentUser.role +
         (currentUser.businessStream && currentUser.businessStream !== "All"
           ? " · " + currentUser.businessStream : ""),
       options: [{ value: "password", label: "Change my password" },
@@ -8947,9 +8953,11 @@
   }
 
   function attemptSignIn() {
-    var email = $("signin-email").value.trim();
+    // The server takes an email here too, for anybody who learnt to sign in that way before
+    // usernames existed. The box asks for a username because that is what people have.
+    var login = $("signin-email").value.trim();
     var password = $("signin-password").value;
-    if (!email || !password) { showSignIn("Enter your email address and password."); return; }
+    if (!login || !password) { showSignIn("Enter your username and password."); return; }
 
     var btn = $("btn-signin");
     btn.disabled = true; btn.textContent = "Signing in…";
@@ -8969,7 +8977,7 @@
         restore();
         showSignIn(err && err.message ? err.message : String(err));
       })
-      .login(email, password);
+      .login(login, password);
   }
 
   $("btn-signin").addEventListener("click", attemptSignIn);

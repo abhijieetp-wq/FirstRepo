@@ -125,16 +125,106 @@ function userRowByEmail_(email) {
 }
 
 /**
+ * The Users row for whatever somebody typed into the sign-in box.
+ *
+ * A username, because PIE's staff have no company addresses and asking for a personal one
+ * reads as though the portal wants it. The email is still accepted: nobody who learnt to
+ * sign in one way should be turned away for it, and during the changeover both are in use.
+ */
+function userRowByLogin_(login) {
+  var wanted = String(login || '').trim().toLowerCase();
+  if (!wanted) return null;
+  var users = readTable_('Users');
+  return users.filter(function (u) {
+    return String(u.username).trim().toLowerCase() === wanted;
+  })[0] || users.filter(function (u) {
+    return String(u.email).trim().toLowerCase() === wanted;
+  })[0] || null;
+}
+
+/**
+ * A username from a name or an address, for a row that predates this field.
+ *
+ * Derived rather than demanded, so the change does not begin by locking everybody out of a
+ * system they were using yesterday.
+ */
+function derivedUsername_(row) {
+  var fromEmail = String(row.email || '').split('@')[0];
+  var base = (fromEmail || String(row.name || '')).toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  return base || String(row.id || '').toLowerCase();
+}
+
+/**
+ * The nearest free username to the one asked for.
+ *
+ * A second Arun should get an account, not an error message — the derivation is a
+ * convenience, and a convenience that refuses is worse than none. A username somebody typed
+ * on purpose is a different matter and is refused on a clash, because silently signing them
+ * in as arun2 would be worse than telling them.
+ */
+function freeUsername_(base, exceptUserId) {
+  var taken = {};
+  readTable_('Users').forEach(function (u) {
+    if (String(u.id) === String(exceptUserId || '')) return;
+    var name = String(u.username || '').trim().toLowerCase();
+    if (name) taken[name] = true;
+  });
+  var candidate = String(base || 'user');
+  var n = 2;
+  while (taken[candidate.toLowerCase()]) { candidate = base + n; n++; }
+  return candidate;
+}
+
+/**
+ * Gives a username to every row that has none, once.
+ *
+ * Run from the build hook rather than asked of an admin, because the alternative is a portal
+ * where the sign-in box asks for something nobody has been given yet. Derived from the address
+ * they already signed in with, so it is a name they will recognise. A row that already has one
+ * is never touched, and a derivation that collides gets a number, because two people signing
+ * in as the same thing is the one outcome worse than an awkward username.
+ */
+function backfillUsernames_() {
+  var filled = 0;
+  readTable_('Users').forEach(function (u) {
+    if (String(u.username || '').trim()) return;
+    var candidate = freeUsername_(derivedUsername_(u), u.id);
+    updateRowById_('Users', 'id', u.id, { username: candidate },
+      'Username filled in from ' + (u.email || u.name));
+    filled++;
+  });
+  return filled;
+}
+
+/** What is wrong with a proposed username, or ''. */
+function usernameComplaint_(username, exceptUserId) {
+  var name = String(username || '').trim();
+  if (!name) return 'Enter a username — it is what they will sign in with.';
+  if (name.indexOf('@') !== -1) return 'A username is not an email address.';
+  if (name.length < 3) return 'A username needs at least three characters.';
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+    return 'A username can use letters, numbers, dots, dashes and underscores — nothing else.';
+  }
+
+  var clash = readTable_('Users').filter(function (u) {
+    return String(u.id) !== String(exceptUserId || '') &&
+      String(u.username).trim().toLowerCase() === name.toLowerCase();
+  })[0];
+  if (clash) return 'Somebody already signs in as ' + name + ' (' + clash.name + ').';
+  return '';
+}
+
+/**
  * Exchanges a username and password for a session token.
  *
  * Called directly rather than through `call`, because there is no session yet. Every failure
  * says the same thing: naming which half was wrong tells somebody which addresses are real.
  */
-function login(email, password) {
-  var vague = 'That email address and password do not match.';
-  var row = userRowByEmail_(email);
+function login(login, password) {
+  var vague = 'That username and password do not match.';
+  var row = userRowByLogin_(login);
 
-  // Still derive on a missing user, so a wrong address does not answer faster than a wrong
+  // Still derive on a missing user, so a wrong username does not answer faster than a wrong
   // password and become a way to enumerate who works here.
   if (!row) {
     derivePassword_(String(password || ''), Utilities.base64Encode(
@@ -338,7 +428,8 @@ function createSignInPasswords() {
     if (row.passwordHash) return;
     var password = readablePassword_();
     storePassword_(row, password, true);
-    made.push({ email: row.email, name: row.name, role: row.role, password: password });
+    made.push({ login: loginNameFor_(row), name: row.name, role: row.role,
+                password: password });
   });
 
   if (!made.length) {
@@ -361,19 +452,30 @@ function resetAllSignInPasswords() {
     var password = readablePassword_();
     storePassword_(row, password, true);
     forgetSessionsFor_(row.email);
-    made.push({ email: row.email, name: row.name, role: row.role, password: password });
+    made.push({ login: loginNameFor_(row), name: row.name, role: row.role,
+                password: password });
   });
   if (!made.length) return 'There are no active users in the Users tab.';
   return describePasswords_(made);
 }
 
-/** Lays the new passwords out so they can be read off and handed over. */
+/** What this person types to sign in — their username, or the address if they have none yet. */
+function loginNameFor_(row) {
+  return String(row.username || '').trim() || derivedUsername_(row) || String(row.email || '');
+}
+
+/**
+ * Lays the new passwords out so they can be read off and handed over.
+ *
+ * Keyed by what the person actually types at the sign-in box, not by their email address —
+ * reading out an address they do not use would be handing them the wrong half of the answer.
+ */
 function describePasswords_(made) {
   var width = 0;
-  made.forEach(function (m) { width = Math.max(width, String(m.email).length); });
+  made.forEach(function (m) { width = Math.max(width, String(m.login).length); });
   var lines = made.map(function (m) {
-    var pad = new Array(width - String(m.email).length + 3).join(' ');
-    return '  ' + m.email + pad + m.password + '   (' + m.name + ', ' + m.role + ')';
+    var pad = new Array(width - String(m.login).length + 3).join(' ');
+    return '  ' + m.login + pad + m.password + '   (' + m.name + ', ' + m.role + ')';
   });
   var text = made.length + (made.length === 1 ? ' password set:' : ' passwords set:') + '\n\n' +
     lines.join('\n') +

@@ -36,7 +36,13 @@ var SCHEMA = {
     // it simply no longer has to be a Google account. The hash is salted per user and the
     // iteration count is stored beside it so the cost can be raised later without locking
     // anybody out.
-    columns: ['id', 'email', 'name', 'role', 'designation', 'businessStream', 'active',
+    // `username` is what they type to sign in. `email` remains the identity everything else
+    // is stored against — the audit trail, preparedBy, assignedSalesperson — and the address a
+    // customer's reply goes back to. Two fields because they answer two questions: PIE's staff
+    // have no company addresses, so asking for one at the sign-in box read as though the
+    // portal wanted a personal account.
+    columns: ['id', 'username', 'email', 'name', 'role', 'designation', 'businessStream',
+      'active',
       'passwordHash', 'passwordSalt', 'passwordIterations', 'passwordSetAt',
       'mustChangePassword', 'failedAttempts', 'lockedUntil',
       'createdAt', 'createdBy']

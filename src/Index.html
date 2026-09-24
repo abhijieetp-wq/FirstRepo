@@ -20,12 +20,13 @@
   <div class="card" style="max-width:380px;">
     <h3 style="margin-bottom:4px;" id="signin-title">Sign in</h3>
     <p style="color:var(--ink-soft); font-size:13px; margin:0 0 18px;" id="signin-sub">
-      Use the email address and password your ERP Admin set up for you.
+      Use the username and password your ERP Admin set up for you.
     </p>
     <div id="signin-msg"></div>
     <div class="field" style="margin-bottom:12px;">
-      <label>Email</label>
-      <input id="signin-email" type="email" autocomplete="username" />
+      <label>Username</label>
+      <input id="signin-email" type="text" autocomplete="username" autocapitalize="none"
+        spellcheck="false" />
     </div>
     <div class="field" style="margin-bottom:18px;">
       <label>Password</label>
@@ -1967,8 +1968,25 @@
     <h3 id="user-modal-title" style="margin-bottom:16px;">Add User</h3>
     <input type="hidden" id="usr-id" />
     <div class="grid grid-2">
-      <div class="field"><label>Email *</label><input id="usr-email" type="email" placeholder="name@company.com" /></div>
       <div class="field"><label>Name *</label><input id="usr-name" /></div>
+      <div class="field">
+        <label>Username *</label>
+        <input id="usr-username" autocapitalize="none" spellcheck="false" placeholder="priya" />
+        <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">
+          What they type to sign in. Letters, numbers, dots, dashes and underscores.
+        </p>
+      </div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field">
+        <label>Email *</label>
+        <input id="usr-email" type="email" placeholder="name@company.com" />
+        <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">
+          Not used to sign in. It is where a customer's reply to their quotation goes, and how
+          their work is identified in the audit trail.
+        </p>
+      </div>
+      <div></div>
     </div>
     <div class="field" style="margin-top:12px;">
       <label>Designation</label>
