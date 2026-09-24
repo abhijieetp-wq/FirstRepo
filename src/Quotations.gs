@@ -936,7 +936,7 @@ function deleteQuotationItem(id) {
  * which is what makes revision control meaningful: what the customer received cannot then
  * be edited underneath them.
  */
-function setQuotationStatus(id, status, lostReasonId) {
+function setQuotationStatus(id, status, lostReasonId, lostDetails) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);
   if (QUOTATION_STATUSES.indexOf(status) === -1) {
@@ -974,7 +974,21 @@ function setQuotationStatus(id, status, lostReasonId) {
   if (status === 'Approved') { patch.approvedBy = user.email; patch.approvalDate = todayIso_(); }
   if (status === 'Submitted') patch.submittedDate = todayIso_();
   if (status === 'Won') patch.wonDate = todayIso_();
-  if (status === 'Lost') patch.lostReasonId = lostReasonId;
+  if (status === 'Lost') {
+    patch.lostReasonId = lostReasonId;
+    patch.lostDate = todayIso_();
+    // What actually happened, which is the part worth reading before quoting this customer
+    // again. Optional: a coordinator who only knows the reason should not be stopped from
+    // recording it, and a form that demands detail nobody has gets filled with "n/a".
+    var detail = lostDetails || {};
+    patch.lostNotes = String(detail.notes || '').trim();
+    patch.lostToCompetitor = String(detail.competitor || '').trim();
+    patch.lostAtPrice = detail.price === '' || detail.price === undefined ||
+      detail.price === null ? '' : Number(detail.price);
+    if (patch.lostAtPrice !== '' && (isNaN(patch.lostAtPrice) || patch.lostAtPrice < 0)) {
+      throw new Error("A competitor's price cannot be negative.");
+    }
+  }
 
   updateRowById_('Quotations', 'id', id, patch, 'Status set to ' + status);
 

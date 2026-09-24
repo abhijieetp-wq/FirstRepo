@@ -2303,6 +2303,41 @@
     var zone = $("qb-approval-note");
     var rule = q.approvalRule;
     if (!zone) return;
+
+    // Accepted, and nothing has happened since. The PO is what turns the customer's yes into
+    // an order, and whoever is looking at this screen is either the person who records it or
+    // the person who has to ask someone else to.
+    if (q.status === "Won" && !(q.journey && q.journey.orderNo)) {
+      zone.innerHTML = '<div class="compare-strip" style="margin-bottom:16px;">' +
+        (canEditOrders()
+          ? "Accepted. Press <strong>Record PO &amp; Create Order</strong> once the customer's " +
+            "purchase order is in hand — the lines and prices carry across as they are."
+          : "Accepted. A sales coordinator records the customer's purchase order against this " +
+            "quotation to turn it into an order.") + "</div>";
+      return;
+    }
+
+    // What the customer said when they said no. Recorded on the decline form and shown here,
+    // because a reason nobody reads before quoting the same customer again was not worth
+    // asking for.
+    if (q.status === "Lost") {
+      var reason = (q.journey && q.journey.declined && q.journey.declined.reason) || "";
+      var parts = [];
+      if (q.lostToCompetitor) {
+        parts.push("Lost to " + escapeHtml(q.lostToCompetitor) +
+          (q.lostAtPrice !== "" && q.lostAtPrice !== null && q.lostAtPrice !== undefined
+            ? " at " + fmt(q.lostAtPrice) + " against our " + fmt(q.grand) : "") + ".");
+      } else if (q.lostAtPrice !== "" && q.lostAtPrice !== null && q.lostAtPrice !== undefined) {
+        parts.push("They bought at " + fmt(q.lostAtPrice) + " against our " + fmt(q.grand) + ".");
+      }
+      if (q.lostNotes) parts.push(escapeHtml(q.lostNotes));
+      zone.innerHTML = '<div class="compare-strip" style="margin-bottom:16px;">' +
+        "<strong>Declined" + (q.lostDate ? " on " + escapeHtml(q.lostDate) : "") + "</strong>" +
+        (reason ? " — " + escapeHtml(reason) : "") +
+        (parts.length ? " " + parts.join(" ") : "") + "</div>";
+      return;
+    }
+
     if (!rule || ["Draft", "Approved"].indexOf(q.status) === -1) { zone.innerHTML = ""; return; }
 
     var approved = q.status === "Approved";
@@ -2742,6 +2777,18 @@
       buttons.push('<button class="btn btn-sm btn-primary" data-qs="Won">Mark Accepted</button>');
       buttons.push('<button class="btn btn-sm" data-qs="Lost">Mark Declined</button>');
     }
+    // An accepted offer had nowhere to go: the order lived on another screen behind a
+    // dropdown, so the step the customer had just triggered was the one step the quotation
+    // could not take. The PO is what turns their yes into an order, so it is asked for here.
+    if (mayAdvance && q.status === "Won") {
+      if (q.journey && q.journey.orderNo) {
+        buttons.push('<button class="btn btn-sm" id="btn-qb-open-order">Open ' +
+          escapeHtml(q.journey.orderNo) + "</button>");
+      } else if (canEditOrders()) {
+        buttons.push('<button class="btn btn-sm btn-primary" id="btn-qb-make-order">' +
+          "Record PO &amp; Create Order</button>");
+      }
+    }
     if (canEditQuotes() && q.locked) {
       buttons.push('<button class="btn btn-sm btn-amber" id="btn-qb-revise">Revise</button>');
     }
@@ -2757,6 +2804,15 @@
     zone.querySelectorAll("[data-qs]").forEach(function (btn) {
       btn.addEventListener("click", function () { changeQuoteStatus(btn.dataset.qs); });
     });
+    if ($("btn-qb-make-order")) {
+      $("btn-qb-make-order").addEventListener("click", openPurchaseOrderForm);
+    }
+    if ($("btn-qb-open-order")) {
+      $("btn-qb-open-order").addEventListener("click", function () {
+        goToTab("orders");
+        setTimeout(function () { openOrderModal(q.journey.orderId); }, 400);
+      });
+    }
     $("btn-qb-print").addEventListener("click", openQuoteDocument);
 
     // Nothing to save: a quotation is written to the sheet the moment it is created, so
@@ -2831,33 +2887,158 @@
     }
   }
 
-  function changeQuoteStatus(status) {
-    if (status !== "Lost") { applyQuoteStatus(status, ""); return; }
-
-    // A lost quotation must record why, so lost-order analysis has something to work with.
-    if (!lostReasonsCache.length) {
-      showMsg("No lost reasons are configured yet — add them on the LostReasons tab.", "error");
-      return;
-    }
-    askDialog({
-      title: "The customer declined this quotation?",
-      message: "The reason feeds lost-order analysis, and prints on the journey strip.",
-      options: lostReasonsCache.map(function (r) { return { value: r.id, label: r.reasonText }; }),
-      optionsLabel: "Lost reason",
-      okLabel: "Mark Declined",
-      danger: true
-    }, function (reasonId) {
-      if (reasonId === null) return;
-      applyQuoteStatus("Lost", reasonId);
-    });
+  // ---- The customer said yes ----
+  // The lines, prices and addresses are already on the quotation, so the only thing the
+  // system does not yet know is what the customer sent back. That is all this asks for.
+  function openPurchaseOrderForm() {
+    var q = openQuote;
+    if (!q) return;
+    $("po-modal-sub").textContent = q.quoteNo + " " + (q.revision || "") + " · " +
+      (q.customerName || "") + " — every line, price and address carries across; only the " +
+      "customer's own paperwork is asked for here.";
+    $("po-modal-msg").innerHTML = "";
+    $("po-no").value = "";
+    $("po-date").value = new Date().toISOString().slice(0, 10);
+    // Defaulting to the quoted total means a different figure is a deliberate act, and is
+    // recorded as a variance rather than passing unnoticed.
+    $("po-value").value = q.grand;
+    $("po-quoted").textContent = "We quoted " + fmt(q.grand) +
+      ". A different PO value is recorded as a variance, not refused.";
+    $("po-promised").value = "";
+    $("po-modal-backdrop").classList.add("show");
+    setTimeout(function () { $("po-no").focus(); }, 50);
   }
 
-  function applyQuoteStatus(status, reasonId) {
+  function poModalError(text) {
+    $("po-modal-msg").innerHTML =
+      '<div class="msg msg-error show" style="position:static; margin-bottom:14px;">' +
+      '<span class="msg-text">' + escapeHtml(text) + "</span></div>";
+  }
+
+  $("btn-po-cancel").addEventListener("click", function () {
+    $("po-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-po-save").addEventListener("click", function () {
+    if (!$("po-no").value.trim()) { poModalError("Enter the customer's PO number."); return; }
+    var quoteId = openQuote.id;
+    var quoteNo = openQuote.quoteNo;
+    var btn = $("btn-po-save");
+    btn.disabled = true;
+    srv.withSuccessHandler(function (order) {
+      btn.disabled = false;
+      $("po-modal-backdrop").classList.remove("show");
+      // Reloaded rather than patched in hand: the journey strip now has an order to point at,
+      // and only the server knows what it is called.
+      srv.withSuccessHandler(function (q) {
+        openQuote = q;
+        renderQuoteBuilder();
+      }).withFailureHandler(function () {}).getQuotation(quoteId);
+      // A credit hold is the one thing that stops this order moving, and the person who just
+      // created it is the one who needs to know — not whoever opens the Orders tab next.
+      showMsg("Order " + order.orderNo + " created from " + quoteNo + "." +
+        (order.creditHold
+          ? " It is on credit hold: " + (order.creditHoldReason || "the customer is over their limit") +
+            ". Management can release it from the Orders tab."
+          : " Open it from the Orders tab to attach the PO document and plan the dispatch."),
+        "success", true);
+    }).withFailureHandler(function (err) {
+      btn.disabled = false;
+      poModalError(err && err.message ? err.message : String(err));
+    }).createOrderFromQuotation({
+      quotationId: quoteId,
+      poNo: $("po-no").value.trim(),
+      poDate: $("po-date").value,
+      poValue: $("po-value").value,
+      promisedDispatchDate: $("po-promised").value
+    });
+  });
+
+  // ---- The customer said no ----
+  // A dropdown alone says the shape of a loss and nothing about the loss itself. What the
+  // customer actually said, who took the business and at what price is the part worth having
+  // when the same customer is quoted again.
+  function openDeclineForm() {
+    var q = openQuote;
+    $("lost-modal-sub").textContent = q.quoteNo + " " + (q.revision || "") + " · " +
+      (q.customerName || "") + " — this closes the quotation, and what you write here is what " +
+      "the next person quoting them will read.";
+    $("lost-modal-msg").innerHTML = "";
+    $("lost-reason").innerHTML = '<option value="">Choose a reason…</option>' +
+      lostReasonsCache.map(function (r) {
+        return '<option value="' + escapeHtml(r.id) + '">' + escapeHtml(r.reasonText) + "</option>";
+      }).join("");
+    $("lost-notes").value = "";
+    $("lost-competitor").value = "";
+    $("lost-price").value = "";
+    $("lost-quoted").textContent = "We quoted " + fmt(q.grand) + ".";
+    $("lost-modal-backdrop").classList.add("show");
+  }
+
+  function lostModalError(text) {
+    $("lost-modal-msg").innerHTML =
+      '<div class="msg msg-error show" style="position:static; margin-bottom:14px;">' +
+      '<span class="msg-text">' + escapeHtml(text) + "</span></div>";
+  }
+
+  $("btn-lost-cancel").addEventListener("click", function () {
+    $("lost-modal-backdrop").classList.remove("show");
+  });
+
+  $("btn-lost-save").addEventListener("click", function () {
+    var reasonId = $("lost-reason").value;
+    if (!reasonId) { lostModalError("Choose why the customer declined."); return; }
+    var price = $("lost-price").value;
+    if (price !== "" && Number(price) < 0) {
+      lostModalError("A competitor's price cannot be negative.");
+      return;
+    }
+    var btn = $("btn-lost-save");
+    btn.disabled = true;
+    applyQuoteStatus("Lost", reasonId, {
+      notes: $("lost-notes").value.trim(),
+      competitor: $("lost-competitor").value.trim(),
+      price: price
+    }, function (err) {
+      btn.disabled = false;
+      if (err) { lostModalError(err.message || String(err)); return; }
+      $("lost-modal-backdrop").classList.remove("show");
+    });
+  });
+
+  function changeQuoteStatus(status) {
+    if (status !== "Lost") { applyQuoteStatus(status, "", null, null); return; }
+
+    // A lost quotation must record why, so lost-order analysis has something to work with.
+    if (lostReasonsCache.length) { openDeclineForm(); return; }
+    // The reasons are loaded by the screens that list quotations. Opening a quotation from a
+    // link, or creating one here, goes straight to the builder and never touches that list —
+    // and pressing Mark Declined then read "none are configured" when they were.
+    srv.withSuccessHandler(function (rows) {
+      lostReasonsCache = rows || [];
+      if (!lostReasonsCache.length) {
+        showMsg("No lost reasons are configured yet — add them on the LostReasons tab.", "error");
+        return;
+      }
+      openDeclineForm();
+    }).withFailureHandler(onServerError).listLostReasons();
+  }
+
+  /**
+   * `done` is called with null on success and the error on failure, so a caller with its own
+   * form can keep the form open and show the complaint inside it. Callers without one pass
+   * nothing and the error goes to the usual message bar.
+   */
+  function applyQuoteStatus(status, reasonId, details, done) {
     srv.withSuccessHandler(function (q) {
       openQuote = q;
       renderQuoteBuilder();
       showMsg("Quotation marked " + quoteStatusLabel(status) + ".", "success");
-    }).withFailureHandler(onServerError).setQuotationStatus(openQuote.id, status, reasonId);
+      if (done) done(null);
+    }).withFailureHandler(function (err) {
+      if (done) { done(err); return; }
+      onServerError(err);
+    }).setQuotationStatus(openQuote.id, status, reasonId, details);
   }
 
   $("btn-qb-save-header").addEventListener("click", function () {

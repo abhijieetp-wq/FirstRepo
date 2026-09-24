@@ -293,6 +293,11 @@ var SCHEMA = {
       'status', 'subtotal', 'discountAmt', 'taxAmt', 'freight', 'grand', 'paymentTerms',
       'deliveryTerms', 'warrantyTerms', 'notes', 'approvedBy', 'approvalDate', 'submittedDate',
       'emailSentDate', 'wonDate', 'lostReasonId', 'locked',
+      // Why an offer was turned down, past the one-word reason. A dropdown tells you the
+      // shape of the losses; these tell you what actually happened, which is the part worth
+      // reading before quoting that customer again. The competitor's price is the most useful
+      // number PIE can collect about their own pricing and the only place it is ever offered.
+      'lostDate', 'lostNotes', 'lostToCompetitor', 'lostAtPrice',
       // A package discount off the total, the way their own offers are priced, plus whether
       // GST is added into the total or quoted as extra — their two documents differ on this.
       'packageDiscountPct', 'pfAmount', 'taxMode',
