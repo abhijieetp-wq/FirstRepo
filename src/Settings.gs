@@ -48,7 +48,11 @@ function getSettings() {
       // Whether they can sign in, said plainly. The stored password never leaves the sheet —
       // not the hash, not the salt, not the iteration count — because none of it has any use
       // on the screen and all of it is worth something to somebody who should not have it.
-      row.hasPassword = !!row.passwordHash;
+      // A hash the sheet turned into a formula is not a password anybody can use, so the
+      // list says "not set" and an admin sets one, rather than showing a tick against an
+      // account that cannot be signed into.
+      row.hasPassword = !!row.passwordHash &&
+        !storedTextBroken_(row.passwordHash) && !storedTextBroken_(row.passwordSalt);
       row.mustChangePassword = String(row.mustChangePassword).toUpperCase() === 'TRUE';
       row.locked = !!(row.lockedUntil && new Date(row.lockedUntil) > new Date());
       delete row.passwordHash;
@@ -218,7 +222,7 @@ function changeMyPassword(currentPassword, newPassword) {
 
   var iterations = Number(row.passwordIterations) || PASSWORD_ITERATIONS;
   var offered = derivePassword_(String(currentPassword || ''), row.passwordSalt, iterations);
-  if (!row.passwordHash || !constantTimeEquals_(offered, row.passwordHash)) {
+  if (!row.passwordHash || !constantTimeEquals_(offered, fromStoredText_(row.passwordHash))) {
     throw new Error('Your current password is not right.');
   }
   if (String(currentPassword) === String(newPassword)) {

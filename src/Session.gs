@@ -44,6 +44,43 @@ function randomToken_() {
     Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, seed));
 }
 
+/**
+ * A base64 value, written so that Sheets keeps it as text.
+ *
+ * Sheets reads a cell beginning with =, + or - as a formula. Every security value here is
+ * base64 — the session hash, the password hash, the salt — and base64 begins with + about one
+ * time in sixty-four, at which point the cell was stored as #ERROR! and the value was gone.
+ * A session hashed that way could never be matched again, so the person was signed out on
+ * their very first click; a password hashed that way could never be matched either, and the
+ * account was dead until an admin set a new one. Both had already happened in the live sheet.
+ *
+ * The marker makes the value start with a letter, which no spreadsheet reads as arithmetic.
+ * Reads accept either form, so every value stored before this change keeps working.
+ */
+var TEXT_MARKER_ = 'b64.';
+
+function asStoredText_(value) {
+  var v = String(value === undefined || value === null ? '' : value);
+  return v ? TEXT_MARKER_ + v : v;
+}
+
+/** The value back out, whether it was stored with the marker or before there was one. */
+function fromStoredText_(value) {
+  var v = String(value === undefined || value === null ? '' : value);
+  return v.slice(0, TEXT_MARKER_.length) === TEXT_MARKER_ ? v.slice(TEXT_MARKER_.length) : v;
+}
+
+/**
+ * Whether a stored security value survived the trip into the sheet.
+ *
+ * A cell Sheets turned into a formula reads back as an error string, and the value it held is
+ * unrecoverable. Saying so plainly beats "that username and password do not match", which is
+ * what the person was being told about a password they had typed correctly.
+ */
+function storedTextBroken_(value) {
+  return String(value || '').indexOf('#') === 0;
+}
+
 /** A token as it is stored: hashed, so the sheet never holds anything replayable. */
 function hashToken_(token) {
   return Utilities.base64Encode(
@@ -59,7 +96,7 @@ function hashToken_(token) {
  * be raised later without invalidating every existing password.
  */
 function derivePassword_(password, saltB64, iterations) {
-  var salt = Utilities.base64Decode(saltB64);
+  var salt = Utilities.base64Decode(fromStoredText_(saltB64));
   var out = Utilities.computeHmacSha256Signature(
     Utilities.newBlob(String(password)).getBytes(), salt);
   for (var i = 1; i < iterations; i++) {
@@ -103,8 +140,8 @@ function storePassword_(userRow, password, mustChange) {
   var salt = Utilities.base64Encode(
     Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid()));
   updateRowById_('Users', 'id', userRow.id, {
-    passwordSalt: salt,
-    passwordHash: derivePassword_(password, salt, PASSWORD_ITERATIONS),
+    passwordSalt: asStoredText_(salt),
+    passwordHash: asStoredText_(derivePassword_(password, salt, PASSWORD_ITERATIONS)),
     passwordIterations: PASSWORD_ITERATIONS,
     passwordSetAt: new Date().toISOString(),
     mustChangePassword: mustChange ? 'TRUE' : 'FALSE',
@@ -247,10 +284,17 @@ function login(login, password) {
   if (!row.passwordHash) {
     throw new Error('No password has been set for this account yet. Ask your ERP Admin.');
   }
+  // A password the sheet destroyed on the way in can never match, however carefully it is
+  // typed. Say that, rather than letting somebody try their own password five times and lock
+  // themselves out of an account that was already unusable.
+  if (storedTextBroken_(row.passwordHash) || storedTextBroken_(row.passwordSalt)) {
+    throw new Error('This account\'s password was not stored correctly and has to be set ' +
+      'again. Ask your ERP Admin to set you a new one.');
+  }
 
   var iterations = Number(row.passwordIterations) || PASSWORD_ITERATIONS;
   var offered = derivePassword_(String(password || ''), row.passwordSalt, iterations);
-  if (!constantTimeEquals_(offered, row.passwordHash)) {
+  if (!constantTimeEquals_(offered, fromStoredText_(row.passwordHash))) {
     var failed = (Number(row.failedAttempts) || 0) + 1;
     var patch = { failedAttempts: failed };
     if (failed >= LOGIN_MAX_ATTEMPTS) {
@@ -270,7 +314,7 @@ function login(login, password) {
   var token = randomToken_();
   appendRow_('Sessions', {
     id: generateId_('SES-'),
-    tokenHash: hashToken_(token),
+    tokenHash: asStoredText_(hashToken_(token)),
     userEmail: row.email,
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + SESSION_HOURS * 3600000).toISOString(),
@@ -288,7 +332,7 @@ function logout(token) {
   var hash = hashToken_(token);
   CacheService.getScriptCache().remove('sess:' + hash);
   var row = readTable_('Sessions').filter(function (s) {
-    return String(s.tokenHash) === hash && !s.revokedAt;
+    return fromStoredText_(s.tokenHash) === hash && !s.revokedAt;
   })[0];
   if (row) {
     updateRowById_('Sessions', 'id', row.id, { revokedAt: new Date().toISOString() },
@@ -316,7 +360,7 @@ function userForToken_(token) {
   }
 
   var session = readTable_('Sessions').filter(function (s) {
-    return String(s.tokenHash) === hash;
+    return fromStoredText_(s.tokenHash) === hash;
   })[0];
   if (!session || session.revokedAt) return null;
   if (new Date(session.expiresAt) <= new Date()) return null;
@@ -337,7 +381,7 @@ function forgetSessionsFor_(email) {
   var now = new Date().toISOString();
   readTable_('Sessions').forEach(function (s) {
     if (String(s.userEmail).toLowerCase() !== wanted || s.revokedAt) return;
-    cache.remove('sess:' + s.tokenHash);
+    cache.remove('sess:' + fromStoredText_(s.tokenHash));
     updateRowById_('Sessions', 'id', s.id, { revokedAt: now }, 'Session ended');
   });
 }
