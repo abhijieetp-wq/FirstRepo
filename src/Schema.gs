@@ -265,7 +265,11 @@ var SCHEMA = {
   // ---------------------------------------------------------------- Spare front office
   SpareEnquiries: {
     label: 'Spare enquiry by machine/serial with urgency (FR-022)',
-    columns: ['id', 'enquiryNo', 'date', 'customerId', 'customerName', 'contactName', 'productModel',
+    columns: ['id', 'enquiryNo', 'date', 'customerId', 'customerName',
+      // Who actually rang. The name alone was all this ever held, and a name is not somebody
+      // you can call back — so the number and the address are kept here too, and contactId
+      // ties the enquiry to the customer's own contact list rather than to a typed string.
+      'contactName', 'contactId', 'contactPhone', 'contactEmail', 'productModel',
       'serialNo', 'installedBaseId', 'requirementText', 'urgency', 'source',
       // No engineer here. PIE's Spare Sales office is a coordinator and nobody else — the
       // engineers sit under Unit Sales and Service — so a field for one would never be

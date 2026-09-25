@@ -71,11 +71,16 @@ function saveSpareEnquiry(input) {
     throw new Error('Pick a lost reason before marking this enquiry Lost.');
   }
 
+  var who = resolveEnquiryContact_(input, user);
+
   var record = {
     date: String(input.date || todayIso_()).slice(0, 10),
     customerId: String(input.customerId),
     customerName: String(input.customerName || '').trim(),
-    contactName: String(input.contactName || '').trim(),
+    contactName: who.contactName,
+    contactId: who.contactId,
+    contactPhone: who.contactPhone,
+    contactEmail: who.contactEmail,
     productModel: String(input.productModel || '').trim(),
     serialNo: String(input.serialNo || '').trim(),
     installedBaseId: String(input.installedBaseId || '').trim(),
@@ -101,6 +106,83 @@ function saveSpareEnquiry(input) {
     appendRow_('SpareEnquiries', record, 'Spare enquiry logged');
   }
   return record;
+}
+
+
+/**
+ * The person who raised the enquiry, tied to the customer's contact list.
+ *
+ * An enquiry used to hold a typed name and nothing else — no number, no address, and no link
+ * to the contact record where those are kept. So the one thing the coordinator learns on the
+ * call, how to reach the person who wants the parts, was thrown away at the moment it was
+ * collected, and the quotation raised from the enquiry went out addressed to whoever happened
+ * to be marked primary on the customer.
+ *
+ * A name already on file is matched rather than duplicated. A new one is added to the
+ * customer's contacts, so the second enquiry from the same person does not ask again. The
+ * number and address are also written onto the enquiry itself: the contact record is the
+ * place they are maintained, but the enquiry should still say who was spoken to on the day,
+ * even if that person later leaves and their record is edited.
+ */
+function resolveEnquiryContact_(input, user) {
+  var blank = { contactId: '', contactName: '', contactPhone: '', contactEmail: '' };
+  var customerId = String(input.customerId || '');
+  var name = String(input.contactName || '').trim();
+  var phone = String(input.contactPhone || '').trim();
+  var email = String(input.contactEmail || '').trim();
+  var wantedId = String(input.contactId || '').trim();
+  if (!customerId || (!name && !wantedId)) return blank;
+
+  var contacts = readTable_('CustomerContacts').filter(function (c) {
+    return String(c.customerId) === customerId && String(c.active).toUpperCase() !== 'FALSE';
+  });
+
+  var match = null;
+  if (wantedId) {
+    match = contacts.filter(function (c) { return String(c.id) === wantedId; })[0] || null;
+  }
+  if (!match && name) {
+    match = contacts.filter(function (c) {
+      return String(c.name).trim().toLowerCase() === name.toLowerCase();
+    })[0] || null;
+  }
+
+  if (match) {
+    // Blanks are filled in, but nothing already on the record is overwritten: a number typed
+    // in a hurry during a call should complete a contact, not replace one somebody maintains.
+    var patch = {};
+    if (phone && !String(match.phone || '').trim()) patch.phone = phone;
+    if (email && !String(match.email || '').trim()) patch.email = email;
+    if (patch.phone || patch.email) {
+      updateRowById_('CustomerContacts', 'id', match.id, patch,
+        'Filled in from spare enquiry');
+    }
+    return {
+      contactId: String(match.id),
+      contactName: String(match.name),
+      contactPhone: phone || String(match.phone || ''),
+      contactEmail: email || String(match.email || '')
+    };
+  }
+
+  // Somebody new. Adding them to the customer is how the next enquiry finds them, but it is
+  // a write to master data. The two role lists agree today, so this check never refuses
+  // anybody; it is here so that narrowing one of them later costs a contact record rather
+  // than the whole enquiry.
+  if (CUSTOMER_EDITORS.indexOf(user.role) !== -1) {
+    var created = saveCustomerContact({
+      customerId: customerId,
+      name: name,
+      phone: phone,
+      email: email,
+      contactRole: 'Purchase',
+      // The first person we ever spoke to at this customer is the one to address by default.
+      isPrimary: !contacts.length
+    });
+    return { contactId: String(created.id), contactName: name,
+             contactPhone: phone, contactEmail: email };
+  }
+  return { contactId: '', contactName: name, contactPhone: phone, contactEmail: email };
 }
 
 // ------------------------------------------------------------------ identification

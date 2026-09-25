@@ -277,6 +277,12 @@ function createQuotationFromEnquiry(spareEnquiryId) {
 
   var parties = defaultPartiesFor_(enquiry.customerId);
 
+  // The offer goes to the person who asked for it. This used to take the customer's primary
+  // contact instead, so an enquiry logged against Mohan was quoted to whoever happened to be
+  // marked primary — and the name the coordinator had typed was dropped at the one step it
+  // was collected for. The primary is still the fallback for an enquiry that named nobody.
+  var contactId = String(enquiry.contactId || '').trim() || parties.contactId;
+
   var quote = {
     id: generateId_('QT-'),
     quoteNo: nextQuoteNo_(defaultBrand_()),
@@ -286,7 +292,7 @@ function createQuotationFromEnquiry(spareEnquiryId) {
     businessStream: STREAM_SPARE,
     brand: defaultBrand_(),
     customerId: enquiry.customerId,
-    contactId: parties.contactId,
+    contactId: contactId,
     billingAddressId: parties.billingAddressId,
     shippingAddressId: parties.shippingAddressId,
     opportunityId: '',

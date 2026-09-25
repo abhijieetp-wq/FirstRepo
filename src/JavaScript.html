@@ -1946,6 +1946,69 @@
     return id ? enquiriesCache.find(function (e) { return e.id === id; }) : null;
   }
 
+  /**
+   * The people already on file at this customer, offered as you type.
+   *
+   * Picking one fills in their number and address and ties the enquiry to their record, so
+   * the same person is not written down twice with two spellings; typing somebody new adds
+   * them to the customer when the enquiry is saved, which is what stops the second enquiry
+   * from them asking all over again.
+   */
+  function fillEnquiryContacts(cust) {
+    var contacts = (cust && cust.contacts) || [];
+    $("em-contacts-list").innerHTML = contacts.map(function (c) {
+      return '<option value="' + escapeHtml(c.name) + '">' +
+        escapeHtml([c.designation, c.phone].filter(Boolean).join(" · ")) + "</option>";
+    }).join("");
+    noteEnquiryContact(contacts);
+  }
+
+  function enquiryContactsForCustomer() {
+    var cust = customersCache.find(function (c) {
+      return c.name.toLowerCase() === $("em-customer").value.trim().toLowerCase();
+    });
+    return (cust && cust.contacts) || [];
+  }
+
+  /** Says whether this person is already known here, or is about to be added. */
+  function noteEnquiryContact(contacts) {
+    var typed = $("em-contact").value.trim();
+    var note = $("em-contact-note");
+    if (!typed) { note.textContent = ""; return; }
+    var known = (contacts || []).filter(function (c) {
+      return String(c.name).trim().toLowerCase() === typed.toLowerCase();
+    })[0];
+    note.textContent = known
+      ? "Already on file for this customer — the quotation will be addressed to them."
+      : "New to this customer. Saving the enquiry adds them to the customer's contacts.";
+  }
+
+  $("em-contact").addEventListener("input", function () {
+    var contacts = enquiryContactsForCustomer();
+    var typed = $("em-contact").value.trim().toLowerCase();
+    var known = contacts.filter(function (c) {
+      return String(c.name).trim().toLowerCase() === typed;
+    })[0];
+    if (known) {
+      $("em-contactid").value = known.id;
+      // Only into empty boxes: a number typed for this call must not be wiped by the one on
+      // file, and the server keeps the same rule when it writes back.
+      if (!$("em-contactphone").value.trim()) $("em-contactphone").value = known.phone || "";
+      if (!$("em-contactemail").value.trim()) $("em-contactemail").value = known.email || "";
+    } else {
+      $("em-contactid").value = "";
+    }
+    noteEnquiryContact(contacts);
+  });
+
+  // A different customer has different people, so the list behind the box follows it.
+  $("em-customer").addEventListener("change", function () {
+    var cust = customersCache.find(function (c) {
+      return c.name.toLowerCase() === $("em-customer").value.trim().toLowerCase();
+    });
+    fillEnquiryContacts(cust);
+  });
+
   function openEnquiryModal(id) {
     var e = id ? enquiriesCache.find(function (x) { return x.id === id; }) : null;
     $("enquiry-modal-title").textContent = id ? "Spare Enquiry" : "Log Spare Enquiry";
@@ -1955,6 +2018,10 @@
     var cust = e ? customersCache.find(function (c) { return c.id === e.customerId; }) : null;
     $("em-customer").value = cust ? cust.name : (e ? (e.customerName || "") : "");
     $("em-contact").value = e ? (e.contactName || "") : "";
+    $("em-contactid").value = e ? (e.contactId || "") : "";
+    $("em-contactphone").value = e ? (e.contactPhone || "") : "";
+    $("em-contactemail").value = e ? (e.contactEmail || "") : "";
+    fillEnquiryContacts(cust);
     $("em-source").value = e ? (e.source || "") : "";
     $("em-model").value = e ? (e.productModel || "") : "";
     $("em-serial").value = e ? (e.serialNo || "") : "";
@@ -2083,6 +2150,9 @@
       customerId: cust.id,
       customerName: cust.name,
       contactName: $("em-contact").value.trim(),
+      contactId: $("em-contactid").value,
+      contactPhone: $("em-contactphone").value.trim(),
+      contactEmail: $("em-contactemail").value.trim(),
       source: $("em-source").value.trim(),
       productModel: $("em-model").value.trim(),
       serialNo: $("em-serial").value.trim(),

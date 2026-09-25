@@ -1198,11 +1198,23 @@
     <p id="em-no" class="mono" style="font-size:12px; color:var(--steel); margin:0 0 16px;"></p>
     <input type="hidden" id="em-id" />
 
-    <div class="grid grid-3">
+    <div class="grid grid-2">
       <div class="field"><label>Customer *</label><input id="em-customer" list="customers-list" placeholder="Type to search" /></div>
-      <div class="field"><label>Contact Person</label><input id="em-contact" /></div>
       <div class="field"><label>Source</label><input id="em-source" list="leadsource-list" placeholder="Phone / WhatsApp / Email" /></div>
     </div>
+    <!-- Who rang. A name on its own is not somebody you can call back, and the quotation this
+         enquiry becomes is addressed to this person. -->
+    <div class="grid grid-3" style="margin-top:12px;">
+      <div class="field">
+        <label>Contact Person</label>
+        <input id="em-contact" list="em-contacts-list" placeholder="Who asked for the parts" />
+        <datalist id="em-contacts-list"></datalist>
+        <input type="hidden" id="em-contactid" />
+      </div>
+      <div class="field"><label>Phone</label><input id="em-contactphone" placeholder="Mobile they can be reached on" /></div>
+      <div class="field"><label>Email</label><input id="em-contactemail" type="email" placeholder="Optional" /></div>
+    </div>
+    <p id="em-contact-note" style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;"></p>
     <div class="grid grid-4" style="margin-top:12px;">
       <div class="field"><label>Machine Model</label><input id="em-model" list="models-list" /></div>
       <div class="field"><label>Serial No.</label><input id="em-serial" /></div>
