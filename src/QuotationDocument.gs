@@ -164,10 +164,19 @@ function buildQuotationHtml(quotationId) {
     .filter(function (i) { return String(i.quotationId) === String(quotationId); })
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
 
+  // Only the catalogues this offer actually quotes from, and only as much of them as the
+  // document prints. A spares offer used to read every compressor in the Products tab and
+  // every column of all 3,500 parts to look up five HSN codes.
+  var hasType = {};
+  items.forEach(function (i) { hasType[String(i.itemType)] = true; });
+
+  // A compressor line prints a full specification table, so those rows are needed whole.
   var products = {};
-  readTable_('Products').forEach(function (p) { products[String(p.id)] = p; });
-  var spares = {};
-  readTable_('Spares').forEach(function (p) { spares[String(p.id)] = p; });
+  if (hasType.Product) {
+    readTable_('Products').forEach(function (p) { products[String(p.id)] = p; });
+  }
+  // A spare line prints one thing off the master: its HSN code.
+  var spareHsn = hasType.Spare ? columnMap_('Spares', 'id', 'hsnCode') : {};
 
   var preparer = readTable_('Users').filter(function (u) {
     return String(u.email).toLowerCase() === String(q.preparedBy).toLowerCase();
@@ -458,7 +467,7 @@ function buildQuotationHtml(quotationId) {
     var unit = Number(i.unitPrice) || 0;
     var lineTotal = unit * qty;
     gross += lineTotal;
-    var hsn = isCharge ? '' : esc_(hsnFor_(i, products, spares));
+    var hsn = isCharge ? '' : esc_(hsnFor_(i, products, spareHsn));
 
     push('<tr>' + (isCompressor
       ? '<td>' + esc_(i.description || i.itemCode) + '</td>' +
@@ -625,9 +634,12 @@ function headlineTaxRate_(items) {
  * copying it onto the line would let the two drift. Both catalogs are passed in already read,
  * so a twenty-line offer does not read the sheet twenty times.
  */
-function hsnFor_(item, products, spares) {
-  var rec = (item.itemType === 'Product' ? products : spares)[String(item.itemId)];
-  return rec ? (rec.hsnCode || '') : '';
+function hsnFor_(item, products, spareHsn) {
+  if (item.itemType === 'Product') {
+    var rec = products[String(item.itemId)];
+    return rec ? (rec.hsnCode || '') : '';
+  }
+  return spareHsn[String(item.itemId)] || '';
 }
 
 /**

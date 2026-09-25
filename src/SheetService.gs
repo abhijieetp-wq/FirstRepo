@@ -400,6 +400,59 @@ function findRowById_(sheetName, idValue) {
 }
 
 /**
+ * One column of a tab keyed by another, without reading the rest of it.
+ *
+ * Printing an offer read all 3,500 spare parts to fetch the HSN code of the five on it —
+ * every column of every row, and an object built for each. The document wants two columns:
+ * the id and the code. When they sit near each other the span between them comes back in one
+ * read, which is the same single round trip the whole tab cost and a fraction of the cells;
+ * far apart, they are read as two narrow columns, which is still the better bargain.
+ *
+ * Served from the block in hand when something has already read the tab this request.
+ */
+var COLUMN_SPAN_MAX_ = 12;
+
+function columnMap_(sheetName, keyColumn, valueColumn) {
+  var sheet = getSheet_(sheetName);
+  var headers = getHeaders_(sheet, sheetName);
+  var keyCol = headers.indexOf(keyColumn);
+  var valCol = headers.indexOf(valueColumn);
+  var out = {};
+  if (keyCol === -1 || valCol === -1) return out;
+
+  var cached = TABLE_CACHE_[sheetName];
+  if (cached) {
+    for (var c = 1; c < cached.length; c++) {
+      var ck = String(cached[c][keyCol]);
+      if (ck) out[ck] = normalizeCell_(cached[c][valCol]);
+    }
+    return out;
+  }
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return out;
+
+  var lo = Math.min(keyCol, valCol);
+  var hi = Math.max(keyCol, valCol);
+  if (hi - lo <= COLUMN_SPAN_MAX_) {
+    var span = sheet.getRange(2, lo + 1, lastRow - 1, hi - lo + 1).getValues();
+    for (var i = 0; i < span.length; i++) {
+      var k = String(span[i][keyCol - lo]);
+      if (k) out[k] = normalizeCell_(span[i][valCol - lo]);
+    }
+    return out;
+  }
+
+  var keys = sheet.getRange(2, keyCol + 1, lastRow - 1, 1).getValues();
+  var vals = sheet.getRange(2, valCol + 1, lastRow - 1, 1).getValues();
+  for (var j = 0; j < keys.length; j++) {
+    var kk = String(keys[j][0]);
+    if (kk) out[kk] = normalizeCell_(vals[j][0]);
+  }
+  return out;
+}
+
+/**
  * Every row whose `column` holds one of `values`, without reading the tab.
  *
  * Asking a table of orders which ones belong to one quotation used to mean building an object
