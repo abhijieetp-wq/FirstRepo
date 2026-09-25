@@ -658,7 +658,15 @@ function generateQuotationPdf(quotationId) {
 
   audit_('Print', 'Quotations', quotationId, 'pdf', '', name, 'Quotation PDF generated');
 
-  return { name: name, url: file.getUrl(), downloadUrl: file.getDownloadUrl() };
+  // The file itself goes back with the answer, not only a link to it.
+  //
+  // The script runs as its owner, and people sign in to the portal with a username rather
+  // than a Google account — so the Drive copy belongs to an account the coordinator who asked
+  // for it cannot open. A link to it offers them a "Request access" page instead of their own
+  // quotation. The Drive copy stays as the company's record; the bytes are what the person
+  // gets.
+  return { name: name, url: file.getUrl(), downloadUrl: file.getDownloadUrl(),
+           bytes: Utilities.base64Encode(pdf.getBytes()) };
 }
 
 /** Plain CSS on purpose — the PDF converter ignores flexbox, grid and most modern layout. */

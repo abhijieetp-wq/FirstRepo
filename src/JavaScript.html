@@ -3342,15 +3342,48 @@
     }
   });
 
+  /**
+   * Hands a file the server built straight to the browser.
+   *
+   * Nothing is fetched and no link is followed: the bytes came back with the answer, and this
+   * turns them into the download a person expects. Returns false if the browser refused,
+   * which is the one case worth saying something about.
+   */
+  function downloadBytes(name, base64, mimeType) {
+    try {
+      var binary = atob(base64);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      var url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   $("btn-qd-pdf").addEventListener("click", function () {
     $("btn-qd-pdf").disabled = true;
     $("qd-result").innerHTML = '<div class="empty" style="padding:10px;">Creating the PDF…</div>';
     srv.withSuccessHandler(function (file) {
+      // The Drive copy is the company's record, kept under the account the portal runs as.
+      // It is not the coordinator's own Drive and they cannot open it, so what they are given
+      // is the file itself.
+      var handed = downloadBytes(file.name, file.bytes, "application/pdf");
       $("qd-result").innerHTML =
-        '<div class="compare-strip doc-link"><b>' + escapeHtml(file.name) + '</b> saved to your ' +
-        'Drive, in the folder <b>ERP Quotations</b>. ' +
-        '<a href="' + escapeHtml(file.url) + '" target="_blank" rel="noopener">Open it</a> ' +
-        'to download it or attach it to an email.</div>';
+        '<div class="compare-strip doc-link"><b>' + escapeHtml(file.name) + "</b> " +
+        (handed
+          ? "should now be in this computer's Downloads folder. If nothing arrived, use " +
+            "<b>Print</b> above and choose Save as PDF."
+          : "could not be downloaded by this browser — use <b>Print</b> above and choose " +
+            "Save as PDF.") +
+        " A copy is filed on the company Drive, in the folder <b>ERP Quotations</b>.</div>";
       $("btn-qd-pdf").disabled = false;
     }).withFailureHandler(function (err) {
       $("qd-result").innerHTML = "";
