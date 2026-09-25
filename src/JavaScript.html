@@ -1894,16 +1894,39 @@
     "Won": "badge-won", "Lost": "badge-lost", "Dropped": "badge-draft"
   };
 
+  /**
+   * Who rang, and how to ring them back.
+   *
+   * The number is the point of this column: most of what a coordinator does with an open
+   * enquiry is call the person about it, and having to open each one to find the number is
+   * how it ends up in a notebook instead. Drawn as a dial link, because they work from a
+   * phone.
+   */
+  function enquiryContactCell(e) {
+    var name = String(e.contactName || "").trim();
+    var phone = String(e.contactPhone || "").trim();
+    if (!name && !phone) return "—";
+    var cell = name ? escapeHtml(name) : "";
+    if (phone) {
+      cell += (name ? "<br>" : "") +
+        '<a class="mono" style="font-size:11.5px;" href="tel:' +
+        escapeHtml(phone.replace(/[^0-9+]/g, "")) + '">' + escapeHtml(phone) + "</a>";
+    }
+    return cell;
+  }
+
   function renderEnquiries() {
     var q = ($("enquiry-search").value || "").toLowerCase();
     var rows = enquiriesCache.filter(function (e) {
-      return [e.enquiryNo, e.customerName, e.productModel, e.serialNo, e.requirementText]
-        .join(" ").toLowerCase().indexOf(q) !== -1;
+      // The person is worth searching by too: "what did Mohan ask for last week" is a
+      // question somebody asks, and their number is how a callback starts.
+      return [e.enquiryNo, e.customerName, e.contactName, e.contactPhone, e.productModel,
+        e.serialNo, e.requirementText].join(" ").toLowerCase().indexOf(q) !== -1;
     });
 
     var tbody = $("enquiries-tbody");
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="9"><div class="empty">' +
+      tbody.innerHTML = '<tr><td colspan="10"><div class="empty">' +
         (enquiriesCache.length ? "No enquiries match your search." : "No open enquiries — log the first one.") +
         "</div></td></tr>";
       return;
@@ -1914,6 +1937,7 @@
         '<td class="mono">' + escapeHtml(e.enquiryNo || "—") + "</td>" +
         "<td>" + escapeHtml(e.date) + "</td>" +
         "<td>" + escapeHtml(e.customerName || "—") + "</td>" +
+        "<td>" + enquiryContactCell(e) + "</td>" +
         "<td>" + escapeHtml(e.productModel || "—") + (e.serialNo ? ' <span class="mono" style="color:var(--steel);">· ' + escapeHtml(e.serialNo) + "</span>" : "") + "</td>" +
         "<td>" + escapeHtml(e.urgency || "Normal") + "</td>" +
         '<td class="num">' + e.itemCount + "</td>" +
