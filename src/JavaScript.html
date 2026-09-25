@@ -332,6 +332,21 @@
     if (VIEW_INIT[view]) VIEW_INIT[view]();
   }
 
+  /**
+   * The screen the app opens on.
+   *
+   * Everybody used to land on the Dashboard because it is first in the menu. It is also the
+   * most expensive screen in the system — it reads fifteen tabs, the whole parts catalogue
+   * among them, to draw a control tower — and a coordinator whose job is quotations was
+   * paying for it on every single load before they could get to their own work. Management
+   * asked for that view and still gets it; everyone else opens on the screen they came for.
+   */
+  function landingView(visible) {
+    if (["Management", "ERP Admin"].indexOf(currentUser.role) !== -1) return visible[0].view;
+    var work = visible.filter(function (t) { return t.view !== "dashboard"; });
+    return (work[0] || visible[0]).view;
+  }
+
   function renderTabs() {
     var html = "";
     // One rule for who sees a screen, used here and by visibleLeaves, so the menu and the
@@ -391,7 +406,7 @@
     // A way back to a list this role cannot open would be a dead end.
     $("btn-qb-back").style.display =
       visible.some(function (t) { return t.view === "quotations"; }) ? "" : "none";
-    if (visible.length) goToTab(visible[0].view);
+    if (visible.length) goToTab(landingView(visible));
   }
 
   // A menu left hanging open over the page is the classic half-finished dropdown.
@@ -1830,25 +1845,31 @@
   var lostReasonsCache = [];
   var identifySearchTimer = null;
 
+  /**
+   * Opening this screen used to fire six calls before it drew anything — the list, the
+   * customers, the lost reasons, the known models and two config lists — each its own round
+   * trip, one after another. The server gathers them now, so the screen costs one call on
+   * first open and one list refresh after that. The config lists are for datalists inside
+   * forms, so they wait until a form is opened.
+   */
   function initEnquiriesView() {
     $("btn-new-enquiry").style.display = canEditEnquiries() ? "inline-flex" : "none";
-    if (!customersLoaded) {
-      srv.withSuccessHandler(function (rows) {
-        customersCache = rows; customersLoaded = true; fillCustomerDatalist();
-      }).withFailureHandler(function () {}).listCustomers();
-    } else {
+    if (customersLoaded && lostReasonsCache.length) {
       fillCustomerDatalist();
+      loadEnquiries();
+      return;
     }
-    if (!lostReasonsCache.length) {
-      srv.withSuccessHandler(function (rows) {
-        lostReasonsCache = rows;
-      }).withFailureHandler(function () {}).listLostReasons();
-    }
-    srv.withSuccessHandler(function (models) {
-      fillDatalist("models-list", models);
-    }).withFailureHandler(function () {}).listKnownModels();
-    if (!configLists) loadConfigLists();
-    loadEnquiries();
+    srv.withSuccessHandler(function (data) {
+      customersCache = data.customers || []; customersLoaded = true;
+      lostReasonsCache = data.lostReasons || [];
+      fillCustomerDatalist();
+      fillDatalist("models-list", data.knownModels || []);
+      enquiriesCache = data.enquiries || [];
+      renderEnquiries();
+    }).withFailureHandler(onServerError).spareSalesScreen({
+      mineOnly: $("enquiry-mine").checked,
+      includeClosed: $("enquiry-closed").checked
+    });
   }
 
   function canEditEnquiries() {
@@ -1912,7 +1933,10 @@
   $("enquiry-search").addEventListener("input", renderEnquiries);
   $("enquiry-mine").addEventListener("change", loadEnquiries);
   $("enquiry-closed").addEventListener("change", loadEnquiries);
-  $("btn-new-enquiry").addEventListener("click", function () { openEnquiryModal(null); });
+  $("btn-new-enquiry").addEventListener("click", function () {
+    if (!configLists) loadConfigLists();
+    openEnquiryModal(null);
+  });
   $("btn-cancel-enquiry").addEventListener("click", function () {
     $("enquiry-modal-backdrop").classList.remove("show");
   });

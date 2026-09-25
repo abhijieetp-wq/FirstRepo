@@ -46,6 +46,48 @@ function invalidateTable_(name) {
   delete TABLE_CACHE_[name];
 }
 
+/**
+ * Keeps the cached block in step with a write, instead of throwing the block away.
+ *
+ * Dropping the cache after every write is correct but expensive: saving one quotation line
+ * re-read the whole QuotationItems tab twice and the whole Quotations tab twice, because each
+ * write invalidated what the next step was about to read. The write already knows exactly
+ * which row changed and to what, so the cheap thing is to apply the same change to the copy
+ * in hand. Anything that does not line up exactly — a width that has moved, a row number past
+ * the end — falls back to dropping the block, because a stale cache is the one way this can
+ * do harm and a wrong guess is not worth a round trip.
+ */
+function cacheRowWritten_(sheetName, rowNum, values) {
+  var cached = TABLE_CACHE_[sheetName];
+  if (!cached) return;
+  var i = rowNum - 1;
+  if (i < 1 || i >= cached.length || !cached[0] || values.length !== cached[0].length) {
+    invalidateTable_(sheetName);
+    return;
+  }
+  cached[i] = values.slice();
+}
+
+/** The same, for a row added at the end. */
+function cacheRowAppended_(sheetName, values) {
+  var cached = TABLE_CACHE_[sheetName];
+  if (!cached) return;
+  if (!cached[0] || values.length !== cached[0].length) {
+    invalidateTable_(sheetName);
+    return;
+  }
+  cached.push(values.slice());
+}
+
+/** And for a row taken out, which moves every row below it up one. */
+function cacheRowRemoved_(sheetName, rowNum) {
+  var cached = TABLE_CACHE_[sheetName];
+  if (!cached) return;
+  var i = rowNum - 1;
+  if (i < 1 || i >= cached.length) { invalidateTable_(sheetName); return; }
+  cached.splice(i, 1);
+}
+
 /** Registers a Sheet fetched without getSheet_, so its headers cache like any other. */
 function rememberSheet_(name, sheet) {
   if (!SHEET_CACHE_.hasOwnProperty(name)) SHEET_CACHE_[name] = sheet;
@@ -173,8 +215,8 @@ function appendRow_(sheetName, obj, auditReason) {
     var row = headers.map(function (h) {
       return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
     });
-    invalidateTable_(sheetName);
     sheet.appendRow(row);
+    cacheRowAppended_(sheetName, row);
     audit_('Create', sheetName, obj.id || '', '', '', '', auditReason);
     return sheet.getLastRow();
   } finally {
@@ -214,8 +256,8 @@ function updateRowById_(sheetName, idField, idValue, patch, auditReason) {
           }
           return patch[h];
         });
-        invalidateTable_(sheetName);
         sheet.getRange(rowNum, 1, 1, headers.length).setValues([updated]);
+        cacheRowWritten_(sheetName, rowNum, updated);
         auditMany_(changes.map(function (c) {
           return { action: 'Update', tableName: sheetName, recordId: idValue,
             fieldName: c.field, oldValue: c.oldValue, newValue: c.newValue, reason: auditReason };
@@ -242,8 +284,8 @@ function deleteRowById_(sheetName, idField, idValue, auditReason) {
     for (var i = 0; i < ids.length; i++) {
       if (String(ids[i][0]) === String(idValue)) {
         var doomed = sheet.getRange(i + 2, 1, 1, headers.length).getValues()[0].join(' | ');
-        invalidateTable_(sheetName);
         sheet.deleteRow(i + 2);
+        cacheRowRemoved_(sheetName, i + 2);
         audit_('Delete', sheetName, idValue, '', doomed, '', auditReason);
         return true;
       }
@@ -380,6 +422,21 @@ function findRowsByColumn_(sheetName, column, values) {
   });
   if (!any) return [];
 
+  // Already read this request: filtering what is in hand beats a second read of the same tab,
+  // narrower or not.
+  var cached = TABLE_CACHE_[sheetName];
+  if (cached) {
+    var fromCache = [];
+    for (var c = 1; c < cached.length; c++) {
+      if (!want[String(cached[c][col])]) continue;
+      var hit = {};
+      for (var k = 0; k < headers.length; k++) hit[headers[k]] = normalizeCell_(cached[c][k]);
+      hit._row = c + 1;
+      fromCache.push(hit);
+    }
+    return fromCache;
+  }
+
   var keys = sheet.getRange(2, col + 1, lastRow - 1, 1).getValues();
   var hits = [];
   for (var i = 0; i < keys.length; i++) {
@@ -456,8 +513,8 @@ function appendRows_(sheetName, objs, auditReason) {
       });
     });
     var start = sheet.getLastRow() + 1;
-    invalidateTable_(sheetName);
     sheet.getRange(start, 1, rows.length, headers.length).setValues(rows);
+    rows.forEach(function (r) { cacheRowAppended_(sheetName, r); });
     objs.forEach(function (obj) {
       audit_('Create', sheetName, obj.id || '', '', '', '', auditReason);
     });

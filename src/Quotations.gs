@@ -352,8 +352,9 @@ function getQuotation(id) {
   requireCommercial_(reader, 'A quotation');
   requireStream_(reader, q.businessStream, 'This quotation');
   var row = stripRow_(q);
-  row.items = readTable_('QuotationItems')
-    .filter(function (i) { return String(i.quotationId) === String(id); })
+  // The lines of one quotation, not of all of them. Reading the whole tab to find four rows
+  // is what an eight-line offer paid for eight times over while it was being built.
+  row.items = quotationLines_(id)
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
     .map(stripRow_);
   row.locked = String(row.locked).toUpperCase() === 'TRUE';
@@ -535,9 +536,7 @@ function saveQuotationCharge(input) {
   var amount = Number(input.amount);
   if (isNaN(amount) || amount < 0) throw new Error('The amount must be a number, zero or more.');
 
-  var existingLines = readTable_('QuotationItems').filter(function (i) {
-    return String(i.quotationId) === String(input.quotationId);
-  });
+  var existingLines = quotationLines_(input.quotationId);
 
   var taxPct;
   if (input.taxPct === '' || input.taxPct === undefined || input.taxPct === null) {
@@ -590,9 +589,7 @@ function saveQuotationItem(input) {
   var master = masterRecordFor_(itemType, input.itemId);
   var effective = getEffectivePrice_(itemType, String(input.itemId), SELLING_PRICE_LEVEL, quote.date);
 
-  var existingLines = readTable_('QuotationItems').filter(function (i) {
-    return String(i.quotationId) === String(input.quotationId);
-  });
+  var existingLines = quotationLines_(input.quotationId);
 
   var record = quoteItemRecord_(input, itemType, master, effective,
     input.id ? Number(input.lineNo) : existingLines.length + 1);
@@ -714,9 +711,7 @@ function saveQuotationItems(input) {
     prices[t] = getEffectivePrices_(t, idsByType[t], SELLING_PRICE_LEVEL, quote.date);
   });
 
-  var existingLines = readTable_('QuotationItems').filter(function (i) {
-    return String(i.quotationId) === String(input.quotationId);
-  });
+  var existingLines = quotationLines_(input.quotationId);
   var nextLineNo = existingLines.length + 1;
 
   // A selection can contain a part the offer already carries, and — once two selections are
@@ -851,9 +846,7 @@ function discardQuotation(quotationId) {
       'quotation, so it cannot be discarded.');
   }
 
-  var lines = readTable_('QuotationItems').filter(function (i) {
-    return String(i.quotationId) === String(quotationId);
-  });
+  var lines = quotationLines_(quotationId);
   lines.forEach(function (line) {
     deleteRowById_('QuotationItems', 'id', line.id, 'Line removed with discarded quotation');
   });
@@ -921,7 +914,9 @@ function reopenQuotation(id, reason) {
 function deleteQuotationItem(id) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);
-  var line = readTable_('QuotationItems').filter(function (i) { return String(i.id) === String(id); })[0];
+  var line = readTable_('QuotationItems').filter(function (i) {
+    return String(i.id) === String(id);
+  })[0];
   if (!line) throw new Error('That line no longer exists.');
   requireUnlockedQuote_(line.quotationId);
 
@@ -948,9 +943,7 @@ function setQuotationStatus(id, status, lostReasonId, lostDetails) {
   if (status === 'Lost' && !String(lostReasonId || '').trim()) {
     throw new Error('Pick a lost reason before marking this quotation Lost.');
   }
-  if (status !== 'Draft' && !readTable_('QuotationItems').some(function (i) {
-    return String(i.quotationId) === String(id);
-  })) {
+  if (status !== 'Draft' && !quotationLines_(id).length) {
     throw new Error('A quotation needs at least one line before it can leave Draft.');
   }
 
@@ -1045,8 +1038,7 @@ function reviseQuotation(id) {
   copy.createdBy = user.email;
   appendRow_('Quotations', copy, 'Revision ' + nextRevision + ' of ' + source.quoteNo);
 
-  readTable_('QuotationItems')
-    .filter(function (i) { return String(i.quotationId) === String(id); })
+  quotationLines_(id)
     .forEach(function (i) {
       var line = stripRow_(i);
       line.id = generateId_('QI-');
@@ -1063,10 +1055,29 @@ function reviseQuotation(id) {
 // ------------------------------------------------------------------ internals
 
 /** Totals are always recomputed from the lines — never accumulated or hand-edited. */
-function recalcQuotation_(quotationId) {
-  var lines = readTable_('QuotationItems').filter(function (i) {
+/** One quotation row, from the block this request will want the rest of anyway. */
+function quotationRow_(quotationId) {
+  return readTable_('Quotations').filter(function (q) {
+    return String(q.id) === String(quotationId);
+  })[0];
+}
+
+/**
+ * The lines of one quotation.
+ *
+ * Deliberately a whole-tab read and not a targeted one. Fetching just the four rows that
+ * match costs a column scan plus a read per run of rows - three or four round trips where
+ * reading the tab is one, and Apps Script charges by the round trip. The tab is read once per
+ * request and every later caller is served from that block, writes included.
+ */
+function quotationLines_(quotationId) {
+  return readTable_('QuotationItems').filter(function (i) {
     return String(i.quotationId) === String(quotationId);
   });
+}
+
+function recalcQuotation_(quotationId) {
+  var lines = quotationLines_(quotationId);
 
   var subtotal = 0, discountAmt = 0, taxAmt = 0;
   lines.forEach(function (l) {
@@ -1080,9 +1091,7 @@ function recalcQuotation_(quotationId) {
     taxAmt += net * (Number(l.taxPct) || 0) / 100;
   });
 
-  var quote = readTable_('Quotations').filter(function (q) {
-    return String(q.id) === String(quotationId);
-  })[0];
+  var quote = quotationRow_(quotationId);
   var freight = quote ? (Number(quote.freight) || 0) : 0;
   var pf = quote ? (Number(quote.pfAmount) || 0) : 0;
 
@@ -1111,9 +1120,7 @@ function recalcQuotation_(quotationId) {
 }
 
 function requireUnlockedQuote_(quotationId) {
-  var quote = readTable_('Quotations').filter(function (q) {
-    return String(q.id) === String(quotationId);
-  })[0];
+  var quote = quotationRow_(quotationId);
   if (!quote) throw new Error('Quotation not found.');
   // Every edit to a quotation comes through here, so this is the one place the stream has to
   // be checked on the way in.
@@ -1126,8 +1133,7 @@ function requireUnlockedQuote_(quotationId) {
 }
 
 function renumberQuotationLines_(quotationId) {
-  readTable_('QuotationItems')
-    .filter(function (i) { return String(i.quotationId) === String(quotationId); })
+  quotationLines_(quotationId)
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
     .forEach(function (line, idx) {
       if (Number(line.lineNo) !== idx + 1) {

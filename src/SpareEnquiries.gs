@@ -357,3 +357,21 @@ function sparePickerData(productModel, customerId) {
   return { cols: SPARE_PICKER_COLS, rows: rows, compat: compat, count: rows.length,
            theirCodes: theirCodes };
 }
+
+/**
+ * Everything the Spare Sales screen needs, in one call.
+ *
+ * Opening it used to cost six separate calls — the enquiry list, the customers, the lost
+ * reasons, the known models, the config lists and the user list. Apps Script charges for a
+ * round trip whether it carries one row or ten thousand, and those six were paid one after
+ * another before the screen drew anything. Gathered here they cost one, and the tabs they
+ * share — Customers above all — are read once between them rather than once each.
+ */
+function spareSalesScreen(options) {
+  return {
+    enquiries: listSpareEnquiries(options || {}),
+    customers: listCustomers(),
+    lostReasons: listLostReasons(),
+    knownModels: listKnownModels()
+  };
+}
