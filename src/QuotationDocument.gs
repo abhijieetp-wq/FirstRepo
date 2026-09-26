@@ -451,9 +451,13 @@ function buildQuotationHtml(quotationId) {
     ? [L('colDescription', 'Description'), L('colBasicPrice', 'Basic price'),
        L('colQty', 'Qty'), L('colUnit', 'Unit'), L('colHsn', 'HSN code'),
        L('colTaxRate', 'Tax rate')]
+    // The HSN code and the unit belong with what is being sold, before the money starts: a
+    // storeman reads left to right and stops once the figures begin. The HSN used to sit in
+    // the last column, past the totals, where it read as an afterthought on a tax document.
     : [L('colPartNo', 'Part Number'), L('colDescription', 'Description'),
+       L('colHsn', 'HSN code'), L('colUom', 'Unit of measurement'),
        L('colPricePer', 'Price Per'), L('colQuantity', 'Quantity'),
-       L('colTotalAmount', 'Total Amount'), L('colHsn', 'HSN code')];
+       L('colTotalAmount', 'Total Amount')];
 
   push('<table class="price"><tr>' +
     (isCompressor
@@ -465,10 +469,11 @@ function buildQuotationHtml(quotationId) {
         '<th class="num">' + esc_(priceCols[5]) + '</th>'
       : '<th class="w-part">' + esc_(priceCols[0]) + '</th>' +
         '<th class="w-desc">' + esc_(priceCols[1]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[2]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[3]) + '</th>' +
+        '<th>' + esc_(priceCols[2]) + '</th>' +
+        '<th>' + esc_(priceCols[3]) + '</th>' +
         '<th class="num">' + esc_(priceCols[4]) + '</th>' +
-        '<th>' + esc_(priceCols[5]) + '</th>') +
+        '<th class="num">' + esc_(priceCols[5]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[6]) + '</th>') +
     '</tr>');
 
   var gross = 0;
@@ -500,13 +505,14 @@ function buildQuotationHtml(quotationId) {
               esc_(theirCodes[i.itemType + '|' + i.itemId].theirCode) + '</div>'
             : '')) + '</td>' +
         '<td>' + esc_(i.description || i.itemCode) + '</td>' +
+        '<td>' + hsn + '</td>' +
+        // A charge is an amount, not a quantity of anything, so it has no unit either.
+        '<td>' + (isCharge ? '' : esc_(i.uom || 'Nos')) + '</td>' +
         '<td class="num">' + (isCharge ? '' : inr_(unit)) + '</td>' +
         '<td class="num">' + (isCharge ? '' : esc_(qty)) + '</td>' +
-        '<td class="num">' + inr_(lineTotal) + '</td>' +
-        '<td>' + hsn + '</td>') +
+        '<td class="num">' + inr_(lineTotal) + '</td>') +
       '</tr>');
   });
-  push('</table>');
 
   // Totals, laid out the way their offer lays them out: everything listed at full price, one
   // percentage struck off the whole package, then P&F, freight and the tax note.
@@ -549,15 +555,36 @@ function buildQuotationHtml(quotationId) {
   if (isCompressor && taxExtra) {
     totals.push([taxRow, esc_(L('taxExtra', 'EXTRA')), '']);
   } else {
-    totals.push([taxRow, inr_(q.taxAmt), '']);
-    totals.push([esc_(L('grandTotal', 'Total amount')), inr_(q.grand), 'strong']);
+    // GST split the way a tax document has to split it: CGST and SGST between two places in
+    // the same state, IGST across a border. One "Total Tax 18%" line said the right amount
+    // and the wrong thing — the customer's accounts cannot post it, and their purchase order
+    // is raised off this page.
+    gstRows_(q, co, address, items).forEach(function (r) { totals.push(r); });
+    // What the customer will actually pay. This printed q.grand, which excludes the tax when
+    // the offer quotes GST as extra — so the page listed the tax and then a total that
+    // ignored it, and the figure a purchase order would be raised against was short by the
+    // GST. The stored figure is left alone; this is the arithmetic the page has to show.
+    totals.push([esc_(L('grandTotal', 'Total amount')), inr_(payableTotal_(q)), 'strong']);
   }
 
-  push('<table class="totals">');
-  totals.forEach(function (t) {
-    push('<tr class="' + t[2] + '"><td>' + t[0] + '</td><td class="num">' + t[1] + '</td></tr>');
-  });
-  push('</table>');
+  // One table, not two. The items and the totals were separate tables, so the money did not
+  // line up under the money and the last row of one sat beside the first row of the other.
+  // On the spares annexure the totals are now rows of the same grid; the compressor offer
+  // keeps its own block, which is how their machine quotation is laid out.
+  if (isCompressor) {
+    push('</table>');
+    push('<table class="totals">');
+    totals.forEach(function (t) {
+      push('<tr class="' + t[2] + '"><td>' + t[0] + '</td><td class="num">' + t[1] + '</td></tr>');
+    });
+    push('</table>');
+  } else {
+    totals.forEach(function (t) {
+      push('<tr class="' + t[2] + '"><td class="tot-label" colspan="6">' + t[0] + '</td>' +
+        '<td class="num">' + t[1] + '</td></tr>');
+    });
+    push('</table>');
+  }
 
   // ---------------------------------------------------------------- terms
   var terms = quoteTemplate_('Terms', stream);
@@ -628,6 +655,71 @@ function buildQuotationHtml(quotationId) {
  * Both their documents write "18% GST"; we were printing "18.00% GST", which is the sort of
  * detail nobody asks you to fix and everybody notices.
  */
+/**
+ * What the customer pays, tax included.
+ *
+ * `grand` excludes the tax when the offer quotes GST as extra — that is deliberate and the
+ * rest of the system reads it that way, for the margin, the credit exposure and the check
+ * against the purchase order. A document that prints the tax has to print the sum of the two
+ * all the same, because the figure on the page is the figure the customer pays.
+ */
+function payableTotal_(q) {
+  var grand = Number(q.grand) || 0;
+  var tax = Number(q.taxAmt) || 0;
+  return String(q.taxMode || 'Extra') === 'Extra' ? grand + tax : grand;
+}
+
+/**
+ * The GST rows: CGST and SGST inside one state, IGST across a border.
+ *
+ * Which of the two applies is the place of supply — where the goods are going against where
+ * they are coming from. The GSTIN is the reliable comparison, since its first two digits are
+ * the state code and a state typed by hand can be spelt three ways; the spelling is the
+ * fallback. When the customer's state cannot be established at all the tax stays as one line
+ * rather than guessing, because naming the wrong pair of taxes on a document somebody posts
+ * into their books is worse than not splitting it.
+ */
+function gstRows_(q, co, address, items) {
+  var rate = Number(headlineTaxRate_(items)) || 0;
+  var tax = Number(q.taxAmt) || 0;
+  var oneLine = [esc_(String(rate) + '% GST'), inr_(tax), ''];
+
+  // Like compared with like. A GSTIN's first two digits and a state's name are both ways of
+  // saying where somebody is, but "27" is not "maharashtra" — comparing one against the other
+  // makes every customer look like a different state and puts IGST on a local sale.
+  var us = placeOf_(co.gstin, co.state);
+  var them = placeOf_(q.customerGstin, address && address.state);
+  var same;
+  if (us.code && them.code) same = us.code === them.code;
+  else if (us.name && them.name) same = us.name === them.name;
+  else return [oneLine];
+
+  var half = function (n) { return Math.round(n * 50) / 100; };
+  if (same) {
+    // Halved from the total rather than recomputed, so the two halves always add back to the
+    // tax the rest of the document shows.
+    var cg = half(tax);
+    return [
+      ['CGST ' + esc_(String(rate / 2)) + '%', inr_(cg), ''],
+      ['SGST ' + esc_(String(rate / 2)) + '%', inr_(tax - cg), '']
+    ];
+  }
+  return [['IGST ' + esc_(String(rate)) + '%', inr_(tax), '']];
+}
+
+/**
+ * Where somebody is, said both ways: the state code off their GSTIN, and their state's name
+ * folded down. "Maharashtra", "MAHARASHTRA" and "maharashtra " are one state, and
+ * 27AAHFP1707A1ZQ says the same thing without depending on anybody's spelling.
+ */
+function placeOf_(gstin, stateName) {
+  var g = String(gstin || '').trim();
+  return {
+    code: /^[0-9]{2}/.test(g) ? g.slice(0, 2) : '',
+    name: String(stateName || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  };
+}
+
 function headlineTaxRate_(items) {
   var rates = {};
   items.forEach(function (i) {
@@ -770,6 +862,10 @@ function quotationCss_(co) {
     'table.price td{padding:6px 8px;border:1px solid #999;}' +
     '.w-desc{width:42%;}' +
     '.w-part{width:18%;}' +
+    // A totals row inside the price grid: the label runs across the columns the figures do
+    // not need, and the amount lands under the amounts.
+    'table.price td.tot-label{text-align:right;font-weight:bold;}' +
+    'table.price tr.strong td{font-weight:bold;background:#f2f2f2;}' +
     'table.machine{border-collapse:collapse;margin-bottom:10px;font-size:10pt;}' +
     'table.machine td{border:1px solid #999;padding:4px 10px;}' +
     'table.machine td:first-child{font-weight:bold;background:#eee;}' +
