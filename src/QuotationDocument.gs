@@ -620,7 +620,10 @@ function buildQuotationHtml(quotationId) {
       if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
     });
   }
-  push(signoff());
+  // The letter is already signed where it closes, on the first page. On a long compressor
+  // offer the terms sit pages away from that signature, so they are signed again; a spares
+  // offer is short enough that the second block only ever produced a sheet of its own.
+  if (isCompressor) push(signoff());
 
   // ---------------------------------------------------------------- installation
   var install = quoteTemplate_('InstallationNotes', stream);
@@ -804,11 +807,11 @@ function quotationCss_(co) {
     '@page{size:A4;margin:10mm 12mm;}' +
     // Verdana at 10pt, which is what PIE's own offers are set in. Geneva and the generic
     // sans-serif stand behind it for the PDF converter, which embeds only the fonts it has.
-    'body{font-family:Verdana,Geneva,sans-serif;font-size:10pt;color:#111;line-height:1.32;margin:0;}' +
+    'body{font-family:Verdana,Geneva,sans-serif;font-size:10pt;color:#111;line-height:1.25;margin:0;}' +
 
     // The page frame. thead and tfoot on this table are what repeat on every page.
     'table.page{width:100%;border-collapse:collapse;}' +
-    'table.page > tbody > tr > td{padding:14px 0 0;vertical-align:top;}' +
+    'table.page > tbody > tr > td{padding:8px 0 0;vertical-align:top;}' +
     'table.page > thead > tr > td{padding:0;}' +
     'table.page > tfoot > tr > td{padding:0;}' +
 
@@ -820,27 +823,29 @@ function quotationCss_(co) {
     '.lh td{padding:0;vertical-align:middle;}' +
     '.lh-l{text-align:left;width:50%;}' +
     '.lh-r{text-align:right;width:50%;}' +
-    '.logo{max-height:144px;max-width:210px;}' +  // 144px = 108pt, theirs exactly
-    '.partner-logo{max-height:80px;max-width:160px;}' +
+    // 104px = 78pt. Theirs is drawn at 144px, but that band repeated on every sheet cost
+    // more of the page than the artwork was worth; the mark is still legible at this size.
+    '.logo{max-height:104px;max-width:170px;}' +
+    '.partner-logo{max-height:62px;max-width:130px;}' +
 
-    '.ft{border-top:1px solid #222;margin-top:10px;padding-top:4px;text-align:center;}' +
-    '.ft-partner{font-size:8.5pt;color:' + accent + ';text-decoration:underline;}' +
-    '.ft-name{font-size:11pt;font-weight:bold;letter-spacing:.3px;}' +
-    '.ft-line{font-size:8.5pt;color:#222;}' +
+    '.ft{border-top:1px solid #222;margin-top:6px;padding-top:3px;text-align:center;}' +
+    '.ft-partner{font-size:8pt;color:' + accent + ';text-decoration:underline;}' +
+    '.ft-name{font-size:10pt;font-weight:bold;letter-spacing:.3px;}' +
+    '.ft-line{font-size:8pt;color:#222;line-height:1.2;}' +
 
-    '.doc-title{font-size:12pt;font-weight:bold;color:' + accent + ';margin:4px 0 10px;}' +
-    '.doc-sub{font-size:11pt;font-weight:bold;margin:0 0 12px;}' +
-    '.refbar{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
+    '.doc-title{font-size:12pt;font-weight:bold;color:' + accent + ';margin:2px 0 7px;}' +
+    '.doc-sub{font-size:11pt;font-weight:bold;margin:0 0 8px;}' +
+    '.refbar{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:10pt;}' +
     '.refbar td{padding:0;}' +
     '.right{text-align:right;}' +
-    '.to{margin-bottom:12px;font-size:10pt;}' +
-    '.subject{margin:12px 0 8px;}' +
-    '.salut{margin-bottom:8px;}' +
-    'p{margin:0 0 7px;text-align:justify;}' +
-    '.h1{font-size:11.5pt;font-weight:bold;color:' + accent + ';margin:11px 0 6px;page-break-after:avoid;}' +
-    '.h2{font-size:10.5pt;font-weight:bold;color:' + accent + ';margin:10px 0 5px;page-break-after:avoid;}' +
-    'ul,ol{margin:0 0 7px;padding-left:26px;}' +   // 18px clipped the '10.' on a two-digit list
-    'li{margin-bottom:4px;text-align:justify;}' +
+    '.to{margin-bottom:8px;font-size:10pt;}' +
+    '.subject{margin:8px 0 6px;}' +
+    '.salut{margin-bottom:6px;}' +
+    'p{margin:0 0 5px;text-align:justify;}' +
+    '.h1{font-size:11.5pt;font-weight:bold;color:' + accent + ';margin:9px 0 5px;page-break-after:avoid;}' +
+    '.h2{font-size:10.5pt;font-weight:bold;color:' + accent + ';margin:8px 0 4px;page-break-after:avoid;}' +
+    'ul,ol{margin:0 0 5px;padding-left:26px;}' +   // 18px clipped the '10.' on a two-digit list
+    'li{margin-bottom:2px;text-align:justify;}' +
     // Theirs marks the heading with a hollow bullet and the points under it with a filled
     // one — the reverse of a browser's default nesting — and does not indent the children.
     'ul{list-style-type:circle;}' +
@@ -848,9 +853,9 @@ function quotationCss_(co) {
     'ul.sub{list-style-type:disc;margin:4px 0 4px;padding-left:16px;font-weight:normal;}' +
     'ol.sub{margin:4px 0 4px;padding-left:22px;list-style-type:lower-alpha;}' +
     'ul > li.lead{font-weight:bold;}' +
-    '.note{font-size:9pt;color:#444;margin:8px 0 12px;font-style:italic;}' +
+    '.note{font-size:9pt;color:#444;margin:6px 0 8px;font-style:italic;}' +
 
-    '.spec-title{font-weight:bold;margin:14px 0 5px;}' +
+    '.spec-title{font-weight:bold;margin:10px 0 4px;}' +
     'table.spec{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
     'table.spec th{background:#eee;text-align:left;padding:5px 8px;border:1px solid #999;}' +
     'table.spec td{padding:5px 8px;border:1px solid #999;}' +
@@ -866,8 +871,8 @@ function quotationCss_(co) {
     '.scope-line{margin-left:12px;font-size:10pt;}' +
 
     'table.price{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:10pt;}' +
-    'table.price th{background:#eee;padding:4px 7px;border:1px solid #999;text-align:left;}' +
-    'table.price td{padding:4px 7px;border:1px solid #999;}' +
+    'table.price th{background:#eee;padding:3px 6px;border:1px solid #999;text-align:left;}' +
+    'table.price td{padding:3px 6px;border:1px solid #999;}' +
     // A part whose description carries on overleaf reads as a printing fault, so a row moves
     // to the next page whole. The heading row is a thead, so it repeats above it.
     'table.price tr{page-break-inside:avoid;}' +
@@ -877,7 +882,7 @@ function quotationCss_(co) {
     // not need, and the amount lands under the amounts.
     'table.price td.tot-label{text-align:right;font-weight:bold;}' +
     'table.price tr.strong td{font-weight:bold;background:#f2f2f2;}' +
-    'table.machine{border-collapse:collapse;margin-bottom:10px;font-size:10pt;}' +
+    'table.machine{border-collapse:collapse;margin-bottom:8px;font-size:10pt;page-break-inside:avoid;}' +
     'table.machine td{border:1px solid #999;padding:4px 10px;}' +
     'table.machine td:first-child{font-weight:bold;background:#eee;}' +
     '.num{text-align:right;}' +
@@ -886,10 +891,10 @@ function quotationCss_(co) {
     'table.totals tr.strong td{font-weight:bold;background:#f2f2f2;}' +
 
     // A signature split across a page break reads as a printing fault, so it moves whole.
-    '.signoff{margin-top:14px;font-size:10pt;page-break-inside:avoid;}' +
+    '.signoff{margin-top:10px;font-size:10pt;page-break-inside:avoid;}' +
     '.signoff .for{margin-top:4px;font-weight:bold;}' +
-    '.sig-space{height:26px;}' +
-    '.seal{max-height:80px;margin:6px 0;}' +
+    '.sig-space{height:20px;}' +
+    '.seal{max-height:70px;margin:4px 0;}' +
     'table.totals{page-break-inside:avoid;}' +
     '.page-break{page-break-before:always;}' +
     '</style>';
