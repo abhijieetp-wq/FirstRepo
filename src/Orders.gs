@@ -119,6 +119,18 @@ function getSalesOrder(id) {
     row.creditRelease.youMay = mayReleaseCredit_(getCurrentUser(), customer, row.creditRelease);
   }
   row.coordinatorInCharge = coordinatorInCharge_(customer);
+  // Which of the customer's premises this order could bill or ship to.
+  row.addressChoices = readTable_('CustomerAddresses')
+    .filter(function (a) {
+      return String(a.customerId) === String(row.customerId) &&
+        String(a.active).toUpperCase() !== 'FALSE';
+    })
+    .map(function (a) {
+      return { id: String(a.id), addressType: String(a.addressType || ''),
+               label: String(a.label || ''), line1: String(a.line1 || ''),
+               city: String(a.city || ''),
+               isDefault: String(a.isDefault).toUpperCase() === 'TRUE' };
+    });
   // The customer's own paperwork, so the screen can show the PO rather than a link to it.
   row.documents = listDocuments('SalesOrder', id);
   row.documentTypes = DOC_TYPES.SalesOrder.slice();
@@ -499,7 +511,23 @@ function saveOrderDetails(input) {
   var advanceReceived = input.advanceReceived === '' || input.advanceReceived === undefined
     ? Number(order.advanceReceived) || 0 : Number(input.advanceReceived);
 
-  updateRowById_('SalesOrders', 'id', input.id, {
+  // Where this order bills and where it ships. Carried from the quotation when the order was
+  // created, and changeable here because a customer can send the PO and then say the goods go
+  // to a different plant — which is the address the dispatch and the challan will use.
+  var places = {};
+  if (input.billingAddressId !== undefined || input.shippingAddressId !== undefined) {
+    var chosen = chooseCustomerParties_(order.customerId, {
+      billingAddressId: input.billingAddressId,
+      shippingAddressId: input.shippingAddressId
+    });
+    // A blank is "leave it as it was" here rather than "nobody": an order with no address to
+    // ship to cannot be dispatched, and clearing one by accident is not worth allowing.
+    places.billingAddressId = chosen.billingAddressId || order.billingAddressId;
+    places.shippingAddressId = chosen.shippingAddressId || order.shippingAddressId;
+  }
+
+  updateRowById_('SalesOrders', 'id', input.id, Object.keys(places).reduce(
+    function (into, k) { into[k] = places[k]; return into; }, {
     poNo: String(input.poNo || '').trim(),
     poDate: String(input.poDate || '').slice(0, 10),
     poValue: poValue,
@@ -512,7 +540,7 @@ function saveOrderDetails(input) {
       ? '' : Number(input.advanceRequired),
     advanceReceived: advanceReceived,
     notes: String(input.notes || '').trim()
-  }, 'Order details updated');
+  }), 'Order details updated');
 
   // Advance and value changes move the credit answer, so re-evaluate rather than go stale.
   runCreditCheck(input.id);

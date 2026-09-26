@@ -463,6 +463,25 @@
             <div class="field"><label>Machine Model</label><input id="qb-model" /></div>
             <div class="field"><label>Serial No.</label><input id="qb-serial" /></div>
           </div>
+          <!-- Who the offer is addressed to, and which of the customer's premises. A company
+               with three plants has three addresses and a different person at each. -->
+          <div class="grid grid-3" style="margin-top:12px;">
+            <div class="field">
+              <label>Kind Attention</label>
+              <select id="qb-contact"></select>
+              <div id="qb-contact-note" class="field-note"></div>
+            </div>
+            <div class="field">
+              <label>Address on the offer</label>
+              <select id="qb-billaddr"></select>
+              <div id="qb-billaddr-note" class="field-note"></div>
+            </div>
+            <div class="field">
+              <label>Deliver to</label>
+              <select id="qb-shipaddr"></select>
+              <div class="field-note">Carried onto the order and the dispatch.</div>
+            </div>
+          </div>
           <div class="grid grid-4" style="margin-top:12px;">
             <div class="field"><label>Quotation Date</label><input id="qb-date" type="date" /></div>
             <div class="field"><label>Validity (days)</label>
@@ -1610,6 +1629,17 @@
       <div class="field"><label>Advance Required (₹)</label><input id="om2-advreq" type="number" min="0" /></div>
       <div class="field"><label>Advance Received (₹)</label><input id="om2-advrec" type="number" min="0" /></div>
       <div class="field"><label>Promised Dispatch</label><input id="om2-promised" type="date" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field">
+        <label>Bill to</label>
+        <select id="om2-billaddr"></select>
+      </div>
+      <div class="field">
+        <label>Deliver to</label>
+        <select id="om2-shipaddr"></select>
+        <div class="field-note">The dispatch and the challan use this one.</div>
+      </div>
     </div>
     <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Notes</label><input id="om2-notes" /></div>

@@ -68,6 +68,45 @@ function defaultPartiesFor_(customerId) {
 }
 
 /**
+ * The contact and the addresses a coordinator picked, checked against the customer.
+ *
+ * Shared with the order, which faces the same question once the PO arrives: a customer can
+ * ask for the goods at a different plant from the one the offer was addressed to.
+ *
+ * Nothing here is taken on trust: an id that belongs to another company, or to a record
+ * somebody has since deactivated, would print one firm's name above another firm's address.
+ * A blank is a real answer — "no particular person" — and is kept as a blank rather than
+ * quietly filled with the default, because a coordinator who cleared the box meant it.
+ */
+function chooseCustomerParties_(customerId, input) {
+  var contacts = readTable_('CustomerContacts').filter(function (c) {
+    return String(c.customerId) === String(customerId) &&
+      String(c.active).toUpperCase() !== 'FALSE';
+  });
+  var addresses = readTable_('CustomerAddresses').filter(function (a) {
+    return String(a.customerId) === String(customerId) &&
+      String(a.active).toUpperCase() !== 'FALSE';
+  });
+
+  var pick = function (rows, wanted, what) {
+    var id = String(wanted === undefined || wanted === null ? '' : wanted).trim();
+    if (!id) return '';
+    var hit = rows.filter(function (r) { return String(r.id) === id; })[0];
+    if (!hit) {
+      throw new Error('That ' + what + ' does not belong to this customer, or has been ' +
+        'removed. Pick one from the list.');
+    }
+    return String(hit.id);
+  };
+
+  return {
+    contactId: pick(contacts, input.contactId, 'contact'),
+    billingAddressId: pick(addresses, input.billingAddressId, 'address'),
+    shippingAddressId: pick(addresses, input.shippingAddressId, 'delivery address')
+  };
+}
+
+/**
  * The address this offer should print, healing a quotation that was drafted before the
  * customer had one.
  *
@@ -388,6 +427,37 @@ function getQuotation(id) {
   })[0];
   row.customerName = customer ? customer.name : '';
   row.customerGstin = customer ? customer.gstin : '';
+  // Who else there is to address it to, and where else it could go. A customer with three
+  // plants has three addresses and a different person at each; the screen cannot offer a
+  // choice it has not been given.
+  row.contactChoices = readTable_('CustomerContacts')
+    .filter(function (c) {
+      return String(c.customerId) === String(row.customerId) &&
+        String(c.active).toUpperCase() !== 'FALSE';
+    })
+    .map(function (c) {
+      return { id: String(c.id), name: String(c.name || ''),
+               designation: String(c.designation || ''), phone: String(c.phone || ''),
+               email: String(c.email || ''),
+               isPrimary: String(c.isPrimary).toUpperCase() === 'TRUE' };
+    });
+  row.addressChoices = readTable_('CustomerAddresses')
+    .filter(function (a) {
+      return String(a.customerId) === String(row.customerId) &&
+        String(a.active).toUpperCase() !== 'FALSE';
+    })
+    .map(function (a) {
+      // The parts, not a formatted line: the picker's label is the screen's business, and
+      // the formatter lives with the printed document, which this module must not need.
+      return { id: String(a.id), addressType: String(a.addressType || ''),
+               label: String(a.label || ''),
+               line1: String(a.line1 || ''), line2: String(a.line2 || ''),
+               city: String(a.city || ''), state: String(a.state || ''),
+               pincode: String(a.pincode || ''),
+               isDefault: String(a.isDefault).toUpperCase() === 'TRUE' };
+    });
+  row.shippingAddressId = String(q.shippingAddressId || '');
+  row.contactId = String(q.contactId || '');
   row.specGaps = specGapsFor_(row.items);
   // The customer record behind this offer may have no address to print. Said here, while the
   // quotation is still being built, rather than at the print button.
@@ -480,6 +550,27 @@ function saveQuotationHeader(input) {
     patch.contactId = parties.contactId;
     patch.billingAddressId = parties.billingAddressId;
     patch.shippingAddressId = parties.shippingAddressId;
+  } else if (input.contactId !== undefined || input.billingAddressId !== undefined ||
+             input.shippingAddressId !== undefined) {
+    // Who at the customer this offer is addressed to, and which of their premises. A company
+    // with three plants has three addresses and a different person at each, and the offer
+    // used to take whichever was marked default with no way to say otherwise.
+    var chosen = chooseCustomerParties_(existing.customerId, input);
+    patch.contactId = chosen.contactId;
+    patch.billingAddressId = chosen.billingAddressId;
+    patch.shippingAddressId = chosen.shippingAddressId;
+
+    // The screen can only offer what the customer had when it was opened. Somebody who finds
+    // the address missing, adds it on the customer record and comes straight back would send
+    // a blank and undo their own work — so a blank where there was nothing before falls back
+    // to whatever the record holds now. A blank where something was chosen is left blank:
+    // that is somebody clearing the box on purpose.
+    if (!patch.billingAddressId && !existing.billingAddressId) {
+      var healed = defaultPartiesFor_(existing.customerId);
+      patch.billingAddressId = healed.billingAddressId;
+      if (!patch.shippingAddressId) patch.shippingAddressId = healed.shippingAddressId;
+      if (!patch.contactId && !existing.contactId) patch.contactId = healed.contactId;
+    }
   } else if (!existing.contactId || !existing.billingAddressId) {
     // The offer is addressed to a person at an address: "Kind Attention", their mobile and
     // email, and the customer's address under the company name. Those are stamped on when the

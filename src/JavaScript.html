@@ -2892,6 +2892,7 @@
     }
     $("qb-customer-note").textContent = "";
     $("qb-gstin").value = q.customerGstin || "";
+    renderQuoteParties(q, editable);
     $("btn-qb-edit-customer").style.display = q.customerId ? "" : "none";
     $("qb-model").value = q.machineModel || "";
     $("qb-serial").value = q.serialNo || "";
@@ -3309,6 +3310,9 @@
       showMsg("Quotation details saved.", "success");
     }).withFailureHandler(onServerError).saveQuotationHeader({
       id: openQuote.id,
+      contactId: $("qb-contact").value,
+      billingAddressId: $("qb-billaddr").value,
+      shippingAddressId: $("qb-shipaddr").value,
       date: $("qb-date").value,
       validityDays: $("qb-validity").value,
       paymentTerms: $("qb-paymentterms").value.trim(),
@@ -3322,6 +3326,82 @@
       taxMode: $("qb-taxmode").value,
       customerId: $("qb-customer-pick").value || openQuote.customerId
     });
+  });
+
+  /**
+   * One address, named the way somebody picking from a list needs it named: what kind of
+   * address it is, then enough of it to tell two plants apart.
+   */
+  function addressOptionLabel(a) {
+    var where = [a.line1, a.city].filter(Boolean).join(", ");
+    return (a.label || a.addressType || "Address") + " — " + (where || "no address typed") +
+      (a.isDefault ? " (default)" : "");
+  }
+
+  function fillAddressSelect(id, rows, chosen) {
+    var list = rows || [];
+    $(id).innerHTML = '<option value="">' +
+      (list.length ? "— not chosen —" : "— none on file —") + "</option>" +
+      list.map(function (a) {
+        return '<option value="' + escapeHtml(a.id) + '"' +
+          (String(a.id) === String(chosen) ? " selected" : "") + ">" +
+          escapeHtml(addressOptionLabel(a)) + "</option>";
+      }).join("");
+  }
+
+  /**
+   * Who the offer is addressed to, and which of the customer's premises.
+   *
+   * These three were stamped on when the quotation was created — the primary contact and
+   * whichever address was marked default — and there was no way to say otherwise. A customer
+   * with a head office and two plants has three addresses and a different person at each, and
+   * the offer has to go to the one who asked for it, at the site the parts are for.
+   */
+  function renderQuoteParties(q, editable) {
+    var contacts = q.contactChoices || [];
+    var addresses = q.addressChoices || [];
+
+    var contactLabel = function (c) {
+      return c.name + (c.designation ? " · " + c.designation : "") +
+        (c.phone ? " · " + c.phone : "");
+    };
+    var addressLabel = addressOptionLabel;
+    var fill = function (id, rows, chosen, blank, label) {
+      $(id).innerHTML = '<option value="">' + escapeHtml(blank) + "</option>" +
+        rows.map(function (r) {
+          return '<option value="' + escapeHtml(r.id) + '"' +
+            (String(r.id) === String(chosen) ? " selected" : "") + ">" +
+            escapeHtml(label(r)) + "</option>";
+        }).join("");
+      $(id).disabled = !editable;
+    };
+
+    fill("qb-contact", contacts, q.contactId, "Nobody in particular", contactLabel);
+    fill("qb-billaddr", addresses, q.billingAddressId, "— none on file —", addressLabel);
+    fill("qb-shipaddr", addresses, q.shippingAddressId, "Same as the address above", addressLabel);
+
+    noteQuoteContact(q);
+    // An offer with no address cannot be printed at all, and the banner above already says
+    // so; here it says which box is the one to fill.
+    $("qb-billaddr-note").textContent = addresses.length
+      ? "" : "This customer has no address on file. Add one on their record.";
+  }
+
+  /** What the chosen person's number and address are, since the offer will carry them. */
+  function noteQuoteContact(q) {
+    var chosen = (q.contactChoices || []).filter(function (c) {
+      return String(c.id) === String($("qb-contact").value);
+    })[0];
+    $("qb-contact-note").textContent = chosen
+      ? [chosen.phone, chosen.email].filter(Boolean).join(" · ") ||
+        "No number or email on their record."
+      : ((q.contactChoices || []).length
+          ? "The offer will carry no name."
+          : "This customer has nobody on file. Add them on their record.");
+  }
+
+  $("qb-contact").addEventListener("change", function () {
+    if (openQuote) noteQuoteContact(openQuote);
   });
 
   // Re-addressing a quotation replaces the contact and the billing address too, since both
@@ -5369,11 +5449,16 @@
     $("om2-advrec").value = o.advanceReceived !== "" ? o.advanceReceived : "";
     $("om2-promised").value = o.promisedDispatchDate || "";
     $("om2-notes").value = o.notes || "";
+    // Where it bills and where it goes. The customer can send the PO and then ask for the
+    // goods at a different plant, and the dispatch reads the second of these.
+    fillAddressSelect("om2-billaddr", o.addressChoices, o.billingAddressId);
+    fillAddressSelect("om2-shipaddr", o.addressChoices, o.shippingAddressId);
 
     ["om2-pono", "om2-podate", "om2-povalue", "om2-paymentterms", "om2-advreq",
-     "om2-advrec", "om2-promised", "om2-notes"].forEach(function (f) {
-      $(f).disabled = !editable;
-    });
+     "om2-advrec", "om2-promised", "om2-notes", "om2-billaddr", "om2-shipaddr"]
+      .forEach(function (f) {
+        $(f).disabled = !editable;
+      });
     $("btn-om2-save").style.display = editable ? "" : "none";
 
     renderDocuments("om2", "SalesOrder", o.id, o.documents, o.documentTypes, editable);
@@ -5526,7 +5611,9 @@
       advanceRequired: $("om2-advreq").value,
       advanceReceived: $("om2-advrec").value,
       promisedDispatchDate: $("om2-promised").value,
-      notes: $("om2-notes").value.trim()
+      notes: $("om2-notes").value.trim(),
+      billingAddressId: $("om2-billaddr").value,
+      shippingAddressId: $("om2-shipaddr").value
     });
   });
 
