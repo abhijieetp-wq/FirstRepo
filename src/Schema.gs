@@ -279,7 +279,16 @@ var SCHEMA = {
       // Set when the enquiry came out of a service visit rather than a phone call, so the
       // parts can be traced back to the machine that needed them.
       'serviceJobId',
-      'status', 'nextActionDate', 'lostReasonId', 'businessStream', 'brand',
+      // The status is not set by hand on a spares enquiry — it follows what happens to it:
+      // New on logging, Identifying once a part is named, Quoted when the offer is raised,
+      // Won or Lost when that offer is marked.
+      'status',
+      // When the customer expects the parts. A spares enquiry is not worked like a lead —
+      // nobody schedules a chase on it — so the column that used to hold a next-action date
+      // holds the date that actually matters to the customer. The old column is left in the
+      // sheet rather than dropped: its values meant something else and are not carried over.
+      'expectedDeliveryDate', 'nextActionDate',
+      'lostReasonId', 'businessStream', 'brand',
       'createdAt', 'createdBy']
   },
   SpareEnquiryItems: {

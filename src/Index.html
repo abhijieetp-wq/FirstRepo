@@ -241,7 +241,7 @@
         <table>
           <thead><tr>
             <th>Enquiry No.</th><th>Date</th><th>Customer</th><th>Contact</th><th>Machine</th>
-            <th>Urgency</th><th class="num">Parts</th><th>Status</th><th>Next Action</th><th></th>
+            <th>Urgency</th><th class="num">Parts</th><th>Status</th><th>Expected Delivery</th><th></th>
           </tr></thead>
           <tbody id="enquiries-tbody"></tbody>
         </table>
@@ -1281,23 +1281,19 @@
       <div class="field"><label>Urgency</label>
         <select id="em-urgency"><option>Normal</option><option>Urgent</option><option>Breakdown</option></select>
       </div>
-      <div class="field"><label>Next Action Date</label><input id="em-nextaction" type="date" /></div>
+      <div class="field"><label>Expected Delivery Date</label><input id="em-expdelivery" type="date" /></div>
     </div>
     <div class="field" style="margin-top:12px;">
       <label>What did the customer ask for?</label>
       <textarea id="em-requirement" placeholder="Their words — part names, symptoms, quantities"></textarea>
     </div>
-    <div class="grid grid-3" style="margin-top:12px;">
+    <!-- No status picker. The enquiry's own progress sets it, so the form shows where it has
+         got to rather than asking the coordinator to declare it. -->
+    <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Assigned Coordinator</label><select id="em-owner"></select></div>
-      <div class="field"><label>Status</label>
-        <select id="em-status">
-          <option>New</option><option>Identifying</option><option>Quoted</option>
-          <option>Won</option><option>Lost</option><option>Dropped</option>
-        </select>
-      </div>
-      <div class="field" id="em-lostreason-wrap" style="display:none;">
-        <label>Lost Reason *</label>
-        <select id="em-lostreason"></select>
+      <div class="field" id="em-status-wrap" style="display:none;">
+        <label>Progress</label>
+        <div id="em-status-text" style="padding-top:8px;"></div>
       </div>
     </div>
 

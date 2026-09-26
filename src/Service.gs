@@ -355,7 +355,10 @@ function raiseSpareEnquiryFromServiceJob(serviceJobId, input) {
     ownerEmail: '',
     serviceJobId: String(job.id),
     status: 'New',
-    nextActionDate: todayIso_(),
+    // Nobody has promised the customer a date yet — the engineer has only said which parts
+    // are wanted. Stamping today's date here would have the enquiry reading as late by
+    // tomorrow morning.
+    expectedDeliveryDate: '',
     lostReasonId: '',
     businessStream: STREAM_SPARE,
     brand: 'ELGI',

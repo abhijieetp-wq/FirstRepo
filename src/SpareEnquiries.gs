@@ -39,7 +39,9 @@ function listSpareEnquiries(options) {
     if (row.customerId && customerNames[String(row.customerId)]) {
       row.customerName = customerNames[String(row.customerId)];
     }
-    row.overdue = row.nextActionDate && String(row.nextActionDate) < todayIso_() &&
+    // Late means the parts are late, not that somebody forgot to make a call: the date on a
+    // spares enquiry is the one the customer was given.
+    row.overdue = row.expectedDeliveryDate && String(row.expectedDeliveryDate) < todayIso_() &&
       ['Won', 'Lost', 'Dropped'].indexOf(row.status) === -1;
     return row;
   });
@@ -62,12 +64,26 @@ function saveSpareEnquiry(input) {
   requireStream_(user, STREAM_SPARE, 'Spare enquiries');
 
   if (!input.customerId) throw new Error('Pick the customer this enquiry is from.');
-  var status = String(input.status || 'New').trim();
+
+  // Nobody types the status of a spares enquiry. It is decided by what has happened to the
+  // enquiry — a part identified, an offer raised, that offer won or lost — and those places
+  // set it themselves. A form that also offered it invited two answers to one question, and
+  // the one typed last won. So an edit keeps whatever the record already says, and a new
+  // enquiry starts at New, unless a caller states a status explicitly.
+  var existing = input.id ? findRowById_('SpareEnquiries', input.id) : null;
+  var status = String(
+    input.status !== undefined && input.status !== ''
+      ? input.status
+      : (existing ? existing.status : '') || 'New').trim();
   if (ENQUIRY_STATUSES.indexOf(status) === -1) {
     throw new Error('Status must be one of: ' + ENQUIRY_STATUSES.join(', ') + '.');
   }
   // A lost enquiry has to say why, so lost-reason analysis is possible (FR-013).
-  if (status === 'Lost' && !String(input.lostReasonId || '').trim()) {
+  var lostReasonId = String(
+    input.lostReasonId !== undefined && input.lostReasonId !== ''
+      ? input.lostReasonId
+      : (existing ? existing.lostReasonId : '') || '').trim();
+  if (status === 'Lost' && !lostReasonId) {
     throw new Error('Pick a lost reason before marking this enquiry Lost.');
   }
 
@@ -89,8 +105,8 @@ function saveSpareEnquiry(input) {
     source: String(input.source || '').trim(),
     ownerEmail: String(input.ownerEmail || user.email).trim(),
     status: status,
-    nextActionDate: String(input.nextActionDate || '').slice(0, 10),
-    lostReasonId: String(input.lostReasonId || '').trim(),
+    expectedDeliveryDate: String(input.expectedDeliveryDate || '').slice(0, 10),
+    lostReasonId: lostReasonId,
     businessStream: STREAM_SPARE,
     brand: String(input.brand || 'ELGI').trim()
   };

@@ -1954,8 +1954,8 @@
         "<td>" + escapeHtml(e.urgency || "Normal") + "</td>" +
         '<td class="num">' + e.itemCount + "</td>" +
         '<td><span class="badge ' + (STATUS_BADGE[e.status] || "badge-draft") + '">' + escapeHtml(e.status) + "</span></td>" +
-        "<td>" + (e.nextActionDate
-          ? (e.overdue ? '<span class="badge badge-overdue">' + escapeHtml(e.nextActionDate) + "</span>" : escapeHtml(e.nextActionDate))
+        "<td>" + (e.expectedDeliveryDate
+          ? (e.overdue ? '<span class="badge badge-overdue">' + escapeHtml(e.expectedDeliveryDate) + "</span>" : escapeHtml(e.expectedDeliveryDate))
           : "—") + "</td>" +
         '<td class="center"><button class="btn-ghost" data-open-enq="' + e.id + '" title="Open">✎</button></td>' +
         "</tr>";
@@ -2062,7 +2062,7 @@
     $("em-model").value = e ? (e.productModel || "") : "";
     $("em-serial").value = e ? (e.serialNo || "") : "";
     $("em-urgency").value = e ? (e.urgency || "Normal") : "Normal";
-    $("em-nextaction").value = e ? (e.nextActionDate || "") : "";
+    $("em-expdelivery").value = e ? (e.expectedDeliveryDate || "") : "";
     $("em-requirement").value = e ? (e.requirementText || "") : "";
     // Spare Sales is a coordinator and nobody else, so there is no engineer to name here.
     withPeople(function (p) {
@@ -2070,14 +2070,7 @@
         e ? (e.ownerEmail || "") : (currentUser.role === "Sales Coordinator"
           ? currentUser.email : ""), "Unassigned");
     });
-    $("em-status").value = e ? e.status : "New";
-
-    $("em-lostreason").innerHTML = '<option value="">—</option>' +
-      lostReasonsCache.map(function (r) {
-        return '<option value="' + r.id + '">' + escapeHtml(r.reasonText) + "</option>";
-      }).join("");
-    if (e && e.lostReasonId) $("em-lostreason").value = e.lostReasonId;
-    toggleLostReason();
+    showEnquiryProgress(e);
 
     fillDatalist("leadsource-list", ((configLists || {}).LeadSource || []).map(function (i) { return i.label; }));
 
@@ -2108,10 +2101,25 @@
     }).withFailureHandler(onServerError).createQuotationFromEnquiry(e.id);
   });
 
-  function toggleLostReason() {
-    $("em-lostreason-wrap").style.display = $("em-status").value === "Lost" ? "" : "none";
+  /**
+   * Where the enquiry has got to, as a line of text rather than a box to fill in.
+   *
+   * The status is decided by the work: logging it makes it New, naming a part makes it
+   * Identifying, raising the offer makes it Quoted, and marking that offer sets Won or Lost.
+   * A picker here asked the coordinator to state the same thing a second time, and a spares
+   * desk has no use for the answer — but the enquiry list still badges the status, so the
+   * form has to say what it is, and why, when it is Lost.
+   */
+  function showEnquiryProgress(e) {
+    var wrap = $("em-status-wrap");
+    if (!e || !e.status) { wrap.style.display = "none"; return; }
+    wrap.style.display = "";
+    var reason = e.lostReasonId && lostReasonsCache.find(function (r) { return r.id === e.lostReasonId; });
+    $("em-status-text").innerHTML =
+      '<span class="badge ' + (STATUS_BADGE[e.status] || "badge-draft") + '">' +
+      escapeHtml(e.status) + "</span>" +
+      (reason ? ' <span style="color:var(--steel);">' + escapeHtml(reason.reasonText) + "</span>" : "");
   }
-  $("em-status").addEventListener("change", toggleLostReason);
 
   function renderEnquiryItems(e) {
     var zone = $("em-items");
@@ -2163,7 +2171,7 @@
       renderEnquiries();
       if (openId) {
         var e = enquiriesCache.find(function (x) { return x.id === openId; });
-        if (e) { $("em-status").value = e.status; toggleLostReason(); }
+        if (e) showEnquiryProgress(e);
         renderEnquiryItems(e);
       }
     }).withFailureHandler(onServerError).listSpareEnquiries({
@@ -2178,11 +2186,6 @@
       showMsg("Pick an existing customer. Add them on the Customers tab first if they are new.", "error");
       return;
     }
-    if ($("em-status").value === "Lost" && !$("em-lostreason").value) {
-      showMsg("Pick a lost reason before marking this enquiry Lost.", "error");
-      return;
-    }
-
     var firstSave = !$("em-id").value;
     srv.withSuccessHandler(function (saved) {
       $("em-id").value = saved.id;
@@ -2213,11 +2216,9 @@
       productModel: $("em-model").value.trim(),
       serialNo: $("em-serial").value.trim(),
       urgency: $("em-urgency").value,
-      nextActionDate: $("em-nextaction").value,
+      expectedDeliveryDate: $("em-expdelivery").value,
       requirementText: $("em-requirement").value.trim(),
-      ownerEmail: $("em-owner").value.trim(),
-      status: $("em-status").value,
-      lostReasonId: $("em-lostreason").value
+      ownerEmail: $("em-owner").value.trim()
     });
   });
 
@@ -2320,21 +2321,69 @@
     }).listPeople();
   }
 
+  /**
+   * How a person is named on a form.
+   *
+   * The address is what every record is keyed on, but it is nobody's business on screen.
+   * They are personal addresses on this installation — the company issues none — so printing
+   * one beside a name on every picker puts a coordinator's private address in front of
+   * whoever is standing behind the desk. Two people sharing a name is the one case where the
+   * name alone does not say who is meant, and that is the only case that shows it.
+   */
+  /**
+   * The name behind an address, looked for across every role.
+   *
+   * Somebody named on an old record may have moved role or left, so they are not in the list
+   * the form is offering — but they are still in the directory, and the directory is what
+   * turns an address back into a person. Only somebody nobody has ever heard of shows as an
+   * address, because then there is nothing else to show.
+   */
+  function nameForEmail(email) {
+    var want = String(email || "").toLowerCase();
+    var found = "";
+    Object.keys(peopleCache || {}).forEach(function (bucket) {
+      var list = peopleCache[bucket];
+      if (!Array.isArray(list)) return;
+      list.forEach(function (p) {
+        if (p && p.email && String(p.email).toLowerCase() === want && p.name) found = p.name;
+      });
+    });
+    if (!found && currentUser && String(currentUser.email).toLowerCase() === want) {
+      found = currentUser.name || "";
+    }
+    return found || email;
+  }
+
+  function personLabeller(people) {
+    var byName = {};
+    (people || []).forEach(function (p) {
+      var k = String(p.name || "").trim().toLowerCase();
+      byName[k] = (byName[k] || 0) + 1;
+    });
+    return function (p) {
+      var name = String(p.name || "").trim();
+      if (!name) return p.email;
+      return byName[name.toLowerCase()] > 1 ? name + " \u00b7 " + p.email : name;
+    };
+  }
+
   function fillPeopleSelect(id, people, chosen, blankLabel) {
     var sel = $(id);
     if (!sel) return;
     var seen = {};
+    var label = personLabeller(people);
     var opts = ['<option value="">' + escapeHtml(blankLabel || "Unassigned") + "</option>"];
     people.forEach(function (p) {
       seen[p.email.toLowerCase()] = true;
       opts.push('<option value="' + escapeHtml(p.email) + '">' +
-        escapeHtml(p.name + " \u00b7 " + p.email) + "</option>");
+        escapeHtml(label(p)) + "</option>");
     });
     // Somebody already on the record who no longer holds the role still has to show, or
-    // saving the form would quietly reassign their work.
+    // saving the form would quietly reassign their work. They are named too: the record
+    // stores an address, but the whole point of naming people is not to print one.
     if (chosen && !seen[String(chosen).toLowerCase()]) {
       opts.push('<option value="' + escapeHtml(chosen) + '">' +
-        escapeHtml(chosen) + " (no longer in this role)</option>");
+        escapeHtml(nameForEmail(chosen)) + " (no longer in this role)</option>");
     }
     sel.innerHTML = opts.join("");
     sel.value = chosen || "";
@@ -2422,9 +2471,10 @@
   /** Puts a coordinator's name against the customer, without leaving the quotation. */
   function openAssignDialog(q) {
     withPeople(function (p) {
+      var label = personLabeller(p.coordinators);
       var options = [{ value: "", label: "Nobody yet" }].concat(
         (p.coordinators || []).map(function (c) {
-          return { value: c.email, label: c.name ? c.name + " (" + c.email + ")" : c.email };
+          return { value: c.email, label: label(c) };
         }));
       askDialog({
         title: "Who looks after " + (q.customerName || "this customer") + "?",
@@ -2439,7 +2489,9 @@
         if (picked === null) return;   // cancelled, as distinct from "nobody"
 
         srv.withSuccessHandler(function () {
-          showMsg(picked ? "This customer is now looked after by " + picked + "."
+          var who = (p.coordinators || []).filter(function (c) { return c.email === picked; })[0];
+          showMsg(picked ? "This customer is now looked after by " +
+                             ((who && who.name) || picked) + "."
                          : "This customer is no longer assigned to anybody.", "success");
           // The approval rule and the banner both read off this, so reload rather than patch.
           openQuotation(q.id);
