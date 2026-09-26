@@ -162,7 +162,11 @@ function createOrderFromQuotation(input) {
   var poNo = String(input.poNo || '').trim();
   if (!poNo) throw new Error("Enter the customer's PO number.");
 
-  var quoteGrand = Number(quote.grand) || 0;
+  // The figure the customer raised their order against: the total printed on the offer, tax
+  // included. Comparing against `grand`, which excludes GST on an offer that quotes tax as
+  // extra, made every purchase order look short by exactly the tax and put a variance note on
+  // orders that matched the offer to the rupee.
+  var quoteGrand = payableTotal_(quote);
   var poValue = input.poValue === '' || input.poValue === undefined || input.poValue === null
     ? '' : Number(input.poValue);
 
@@ -497,7 +501,9 @@ function saveOrderDetails(input) {
   var quote = readTable_('Quotations').filter(function (q) {
     return String(q.id) === String(order.quotationId);
   })[0];
-  var quoteGrand = quote ? Number(quote.grand) || 0 : Number(order.grand) || 0;
+  // The same comparison as when the order was created: against the total printed on the
+  // offer, which includes the GST.
+  var quoteGrand = quote ? payableTotal_(quote) : Number(order.grand) || 0;
   var poValue = input.poValue === '' || input.poValue === undefined || input.poValue === null
     ? '' : Number(input.poValue);
 
@@ -548,6 +554,9 @@ function saveOrderDetails(input) {
 }
 
 /** Quotations that are Won and not yet converted — what the "create order" picker offers. */
+// The screen defaults the PO value from this, so it has to be the figure on the printed
+// offer rather than the pre-tax one, or every order starts with a variance.
+
 function listConvertibleQuotations() {
   getCurrentUser();
   var converted = {};
@@ -562,7 +571,7 @@ function listConvertibleQuotations() {
       return {
         id: q.id, quoteNo: q.quoteNo, revision: q.revision, date: q.date,
         customerId: q.customerId, customerName: customerNames[String(q.customerId)] || '',
-        businessStream: q.businessStream, grand: Number(q.grand) || 0
+        businessStream: q.businessStream, grand: payableTotal_(q)
       };
     });
 }

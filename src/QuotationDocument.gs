@@ -297,7 +297,9 @@ function buildQuotationHtml(quotationId) {
   push('<div class="to">To,<br />' +
     '<b>M/s. ' + esc_(customer.name) + '</b><br />' +
     (address.line1 ? esc_(postalAddress_(address)) + '<br />' : '') +
-    (contact.name ? esc_(L('attention', 'Kind Attention')) + ': ' + esc_(contact.name) + '<br />' : '') +
+    (contact.name
+      ? esc_(L('attention', 'Kind Attention')) + ': ' + esc_(plainName_(contact.name)) + '<br />'
+      : '') +
     (contact.phone ? esc_(L('mobile', 'Mobile No')) + ': ' + esc_(contact.phone) + '<br />' : '') +
     (contact.email ? esc_(L('email', 'Email Id')) + ': ' + esc_(contact.email) : '') +
     '</div>');
@@ -656,20 +658,6 @@ function buildQuotationHtml(quotationId) {
  * detail nobody asks you to fix and everybody notices.
  */
 /**
- * What the customer pays, tax included.
- *
- * `grand` excludes the tax when the offer quotes GST as extra — that is deliberate and the
- * rest of the system reads it that way, for the margin, the credit exposure and the check
- * against the purchase order. A document that prints the tax has to print the sum of the two
- * all the same, because the figure on the page is the figure the customer pays.
- */
-function payableTotal_(q) {
-  var grand = Number(q.grand) || 0;
-  var tax = Number(q.taxAmt) || 0;
-  return String(q.taxMode || 'Extra') === 'Extra' ? grand + tax : grand;
-}
-
-/**
  * The GST rows: CGST and SGST inside one state, IGST across a border.
  *
  * Which of the two applies is the place of supply — where the goods are going against where
@@ -705,6 +693,21 @@ function gstRows_(q, co, address, items) {
     ];
   }
   return [['IGST ' + esc_(String(rate)) + '%', inr_(tax), '']];
+}
+
+/**
+ * A person's name as it should be printed: the name, without the honorific in front of it.
+ *
+ * Contacts are typed in as "Mr Rajesh Pathak" or "Shri R. Pathak" as often as not, and the
+ * offer already labels the line — "Kind Attention: Mr Rajesh Pathak" reads as a form letter
+ * rather than a letter to somebody. Only a leading title is removed, and only when a name
+ * follows it, so "Mr" as somebody's whole entry is left alone rather than erased.
+ */
+function plainName_(name) {
+  var n = String(name || '').trim();
+  var stripped = n.replace(
+    /^(mr|mrs|ms|miss|shri|shrimati|smt|sri|dr|prof|capt|col|er)\.?\s+/i, '');
+  return stripped.trim() || n;
 }
 
 /**

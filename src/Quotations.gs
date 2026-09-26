@@ -456,6 +456,7 @@ function getQuotation(id) {
                pincode: String(a.pincode || ''),
                isDefault: String(a.isDefault).toUpperCase() === 'TRUE' };
     });
+  row.payable = payableTotal_(q);
   row.shippingAddressId = String(q.shippingAddressId || '');
   row.contactId = String(q.contactId || '');
   row.specGaps = specGapsFor_(row.items);
@@ -1225,6 +1226,21 @@ function listQuotationVersions(id) {
 // ------------------------------------------------------------------ internals
 
 /** Totals are always recomputed from the lines — never accumulated or hand-edited. */
+/**
+ * What the customer actually pays, tax included.
+ *
+ * `grand` excludes the tax when the offer quotes GST as extra, which is deliberate: the
+ * margin and the sales figures are pre-tax numbers. But the total on the printed page is
+ * goods plus GST, and that is the figure the customer raises a purchase order against — so
+ * anything comparing itself to a purchase order has to compare against this, not against
+ * `grand`, or every PO looks short by the tax.
+ */
+function payableTotal_(q) {
+  var grand = Number(q.grand) || 0;
+  var tax = Number(q.taxAmt) || 0;
+  return roundMoney_(String(q.taxMode || 'Extra') === 'Extra' ? grand + tax : grand);
+}
+
 /** One quotation row, from the block this request will want the rest of anyway. */
 function quotationRow_(quotationId) {
   return readTable_('Quotations').filter(function (q) {

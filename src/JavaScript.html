@@ -3101,11 +3101,13 @@
     $("po-modal-msg").innerHTML = "";
     $("po-no").value = "";
     $("po-date").value = new Date().toISOString().slice(0, 10);
-    // Defaulting to the quoted total means a different figure is a deliberate act, and is
-    // recorded as a variance rather than passing unnoticed.
-    $("po-value").value = q.grand;
-    $("po-quoted").textContent = "We quoted " + fmt(q.grand) +
-      ". A different PO value is recorded as a variance, not refused.";
+    // Defaulting to the total printed on the offer — tax included, which is the figure the
+    // customer's purchase order is raised against. Defaulting to the pre-tax figure put a
+    // variance on every order that matched the offer exactly.
+    var payable = q.payable === undefined ? q.grand : q.payable;
+    $("po-value").value = payable;
+    $("po-quoted").textContent = "We quoted " + fmt(payable) +
+      " including GST. A different PO value is recorded as a variance, not refused.";
     $("po-promised").value = "";
     $("po-modal-backdrop").classList.add("show");
     setTimeout(function () { $("po-no").focus(); }, 50);
