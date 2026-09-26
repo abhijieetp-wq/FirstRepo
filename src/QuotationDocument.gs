@@ -418,7 +418,12 @@ function buildQuotationHtml(quotationId) {
   }
 
   // ---------------------------------------------------------------- price schedule
-  push('<div class="page-break"></div>');
+  // A compressor offer arrives here after pages of specification, so the schedule starts a
+  // page of its own. A spares offer arrives after a single covering letter, and forcing the
+  // break there cost two pages: the letter ended a third of the way down one page and the
+  // annexure a third of the way down another, so a two-page offer printed as four. It flows
+  // now, and the pieces that must not be split say so for themselves.
+  if (isCompressor) push('<div class="page-break"></div>');
   push('<div class="h1">' + esc_(L('priceHeading', 'Price schedule')) + '</div>');
 
   // The machine the parts belong to. A spare part is meaningless without it — their own spares
@@ -461,7 +466,7 @@ function buildQuotationHtml(quotationId) {
        L('colPricePer', 'Price Per'), L('colQuantity', 'Quantity'),
        L('colTotalAmount', 'Total Amount')];
 
-  push('<table class="price"><tr>' +
+  push('<table class="price"><thead><tr>' +
     (isCompressor
       ? '<th class="w-desc">' + esc_(priceCols[0]) + '</th>' +
         '<th class="num">' + esc_(priceCols[1]) + '</th>' +
@@ -476,7 +481,7 @@ function buildQuotationHtml(quotationId) {
         '<th class="num">' + esc_(priceCols[4]) + '</th>' +
         '<th class="num">' + esc_(priceCols[5]) + '</th>' +
         '<th class="num">' + esc_(priceCols[6]) + '</th>') +
-    '</tr>');
+    '</tr></thead><tbody>');
 
   var gross = 0;
   // What this customer calls each part, looked up once rather than per line. Resolved
@@ -574,7 +579,7 @@ function buildQuotationHtml(quotationId) {
   // On the spares annexure the totals are now rows of the same grid; the compressor offer
   // keeps its own block, which is how their machine quotation is laid out.
   if (isCompressor) {
-    push('</table>');
+    push('</tbody></table>');
     push('<table class="totals">');
     totals.forEach(function (t) {
       push('<tr class="' + t[2] + '"><td>' + t[0] + '</td><td class="num">' + t[1] + '</td></tr>');
@@ -585,7 +590,7 @@ function buildQuotationHtml(quotationId) {
       push('<tr class="' + t[2] + '"><td class="tot-label" colspan="6">' + t[0] + '</td>' +
         '<td class="num">' + t[1] + '</td></tr>');
     });
-    push('</table>');
+    push('</tbody></table>');
   }
 
   // ---------------------------------------------------------------- terms
@@ -796,10 +801,10 @@ function generateQuotationPdf(quotationId) {
 function quotationCss_(co) {
   var accent = String((co && co.docAccentColor) || '#C00000').trim() || '#C00000';
   return '<style>' +
-    '@page{size:A4;margin:10mm 14mm;}' +
+    '@page{size:A4;margin:10mm 12mm;}' +
     // Verdana at 10pt, which is what PIE's own offers are set in. Geneva and the generic
     // sans-serif stand behind it for the PDF converter, which embeds only the fonts it has.
-    'body{font-family:Verdana,Geneva,sans-serif;font-size:10pt;color:#111;line-height:1.45;margin:0;}' +
+    'body{font-family:Verdana,Geneva,sans-serif;font-size:10pt;color:#111;line-height:1.32;margin:0;}' +
 
     // The page frame. thead and tfoot on this table are what repeat on every page.
     'table.page{width:100%;border-collapse:collapse;}' +
@@ -831,10 +836,10 @@ function quotationCss_(co) {
     '.to{margin-bottom:12px;font-size:10pt;}' +
     '.subject{margin:12px 0 8px;}' +
     '.salut{margin-bottom:8px;}' +
-    'p{margin:0 0 9px;text-align:justify;}' +
-    '.h1{font-size:11.5pt;font-weight:bold;color:' + accent + ';margin:16px 0 8px;}' +
-    '.h2{font-size:10.5pt;font-weight:bold;color:' + accent + ';margin:14px 0 6px;}' +
-    'ul,ol{margin:0 0 10px;padding-left:26px;}' +   // 18px clipped the '10.' on a two-digit list
+    'p{margin:0 0 7px;text-align:justify;}' +
+    '.h1{font-size:11.5pt;font-weight:bold;color:' + accent + ';margin:11px 0 6px;page-break-after:avoid;}' +
+    '.h2{font-size:10.5pt;font-weight:bold;color:' + accent + ';margin:10px 0 5px;page-break-after:avoid;}' +
+    'ul,ol{margin:0 0 7px;padding-left:26px;}' +   // 18px clipped the '10.' on a two-digit list
     'li{margin-bottom:4px;text-align:justify;}' +
     // Theirs marks the heading with a hollow bullet and the points under it with a filled
     // one — the reverse of a browser's default nesting — and does not indent the children.
@@ -861,8 +866,11 @@ function quotationCss_(co) {
     '.scope-line{margin-left:12px;font-size:10pt;}' +
 
     'table.price{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:10pt;}' +
-    'table.price th{background:#eee;padding:6px 8px;border:1px solid #999;text-align:left;}' +
-    'table.price td{padding:6px 8px;border:1px solid #999;}' +
+    'table.price th{background:#eee;padding:4px 7px;border:1px solid #999;text-align:left;}' +
+    'table.price td{padding:4px 7px;border:1px solid #999;}' +
+    // A part whose description carries on overleaf reads as a printing fault, so a row moves
+    // to the next page whole. The heading row is a thead, so it repeats above it.
+    'table.price tr{page-break-inside:avoid;}' +
     '.w-desc{width:42%;}' +
     '.w-part{width:18%;}' +
     // A totals row inside the price grid: the label runs across the columns the figures do
@@ -874,13 +882,13 @@ function quotationCss_(co) {
     'table.machine td:first-child{font-weight:bold;background:#eee;}' +
     '.num{text-align:right;}' +
     'table.totals{width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:8px;}' +
-    'table.totals td{padding:5px 8px;border:1px solid #999;}' +
+    'table.totals td{padding:4px 7px;border:1px solid #999;}' +
     'table.totals tr.strong td{font-weight:bold;background:#f2f2f2;}' +
 
     // A signature split across a page break reads as a printing fault, so it moves whole.
-    '.signoff{margin-top:22px;font-size:10pt;page-break-inside:avoid;}' +
+    '.signoff{margin-top:14px;font-size:10pt;page-break-inside:avoid;}' +
     '.signoff .for{margin-top:4px;font-weight:bold;}' +
-    '.sig-space{height:36px;}' +
+    '.sig-space{height:26px;}' +
     '.seal{max-height:80px;margin:6px 0;}' +
     'table.totals{page-break-inside:avoid;}' +
     '.page-break{page-break-before:always;}' +
