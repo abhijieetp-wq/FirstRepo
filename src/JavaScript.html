@@ -2100,13 +2100,18 @@
   $("btn-quote-enquiry").addEventListener("click", function () {
     var e = currentEnquiry();
     if (!e) return;
+    var done = busyButton("btn-quote-enquiry", "Creating\u2026");
     srv.withSuccessHandler(function (q) {
+      done();
       openQuote = q;
       $("enquiry-modal-backdrop").classList.remove("show");
       renderQuoteBuilder();
       goToTab("quote");
       showMsg("Quotation " + q.quoteNo + " created from " + e.enquiryNo + ".", "success");
-    }).withFailureHandler(onServerError).createQuotationFromEnquiry(e.id);
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).createQuotationFromEnquiry(e.id);
   });
 
   /**
@@ -2187,6 +2192,23 @@
     });
   }
 
+  /**
+   * A button that says it is working.
+   *
+   * The round trip out to the sheet and back is a second or two, and for that second a
+   * button that looks exactly as it did before the click reads as a button that did nothing.
+   * People press it again. This makes the wait visible and makes a second press impossible,
+   * and hands back a `done` to call when the answer arrives.
+   */
+  function busyButton(id, workingLabel) {
+    var btn = $(id);
+    if (!btn) return function () {};
+    var was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = workingLabel;
+    return function () { btn.disabled = false; btn.textContent = was; };
+  }
+
   $("btn-save-enquiry").addEventListener("click", function () {
     var name = $("em-customer").value.trim();
     var cust = customersCache.find(function (c) { return c.name.toLowerCase() === name.toLowerCase(); });
@@ -2195,24 +2217,23 @@
       return;
     }
     var firstSave = !$("em-id").value;
+    var done = busyButton("btn-save-enquiry", "Saving\u2026");
     srv.withSuccessHandler(function (saved) {
-      $("em-id").value = saved.id;
-      $("em-no").textContent = saved.enquiryNo || "";
-      $("enquiry-modal-title").textContent = "Spare Enquiry";
-      // An edit is finished when it is saved, so the window goes. A brand-new enquiry stays,
-      // because the parts and the Create Quotation button could not exist until it had an
-      // enquiry number — and a window that shuts on you there costs a second trip back in.
-      // The message says which of the two just happened.
-      if (!firstSave) {
-        $("enquiry-modal-backdrop").classList.remove("show");
-        loadEnquiries();
-        showMsg("Enquiry " + (saved.enquiryNo || "") + " saved.", "success");
-        return;
-      }
-      reloadEnquiriesKeepingModal();
-      showMsg("Enquiry " + (saved.enquiryNo || "") + " logged. Identify the parts against it, " +
-        "or press Create Quotation.", "success");
-    }).withFailureHandler(onServerError).saveSpareEnquiry({
+      done();
+      // Saved means finished, and a window that stays open after finishing reads as a window
+      // that is still working — people wait at it, or press the button again. It used to stay
+      // open on a brand-new enquiry so the parts could go on straight away; the pencil on the
+      // list row reopens it in one click, which is the cheaper of the two mistakes.
+      $("enquiry-modal-backdrop").classList.remove("show");
+      loadEnquiries();
+      showMsg(firstSave
+        ? "Enquiry " + (saved.enquiryNo || "") + " logged. Open it from the list to identify " +
+          "parts, or to raise the quotation."
+        : "Enquiry " + (saved.enquiryNo || "") + " saved.", "success");
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).saveSpareEnquiry({
       id: $("em-id").value || null,
       customerId: cust.id,
       customerName: cust.name,
