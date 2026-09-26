@@ -26,6 +26,17 @@ function todayIso_() {
   return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Etc/UTC', 'yyyy-MM-dd');
 }
 
+/**
+ * The moment something happened, to the second.
+ *
+ * A date alone answers "which day"; a quotation list wants "which of the four we did on
+ * Tuesday, and in what order". Written with the T and the Z so the sheet keeps it as text —
+ * a bare "2026-09-26 10:35" is parsed into a date cell and read back with the time gone.
+ */
+function nowIso_() {
+  return new Date().toISOString();
+}
+
 /** True when `asOf` falls inside the row's effective window. Blank effectiveTo = open-ended. */
 function priceRowActiveOn_(row, asOf) {
   if (String(row.active).toUpperCase() === 'FALSE') return false;

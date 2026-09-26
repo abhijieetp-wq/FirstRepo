@@ -262,7 +262,7 @@ function createBlankQuotation(input) {
     warrantyTerms: '',
     notes: String(input.notes || '').trim(),
     locked: 'FALSE',
-    createdAt: todayIso_(),
+    createdAt: nowIso_(),
     createdBy: user.email
   };
   appendRow_('Quotations', quote, 'Blank quotation started for ' + customer.name);
@@ -326,7 +326,7 @@ function createQuotationFromEnquiry(spareEnquiryId) {
     warrantyTerms: '',
     notes: '',
     locked: 'FALSE',
-    createdAt: todayIso_(),
+    createdAt: nowIso_(),
     createdBy: user.email
   };
   appendRow_('Quotations', quote, 'Quotation created from enquiry ' + (enquiry.enquiryNo || ''));
@@ -1061,7 +1061,7 @@ function reviseQuotation(id) {
   copy.emailSentDate = '';
   copy.lostReasonId = '';
   copy.preparedBy = user.email;
-  copy.createdAt = todayIso_();
+  copy.createdAt = nowIso_();
   copy.createdBy = user.email;
   appendRow_('Quotations', copy, 'Revision ' + nextRevision + ' of ' + source.quoteNo);
 
@@ -1341,7 +1341,7 @@ function createQuotationFromOpportunity(opportunityId) {
     notes: 'Application: ' + tech.application + ' · FAD ' + tech.requiredFad +
       ' · ' + tech.workingPressure,
     locked: 'FALSE',
-    createdAt: todayIso_(),
+    createdAt: nowIso_(),
     createdBy: user.email
   };
   appendRow_('Quotations', quote, 'Quotation created from opportunity ' + opportunity.opportunityNo);
