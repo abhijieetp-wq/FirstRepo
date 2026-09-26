@@ -50,7 +50,11 @@ var SCHEMA = {
   Sessions: {
     label: 'Live sign-ins. The token is stored hashed, so a copy of this sheet is not a set of keys',
     columns: ['id', 'tokenHash', 'userEmail', 'createdAt', 'expiresAt', 'lastSeenAt',
-      'revokedAt']
+      'revokedAt',
+      // Which Google account the browser was signed in as when this session was opened.
+      // Blank on every session opened before the requirement existed, and on every one
+      // opened while it is switched off.
+      'googleEmail']
   },
   CompanyProfile: {
     label: 'The seller as it appears on every printed document — one row, edited in Settings',

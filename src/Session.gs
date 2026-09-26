@@ -15,6 +15,13 @@
  * password is the whole boundary. That is why there is a per-user salt, a deliberately slow
  * derivation, a lockout, and why tokens are stored hashed — a copy of the sheet must not be a
  * set of working logins.
+ *
+ * That consequence is now optional. GoogleGate.gs can put a Google sign-in in front of this
+ * screen — not as the identity, which is still the username and password below, but as a
+ * lock on the door: only the office's own Google accounts get as far as being asked for a
+ * password. It does that without undoing anything above. The app still runs as its owner and
+ * the spreadsheet is still shared with nobody, because the account is proved by an OAuth
+ * round trip rather than by handing the visitor the keys to the file.
  */
 
 /** Cost of deriving a password. Stored per user, so it can be raised without locking anybody out. */
@@ -257,7 +264,12 @@ function usernameComplaint_(username, exceptUserId) {
  * Called directly rather than through `call`, because there is no session yet. Every failure
  * says the same thing: naming which half was wrong tells somebody which addresses are real.
  */
-function login(login, password) {
+function login(login, password, googlePass) {
+  // Which Google account the browser is signed in as, checked before any password work is
+  // done. It throws when the account may not be here, so a stranger with the link never gets
+  // as far as finding out whether a username exists.
+  var googleEmail = googleGateAtLogin_(googlePass);
+
   var vague = 'That username and password do not match.';
   var row = userRowByLogin_(login);
 
@@ -319,10 +331,19 @@ function login(login, password) {
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + SESSION_HOURS * 3600000).toISOString(),
     lastSeenAt: now.toISOString(),
-    revokedAt: ''
+    revokedAt: '',
+    // Which Google account opened this session. Re-checked against the list on every later
+    // request, so taking an account off the list ends its access on the next click rather
+    // than the next sign-in.
+    googleEmail: googleEmail
   }, 'Signed in');
 
+  // The Google half is finished with now, and not before: a wrong password must not cost
+  // somebody the trip out to Google and back.
+  googleGateConsumePass_(googlePass);
+
   var user = userFromRow_(row);
+  user.googleEmail = googleEmail;
   user.mustChangePassword = String(row.mustChangePassword).toUpperCase() === 'TRUE';
   return { token: token, user: user };
 }
@@ -369,6 +390,9 @@ function userForToken_(token) {
   if (!row || String(row.active).toUpperCase() === 'FALSE') return null;
 
   var user = userFromRow_(row);
+  // Which Google account opened the session travels with the user, because the gate is
+  // re-checked on every request and the browser cannot be asked again mid-session.
+  user.googleEmail = String(session.googleEmail || '').trim().toLowerCase();
   // Six hours is the longest the cache will hold anything, and a session lasts twelve.
   cache.put('sess:' + hash, JSON.stringify(user), 6 * 3600);
   return user;
@@ -408,6 +432,10 @@ var CALL_DENY_ = ['call', 'doGet', 'include', 'login', 'logout',
 function call(token, fnName, args) {
   var user = userForToken_(token);
   if (!user) throw new Error('SESSION_ENDED');
+  // The session remembers which Google account opened it; the list is read again here. A tab
+  // that was already open when the requirement was switched on, or an account taken off the
+  // list an hour ago, is stopped at the next click rather than the next sign-in.
+  assertSessionGoogleAccount_(user);
   CURRENT_USER_ = user;
 
   var name = String(fnName || '');

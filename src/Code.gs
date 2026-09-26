@@ -6,14 +6,25 @@
  * a stale deployment from a broken feature except by hunting for the feature. This is shown in
  * the footer of every screen and on Settings → System. Bump it with anything worth deploying.
  */
-var APP_BUILD = '2026-09-26.9';
+var APP_BUILD = '2026-09-26.10';
 
 function doGet(e) {
+  // Which Google account, if the office has asked for one. This either says "carry on", or
+  // hands back the page to serve instead — the button that sends the browser to Google, or
+  // the notice that it came back as somebody who may not be here. See GoogleGate.gs.
+  var gate = googleGateForRequest_(e);
+  if (!gate.serve) return gate.html;
+
   // The browser tab is named by the company profile, so a second installation is not called
   // after the first one's brand.
   var title = 'ERP';
   try { title = getCompanyProfile().appName || title; } catch (err) { /* pre-setup */ }
-  return HtmlService.createTemplateFromFile('Index')
+  var page = HtmlService.createTemplateFromFile('Index');
+  // The proof that Google was satisfied, spent once by the sign-in call that carries it.
+  // Written into the page rather than asked for afterwards, because the answer arrived with
+  // this request and there is nowhere else to put it.
+  page.googlePass = gate.pass || '';
+  return page
     .evaluate()
     .setTitle(title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')

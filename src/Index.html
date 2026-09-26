@@ -23,6 +23,12 @@
       Use the username and password your ERP Admin set up for you.
     </p>
     <div id="signin-msg"></div>
+    <!-- Which Google account got this far, when the office has asked for one. The account is
+         chosen before this page is served, so there is nothing to press here — only a
+         reminder of who the portal thinks is at the keyboard. -->
+    <p id="signin-google-note" style="color:var(--ink-soft); font-size:11.5px;
+      margin:0 0 14px; text-align:center; display:none;"></p>
+    <div id="signin-fields">
     <div class="field" style="margin-bottom:12px;">
       <label>Username</label>
       <input id="signin-email" type="text" autocomplete="username" autocapitalize="none"
@@ -36,6 +42,7 @@
     <p style="color:var(--ink-soft); font-size:11.5px; margin:14px 0 0;">
       Forgotten it? Your ERP Admin can set a new one — nobody can look up the old.
     </p>
+    </div>
   </div>
 </div>
 
@@ -2284,6 +2291,9 @@
   </div>
 </div>
 
+<!-- What Google said, carried from the request that brought this page back. Blank whenever
+     the requirement is off, and spent by the first sign-in that uses it. -->
+<script>window.GOOGLE_PASS = "<?= googlePass ?>";</script>
 <?!= include('JavaScript'); ?>
 <datalist id="productgroups-list"></datalist>
 <datalist id="charges-list"><option value="Carting"></option><option value="Freight"></option><option value="Packing &amp; Forwarding"></option></datalist>

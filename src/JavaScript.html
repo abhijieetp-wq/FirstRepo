@@ -50,10 +50,18 @@
             google.script.run
               .withSuccessHandler(handlers.ok || function () {})
               .withFailureHandler(function (err) {
+                var text = String((err && err.message) || err || "");
                 // One place to catch the session ending, wherever it happened.
-                if (err && /SESSION_ENDED/.test(String(err.message || err))) {
+                if (/SESSION_ENDED/.test(text)) {
                   rememberSession(null);
                   showSignIn("Your session has ended. Please sign in again.");
+                  return;
+                }
+                // The browser's Google account has been shut out while this tab was open.
+                // Signing in again cannot help, so the tab is not offered a password box.
+                if (/GOOGLE_ACCOUNT_BLOCKED/.test(text)) {
+                  rememberSession(null);
+                  showBlocked(text);
                   return;
                 }
                 (handlers.fail || function () {})(err);
@@ -9266,7 +9274,9 @@
           '<button class="btn btn-sm" id="btn-purge-spares-deep">Clear Spares and Their Documents…</button>' +
           "</div>"
         : "") +
-      '<div id="sys-result"></div>');
+      '<div id="sys-result"></div>' +
+      (currentUser.role === "ERP Admin"
+        ? '<div id="sys-gate" style="margin-top:22px;"></div>' : ""));
 
     if ($("btn-run-setup")) {
       $("btn-run-setup").addEventListener("click", runSetupNow);
@@ -9275,7 +9285,121 @@
       $("btn-purge-spares").addEventListener("click", purgeSparesNow);
       $("btn-purge-spares-deep").addEventListener("click", purgeSparesDeepNow);
     }
+    if ($("sys-gate")) loadGoogleGate();
     wireAuditButton();
+  }
+
+  /**
+   * Which Google accounts may open the portal at all.
+   *
+   * The panel leads with what the server can actually see, because that is the one fact that
+   * decides whether switching the restriction on is safe or is locking the office out of its
+   * own portal. The switch is not offered until the answer is yes.
+   */
+  function loadGoogleGate() {
+    var box = $("sys-gate");
+    if (!box) return;
+    box.innerHTML = '<div class="hint">Checking sign-in restriction…</div>';
+    srv.withSuccessHandler(renderGoogleGate).withFailureHandler(function (err) {
+      box.innerHTML = '<div class="hint">Could not read the sign-in restriction: ' +
+        escapeHtml((err && err.message) || String(err)) + "</div>";
+    }).googleGateReport();
+  }
+
+  function renderGoogleGate(g) {
+    var box = $("sys-gate");
+    if (!box) return;
+    box.innerHTML =
+      '<div class="card-title" style="margin-top:0;">Sign-in Restriction</div>' +
+      '<div class="compare-strip" style="margin-bottom:14px;">' +
+        "With this on, opening the portal shows one button: sign in with Google. Only the " +
+        "accounts listed below get past it, and only then does the password box appear \u2014 " +
+        "so the link on its own stops being a way in. Nobody needs any access to the " +
+        "spreadsheet for this: the portal still runs as its owner and the sheet stays " +
+        "shared with nobody." +
+      "</div>" +
+      '<div class="grid grid-3" style="margin-bottom:14px;">' +
+        '<div class="kpi-card"><div class="kpi-label">Requirement</div>' +
+          '<div style="font-size:14px;font-weight:600;margin-top:4px;color:' +
+          (g.enforced ? "var(--green)" : "var(--steel)") + ';">' +
+          (g.enforced ? "On" : "Off") + "</div></div>" +
+        '<div class="kpi-card"><div class="kpi-label">This Session\u2019s Google Account</div>' +
+          '<div style="font-size:13px;font-weight:600;margin-top:4px;" class="mono">' +
+          escapeHtml(g.signedInAs || "\u2014 none \u2014") + "</div></div>" +
+        '<div class="kpi-card"><div class="kpi-label">Accounts Allowed</div>' +
+          '<div class="kpi-value">' + (g.accounts || []).length + "</div></div>" +
+      "</div>" +
+      '<div class="msg ' + (g.ready ? "msg-success" : "msg-error") +
+        ' show" style="margin-bottom:14px;position:static;">' +
+        '<span class="msg-text">' + escapeHtml(g.advice) + "</span></div>" +
+      '<div class="field" style="max-width:620px;">' +
+        "<label>Redirect address to register with Google</label>" +
+        '<input class="mono" readonly value="' + escapeHtml(g.redirectUri || "") + '" />' +
+      "</div>" +
+      '<div class="grid grid-2" style="max-width:620px; margin-top:12px;">' +
+        '<div class="field"><label>Google client id</label>' +
+          '<input id="gate-clientid" class="mono" placeholder="\u2026.apps.googleusercontent.com" ' +
+          'value="' + escapeHtml(g.clientId || "") + '" /></div>' +
+        '<div class="field"><label>Google client secret</label>' +
+          '<input id="gate-clientsecret" type="password" class="mono" placeholder="' +
+          (g.hasSecret ? "set \u2014 leave blank to keep" : "not set yet") + '" /></div>' +
+      "</div>" +
+      '<div class="field" style="max-width:620px; margin-top:12px;">' +
+        "<label>Google accounts allowed (one per line)</label>" +
+        '<textarea id="gate-accounts" rows="4" class="mono">' +
+        escapeHtml((g.accounts || []).join("\n")) + "</textarea>" +
+      "</div>" +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">' +
+        '<button class="btn btn-sm" id="btn-gate-save">Save</button>' +
+        '<button class="btn btn-sm" id="btn-gate-recheck">Refresh</button>' +
+        (g.enforced
+          ? '<button class="btn btn-danger btn-sm" id="btn-gate-off">Switch Requirement Off</button>'
+          : '<button class="btn btn-amber btn-sm" id="btn-gate-on">Switch Requirement On</button>') +
+      "</div>" +
+      '<p class="hint" style="margin-top:10px;">If this ever shuts you out, open the Apps ' +
+        "Script editor \u2192 Project Settings \u2192 Script properties and set " +
+        "<b>GOOGLE_GATE</b> to <b>off</b>. That needs only the script owner\u2019s Google " +
+        "account \u2014 no portal password and no access to the spreadsheet.</p>";
+
+    $("btn-gate-recheck").addEventListener("click", loadGoogleGate);
+    $("btn-gate-save").addEventListener("click", function () {
+      saveGoogleGate({
+        clientId: $("gate-clientid").value,
+        clientSecret: $("gate-clientsecret").value,
+        accounts: $("gate-accounts").value
+      }, "Saved.");
+    });
+    if ($("btn-gate-on")) {
+      $("btn-gate-on").addEventListener("click", function () {
+        askDialog({
+          title: "Require a Google sign-in?",
+          message: "From then on the portal opens only in a browser signed in to one of the " +
+            "listed accounts. Make sure every PC that needs the portal is signed in to one " +
+            "of them first, and that you can see your own account above.",
+          okLabel: "Switch on", danger: true
+        }, function (yes) {
+          if (yes === null) return;
+          saveGoogleGate({
+            clientId: $("gate-clientid").value,
+            clientSecret: $("gate-clientsecret").value,
+            accounts: $("gate-accounts").value,
+            enforced: true
+          }, "A Google sign-in is now required.");
+        });
+      });
+    }
+    if ($("btn-gate-off")) {
+      $("btn-gate-off").addEventListener("click", function () {
+        saveGoogleGate({ enforced: false }, "The Google sign-in requirement is off.");
+      });
+    }
+  }
+
+  function saveGoogleGate(payload, done) {
+    srv.withSuccessHandler(function (g) {
+      renderGoogleGate(g);
+      showMsg(done, "success");
+    }).withFailureHandler(onServerError).setGoogleGate(payload);
   }
 
   /**
@@ -9522,10 +9646,25 @@
     }
   }
 
+  /**
+   * A dead end, shown rather than a sign-in box.
+   *
+   * There is nothing the person at the keyboard can type to get past this one: the browser
+   * is signed in to the wrong Google account, and offering a password would be inviting
+   * them to try passwords against a door that is not the one that is shut.
+   */
+  function showBlocked(text) {
+    $("boot-screen").style.display = "none";
+    $("signin-screen").style.display = "none";
+    $("error-screen").style.display = "flex";
+    $("error-text").textContent = String(text).replace(/^.*GOOGLE_ACCOUNT_BLOCKED:\s*/, "");
+  }
+
   function onBootFailure(err) {
     var text = err && err.message ? err.message : String(err);
     // No session, or one that has lapsed, is not a fault — it is somebody arriving.
     if (/SESSION_ENDED/.test(text)) { showSignIn(""); return; }
+    if (/GOOGLE_ACCOUNT_BLOCKED/.test(text)) { showBlocked(text); return; }
     $("boot-screen").style.display = "none";
     $("error-screen").style.display = "flex";
     $("error-text").textContent = text;
@@ -9572,7 +9711,28 @@
         '<span class="msg-text">' + escapeHtml(message) + "</span></div>"
       : "";
     $("signin-password").value = "";
+    paintGoogleSignIn();
     ($("signin-email").value ? $("signin-password") : $("signin-email")).focus();
+  }
+
+  // ---------------- The Google account in front of the password ----------------
+  /**
+   * What Google said, on the way in.
+   *
+   * By the time this page exists, the Google half is already over: the server either did not
+   * ask for one, or sent the browser to Google and back and put the result here. So there is
+   * no button to press and nothing to decide — only a value to carry into the sign-in call,
+   * where the server spends it. Editing it here buys nothing: the server issued it, holds
+   * it, and will not accept anything it did not issue.
+   */
+  var googlePass = (typeof window.GOOGLE_PASS === "string") ? window.GOOGLE_PASS : "";
+
+  function paintGoogleSignIn() {
+    var note = $("signin-google-note");
+    if (!note) return;
+    if (!googlePass) { note.style.display = "none"; return; }
+    note.style.display = "";
+    note.textContent = "Signed in with Google. Now enter your portal username and password.";
   }
 
   function attemptSignIn() {
@@ -9598,9 +9758,17 @@
       })
       .withFailureHandler(function (err) {
         restore();
-        showSignIn(err && err.message ? err.message : String(err));
+        var text = (err && err.message) ? err.message : String(err);
+        if (/GOOGLE_ACCOUNT_BLOCKED/.test(text)) {
+          // Only the Google half failed or lapsed. A wrong password leaves the pass alone,
+          // so this really does mean starting again at Google, and reloading is what does it.
+          googlePass = "";
+          text = text.replace(/^.*GOOGLE_ACCOUNT_BLOCKED:\s*/, "") +
+            " Reload the page to start again.";
+        }
+        showSignIn(text);
       })
-      .login(login, password);
+      .login(login, password, googlePass);
   }
 
   $("btn-signin").addEventListener("click", attemptSignIn);
