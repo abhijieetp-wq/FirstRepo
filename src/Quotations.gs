@@ -169,7 +169,13 @@ function listQuotations(options) {
     rows = rows.filter(function (r) { return String(r.preparedBy).toLowerCase() === user.email.toLowerCase(); });
   }
   if (!opts.includeClosed) {
-    rows = rows.filter(function (r) { return ['Won', 'Lost', 'Expired'].indexOf(r.status) === -1; });
+    // 'Revised' belongs here too. A revision is a new quotation row, so revising an offer put
+    // two lines in the working list for one offer — the live version and the one it replaced,
+    // told apart by a small R1. The replaced one is reachable from Versions on the live one,
+    // which is where somebody looking for it actually looks.
+    rows = rows.filter(function (r) {
+      return ['Won', 'Lost', 'Expired', 'Revised'].indexOf(r.status) === -1;
+    });
   }
   if (opts.businessStream) {
     rows = rows.filter(function (r) { return r.businessStream === opts.businessStream; });
@@ -976,9 +982,12 @@ function setQuotationStatus(id, status, lostReasonId, lostDetails) {
   // The address first: a missing one is a gap in the data, and saying "get it approved" to
   // somebody whose offer cannot print either only costs them a second trip.
   if (status === 'Submitted') requireQuoteAddress_(quote);
-  if (status === 'Submitted' && rule.required && !quote.approvalDate &&
-      ['Approved', 'Negotiating'].indexOf(quote.status) === -1) {
-    throw new Error('This quotation has not been approved yet. ' + rule.why);
+  // Nothing goes to a customer unapproved. The test is the approval itself, not the status
+  // it left behind: a quotation reopened as a draft has its approval cleared, so it has to be
+  // signed off again before it can go out a second time.
+  if (status === 'Submitted' && !quote.approvalDate) {
+    throw new Error('This quotation has not been approved yet, and nothing goes to a ' +
+      'customer unapproved. ' + rule.why);
   }
 
   var patch = { status: status, locked: LOCKED_QUOTE_STATUSES.indexOf(status) !== -1 ? 'TRUE' : 'FALSE' };
@@ -1068,6 +1077,58 @@ function reviseQuotation(id) {
     'Superseded by revision ' + nextRevision);
   recalcQuotation_(copy.id);
   return getQuotation(copy.id);
+}
+
+/**
+ * Every version of one quotation, oldest first.
+ *
+ * A revision is a separate quotation row that points back at the first one, which is right —
+ * what the customer received has to survive unchanged — but it meant the versions of a single
+ * offer were scattered through All Quotations among everybody else's work, told apart only by
+ * a small R1 against the number. Asking "what did we send them last time, and what changed"
+ * meant hunting. Here they are as one list, and nothing else is in it.
+ */
+function listQuotationVersions(id) {
+  var user = getCurrentUser();
+  requireCommercial_(user, 'Quotations');
+
+  var all = readTable_('Quotations');
+  var source = all.filter(function (q) { return String(q.id) === String(id); })[0];
+  if (!source) throw new Error('Quotation not found.');
+  requireStream_(user, source.businessStream, 'This quotation');
+
+  var rootId = String(source.parentQuotationId || source.id);
+  var family = all.filter(function (q) {
+    return String(q.id) === rootId || String(q.parentQuotationId) === rootId;
+  });
+
+  var journey = journeyIndex_(family.map(function (q) { return String(q.id); }));
+
+  return family
+    .map(function (q) {
+      return {
+        id: String(q.id),
+        quoteNo: String(q.quoteNo || ''),
+        revision: String(q.revision || 'R0'),
+        date: String(q.date || ''),
+        validUntil: String(q.validUntil || ''),
+        status: String(q.status || ''),
+        locked: String(q.locked).toUpperCase() === 'TRUE',
+        grand: Number(q.grand) || 0,
+        preparedBy: String(q.preparedBy || ''),
+        approvedBy: String(q.approvedBy || ''),
+        approvalDate: String(q.approvalDate || ''),
+        submittedDate: String(q.submittedDate || ''),
+        // Which one is the live offer: the newest that was not superseded by another.
+        superseded: String(q.status) === 'Revised',
+        isCurrent: String(q.id) === String(id),
+        journeyLabel: quotationJourney_(q, journey).label
+      };
+    })
+    .sort(function (a, b) {
+      return (Number(String(a.revision).replace(/[^0-9]/g, '')) || 0) -
+             (Number(String(b.revision).replace(/[^0-9]/g, '')) || 0);
+    });
 }
 
 // ------------------------------------------------------------------ internals

@@ -2904,7 +2904,12 @@
     }
     // "Submitted" is the stored status; "Sent" is what the journey calls it and what actually
     // happened, so that is what the button says.
-    if (mayAdvance && ["Draft", "Approved"].indexOf(q.status) !== -1) {
+    //
+    // Not offered on a draft. Nothing leaves without being approved first — the server has
+    // always refused it, but the button sat there on a draft and a coordinator pressed it and
+    // was told no, which reads as a fault rather than a rule. The step it is waiting for is
+    // the one beside it.
+    if (mayAdvance && ["Approved", "Negotiating"].indexOf(q.status) !== -1) {
       buttons.push('<button class="btn btn-sm btn-primary" data-qs="Submitted">Mark Sent</button>');
     }
     // No "With Customer" button. Once an offer is out there are two things worth recording —
@@ -2933,6 +2938,11 @@
     if (canEditQuotes() && q.locked) {
       buttons.push('<button class="btn btn-sm btn-amber" id="btn-qb-revise">Revise</button>');
     }
+    // Offered whenever this offer has been revised at all — on any of its versions, since the
+    // question "what did we send them last time" is asked from whichever one is open.
+    if (q.revision !== "R0" || q.parentQuotationId) {
+      buttons.push('<button class="btn btn-sm" id="btn-qb-versions">Versions</button>');
+    }
     // The way back down. Revise is for a quotation that went out and needs changing; this is
     // for one that should not have left Draft at all — marked Submitted by mistake, or raised
     // to try the screen out. Without it a locked quotation could never be edited or discarded,
@@ -2953,6 +2963,9 @@
         goToTab("orders");
         setTimeout(function () { openOrderModal(q.journey.orderId); }, 400);
       });
+    }
+    if ($("btn-qb-versions")) {
+      $("btn-qb-versions").addEventListener("click", openVersions);
     }
     $("btn-qb-print").addEventListener("click", openQuoteDocument);
 
@@ -3147,6 +3160,59 @@
     });
   });
 
+  /**
+   * Every version of the offer in front of you, and nothing else.
+   *
+   * Revising creates a separate quotation so that what the customer received cannot be edited
+   * underneath them. The cost of that is that the versions of one offer sit in All Quotations
+   * among everybody else's work, told apart by a small R1 against the number — so "what did
+   * we send them last time" meant hunting through a list. This is that list, on its own.
+   */
+  function openVersions() {
+    if (!openQuote) return;
+    $("ver-sub").textContent = "Loading…";
+    $("ver-tbody").innerHTML = "";
+    $("versions-modal-backdrop").classList.add("show");
+
+    srv.withSuccessHandler(function (rows) {
+      $("ver-sub").textContent = (openQuote.customerName || "") + " · " +
+        rows.length + (rows.length === 1 ? " version" : " versions") +
+        ". The newest one that has not been replaced is the live offer.";
+      $("ver-tbody").innerHTML = rows.map(function (v) {
+        return '<tr' + (v.isCurrent ? ' style="background:var(--steel-light);"' : "") + ">" +
+          '<td class="mono"><b>' + escapeHtml(v.revision) + "</b>" +
+            (v.isCurrent ? ' <span class="badge badge-active">open</span>' : "") +
+            (v.superseded ? ' <span class="badge badge-draft">replaced</span>' : "") + "</td>" +
+          "<td>" + escapeHtml(v.date || "—") + "</td>" +
+          "<td>" + escapeHtml(v.preparedBy || "—") + "</td>" +
+          "<td>" + (v.approvalDate
+            ? escapeHtml(v.approvalDate) + '<br><span style="font-size:11px; color:var(--ink-soft);">' +
+              escapeHtml(v.approvedBy || "") + "</span>"
+            : '<span style="color:var(--ink-soft);">not approved</span>') + "</td>" +
+          '<td class="num mono">' + fmt(v.grand) + "</td>" +
+          "<td>" + escapeHtml(v.journeyLabel || quoteStatusLabel(v.status)) + "</td>" +
+          '<td class="center">' + (v.isCurrent
+            ? ""
+            : '<button class="btn btn-sm" data-open-ver="' + escapeHtml(v.id) + '">Open</button>') +
+          "</td></tr>";
+      }).join("");
+
+      $("ver-tbody").querySelectorAll("[data-open-ver]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          $("versions-modal-backdrop").classList.remove("show");
+          openQuotation(btn.dataset.openVer);
+        });
+      });
+    }).withFailureHandler(function (err) {
+      $("versions-modal-backdrop").classList.remove("show");
+      onServerError(err);
+    }).listQuotationVersions(openQuote.id);
+  }
+
+  $("btn-ver-close").addEventListener("click", function () {
+    $("versions-modal-backdrop").classList.remove("show");
+  });
+
   function changeQuoteStatus(status) {
     if (status !== "Lost") { applyQuoteStatus(status, "", null, null); return; }
 
@@ -3180,7 +3246,7 @@
       showMsg("Quotation marked " + quoteStatusLabel(status) + "." +
         (["Won", "Lost"].indexOf(status) !== -1
           ? " It is closed now, so All Quotations hides it unless " +
-            "\u2018Include accepted & declined\u2019 is ticked."
+            "\u2018Include closed & replaced\u2019 is ticked."
           : ""), "success");
       if (done) done(null);
     }).withFailureHandler(function (err) {

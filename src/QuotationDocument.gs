@@ -178,6 +178,13 @@ function buildQuotationHtml(quotationId) {
   // A spare line prints one thing off the master: its HSN code.
   var spareHsn = hasType.Spare ? columnMap_('Spares', 'id', 'hsnCode') : {};
 
+  // One row, and only when the offer came from an enquiry at all.
+  var enquiryNo = '';
+  if (String(q.spareEnquiryId || '').trim()) {
+    var se = findRowById_('SpareEnquiries', q.spareEnquiryId);
+    enquiryNo = se ? String(se.enquiryNo || '') : '';
+  }
+
   var preparer = readTable_('Users').filter(function (u) {
     return String(u.email).toLowerCase() === String(q.preparedBy).toLowerCase();
   })[0] || {};
@@ -246,10 +253,11 @@ function buildQuotationHtml(quotationId) {
         (preparer.designation || preparer.role
           ? ' | ' + esc_(preparer.designation || preparer.role) : '') + '</div>' +
       (co.signOffPhone ? '<div>M: ' + esc_(co.signOffPhone) + '</div>' : '') +
-      // A customer replies to an offer; without an address on it they reply to whoever
-      // forwarded it. Their own offers carry the e-mail under the signature, so ours does.
-      (preparer.email || co.email
-        ? '<div>E: ' + esc_(preparer.email || co.email) + '</div>' : '') +
+      // The company's address, never the preparer's. It used to print whichever address the
+      // coordinator's user record carried, which on this installation is a personal one — so
+      // every offer that went out published an employee's private e-mail to a customer, and
+      // a reply to it reached one person's inbox rather than the office.
+      (co.email ? '<div>E: ' + esc_(co.email) + '</div>' : '') +
       '</div>';
   };
 
@@ -277,6 +285,13 @@ function buildQuotationHtml(quotationId) {
       (q.revision && q.revision !== 'R0' ? ' <b>(' + esc_(q.revision) + ')</b>' : '') + '</td>' +
     '<td class="right"><b>' + esc_(L('dated', 'Dated')) + ':</b> ' +
       esc_(ddmmyyyy_(q.date)) + '</td>' +
+    // The customer's own request, quoted back at them. They rang about something and this is
+    // the answer to it; naming the enquiry is what lets either side tie the two together
+    // weeks later, and it is the number PIE's own staff search by.
+    (enquiryNo
+      ? '</tr><tr><td colspan="2"><b>' + esc_(L('enquiryNo', 'Enquiry No.')) + ':</b> ' +
+        esc_(enquiryNo) + '</td>'
+      : '') +
     '</tr></table>');
 
   push('<div class="to">To,<br />' +
