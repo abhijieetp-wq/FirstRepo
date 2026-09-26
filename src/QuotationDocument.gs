@@ -418,12 +418,16 @@ function buildQuotationHtml(quotationId) {
   }
 
   // ---------------------------------------------------------------- price schedule
-  // A compressor offer arrives here after pages of specification, so the schedule starts a
-  // page of its own. A spares offer arrives after a single covering letter, and forcing the
-  // break there cost two pages: the letter ended a third of the way down one page and the
-  // annexure a third of the way down another, so a two-page offer printed as four. It flows
-  // now, and the pieces that must not be split say so for themselves.
-  if (isCompressor) push('<div class="page-break"></div>');
+  // The schedule starts a page of its own, in both documents.
+  //
+  // It flowed for a while, once, because forcing the break used to cost a spares offer two
+  // whole pages — the letter ended a third of the way down one and the annexure a third of
+  // the way down another. Letting it flow meant the annexure could open at the foot of the
+  // covering letter and its parts table break across the fold, which on an offer sent to a
+  // customer reads as a printing fault. The letterhead is smaller and the leading tighter
+  // now, so the letter fills its page and the annexure starts the next one: the break costs
+  // nothing it used to cost, and the table is whole.
+  push('<div class="page-break"></div>');
   push('<div class="h1">' + esc_(L('priceHeading', 'Price schedule')) + '</div>');
 
   // The machine the parts belong to. A spare part is meaningless without it — their own spares
