@@ -2069,8 +2069,16 @@
 
     fillDatalist("leadsource-list", ((configLists || {}).LeadSource || []).map(function (i) { return i.label; }));
 
-    $("btn-quote-enquiry").style.display =
-      (e && e.items.length && canEditQuotes()) ? "inline-flex" : "none";
+    // Offered the moment the enquiry is saved. It used to wait until parts had been
+    // identified against it, which read as the button being broken — and now that an enquiry
+    // is the only way to raise a spares offer, waiting would be a dead end.
+    $("btn-quote-enquiry").style.display = (e && canEditQuotes()) ? "inline-flex" : "none";
+    $("btn-quote-enquiry").textContent = (e && e.items.length)
+      ? "Create Quotation (" + e.items.length + (e.items.length === 1 ? " part)" : " parts)")
+      : "Create Quotation";
+    $("btn-quote-enquiry").title = (e && e.items.length)
+      ? "The identified parts carry across onto the offer."
+      : "No parts identified yet — the offer opens empty and you pick them there.";
     hideIdentifyPanel();
     renderEnquiryItems(e);
     $("enquiry-modal-backdrop").classList.add("show");
@@ -2684,9 +2692,22 @@
       $("btn-qs-create").disabled = !quoteCustomers.length;
     });
 
-    $("qs-stream").innerHTML = BUSINESS_STREAMS.map(function (st) {
-      return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
-    }).join("");
+    // Spare Sales is not offered here: a spares offer answers an enquiry, and this screen
+    // starts one from nothing. The server refuses it too — this is so nobody fills the form
+    // in first and is turned away at the end of it.
+    var mine = currentUser.businessStream || "All";
+    $("qs-stream").innerHTML = BUSINESS_STREAMS
+      .filter(function (st) {
+        return st !== "Spare Sales" && (mine === "All" || mine === st);
+      })
+      .map(function (st) {
+        return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
+      }).join("");
+    // Somebody whose whole job is spares has nothing to start here, so say where to go
+    // rather than showing them an empty picker.
+    var sparesOnly = !$("qs-stream").options.length;
+    $("qs-start-card").style.display = sparesOnly ? "none" : "";
+    $("qs-spares-note").style.display = sparesOnly ? "" : "none";
     syncStartMachineFields();
   }
 
@@ -2709,6 +2730,8 @@
   }
 
   $("qs-stream").addEventListener("change", syncStartMachineFields);
+
+  $("btn-qs-to-enquiries").addEventListener("click", function () { goToTab("enquiries"); });
 
   /**
    * Adding a customer without leaving the quotation. A walk-in wanting two filters has no

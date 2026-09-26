@@ -361,12 +361,26 @@
       </div>
 
       <div id="qb-empty">
-        <div class="card" style="max-width:720px;">
+        <!-- A spares coordinator has nothing to start here: their offers begin as enquiries.
+             Shown in place of the card rather than beside it, so the screen is not a form
+             that refuses at the end. -->
+        <div class="card" style="max-width:720px; display:none;" id="qs-spares-note">
+          <div class="card-title" style="margin-top:0;">A spares quotation starts from an enquiry</div>
+          <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 14px;">
+            Log what the customer asked for on <b>Spare Sales</b> — who rang, which machine,
+            and in their words what they want. Then press <b>Create Quotation</b> on that
+            enquiry and the offer opens with the customer, the contact and any parts you have
+            identified already carried across.
+          </p>
+          <button class="btn btn-primary" id="btn-qs-to-enquiries" type="button">Go to Spare Sales</button>
+        </div>
+        <div class="card" style="max-width:720px;" id="qs-start-card">
           <div class="card-title" style="margin-top:0;">Start a quotation</div>
           <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 14px;">
             Pick the customer and add lines from the catalog. If the customer already has an
-            enquiry or an opportunity, raise the quote from there instead — it carries the
-            identified parts and the requirement across with it.
+            opportunity, raise the quote from there instead — it carries the requirement
+            across with it. A spares offer is not started here: it begins as an enquiry on
+            the <b>Spare Sales</b> screen.
           </p>
           <div class="grid grid-2">
             <div class="field">

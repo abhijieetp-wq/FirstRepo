@@ -687,7 +687,9 @@ function quotationCss_(co) {
   var accent = String((co && co.docAccentColor) || '#C00000').trim() || '#C00000';
   return '<style>' +
     '@page{size:A4;margin:10mm 14mm;}' +
-    'body{font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;color:#111;line-height:1.45;margin:0;}' +
+    // Verdana at 10pt, which is what PIE's own offers are set in. Geneva and the generic
+    // sans-serif stand behind it for the PDF converter, which embeds only the fonts it has.
+    'body{font-family:Verdana,Geneva,sans-serif;font-size:10pt;color:#111;line-height:1.45;margin:0;}' +
 
     // The page frame. thead and tfoot on this table are what repeat on every page.
     'table.page{width:100%;border-collapse:collapse;}' +
@@ -716,7 +718,7 @@ function quotationCss_(co) {
     '.refbar{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
     '.refbar td{padding:0;}' +
     '.right{text-align:right;}' +
-    '.to{margin-bottom:12px;font-size:10.5pt;}' +
+    '.to{margin-bottom:12px;font-size:10pt;}' +
     '.subject{margin:12px 0 8px;}' +
     '.salut{margin-bottom:8px;}' +
     'p{margin:0 0 9px;text-align:justify;}' +
@@ -762,7 +764,7 @@ function quotationCss_(co) {
     'table.totals tr.strong td{font-weight:bold;background:#f2f2f2;}' +
 
     // A signature split across a page break reads as a printing fault, so it moves whole.
-    '.signoff{margin-top:22px;font-size:10.5pt;page-break-inside:avoid;}' +
+    '.signoff{margin-top:22px;font-size:10pt;page-break-inside:avoid;}' +
     '.signoff .for{margin-top:4px;font-weight:bold;}' +
     '.sig-space{height:36px;}' +
     '.seal{max-height:80px;margin:6px 0;}' +

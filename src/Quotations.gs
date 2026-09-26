@@ -217,6 +217,16 @@ function createBlankQuotation(input) {
     ? input.businessStream : STREAM_SPARE;
   requireStream_(user, stream, 'A quotation in that stream');
 
+  // A spares offer answers a request, and the request is the enquiry. Starting one here would
+  // be an offer with nothing recorded about what the customer actually asked for, how it
+  // reached PIE or who to ring about it — and the enquiry list, which is the spares desk's
+  // worklist, would not know the offer existed. Compressor offers still start here: their
+  // front door is a lead or an opportunity, not this rule.
+  if (stream === STREAM_SPARE) {
+    throw new Error('A spares quotation starts from an enquiry. Log what the customer asked ' +
+      'for on the Spare Sales screen, then press Create Quotation on it.');
+  }
+
   var parties = defaultPartiesFor_(customer.id);
 
   var validity = clampValidity_(input.validityDays);
@@ -267,9 +277,11 @@ function createQuotationFromEnquiry(spareEnquiryId) {
   var items = readTable_('SpareEnquiryItems')
     .filter(function (i) { return String(i.spareEnquiryId) === String(spareEnquiryId); })
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
-  if (!items.length) {
-    throw new Error('Identify at least one part on the enquiry before quoting it.');
-  }
+  // No refusal for an enquiry with no parts identified yet. Identifying them against the
+  // enquiry is the better path and the screen still leads with it, but this is now the only
+  // way to raise a spares offer at all, so it cannot be a dead end for a coordinator who
+  // would rather pick the parts on the quotation, where the prices and stock are. An offer
+  // with no lines is a draft, and a draft cannot be approved or sent.
 
   var customer = readTable_('Customers').filter(function (c) {
     return String(c.id) === String(enquiry.customerId);
