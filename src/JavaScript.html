@@ -1965,13 +1965,60 @@
         "<td>" + (e.expectedDeliveryDate
           ? (e.overdue ? '<span class="badge badge-overdue">' + escapeHtml(e.expectedDeliveryDate) + "</span>" : escapeHtml(e.expectedDeliveryDate))
           : "—") + "</td>" +
-        '<td class="center"><button class="btn-ghost" data-open-enq="' + e.id + '" title="Open">✎</button></td>' +
+        '<td class="center" style="white-space:nowrap;">' +
+          (canEditQuotes()
+            ? '<button class="btn btn-sm" data-quote-enq="' + e.id + '" title="' +
+              (quotedAlready(e)
+                ? "This enquiry has already been quoted. This raises a second offer from it."
+                : "Raise the quotation from this enquiry") + '">' +
+              (quotedAlready(e) ? "Quote again" : "Quote") + "</button> "
+            : "") +
+          '<button class="btn-ghost" data-open-enq="' + e.id + '" title="Open">✎</button>' +
+        "</td>" +
         "</tr>";
     }).join("");
 
     tbody.querySelectorAll("[data-open-enq]").forEach(function (btn) {
       btn.addEventListener("click", function () { openEnquiryModal(btn.dataset.openEnq); });
     });
+    // Raising the offer without opening the enquiry first. The window now closes when the
+    // enquiry is saved, and reopening it only to press one button was the price of that.
+    tbody.querySelectorAll("[data-quote-enq]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var e = enquiriesCache.find(function (x) { return x.id === btn.dataset.quoteEnq; });
+        if (!e) return;
+        var was = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Creating\u2026";
+        quoteFromEnquiry(e, function () { btn.disabled = false; btn.textContent = was; });
+      });
+    });
+  }
+
+  /** Past the point where another offer would be a second one rather than the first. */
+  function quotedAlready(e) {
+    return ["Quoted", "Won", "Lost"].indexOf(e.status) !== -1;
+  }
+
+  /**
+   * Turns an enquiry into a quotation and goes to it.
+   *
+   * Shared by the button on the list row and the one inside the enquiry window, because they
+   * are the same action reached two ways and a coordinator should not be able to tell which
+   * one they used from what happens next.
+   */
+  function quoteFromEnquiry(e, done) {
+    srv.withSuccessHandler(function (q) {
+      done();
+      openQuote = q;
+      $("enquiry-modal-backdrop").classList.remove("show");
+      renderQuoteBuilder();
+      goToTab("quote");
+      showMsg("Quotation " + q.quoteNo + " created from " + e.enquiryNo + ".", "success");
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).createQuotationFromEnquiry(e.id);
   }
 
   $("enquiry-search").addEventListener("input", renderEnquiries);
@@ -2100,18 +2147,7 @@
   $("btn-quote-enquiry").addEventListener("click", function () {
     var e = currentEnquiry();
     if (!e) return;
-    var done = busyButton("btn-quote-enquiry", "Creating\u2026");
-    srv.withSuccessHandler(function (q) {
-      done();
-      openQuote = q;
-      $("enquiry-modal-backdrop").classList.remove("show");
-      renderQuoteBuilder();
-      goToTab("quote");
-      showMsg("Quotation " + q.quoteNo + " created from " + e.enquiryNo + ".", "success");
-    }).withFailureHandler(function (err) {
-      done();
-      onServerError(err);
-    }).createQuotationFromEnquiry(e.id);
+    quoteFromEnquiry(e, busyButton("btn-quote-enquiry", "Creating\u2026"));
   });
 
   /**
@@ -2227,8 +2263,8 @@
       $("enquiry-modal-backdrop").classList.remove("show");
       loadEnquiries();
       showMsg(firstSave
-        ? "Enquiry " + (saved.enquiryNo || "") + " logged. Open it from the list to identify " +
-          "parts, or to raise the quotation."
+        ? "Enquiry " + (saved.enquiryNo || "") + " logged. Press Quote on its row to raise " +
+          "the offer, or open it to identify the parts first."
         : "Enquiry " + (saved.enquiryNo || "") + " saved.", "success");
     }).withFailureHandler(function (err) {
       done();
