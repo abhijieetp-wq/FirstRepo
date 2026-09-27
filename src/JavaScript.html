@@ -3413,7 +3413,7 @@
       showMsg("Quotation marked " + quoteStatusLabel(status) + "." +
         (["Won", "Lost"].indexOf(status) !== -1
           ? " It is closed now, so All Quotations hides it unless " +
-            "\u2018Include closed & replaced\u2019 is ticked."
+            "\u2018Include closed\u2019 is ticked."
           : ""), "success");
       if (done) done(null);
     }).withFailureHandler(function (err) {
