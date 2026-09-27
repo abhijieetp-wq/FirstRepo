@@ -7782,7 +7782,25 @@
   var SEV_ICON = { critical: "!", serious: "▲", warning: "•" };
   var SEV_WORD = { critical: "Critical", serious: "Serious", warning: "Watch" };
 
-  function initDashboardView() { loadDashboard(false); }
+  /**
+   * The stream switch, for whoever it means anything to.
+   *
+   * The server gives a single-stream user their own stream's figures whatever the client
+   * asks for, which is right — but the switch was still on screen, so pressing "Compressor"
+   * highlighted Compressor and went on showing spares. A control that does nothing is worse
+   * than no control: it is the screen telling somebody the numbers are something they are
+   * not. They get the heading saying which stream this is instead.
+   */
+  function paintDashboardStream() {
+    var sw = $("dash-stream");
+    var cross = !currentUser.businessStream || currentUser.businessStream === "All";
+    if (cross) { sw.style.display = ""; return; }
+    sw.style.display = "none";
+    dashStream = currentUser.businessStream;
+    $("dash-title").textContent = "Control Tower \u00b7 " + currentUser.businessStream;
+  }
+
+  function initDashboardView() { paintDashboardStream(); loadDashboard(false); }
 
   $("dash-stream").querySelectorAll("button").forEach(function (btn) {
     btn.addEventListener("click", function () {

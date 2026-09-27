@@ -204,16 +204,23 @@ function listQuotations(options) {
     return row;
   });
 
+  // An older revision is not another quotation; it is the same offer before it was changed,
+  // and the list should hold one line per offer. Two rows with the same number, told apart by
+  // a small R0 and R1, is how somebody sends the version the customer has already rejected.
+  // So the superseded ones never appear here, whatever the closed filter says — the Versions
+  // window on the live one is where they live, and where anybody looking for one looks.
+  //
+  // Worked out over every row before any other filter is applied. Deciding it afterwards
+  // would let "only mine" hide a colleague's newer revision and promote my older one into
+  // the list as though it were current.
+  rows = rows.filter(supersededFilter_(rows));
+
   if (opts.mineOnly) {
     rows = rows.filter(function (r) { return String(r.preparedBy).toLowerCase() === user.email.toLowerCase(); });
   }
   if (!opts.includeClosed) {
-    // 'Revised' belongs here too. A revision is a new quotation row, so revising an offer put
-    // two lines in the working list for one offer — the live version and the one it replaced,
-    // told apart by a small R1. The replaced one is reachable from Versions on the live one,
-    // which is where somebody looking for it actually looks.
     rows = rows.filter(function (r) {
-      return ['Won', 'Lost', 'Expired', 'Revised'].indexOf(r.status) === -1;
+      return ['Won', 'Lost', 'Expired'].indexOf(r.status) === -1;
     });
   }
   if (opts.businessStream) {
@@ -231,6 +238,32 @@ function listQuotations(options) {
   return rows.sort(function (a, b) {
     return String(b.date + b.quoteNo).localeCompare(String(a.date + a.quoteNo));
   });
+}
+
+/**
+ * Keeps one row per offer: the newest revision of each family.
+ *
+ * A family is a root quotation and every revision of it, all of which carry the root's id in
+ * parentQuotationId — the chain is flat, so R2 points at R0 rather than at R1. That is why
+ * this cannot be "has nothing pointing at it": R1 has nothing pointing at it either, and it
+ * is still not the current offer.
+ *
+ * Highest revision number wins, because that is what reviseQuotation counts up. The status
+ * would usually answer the same question — the superseded one is set to 'Revised' — but a
+ * status is a value somebody can edit in the sheet, and which offer is current is not a
+ * matter of opinion.
+ */
+function supersededFilter_(rows) {
+  var best = {};
+  rows.forEach(function (r) {
+    var root = String(r.parentQuotationId || r.id);
+    var rev = Number(String(r.revision || 'R0').replace(/[^0-9]/g, '')) || 0;
+    if (!best[root] || rev > best[root].rev) best[root] = { rev: rev, id: String(r.id) };
+  });
+  return function (r) {
+    var root = String(r.parentQuotationId || r.id);
+    return !best[root] || best[root].id === String(r.id);
+  };
 }
 
 /**
