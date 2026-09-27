@@ -25,8 +25,10 @@
 var QUOTE_JOURNEY = [
   { key: 'prepared',   label: 'Prepared',     owner: 'Quotation' },
   { key: 'approved',   label: 'Approved',     owner: 'Quotation', hint: 'by management' },
-  { key: 'sent',       label: 'Sent',         owner: 'Quotation', hint: 'to the customer' },
-  { key: 'accepted',   label: 'Accepted',     owner: 'Quotation' },
+  // Who did it, in the label rather than the tooltip: on a strip of ten stages "Sent" and
+  // "Accepted" read as things the office did, and the office does not accept its own offer.
+  { key: 'sent',       label: 'Sent to customer',     owner: 'Quotation' },
+  { key: 'accepted',   label: 'Accepted by customer', owner: 'Quotation' },
   { key: 'po',         label: 'PO received',  owner: 'Sales order' },
   { key: 'order',      label: 'Sales order',  owner: 'Sales order' },
   { key: 'invoiced',   label: 'Invoiced',     owner: 'Invoice' },
