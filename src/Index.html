@@ -23,11 +23,16 @@
       Use the username and password your ERP Admin set up for you.
     </p>
     <div id="signin-msg"></div>
-    <!-- Which Google account got this far, when the office has asked for one. The account is
-         chosen before this page is served, so there is nothing to press here — only a
-         reminder of who the portal thinks is at the keyboard. -->
-    <p id="signin-google-note" style="color:var(--ink-soft); font-size:11.5px;
-      margin:0 0 14px; text-align:center; display:none;"></p>
+    <!-- The Google half. When the requirement is on, it is already over by the time this page
+         exists and this is only a note saying so. When it is merely configured, the button is
+         here to be pressed — which is how the requirement gets switched on in the first
+         place, and how a PC is checked before it is relied on. -->
+    <div id="signin-google" style="display:none; margin:0 0 14px; text-align:center;">
+      <a id="signin-google-link" class="btn" target="_top" href="#"
+        style="display:none;">Sign in with Google</a>
+      <p id="signin-google-note" style="color:var(--ink-soft); font-size:11.5px;
+        margin:8px 0 0;"></p>
+    </div>
     <div id="signin-fields">
     <div class="field" style="margin-bottom:12px;">
       <label>Username</label>

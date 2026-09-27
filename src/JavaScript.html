@@ -9784,12 +9784,38 @@
    */
   var googlePass = (typeof window.GOOGLE_PASS === "string") ? window.GOOGLE_PASS : "";
 
+  // Asked for once per page, not once per showing of the screen: the answer cannot change
+  // without a reload, and each ask mints a one-time value the server has to remember.
+  var googleLinkAsked = false;
+
   function paintGoogleSignIn() {
-    var note = $("signin-google-note");
-    if (!note) return;
-    if (!googlePass) { note.style.display = "none"; return; }
-    note.style.display = "";
-    note.textContent = "Signed in with Google. Now enter your portal username and password.";
+    var wrap = $("signin-google");
+    if (!wrap) return;
+
+    if (googlePass) {
+      // The trip is already made. Nothing to press, only a note saying whose account got here.
+      wrap.style.display = "";
+      $("signin-google-link").style.display = "none";
+      $("signin-google-note").textContent =
+        "Signed in with Google. Now enter your portal username and password.";
+      return;
+    }
+
+    if (googleLinkAsked) return;
+    googleLinkAsked = true;
+    google.script.run
+      .withSuccessHandler(function (link) {
+        if (!link || !link.offered || googlePass) return;
+        wrap.style.display = "";
+        var a = $("signin-google-link");
+        a.href = link.url;
+        a.style.display = "inline-block";
+        $("signin-google-note").textContent =
+          "Optional here. Sign in with Google as well if this portal is to be restricted to " +
+          "the company's own accounts.";
+      })
+      .withFailureHandler(function () { /* not configured, or offline: the password box stands */ })
+      .googleGateSignInLink();
   }
 
   function attemptSignIn() {

@@ -354,6 +354,25 @@ function googleGateNoticePage_(message, offerRetry) {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
+/**
+ * The Google step offered rather than demanded, so the requirement can be switched on at all.
+ *
+ * Switching it on is refused unless the session doing the switching already carries a Google
+ * account — otherwise an administrator turns the lock and finds themselves on the wrong side
+ * of it. But while the requirement is off nothing sends anybody to Google, so there would be
+ * no way to get such a session: the last click of the setup would be a dead end.
+ *
+ * So once the client details are set, the sign-in screen offers the trip out to Google even
+ * though it does not insist on it. Anybody who declines signs in exactly as before.
+ *
+ * Reachable without a session, because there is not one yet. It gives away no more than the
+ * gate page does: that a Google sign-in exists, and where it goes.
+ */
+function googleGateSignInLink() {
+  if (!googleGateConfigured_()) return { offered: false, url: '' };
+  return { offered: true, url: googleGateAuthUrl_() };
+}
+
 // ------------------------------------------------------------------ what login asks
 
 /**
