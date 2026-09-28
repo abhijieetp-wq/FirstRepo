@@ -458,13 +458,12 @@ function buildQuotationHtml(quotationId) {
    * its own extended total. Following the compressor layout for spares would drop the part
    * number, which is the one column a storeman actually reads.
    */
+  // The HSN code and the unit belong with what is being sold, before the money starts: a
+  // storeman reads left to right and stops once the figures begin. On both documents the HSN
+  // used to sit past the figures, where it read as an afterthought on a tax document.
   var priceCols = isCompressor
-    ? [L('colDescription', 'Description'), L('colBasicPrice', 'Basic price'),
-       L('colQty', 'Qty'), L('colUnit', 'Unit'), L('colHsn', 'HSN code'),
-       L('colTaxRate', 'Tax rate')]
-    // The HSN code and the unit belong with what is being sold, before the money starts: a
-    // storeman reads left to right and stops once the figures begin. The HSN used to sit in
-    // the last column, past the totals, where it read as an afterthought on a tax document.
+    ? [L('colDescription', 'Description'), L('colHsn', 'HSN code'), L('colUnit', 'Unit'),
+       L('colBasicPrice', 'Basic price'), L('colQty', 'Qty'), L('colTaxRate', 'Tax rate')]
     : [L('colPartNo', 'Part Number'), L('colDescription', 'Description'),
        L('colHsn', 'HSN code'), L('colUom', 'Unit of measurement'),
        L('colPricePer', 'Price Per'), L('colQuantity', 'Quantity'),
@@ -473,10 +472,10 @@ function buildQuotationHtml(quotationId) {
   push('<table class="price"><thead><tr>' +
     (isCompressor
       ? '<th class="w-desc">' + esc_(priceCols[0]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[1]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[2]) + '</th>' +
-        '<th>' + esc_(priceCols[3]) + '</th>' +
-        '<th>' + esc_(priceCols[4]) + '</th>' +
+        '<th>' + esc_(priceCols[1]) + '</th>' +
+        '<th>' + esc_(priceCols[2]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[3]) + '</th>' +
+        '<th class="num">' + esc_(priceCols[4]) + '</th>' +
         '<th class="num">' + esc_(priceCols[5]) + '</th>'
       : '<th class="w-part">' + esc_(priceCols[0]) + '</th>' +
         '<th class="w-desc">' + esc_(priceCols[1]) + '</th>' +
@@ -502,10 +501,10 @@ function buildQuotationHtml(quotationId) {
 
     push('<tr>' + (isCompressor
       ? '<td>' + esc_(i.description || i.itemCode) + '</td>' +
+        '<td>' + (hsn || '—') + '</td>' +
+        '<td>' + esc_(i.uom || 'No') + '</td>' +
         '<td class="num">' + inr_(unit) + '</td>' +
         '<td class="num">' + esc_(qty) + '</td>' +
-        '<td>' + esc_(i.uom || 'No') + '</td>' +
-        '<td>' + (hsn || '—') + '</td>' +
         '<td class="num">' + (isCharge ? '—' : esc_((Number(i.taxPct) || 0).toFixed(2)) + '%') + '</td>'
       // A charge has no part number and no extended rate — it is simply an amount.
       : '<td class="mono">' + (isCharge ? '' : esc_(i.itemCode) +
@@ -552,50 +551,33 @@ function buildQuotationHtml(quotationId) {
                  esc_(L('freightNote', 'Extra at actuals')), '']);
   }
 
-  // The row reading "18% GST" on a compressor offer and "Total Tax 18%" on a spares one — same
-  // figure, their two documents word it differently, so the wording is a label with the rate
-  // substituted into it.
-  var taxRow = esc_(L('taxRow', '{rate}% GST')).replace('{rate}', esc_(headlineTaxRate_(items)));
-  // Their two offers differ here, and not by accident. A compressor offer writes "18% GST
-  // EXTRA" with no figure: the machine price is negotiated and GST is charged at the rate
-  // prevailing on the date of dispatch, so a number printed today would be wrong by then.
-  // A spares offer is a firm total the customer raises a purchase order against, so it states
-  // the tax and the amount payable — theirs reads "Total Tax 18% 51001.74" and
-  // "Total Amount 334344.74" even though its own term 1 says GST is extra on the basic value.
-  var taxExtra = String(q.taxMode || 'Extra') === 'Extra';
-  if (isCompressor && taxExtra) {
-    totals.push([taxRow, esc_(L('taxExtra', 'EXTRA')), '']);
-  } else {
-    // GST split the way a tax document has to split it: CGST and SGST between two places in
-    // the same state, IGST across a border. One "Total Tax 18%" line said the right amount
-    // and the wrong thing — the customer's accounts cannot post it, and their purchase order
-    // is raised off this page.
-    gstRows_(q, co, address, items).forEach(function (r) { totals.push(r); });
-    // What the customer will actually pay. This printed q.grand, which excludes the tax when
-    // the offer quotes GST as extra — so the page listed the tax and then a total that
-    // ignored it, and the figure a purchase order would be raised against was short by the
-    // GST. The stored figure is left alone; this is the arithmetic the page has to show.
-    totals.push([esc_(L('grandTotal', 'Total amount')), inr_(payableTotal_(q)), 'strong']);
-  }
+  // GST split the way a tax document has to split it: CGST and SGST between two places in the
+  // same state, IGST across a border. One "Total Tax 18%" line said the right amount and the
+  // wrong thing — the customer's accounts cannot post it, and their purchase order is raised
+  // off this page.
+  //
+  // A compressor offer used to print "18% GST — EXTRA" with no figure at all, on the reasoning
+  // that a machine price is negotiated and the rate that applies is the one prevailing on the
+  // date of dispatch. PIE asked for the figures on both documents: a customer raising a
+  // purchase order needs the number, and term 1 already says GST is extra on the basic value
+  // if the rate moves before dispatch.
+  gstRows_(q, co, address, items).forEach(function (r) { totals.push(r); });
+  // What the customer will actually pay. This printed q.grand, which excludes the tax when
+  // the offer quotes GST as extra — so the page listed the tax and then a total that ignored
+  // it, and the figure a purchase order would be raised against was short by the GST. The
+  // stored figure is left alone; this is the arithmetic the page has to show.
+  totals.push([esc_(L('grandTotal', 'Total amount')), inr_(payableTotal_(q)), 'strong']);
 
-  // One table, not two. The items and the totals were separate tables, so the money did not
-  // line up under the money and the last row of one sat beside the first row of the other.
-  // On the spares annexure the totals are now rows of the same grid; the compressor offer
-  // keeps its own block, which is how their machine quotation is laid out.
-  if (isCompressor) {
-    push('</tbody></table>');
-    push('<table class="totals">');
-    totals.forEach(function (t) {
-      push('<tr class="' + t[2] + '"><td>' + t[0] + '</td><td class="num">' + t[1] + '</td></tr>');
-    });
-    push('</table>');
-  } else {
-    totals.forEach(function (t) {
-      push('<tr class="' + t[2] + '"><td class="tot-label" colspan="6">' + t[0] + '</td>' +
-        '<td class="num">' + t[1] + '</td></tr>');
-    });
-    push('</tbody></table>');
-  }
+  // One table, not two, on both documents. The items and the totals used to be separate
+  // tables, so the money did not line up under the money and the last row of one sat beside
+  // the first row of the other. The totals are rows of the same grid now: the label runs
+  // across every column but the last, and the amount lands under the amounts.
+  var labelSpan = priceCols.length - 1;
+  totals.forEach(function (t) {
+    push('<tr class="' + t[2] + '"><td class="tot-label" colspan="' + labelSpan + '">' +
+      t[0] + '</td><td class="num">' + t[1] + '</td></tr>');
+  });
+  push('</tbody></table>');
 
   // ---------------------------------------------------------------- terms
   var terms = quoteTemplate_('Terms', stream);
@@ -624,10 +606,10 @@ function buildQuotationHtml(quotationId) {
       if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
     });
   }
-  // The letter is already signed where it closes, on the first page. On a long compressor
-  // offer the terms sit pages away from that signature, so they are signed again; a spares
-  // offer is short enough that the second block only ever produced a sheet of its own.
-  if (isCompressor) push(signoff());
+  // No second signature. The letter is signed where it closes, on the first page, and that is
+  // the signature on the offer. Signing again under the terms was how their old compressor
+  // document did it; on the spares one it only ever produced a sheet of its own, and PIE
+  // asked for the two documents to agree.
 
   // ---------------------------------------------------------------- installation
   var install = quoteTemplate_('InstallationNotes', stream);
@@ -890,16 +872,14 @@ function quotationCss_(co) {
     'table.machine td{border:1px solid #999;padding:4px 10px;}' +
     'table.machine td:first-child{font-weight:bold;background:#eee;}' +
     '.num{text-align:right;}' +
-    'table.totals{width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:8px;}' +
-    'table.totals td{padding:4px 7px;border:1px solid #999;}' +
-    'table.totals tr.strong td{font-weight:bold;background:#f2f2f2;}' +
+    // table.totals is gone: both documents now put their totals in the price grid, and a
+    // stylesheet that still dresses a table nothing emits is a rule nobody can test.
 
     // A signature split across a page break reads as a printing fault, so it moves whole.
     '.signoff{margin-top:10px;font-size:10pt;page-break-inside:avoid;}' +
     '.signoff .for{margin-top:4px;font-weight:bold;}' +
     '.sig-space{height:20px;}' +
     '.seal{max-height:70px;margin:4px 0;}' +
-    'table.totals{page-break-inside:avoid;}' +
     '.page-break{page-break-before:always;}' +
     '</style>';
 }
