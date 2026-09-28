@@ -38,6 +38,27 @@ var QUOTE_JOURNEY = [
 ];
 
 /**
+ * The approver, by name.
+ *
+ * Users is small and readTable_ caches it for the request, so a list of two hundred
+ * quotations costs one read and two hundred passes over a dozen rows — cheaper than carrying
+ * a map through every call site, and it cannot go stale between requests the way a global
+ * would. Falls back to the address when the account has no name or has since been removed,
+ * because an unattributed approval is worse than an ugly one.
+ */
+function approverName_(email) {
+  var want = String(email || '').trim();
+  if (!want) return '';
+  var found = '';
+  readTable_('Users').forEach(function (u) {
+    if (String(u.email || '').toLowerCase() === want.toLowerCase() && u.name) {
+      found = String(u.name).trim();
+    }
+  });
+  return found || want;
+}
+
+/**
  * The downstream records for a set of quotations, read once.
  *
  * Reading the order, dispatch and invoice tables per quotation is what a list of two hundred
@@ -145,8 +166,11 @@ function quotationJourney_(quote, idx) {
     // did not happen, and filling it in because a later step did would hide exactly the
     // thing worth seeing. (The status is accepted as evidence of its own stage, so rows
     // that predate these dates still read correctly.)
+    // Named, not addressed. This printed the approver's email on the ownership strip of every
+    // quotation screen — a personal address on this installation, shown to anybody who can
+    // see the offer. The address is still what the row stores and what everything keys on.
     approved:   { done: !!quote.approvalDate || quote.status === 'Approved',
-                  date: quote.approvalDate, detail: quote.approvedBy || '' },
+                  date: quote.approvalDate, detail: approverName_(quote.approvedBy) },
     // Negotiating is no longer offered as a step, but rows carrying it from before still
     // have to read correctly, and it has only ever meant one thing: the offer went out.
     sent:       { done: !!(quote.submittedDate || quote.emailSentDate) ||

@@ -635,6 +635,27 @@
       </div>
     </div>
 
+    <!-- One offer, from the enquiry that started it to the money that came back. Every other
+         screen shows one step of that; this one answers "what happened, and who has it". -->
+    <div class="view" id="view-progress">
+      <div class="page-head">
+        <div><h2>Quotation Progress</h2><p>The whole trail behind one offer — who prepared and approved it, every revision, the customer's purchase order and the paperwork that came with it, and what has been dispatched, invoiced and paid.</p></div>
+      </div>
+      <div class="search-bar">
+        <input id="progress-search" placeholder="Search by quote no. or customer…" />
+      </div>
+      <div class="card" style="padding:0; overflow-x:auto;" id="progress-picker-card">
+        <table>
+          <thead><tr>
+            <th>Quote No.</th><th>Rev</th><th>Stream</th><th>Date</th><th>Customer</th>
+            <th class="num">Total</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="progress-tbody"></tbody>
+        </table>
+      </div>
+      <div id="progress-detail" style="display:none;"></div>
+    </div>
+
     <div class="view" id="view-orders">
       <div class="page-head">
         <div><h2>Sales Orders</h2><p>Customer PO through to dispatch, with credit exposure checked before anything leaves the building.</p></div>
@@ -1050,6 +1071,20 @@
 <datalist id="industry-list"></datalist>
 <datalist id="paymentterms-list"></datalist>
 <datalist id="users-list"></datalist>
+<!-- Suggestions rather than a fixed list: these are what gets typed almost every time, and
+     the one order that goes out by air should not need a code change. -->
+<datalist id="paymentmode-list">
+  <option value="Cheque"></option><option value="NEFT"></option><option value="RTGS"></option>
+  <option value="UPI"></option><option value="Cash"></option><option value="Demand Draft"></option>
+</datalist>
+<datalist id="deliveryterms-list">
+  <option value="Ex-Factory Delivery"></option><option value="FOR Destination"></option>
+  <option value="Ex-Works"></option><option value="Door Delivery"></option>
+</datalist>
+<datalist id="despatch-list">
+  <option value="By Road"></option><option value="By Rail"></option><option value="By Air"></option>
+  <option value="By Courier"></option><option value="Customer Pickup"></option>
+</datalist>
 
 <!-- Generic confirm / reason dialog. Native prompt() and confirm() are blocked inside
      the Apps Script sandbox, so every such interaction uses this instead. -->
@@ -1649,9 +1684,43 @@
         <div class="field-note">The dispatch and the challan use this one.</div>
       </div>
     </div>
+    <!-- What an order confirmation states that nothing before it knows. A quotation is an
+         offer to sell; an order is an agreement to deliver, and these are settled at the
+         point of agreeing. -->
+    <div class="card-title" style="margin-top:20px;">Delivery &amp; Despatch</div>
+    <div class="grid grid-4">
+      <div class="field">
+        <label>Payment Mode</label>
+        <input id="om2-paymentmode" list="paymentmode-list" placeholder="Cheque / NEFT / RTGS" />
+        <div class="field-note">Printed beside the terms: “15 Days Via Cheque”.</div>
+      </div>
+      <div class="field">
+        <label>Terms of Delivery</label>
+        <input id="om2-deliveryterms" list="deliveryterms-list"
+          placeholder="Ex-Factory / FOR Destination" />
+      </div>
+      <div class="field">
+        <label>Despatch Through</label>
+        <input id="om2-despatchthrough" list="despatch-list" placeholder="By Road / By Air" />
+      </div>
+      <div class="field">
+        <label>Destination</label>
+        <input id="om2-destination" placeholder="Where the goods finally go" />
+      </div>
+    </div>
     <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field">
+        <label>Other Reference(s)</label>
+        <input id="om2-otherref" placeholder="Anything the customer asks to see quoted back" />
+      </div>
       <div class="field"><label>Notes</label><input id="om2-notes" /></div>
     </div>
+
+    <!-- Per line, because a part in stock and a part on indent go out weeks apart, and one
+         date across the whole order is the promise that gets broken. -->
+    <div class="card-title" style="margin-top:20px;">Delivery Promise by Line</div>
+    <div id="om2-duedays"></div>
+
     <div style="display:flex; justify-content:flex-end; margin-top:14px;">
       <button class="btn btn-sm" id="btn-om2-save">Save Details</button>
     </div>

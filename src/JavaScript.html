@@ -117,7 +117,8 @@
     { view: "enquiries", label: "Spare Sales", roles: SALES_SIDE, stream: "Spare Sales" },
     { label: "Quotations", children: [
       { view: "quote", label: "New Quotation", roles: SALES_SIDE },
-      { view: "quotations", label: "All Quotations", roles: SALES_SIDE }
+      { view: "quotations", label: "All Quotations", roles: SALES_SIDE },
+      { view: "progress", label: "Quotation Progress", roles: SALES_SIDE }
     ] },
     { label: "Orders", children: [
       { view: "orders", label: "Sales Orders", roles: COMMERCIAL_SIDE },
@@ -305,6 +306,7 @@
     customers: initCustomersView,
     enquiries: initEnquiriesView,
     quotations: initQuotationsView,
+    progress: initProgressView,
     service: initServiceView,
     quote: initQuoteView,
     compressor: initCompressorView,
@@ -2619,7 +2621,18 @@
 
   function renderQuoteJourney(j) {
     var zone = $("qb-journey");
-    if (!j || !j.stages) { zone.innerHTML = ""; return; }
+    zone.innerHTML = journeyStrip(j);
+  }
+
+  /**
+   * The strip itself, as HTML.
+   *
+   * Returned rather than written, because two screens draw it now — the quotation builder and
+   * the progress trail — and a strip that only knows how to write itself into one element is
+   * a strip the second screen has to reimplement and then keep in step.
+   */
+  function journeyStrip(j) {
+    if (!j || !j.stages) return "";
 
     var steps = j.stages.map(function (st, i) {
       var isNow = !j.closed && !j.stalled && i === j.reachedIndex;
@@ -2671,7 +2684,7 @@
           ? '<span class="jhead-note">' + escapeHtml(j.creditHoldReason) + "</span>" : "");
     }
 
-    zone.innerHTML = '<div class="card journey"><div class="jhead">' + head + "</div>" +
+    return '<div class="card journey"><div class="jhead">' + head + "</div>" +
       '<ol class="jsteps">' + steps + "</ol></div>";
   }
 
@@ -5421,6 +5434,268 @@
   });
 
 
+  // ================= QUOTATION PROGRESS =================
+  //
+  // A read-only trail. Every other screen here shows one step and offers a button; this one
+  // shows the whole chain and offers none, because the question it answers is "what happened"
+  // rather than "what next". Nothing on it can be changed, which is also why anybody on the
+  // commercial side can open it.
+
+  var progressCandidates = [];
+  var openProgress = null;
+
+  function initProgressView() {
+    openProgress = null;
+    $("progress-detail").style.display = "none";
+    $("progress-picker-card").style.display = "";
+    srv.withSuccessHandler(function (rows) {
+      progressCandidates = rows || [];
+      renderProgressPicker();
+    }).withFailureHandler(onServerError).listProgressCandidates();
+  }
+
+  function renderProgressPicker() {
+    var q = ($("progress-search").value || "").toLowerCase();
+    var rows = progressCandidates.filter(function (r) {
+      return [r.quoteNo, r.customerName, r.businessStream].join(" ").toLowerCase()
+        .indexOf(q) !== -1;
+    });
+    var tbody = $("progress-tbody");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="8"><div class="empty">' +
+        (progressCandidates.length ? "No offer matches that."
+                                   : "No quotations yet.") + "</div></td></tr>";
+      return;
+    }
+    tbody.innerHTML = rows.map(function (r) {
+      return "<tr>" +
+        '<td class="mono">' + escapeHtml(r.quoteNo) + "</td>" +
+        "<td>" + escapeHtml(r.revision) + "</td>" +
+        "<td>" + streamBadge(r.businessStream) + "</td>" +
+        "<td>" + escapeHtml(r.date) + "</td>" +
+        "<td>" + escapeHtml(r.customerName || "—") + "</td>" +
+        '<td class="num mono">' + fmt(r.grand) + "</td>" +
+        '<td><span class="badge ' + (QUOTE_BADGE[r.status] || "badge-draft") + '">' +
+          escapeHtml(r.status) + "</span></td>" +
+        '<td class="center"><button class="btn btn-sm" data-progress="' + escapeHtml(r.id) +
+          '">Open trail</button></td>' +
+        "</tr>";
+    }).join("");
+    tbody.querySelectorAll("[data-progress]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openProgressTrail(btn.dataset.progress); });
+    });
+  }
+
+  $("progress-search").addEventListener("input", renderProgressPicker);
+
+  function openProgressTrail(id) {
+    goToTab("progress");
+    srv.withSuccessHandler(function (p) {
+      openProgress = p;
+      renderProgressDetail();
+    }).withFailureHandler(onServerError).getQuotationProgress(id);
+  }
+
+  /** A labelled pair, for the small facts that make up most of this page. */
+  function pfact(label, value, tone) {
+    return '<div style="margin-bottom:8px;">' +
+      '<div class="kpi-label">' + escapeHtml(label) + "</div>" +
+      '<div style="font-size:13.5px;font-weight:600;margin-top:2px;' +
+      (tone ? "color:var(--" + tone + ");" : "") + '">' +
+      (value ? escapeHtml(value) : '<span style="color:var(--steel);font-weight:400;">—</span>') +
+      "</div></div>";
+  }
+
+  function pcard(title, body) {
+    return '<div class="card" style="margin-bottom:14px;">' +
+      '<div class="card-title" style="margin-top:0;">' + escapeHtml(title) + "</div>" +
+      body + "</div>";
+  }
+
+  function renderProgressDetail() {
+    var p = openProgress;
+    if (!p) return;
+    $("progress-picker-card").style.display = "none";
+    var box = $("progress-detail");
+    box.style.display = "";
+
+    var head =
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;' +
+        'gap:12px;margin-bottom:14px;flex-wrap:wrap;">' +
+        "<div><h3 style=\"margin:0 0 2px;\">" + escapeHtml(p.quoteNo) + " · " +
+          escapeHtml(p.customerName || "") + "</h3>" +
+          '<div style="font-size:12.5px;color:var(--ink-soft);">' +
+          streamBadge(p.businessStream) + "</div></div>" +
+        '<button class="btn btn-sm" id="btn-progress-back">Back to the list</button>' +
+      "</div>";
+
+    // The same strip the quotation screen draws, so the two screens agree about where this
+    // offer has got to rather than each having an opinion.
+    var strip = p.journey ? pcard("Where it has got to", journeyStrip(p.journey)) : "";
+
+    var people = pcard("Who handled it",
+      '<div class="grid grid-4">' +
+        pfact("Prepared by", p.preparedBy) +
+        pfact("Prepared on", p.preparedAt ? String(p.preparedAt).slice(0, 10) : "") +
+        pfact("Approved by", p.approvedBy, p.approved ? "green" : "") +
+        pfact("Approved on", p.approvedAt) +
+      "</div>" +
+      (p.approved
+        ? ""
+        : '<div class="compare-strip" style="margin-top:6px;">No approval is recorded ' +
+          "against this offer. Nothing can be sent to a customer unapproved now, so this is " +
+          "an offer from before that rule, or one that has not been approved yet.</div>") +
+      (p.lostReason
+        ? '<div class="compare-strip" style="margin-top:6px;"><b>Lost:</b> ' +
+          escapeHtml(p.lostReason) + "</div>"
+        : ""));
+
+    var origin = pcard("Where it began", p.origin
+      ? '<div class="grid grid-4">' +
+          pfact(p.origin.kind, p.origin.ref) +
+          pfact("Logged", p.origin.date) +
+          pfact("Asked by", p.origin.who) +
+        "</div>" +
+        (p.origin.detail
+          ? '<div style="font-size:12.5px;color:var(--ink-soft);">' +
+            escapeHtml(p.origin.detail) + "</div>"
+          : "")
+      : '<div class="empty">This offer was started from nothing — no enquiry or ' +
+        "opportunity is recorded against it.</div>");
+
+    var revisions = pcard(
+      p.revisionCount === 0 ? "Never revised"
+        : "Revised " + p.revisionCount + (p.revisionCount === 1 ? " time" : " times"),
+      '<table><thead><tr><th>Rev</th><th>Date</th><th class="num">Total</th>' +
+        "<th>Prepared by</th><th>Approved by</th><th>Status</th></tr></thead><tbody>" +
+      p.revisions.map(function (r) {
+        return '<tr style="' + (r.isCurrent ? "" : "color:var(--ink-soft);") + '">' +
+          "<td><b>" + escapeHtml(r.revision) + "</b>" +
+            (r.isCurrent ? ' <span class="badge badge-active">live</span>'
+                         : ' <span class="badge badge-draft">replaced</span>') + "</td>" +
+          "<td>" + escapeHtml(r.date) + "</td>" +
+          '<td class="num mono">' + fmt(r.grand) + "</td>" +
+          "<td>" + escapeHtml(r.preparedBy || "—") + "</td>" +
+          "<td>" + escapeHtml(r.approvedBy || "—") +
+            (r.approvalDate ? ' <span style="color:var(--steel);">· ' +
+              escapeHtml(r.approvalDate) + "</span>" : "") + "</td>" +
+          "<td>" + escapeHtml(r.status) + "</td>" +
+          "</tr>";
+      }).join("") + "</tbody></table>");
+
+    var order = pcard("The order", p.order
+      ? '<div class="grid grid-4">' +
+          pfact("Order no.", p.order.orderNo) +
+          pfact("Dated", p.order.date) +
+          pfact("Status", p.order.status) +
+          pfact("Value", fmt(p.order.grand)) +
+        "</div>" +
+        '<div class="grid grid-4" style="margin-top:4px;">' +
+          pfact("Customer PO", p.order.poNo) +
+          pfact("PO dated", p.order.poDate) +
+          pfact("PO value", p.order.poValue === null ? "" : fmt(p.order.poValue),
+            p.order.poVerified ? "green" : "red") +
+          pfact("Promised dispatch", p.order.promisedDispatchDate) +
+        "</div>" +
+        '<div class="grid grid-4" style="margin-top:4px;">' +
+          pfact("Payment", [p.order.paymentTerms, p.order.paymentMode]
+            .filter(Boolean).join(" via ")) +
+          pfact("Terms of delivery", p.order.deliveryTerms) +
+          pfact("Despatch through", p.order.despatchThrough) +
+          pfact("Destination", p.order.destination) +
+        "</div>" +
+        (p.order.poVerified ? "" :
+          '<div class="compare-strip" style="margin-top:6px;"><b>PO variance:</b> ' +
+          escapeHtml(p.order.poVarianceNotes || "not checked") + "</div>") +
+        (p.order.creditHold
+          ? '<div class="msg msg-error show" style="position:static;margin-top:8px;">' +
+            '<span class="msg-text"><b>On credit hold.</b> ' +
+            escapeHtml(p.order.creditHoldReason || "") + "</span></div>"
+          : "") +
+        (p.order.lines.length
+          ? '<table style="margin-top:10px;"><thead><tr><th>#</th><th>Item</th>' +
+            '<th>Description</th><th class="num">Qty</th><th>Promised</th>' +
+            '<th class="num">Dispatched</th><th class="num">Invoiced</th></tr></thead><tbody>' +
+            p.order.lines.map(function (l) {
+              return "<tr><td>" + escapeHtml(l.lineNo) + "</td>" +
+                '<td class="mono">' + escapeHtml(l.itemCode || "—") + "</td>" +
+                "<td>" + escapeHtml(l.description) + "</td>" +
+                '<td class="num">' + escapeHtml(l.qty) + " " + escapeHtml(l.uom || "") + "</td>" +
+                "<td>" + (l.dueDays === null ? "—" : escapeHtml(l.dueDays) + " days") + "</td>" +
+                '<td class="num">' + escapeHtml(l.qtyDispatched) + "</td>" +
+                '<td class="num">' + escapeHtml(l.qtyInvoiced) + "</td></tr>";
+            }).join("") + "</tbody></table>"
+          : "")
+      : '<div class="empty">No order has been raised from this offer yet.</div>');
+
+    var docs = pcard("The customer's paperwork", p.documents.length
+      ? '<table><thead><tr><th>What</th><th>File</th><th>Attached by</th><th>When</th>' +
+        "<th></th></tr></thead><tbody>" +
+        p.documents.map(function (d) {
+          return "<tr><td>" + escapeHtml(d.docType) + "</td>" +
+            "<td>" + escapeHtml(d.fileName) +
+              (d.caption ? ' <span style="color:var(--steel);">· ' +
+                escapeHtml(d.caption) + "</span>" : "") + "</td>" +
+            "<td>" + escapeHtml(d.uploadedBy) + "</td>" +
+            "<td>" + escapeHtml(d.uploadedAt) + "</td>" +
+            '<td class="center">' + (d.fileUrl
+              ? '<a class="btn btn-sm" target="_blank" rel="noopener" href="' +
+                escapeHtml(d.fileUrl) + '">Open</a>'
+              : "") + "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="empty">Nothing attached. The purchase order the customer sent is ' +
+        "attached on the order screen.</div>");
+
+    var out = p.dispatches.length || p.invoices.length || p.receipts.length
+      ? pcard("Out of the door, and the money back",
+          (p.dispatches.length
+            ? '<div class="card-title" style="margin-top:0;">Dispatches</div><table><thead><tr>' +
+              "<th>Dispatch</th><th>Date</th><th>Transporter</th><th>LR</th><th>Status</th>" +
+              "</tr></thead><tbody>" +
+              p.dispatches.map(function (d) {
+                return '<tr><td class="mono">' + escapeHtml(d.dispatchNo) + "</td>" +
+                  "<td>" + escapeHtml(d.date) + "</td>" +
+                  "<td>" + escapeHtml(d.transporter || "—") + "</td>" +
+                  "<td>" + escapeHtml(d.lrNo || "—") + "</td>" +
+                  "<td>" + escapeHtml(d.status) +
+                    (d.delivered ? ' <span class="badge badge-won">delivered</span>' : "") +
+                  "</td></tr>";
+              }).join("") + "</tbody></table>"
+            : "") +
+          (p.invoices.length
+            ? '<div class="card-title">Invoices</div><table><thead><tr><th>Invoice</th>' +
+              '<th>Date</th><th>Due</th><th class="num">Value</th><th class="num">Received</th>' +
+              '<th class="num">Balance</th></tr></thead><tbody>' +
+              p.invoices.map(function (i) {
+                return '<tr><td class="mono">' + escapeHtml(i.invoiceNo) + "</td>" +
+                  "<td>" + escapeHtml(i.date) + "</td>" +
+                  "<td>" + escapeHtml(i.dueDate || "—") + "</td>" +
+                  '<td class="num mono">' + fmt(i.grand) + "</td>" +
+                  '<td class="num mono">' + fmt(i.received) + "</td>" +
+                  '<td class="num mono"' + (i.balance > 0 ? ' style="color:var(--red);"' : "") +
+                    ">" + fmt(i.balance) + "</td></tr>";
+              }).join("") + "</tbody></table>"
+            : "") +
+          (p.receipts.length
+            ? '<div class="card-title">Receipts</div><table><thead><tr><th>Date</th>' +
+              '<th class="num">Amount</th><th>Mode</th><th>Reference</th></tr></thead><tbody>' +
+              p.receipts.map(function (r) {
+                return "<tr><td>" + escapeHtml(r.date) + "</td>" +
+                  '<td class="num mono">' + fmt(r.amount) + "</td>" +
+                  "<td>" + escapeHtml(r.mode || "—") + "</td>" +
+                  "<td>" + escapeHtml(r.reference || "—") + "</td></tr>";
+              }).join("") + "</tbody></table>"
+            : ""))
+      : "";
+
+    box.innerHTML = head + strip + people + origin + revisions + order + docs + out;
+    $("btn-progress-back").addEventListener("click", function () {
+      openProgress = null;
+      $("progress-detail").style.display = "none";
+      $("progress-picker-card").style.display = "";
+    });
+  }
+
   // ================= SALES ORDERS =================
   var ordersCache = [];
   var openOrder = null;
@@ -5612,13 +5887,21 @@
     $("om2-advrec").value = o.advanceReceived !== "" ? o.advanceReceived : "";
     $("om2-promised").value = o.promisedDispatchDate || "";
     $("om2-notes").value = o.notes || "";
+    $("om2-paymentmode").value = o.paymentMode || "";
+    $("om2-deliveryterms").value = o.deliveryTerms || "";
+    $("om2-despatchthrough").value = o.despatchThrough || "";
+    $("om2-destination").value = o.destination || "";
+    $("om2-otherref").value = o.otherReference || "";
     // Where it bills and where it goes. The customer can send the PO and then ask for the
     // goods at a different plant, and the dispatch reads the second of these.
     fillAddressSelect("om2-billaddr", o.addressChoices, o.billingAddressId);
     fillAddressSelect("om2-shipaddr", o.addressChoices, o.shippingAddressId);
+    renderDueDays(o, editable);
 
     ["om2-pono", "om2-podate", "om2-povalue", "om2-paymentterms", "om2-advreq",
-     "om2-advrec", "om2-promised", "om2-notes", "om2-billaddr", "om2-shipaddr"]
+     "om2-advrec", "om2-promised", "om2-notes", "om2-billaddr", "om2-shipaddr",
+     "om2-paymentmode", "om2-deliveryterms", "om2-despatchthrough", "om2-destination",
+     "om2-otherref"]
       .forEach(function (f) {
         $(f).disabled = !editable;
       });
@@ -5761,22 +6044,73 @@
       : '<div class="empty" style="padding:14px;">No checks recorded.</div>';
   }
 
+  /**
+   * How long each line was promised, in days from the order date.
+   *
+   * A grid rather than one box on the order, because a part on the shelf and a part on indent
+   * leave weeks apart. One date across the whole order is the promise that gets broken, and
+   * the confirmation the customer keeps is where the difference has to be visible.
+   */
+  function renderDueDays(o, editable) {
+    var box = $("om2-duedays");
+    if (!box) return;
+    var lines = o.items || [];
+    if (!lines.length) {
+      box.innerHTML = '<div class="empty">No lines on this order yet.</div>';
+      return;
+    }
+    box.innerHTML = '<table><thead><tr><th>#</th><th>Item</th><th>Description</th>' +
+      '<th class="num">Qty</th><th>Due in (days)</th></tr></thead><tbody>' +
+      lines.map(function (l) {
+        return "<tr>" +
+          "<td>" + escapeHtml(l.lineNo) + "</td>" +
+          '<td class="mono">' + escapeHtml(l.itemCode || "—") + "</td>" +
+          "<td>" + escapeHtml(l.description || "") + "</td>" +
+          '<td class="num">' + escapeHtml(l.qty) + " " + escapeHtml(l.uom || "") + "</td>" +
+          '<td><input type="number" min="0" step="1" style="max-width:110px;" ' +
+            'data-due="' + escapeHtml(l.id) + '" value="' +
+            escapeHtml(l.dueDays === "" || l.dueDays === undefined ? "" : l.dueDays) + '"' +
+            (editable ? "" : " disabled") + " /></td>" +
+          "</tr>";
+      }).join("") + "</tbody></table>";
+  }
+
+  /** The grid's values, keyed by line id, in the shape saveOrderDetails expects. */
+  function dueDaysPayload() {
+    var out = {};
+    document.querySelectorAll("#om2-duedays [data-due]").forEach(function (el) {
+      out[el.dataset.due] = el.value;
+    });
+    return out;
+  }
+
   $("btn-om2-save").addEventListener("click", function () {
+    var done = busyButton("btn-om2-save", "Saving…");
     srv.withSuccessHandler(function (updated) {
+      done();
       openOrder = updated; renderOrderModal(); loadOrders();
       showMsg("Order details saved. Credit check re-run.", "success");
-    }).withFailureHandler(onServerError).saveOrderDetails({
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).saveOrderDetails({
       id: openOrder.id,
       poNo: $("om2-pono").value.trim(),
       poDate: $("om2-podate").value,
       poValue: $("om2-povalue").value,
       paymentTerms: $("om2-paymentterms").value.trim(),
+      paymentMode: $("om2-paymentmode").value.trim(),
+      deliveryTerms: $("om2-deliveryterms").value.trim(),
+      despatchThrough: $("om2-despatchthrough").value.trim(),
+      destination: $("om2-destination").value.trim(),
+      otherReference: $("om2-otherref").value.trim(),
       advanceRequired: $("om2-advreq").value,
       advanceReceived: $("om2-advrec").value,
       promisedDispatchDate: $("om2-promised").value,
       notes: $("om2-notes").value.trim(),
       billingAddressId: $("om2-billaddr").value,
-      shippingAddressId: $("om2-shipaddr").value
+      shippingAddressId: $("om2-shipaddr").value,
+      dueDays: dueDaysPayload()
     });
   });
 
