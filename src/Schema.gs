@@ -333,7 +333,18 @@ var SCHEMA = {
     columns: ['id', 'orderNo', 'date', 'businessStream', 'brand', 'customerId', 'quotationId',
       'poNo', 'poDate', 'poValue', 'poAttachmentUrl', 'poVerified', 'poVarianceNotes',
       'billingAddressId', 'shippingAddressId', 'orderStatus', 'paymentTerms', 'advanceRequired',
-      'advanceReceived', 'promisedDispatchDate', 'subtotal', 'discountAmt', 'taxAmt', 'freight',
+      'advanceReceived', 'promisedDispatchDate',
+      // The five things an order confirmation has to state that nothing before it knows.
+      // A quotation is an offer to sell; an order is an agreement to deliver, and delivery is
+      // where these are settled. None can be carried from the enquiry, the quotation or the
+      // purchase order, because none of those say how the goods travel or who pays the
+      // carrier — which is exactly why they have to be asked for here rather than derived.
+      //
+      // paymentMode reads beside paymentTerms as one sentence on the printed order: "15 Days"
+      // and "Cheque" make "15 Days Via Cheque". Kept apart because the days are a credit
+      // decision the credit check reads, and the instrument is not.
+      'paymentMode', 'deliveryTerms', 'despatchThrough', 'destination', 'otherReference',
+      'subtotal', 'discountAmt', 'taxAmt', 'freight',
       'grand', 'creditHold', 'creditHoldReason', 'ownerEmail', 'closedDate', 'notes',
       'createdAt', 'createdBy']
   },
@@ -341,7 +352,11 @@ var SCHEMA = {
     label: 'Order lines carrying reserved/dispatched/invoiced quantities',
     columns: ['id', 'salesOrderId', 'lineNo', 'itemType', 'itemId', 'itemCode', 'description',
       'qty', 'uom', 'unitPrice', 'discountPct', 'taxPct', 'lineTotal', 'qtyReserved',
-      'qtyDispatched', 'qtyInvoiced']
+      'qtyDispatched', 'qtyInvoiced',
+      // How long this line was promised, in days from the order date. Per line rather than per
+      // order because a part in stock and a part on indent go out weeks apart, and one date
+      // across the whole order is the promise that gets broken.
+      'dueDays']
   },
   Approvals: {
     label: 'Approval register for A01–A11; immutable audit record (M20, D035)',

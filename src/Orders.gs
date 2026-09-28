@@ -206,6 +206,15 @@ function createOrderFromQuotation(input) {
     advanceRequired: input.advanceRequired === '' || input.advanceRequired === undefined ? '' : Number(input.advanceRequired),
     advanceReceived: 0,
     promisedDispatchDate: String(input.promisedDispatchDate || '').slice(0, 10),
+    // The order confirmation's own terms. Delivery terms come across from the offer because
+    // they were quoted and agreed; the rest start empty because nothing before this point
+    // knows them — how the goods travel and where they finally go are settled when the order
+    // is confirmed, not when it was priced.
+    paymentMode: String(input.paymentMode || '').trim(),
+    deliveryTerms: String(input.deliveryTerms || quote.deliveryTerms || '').trim(),
+    despatchThrough: String(input.despatchThrough || '').trim(),
+    destination: String(input.destination || '').trim(),
+    otherReference: String(input.otherReference || '').trim(),
     subtotal: quote.subtotal,
     discountAmt: quote.discountAmt,
     taxAmt: quote.taxAmt,
@@ -241,7 +250,10 @@ function createOrderFromQuotation(input) {
         lineTotal: qi.lineTotal,
         qtyReserved: 0,
         qtyDispatched: 0,
-        qtyInvoiced: 0
+        qtyInvoiced: 0,
+        // Set per line on the order screen. Blank until somebody commits to a date, because a
+        // promise nobody made is worse on a confirmation than no promise at all.
+        dueDays: ''
       }, 'Line carried from the quotation');
     });
 
@@ -542,11 +554,30 @@ function saveOrderDetails(input) {
     poVarianceNotes: variance.join('; '),
     promisedDispatchDate: String(input.promisedDispatchDate || '').slice(0, 10),
     paymentTerms: String(input.paymentTerms || '').trim(),
+    paymentMode: String(input.paymentMode || '').trim(),
+    deliveryTerms: String(input.deliveryTerms || '').trim(),
+    despatchThrough: String(input.despatchThrough || '').trim(),
+    destination: String(input.destination || '').trim(),
+    otherReference: String(input.otherReference || '').trim(),
     advanceRequired: input.advanceRequired === '' || input.advanceRequired === undefined
       ? '' : Number(input.advanceRequired),
     advanceReceived: advanceReceived,
     notes: String(input.notes || '').trim()
   }), 'Order details updated');
+
+  // The promised days, line by line. Sent as a map of line id to a number of days so the
+  // screen can save the whole grid in the one call it already makes.
+  if (input.dueDays && typeof input.dueDays === 'object') {
+    var lines = findRowsByColumn_('SalesOrderItems', 'salesOrderId', [String(input.id)]);
+    lines.forEach(function (line) {
+      if (!input.dueDays.hasOwnProperty(String(line.id))) return;
+      var raw = String(input.dueDays[String(line.id)] || '').trim();
+      var days = raw === '' ? '' : Math.max(0, Math.round(Number(raw) || 0));
+      if (String(line.dueDays || '') === String(days)) return;
+      updateRowById_('SalesOrderItems', 'id', line.id, { dueDays: days },
+        'Delivery promise set on line ' + line.lineNo);
+    });
+  }
 
   // Advance and value changes move the credit answer, so re-evaluate rather than go stale.
   runCreditCheck(input.id);
