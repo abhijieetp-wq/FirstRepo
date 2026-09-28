@@ -1246,8 +1246,11 @@ function listQuotationVersions(id) {
         status: String(q.status || ''),
         locked: String(q.locked).toUpperCase() === 'TRUE',
         grand: Number(q.grand) || 0,
-        preparedBy: String(q.preparedBy || ''),
-        approvedBy: String(q.approvedBy || ''),
+        // Named here too. The versions window sits beside the ownership strip and the journey
+        // strip, both of which name people; an address in the third one is the same leak
+        // wearing a different hat.
+        preparedBy: approverName_(q.preparedBy),
+        approvedBy: approverName_(q.approvedBy),
         approvalDate: String(q.approvalDate || ''),
         submittedDate: String(q.submittedDate || ''),
         // Which one is the live offer: the newest that was not superseded by another.
