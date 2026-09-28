@@ -279,11 +279,20 @@ function listOpportunities(options) {
     if (t.opportunityId) techByOpportunity[String(t.opportunityId)] = stripRow_(t);
   });
 
+  // Both of the things createQuotationFromOpportunity insists on, so the list can say whether
+  // quoting is possible instead of offering a button that fails.
+  var selectedByOpportunity = {};
+  readTable_('CompressorSelections').forEach(function (c) {
+    if (c.opportunityId) selectedByOpportunity[String(c.opportunityId)] = true;
+  });
+
   var rows = readTable_('Opportunities').map(function (o) {
     var row = stripRow_(o);
     row.customerName = customerNames[String(row.customerId)] || '';
     row.quotations = quotesByOpportunity[String(row.id)] || [];
     row.hasTechnicalRequirement = !!techByOpportunity[String(row.id)];
+    row.hasCompressorSelection = !!selectedByOpportunity[String(row.id)];
+    row.canQuote = row.hasTechnicalRequirement && row.hasCompressorSelection;
     var value = Number(row.expectedValue) || 0;
     var probability = row.probability === '' || row.probability === null || row.probability === undefined
       ? (STAGE_PROBABILITY[row.stage] || 0)

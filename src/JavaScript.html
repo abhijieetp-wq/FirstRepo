@@ -4819,12 +4819,36 @@
         "<td>" + (o.nextActionDate
           ? (o.overdue ? '<span class="badge badge-overdue">' + escapeHtml(o.nextActionDate) + "</span>" : escapeHtml(o.nextActionDate))
           : "—") + "</td>" +
-        '<td class="center"><button class="btn-ghost" data-open-opp="' + o.id + '" title="Open">✎</button></td>' +
+        '<td class="center" style="white-space:nowrap;">' +
+          (canEditQuotes()
+            ? '<button class="btn btn-sm" data-quote-opp="' + o.id + '" title="' +
+              escapeHtml(o.canQuote
+                ? "Raise the quotation from this opportunity"
+                : "Open it first — " + (!o.hasTechnicalRequirement
+                    ? "the technical requirement is missing"
+                    : "no compressor has been selected yet")) +
+              '"' + (o.canQuote ? "" : " disabled") + ">Quote</button> "
+            : "") +
+          '<button class="btn-ghost" data-open-opp="' + o.id + '" title="Open">✎</button>' +
+        "</td>" +
         "</tr>";
     }).join("");
 
     $("cs-tbody").querySelectorAll("[data-open-opp]").forEach(function (btn) {
       btn.addEventListener("click", function () { openOpportunityModal(btn.dataset.openOpp); });
+    });
+    // The same shortcut the enquiry list has. Offered here only where it can succeed: without
+    // a technical requirement the server refuses, and a button that always errors is a button
+    // that teaches people to distrust the screen.
+    $("cs-tbody").querySelectorAll("[data-quote-opp]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var was = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Creating…";
+        quoteFromOpportunity(btn.dataset.quoteOpp, function () {
+          btn.disabled = false; btn.textContent = was;
+        });
+      });
     });
   }
 
@@ -5126,13 +5150,18 @@
   });
 
   $("btn-save-opp").addEventListener("click", function () {
+    var done = busyButton("btn-save-opp", "Saving…");
     srv.withSuccessHandler(function (o) {
+      done();
       openOpportunity = o;
       renderOpportunityModal();
       $("opp-modal-backdrop").classList.remove("show");
       loadCsRows();
       showMsg("Opportunity saved.", "success");
-    }).withFailureHandler(onServerError).saveOpportunity({
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).saveOpportunity({
       id: $("om-id").value,
       customerId: openOpportunity.customerId,
       leadId: openOpportunity.leadId,
@@ -5366,14 +5395,29 @@
     });
   }
 
-  $("btn-quote-opp").addEventListener("click", function () {
+  /**
+   * Turns an opportunity into a quotation and goes to it.
+   *
+   * Shared by the button on the list row and the one inside the opportunity window, the same
+   * way quoteFromEnquiry is on the spares side: two ways to one action should not be two
+   * pieces of code that can drift apart.
+   */
+  function quoteFromOpportunity(id, done) {
     srv.withSuccessHandler(function (q) {
+      done();
       openQuote = q;
       $("opp-modal-backdrop").classList.remove("show");
       renderQuoteBuilder();
       goToTab("quote");
       showMsg("Quotation " + q.quoteNo + " created.", "success");
-    }).withFailureHandler(onServerError).createQuotationFromOpportunity(openOpportunity.id);
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).createQuotationFromOpportunity(id);
+  }
+
+  $("btn-quote-opp").addEventListener("click", function () {
+    quoteFromOpportunity(openOpportunity.id, busyButton("btn-quote-opp", "Creating…"));
   });
 
 
@@ -7848,7 +7892,7 @@
     $("dash-body").innerHTML =
       renderHeadline(d) +
       renderExceptions(d) +
-      '<div class="two-col">' + renderPipeline(d) + renderAgeingChart(d) + "</div>" +
+      '<div class="two-col">' + renderOrderPipelineCard(d) + renderAgeingChart(d) + "</div>" +
       renderTrend(d) +
       '<div class="two-col">' + renderFunnels(d) + renderTopCustomers(d) + "</div>";
 
@@ -7951,7 +7995,16 @@
     }).join("");
   }
 
-  function renderPipeline(d) {
+  /**
+   * The dashboard's Order Pipeline card.
+   *
+   * Named for the card it draws, because "renderPipeline" was already the compressor funnel's
+   * list renderer four thousand lines up. Two function declarations of one name in one scope
+   * do not collide loudly: the later one silently replaces the earlier, so every press of the
+   * Pipeline tab called this, with no dashboard payload to read, and threw. The funnel had
+   * never once drawn a row.
+   */
+  function renderOrderPipelineCard(d) {
     var hasAny = d.orderPipeline.some(function (r) { return r.count > 0; });
     return '<div class="card">' +
       '<div class="card-title" style="margin-top:0;">Order Pipeline</div>' +
