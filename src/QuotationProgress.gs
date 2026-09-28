@@ -243,12 +243,11 @@ function personLine_(email, names) {
   return names[raw.toLowerCase()] || raw;
 }
 
-function lostReasonText_(id) {
-  var row = readTable_('LostReasons').filter(function (r) {
-    return String(r.id) === String(id);
-  })[0];
-  return row ? String(row.reasonText || '') : '';
-}
+// lostReasonText_ is not redefined here. QuotationJourney.gs already has one, and a second
+// declaration of the same name does not collide loudly in Apps Script — the later file
+// silently replaces the earlier, taking its try/catch for a missing LostReasons tab with it.
+// That is how the compressor Pipeline tab was broken for months, and it was reintroduced here
+// within a day of being fixed. dupfn-test now walks the .gs files as well as the client.
 
 /** Documents against one record, without re-checking a permission the caller already held. */
 function documentsFor_(recordType, recordId) {

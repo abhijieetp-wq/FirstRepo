@@ -2523,7 +2523,8 @@
         : "", "not yet approved") +
       '<div><span class="owner-k">Customer looked after by</span>' +
         '<span class="owner-v' + (o.coordinatorInCharge ? "" : " none") + '" id="qb-incharge">' +
-        escapeHtml(o.coordinatorInCharge || "nobody yet") + "</span>" +
+        escapeHtml(o.coordinatorInChargeName || o.coordinatorInCharge || "nobody yet") +
+        "</span>" +
         (o.youMayAssign
           ? ' <button class="btn-ghost owner-assign" id="btn-qb-assign">' +
             (o.coordinatorInCharge ? "Change" : "Assign") + "</button>"

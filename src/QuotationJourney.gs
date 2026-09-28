@@ -50,11 +50,18 @@ function approverName_(email) {
   var want = String(email || '').trim();
   if (!want) return '';
   var found = '';
-  readTable_('Users').forEach(function (u) {
-    if (String(u.email || '').toLowerCase() === want.toLowerCase() && u.name) {
-      found = String(u.name).trim();
-    }
-  });
+  try {
+    readTable_('Users').forEach(function (u) {
+      if (String(u.email || '').toLowerCase() === want.toLowerCase() && u.name) {
+        found = String(u.name).trim();
+      }
+    });
+  } catch (err) {
+    // A sheet without a Users tab, which is every sheet before setup runs. Drawing the strip
+    // is not worth failing over: naming somebody is a courtesy, and the address still says
+    // who it was. The whole quotation list hangs off this call.
+    return want;
+  }
   return found || want;
 }
 

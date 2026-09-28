@@ -507,11 +507,17 @@ function getQuotation(id) {
   // Who built it, who signed it off, and whose customer it is. All three were already on the
   // records; none of them reached the screen, so the only answer to "whose is this?" was to
   // read the sheet.
+  // Named, not addressed. These printed personal email addresses across the top of every
+  // quotation — the same exposure that was cleared out of the people pickers and the journey
+  // strip. The addresses stay on the row, which is what everything keys on.
   row.ownership = {
-    preparedBy: String(row.preparedBy || ''),
-    approvedBy: String(row.approvedBy || ''),
+    preparedBy: approverName_(row.preparedBy),
+    approvedBy: approverName_(row.approvedBy),
     approvalDate: String(row.approvalDate || ''),
+    // The address stays, because the assign dialog preselects by it; the name is what the
+    // strip shows.
     coordinatorInCharge: coordinatorInCharge_(customer),
+    coordinatorInChargeName: approverName_(coordinatorInCharge_(customer)),
     youMayAssign: mayActForCustomer_(reader, customer)
   };
   return row;
