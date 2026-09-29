@@ -2240,6 +2240,11 @@
     <div class="field" style="margin-top:12px;">
       <label>Designation</label>
       <input id="usr-designation" placeholder="Printed under their signature — e.g. Sales Engineer" />
+      <!-- Blank is not "nothing printed": the document falls back to the role, so an offer
+           prepared by an admin who left this empty goes to the customer signed "ERP Admin".
+           Cheaper to say so here than to find it on a quotation that has already gone out. -->
+      <div class="field-note">Leave it blank and the offer prints their role instead — a
+        customer would read “ERP Admin”.</div>
     </div>
     <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Role *</label><select id="usr-role"></select></div>

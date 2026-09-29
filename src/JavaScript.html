@@ -8723,9 +8723,17 @@
     $("usr-designation").value = u ? (u.designation || "") : "";
     $("usr-stream").value = u && u.businessStream ? u.businessStream : "All";
     $("usr-active").checked = !u || String(u.active).toUpperCase() !== "FALSE";
+    // This used to say the email had to match the Google account they sign in with, which is
+    // not true and contradicted the note on the Email field two inches above it. The gate asks
+    // only whether the Google account is on its list — it never compares it to the person's
+    // row — so one company account opens the portal for everybody, each with their own
+    // username and password. Read the other way round, the old note said every employee needed
+    // a Google account of their own, which is the arrangement PIE cannot have.
     $("usr-note").textContent = u && u.isSelf
       ? "This is your own account. You cannot deactivate it or drop your own ERP Admin role."
-      : (u ? "" : "The email must match the Google account they sign in with.");
+      : (u ? "" : "They sign in with the username and password above. Where the Google " +
+          "requirement is on, any account on its list opens the portal for them — this " +
+          "address is not checked against it.");
     $("user-modal-backdrop").classList.add("show");
   }
 
