@@ -44,7 +44,14 @@ function prepareQuotationEmail(quotationId) {
     contactName: contact ? String(contact.name || '') : '',
     // Deliberately not the customer's other addresses: copying somebody in is a decision, and
     // guessing at it is how an offer reaches a person it was not meant for.
-    cc: String(user.email || ''),
+    //
+    // The office address, never the coordinator's. This copied whichever address their user
+    // record carried, which on this installation is a personal one — so the customer saw it in
+    // the CC header of every offer, and it followed the thread from then on. The printed
+    // document was corrected for the same reason; this is the other half of it. PIE work out of
+    // one shared inbox, so copying it is what actually gives the coordinator sight of the
+    // thread, and it survives them leaving.
+    cc: String(co.email || ''),
     subject: quote.quoteNo + (quote.revision && quote.revision !== 'R0'
       ? ' ' + quote.revision : '') + ' — offer for ' + what +
       (quote.machineModel ? ' (' + quote.machineModel + ')' : ''),
@@ -76,7 +83,9 @@ function quotationEmailBody_(quote, co, contact, user) {
     'any clarification you need.');
   lines.push('');
   lines.push(String(co.signOffLine || 'Yours sincerely,'));
-  lines.push(String(user.name || user.email));
+  // Never the address as a fallback: an unnamed user is a setup mistake, and printing a
+  // personal address to a customer is a worse answer to it than printing nothing.
+  lines.push(String(user.name || ''));
   if (user.designation) lines.push(String(user.designation));
   lines.push('For ' + String(co.legalName || ''));
   if (co.signOffPhone) lines.push('M: ' + String(co.signOffPhone));
@@ -121,6 +130,14 @@ function sendQuotationEmail(input) {
     throw new Error('This quotation has no lines on it. There is nothing to send.');
   }
 
+  // Replies belong to the office, not to whoever happened to press send. Left as the user's
+  // address, a customer replying to an offer reached one person's personal inbox — invisible to
+  // everyone else, and lost entirely once that person moves on. Blank rather than falling back
+  // to the user: with no reply-to, replies go to the account the script sends as, which is the
+  // office account, and that is the right answer anyway.
+  var co = getCompanyProfile();
+  var replyTo = String((co && co.email) || '').trim();
+
   var html = buildQuotationHtml(quotationId);
   var name = String(quote.quoteNo).replace(/[\/\\:*?"<>|]/g, '-') +
     (quote.revision && quote.revision !== 'R0' ? ' ' + quote.revision : '') + '.pdf';
@@ -132,7 +149,7 @@ function sendQuotationEmail(input) {
     subject: subject,
     body: body,
     name: String(user.name || ''),
-    replyTo: String(user.email || ''),
+    replyTo: replyTo || undefined,
     attachments: [pdf]
   });
 
