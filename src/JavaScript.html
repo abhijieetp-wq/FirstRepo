@@ -1325,16 +1325,49 @@
     return currentUser.role === "Management" || currentUser.role === "ERP Admin";
   }
 
-  function loadConfigLists() {
-    srv.withSuccessHandler(function (lists) {
+  /**
+   * The dropdown lists, fetched once however many screens ask for them.
+   *
+   * Every caller used to guard with `if (!configLists)`, which is only a guard if the answer
+   * has already come back. On load, two callers reached that check while the first request
+   * was still in the air, both saw null, and the portal opened by fetching the same lists
+   * twice — a whole round trip out of a page that is already slow enough to complain about.
+   *
+   * So the flag is not "have they arrived" but "has anybody asked yet", and everybody who
+   * asks while one is in flight is handed the same answer when it lands.
+   */
+  var configListsWaiting = null;
+
+  function withConfigLists(then) {
+    if (configLists) { if (then) then(configLists); return; }
+    if (configListsWaiting) { if (then) configListsWaiting.push(then); return; }
+    configListsWaiting = then ? [then] : [];
+
+    var settle = function (lists) {
       configLists = lists;
       fillDatalist("industry-list", (lists.Industry || []).map(function (i) { return i.label; }));
-      fillDatalist("paymentterms-list", (lists.PaymentTerms || []).map(function (i) { return i.label; }));
-    }).withFailureHandler(function () { configLists = {}; }).getConfigLists();
+      fillDatalist("paymentterms-list",
+        (lists.PaymentTerms || []).map(function (i) { return i.label; }));
+      var waiting = configListsWaiting || [];
+      configListsWaiting = null;
+      waiting.forEach(function (fn) { fn(configLists); });
+    };
 
+    srv.withSuccessHandler(settle)
+      .withFailureHandler(function () { settle({}); })
+      .getConfigLists();
+  }
+
+  var activeUsersAsked = false;
+
+  function loadConfigLists() {
+    withConfigLists();
+    // Same reasoning: the datalist is filled once, not once per screen that wants it.
+    if (activeUsersAsked) return;
+    activeUsersAsked = true;
     srv.withSuccessHandler(function (users) {
       fillDatalist("users-list", users.map(function (u) { return u.email; }));
-    }).withFailureHandler(function () {}).listActiveUsers();
+    }).withFailureHandler(function () { activeUsersAsked = false; }).listActiveUsers();
   }
 
   function fillDatalist(id, values) {
@@ -4975,12 +5008,8 @@
         fillCustomerDatalist(); fillLeadCustomerSelect();
       }).withFailureHandler(onServerError).listCustomers();
     }
-    if (!((configLists || {}).CompressorType || []).length) {
-      srv.withSuccessHandler(function (lists) {
-        configLists = lists;
-        fillLeadTypeSelect();
-      }).withFailureHandler(onServerError).getConfigLists();
-    }
+    // Waits on whatever request is already in flight instead of starting a second one.
+    withConfigLists(function () { fillLeadTypeSelect(); });
     if (!lostReasonsCache.length) {
       srv.withSuccessHandler(function (rows) {
         lostReasonsCache = rows;
@@ -10085,17 +10114,29 @@
     }
     var initials = String(user.name || user.email || "?").trim().split(/\s+/)
       .slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join("");
+    // The chevron and the Sign out beside it are the whole point. This corner used to be a
+    // label that happened to be clickable, so the only way out of the portal was to already
+    // know it was there — which for a sign-out is not a discoverable place to hide one.
     $("whoami").innerHTML =
       '<span class="user-avatar" title="' + escapeHtml(user.name + " — " + user.role) + '">' +
         escapeHtml(initials) + "</span>" +
       '<span class="user-meta"><b>' + escapeHtml(user.name) + "</b>" +
-        "<span>" + escapeHtml(user.role) + "</span></span>";
+        "<span>" + escapeHtml(user.role) + "</span></span>" +
+      '<span class="whoami-caret" aria-hidden="true">▾</span>' +
+      '<button class="btn-signout" id="btn-signout" type="button" ' +
+        'title="Sign out of the portal">Sign out</button>';
     renderTabs();
     $("boot-screen").style.display = "none";
     $("signin-screen").style.display = "none";
     $("app").style.display = "block";
 
     $("whoami").addEventListener("click", openAccountMenu);
+    // Its own button, so leaving does not go through a menu that also offers a password
+    // change. The stopPropagation keeps the menu from opening behind it.
+    $("btn-signout").addEventListener("click", function (e) {
+      e.stopPropagation();
+      signOut();
+    });
     // A password somebody else chose is a way in, not a password — so this is not dismissable.
     if (pendingPasswordChange) { openPasswordModal(true); return; }
 
@@ -10146,15 +10187,18 @@
       okLabel: "Go"
     }, function (choice) {
       if (choice === "password") { openPasswordModal(false); return; }
-      if (choice === "signout") {
-        var token = sessionToken;
-        rememberSession(null);
-        // Told to forget it server-side too, so a token copied from this browser is dead.
-        google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {})
-          .logout(token);
-        showSignIn("You have signed out.");
-      }
+      if (choice === "signout") signOut();
     });
+  }
+
+  /** Leaving, from the menu or from the button beside your name. */
+  function signOut() {
+    var token = sessionToken;
+    rememberSession(null);
+    // Told to forget it server-side too, so a token copied from this browser is dead.
+    google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {})
+      .logout(token);
+    showSignIn("You have signed out.");
   }
 
   // ---------------- Signing in ----------------

@@ -103,13 +103,17 @@ function hashToken_(token) {
  * be raised later without invalidating every existing password.
  */
 function derivePassword_(password, saltB64, iterations) {
-  var salt = Utilities.base64Decode(fromStoredText_(saltB64));
-  var out = Utilities.computeHmacSha256Signature(
-    Utilities.newBlob(String(password)).getBytes(), salt);
+  // Four thousand iterations, and until now four thousand crossings into the Apps Script host
+  // runtime — one per Utilities.computeHmacSha256Signature. The crossings, not the hashing,
+  // were what made signing in take several seconds. Sha256.gs does the same algorithm inside
+  // V8, so the same salt and the same iteration count produce the same hash in a fraction of
+  // the time and nobody's stored password is disturbed. sha256-test holds that equivalence.
+  var salt = toUnsignedBytes_(Utilities.base64Decode(fromStoredText_(saltB64)));
+  var out = hmacSha256Bytes_(utf8Bytes_(password), salt);
   for (var i = 1; i < iterations; i++) {
-    out = Utilities.computeHmacSha256Signature(out, salt);
+    out = hmacSha256Bytes_(out, salt);
   }
-  return Utilities.base64Encode(out);
+  return base64FromBytes_(out);
 }
 
 /**
