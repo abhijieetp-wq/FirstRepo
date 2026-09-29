@@ -75,6 +75,22 @@
   })();
   // Plain counts, grouped the Indian way like every other number on screen — 13,126 not 13126.
   var fmtInt = function (n) { return Number(n || 0).toLocaleString("en-IN"); };
+  /**
+   * A lead time in the words the offer uses — the client's half of leadTimeText_ in
+   * QuotationDocument.gs, so the screen and the printed page never phrase it differently.
+   * Zero is Ex-stock rather than "0 days"; blank stays blank, because no promise on this
+   * line means it travels with the rest of the order.
+   */
+  function leadTimeLabel(days) {
+    if (days === "" || days === null || days === undefined) return "";
+    var n = Number(days);
+    if (isNaN(n) || n < 0) return "";
+    if (n === 0) return "Ex-stock";
+    if (n === 7) return "1 week";
+    if (n % 7 === 0) return (n / 7) + " weeks";
+    return n + (n === 1 ? " day" : " days");
+  }
+
   function escapeHtml(str) {
     return String(str === undefined || str === null ? "" : str).replace(/[&<>"']/g, function (m) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m];
@@ -3065,6 +3081,7 @@
     $("qb-validuntil").value = q.validUntil || "";
     $("qb-paymentterms").value = q.paymentTerms || "";
     $("qb-deliveryterms").value = q.deliveryTerms || "";
+    $("qb-deliveryperiod").value = q.deliveryPeriod || "";
     $("qb-warrantyterms").value = q.warrantyTerms || "";
     $("qb-notes").value = q.notes || "";
     $("qb-pkgdisc").value = Number(q.packageDiscountPct) || 0;
@@ -3072,7 +3089,7 @@
     $("qb-taxmode").value = q.taxMode || "Extra";
 
     ["qb-model", "qb-serial", "qb-date", "qb-validity", "qb-paymentterms",
-     "qb-deliveryterms", "qb-warrantyterms", "qb-notes",
+     "qb-deliveryterms", "qb-deliveryperiod", "qb-warrantyterms", "qb-notes",
      "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-customer-pick"].forEach(function (f) {
       $(f).disabled = !editable;
     });
@@ -3483,6 +3500,7 @@
       validityDays: $("qb-validity").value,
       paymentTerms: $("qb-paymentterms").value.trim(),
       deliveryTerms: $("qb-deliveryterms").value.trim(),
+      deliveryPeriod: $("qb-deliveryperiod").value.trim(),
       warrantyTerms: $("qb-warrantyterms").value.trim(),
       machineModel: $("qb-model").value.trim(),
       serialNo: $("qb-serial").value.trim(),
@@ -3631,6 +3649,7 @@
       return;
     }
     zone.innerHTML = '<table><thead><tr><th>#</th><th>Code</th><th>Description</th>' +
+      '<th>Delivery</th>' +
       '<th class="num">Qty</th><th class="num">Price</th><th class="num">Disc %</th>' +
       '<th class="num">Tax %</th><th class="num">Line Total</th><th></th></tr></thead><tbody>' +
       q.items.map(function (i) {
@@ -3643,6 +3662,11 @@
           "<td>" + escapeHtml(i.description || "—") +
             (i.availabilityNote ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
               escapeHtml(i.availabilityNote) + "</span>" : "") + "</td>" +
+          // Blank means this line goes out with the rest of the order, on the offer's own
+          // period — which the header field states. Only a line on its own timetable says
+          // anything here, so the column stays quiet in the ordinary case.
+          '<td>' + (isCharge ? "" : escapeHtml(leadTimeLabel(i.leadTimeDays) ||
+            q.deliveryPeriod || "—")) + "</td>" +
           '<td class="num">' + i.qty + "</td>" +
           '<td class="num mono">' + fmt(i.unitPrice) + "</td>" +
           '<td class="num">' + (Number(i.discountPct) || 0) + "%</td>" +
@@ -3677,9 +3701,13 @@
         askDialog({
           title: "Line " + line.lineNo + " — " + (line.itemCode || ""),
           message: "Catalog price is " + fmt(line.listPrice) + ". Enter quantity, price and " +
-            "discount separated by commas — for example  2, 1450, 5",
-          input: true, inputLabel: "Qty, Price, Discount %",
-          value: line.qty + ", " + line.unitPrice + ", " + (Number(line.discountPct) || 0),
+            "discount separated by commas — for example  2, 1450, 5. Add a fourth number to " +
+            "promise this line on its own — days from the order, 0 for ex-stock — or leave it " +
+            "off to deliver with the rest of the offer.",
+          input: true, inputLabel: "Qty, Price, Discount %, Delivery days",
+          value: line.qty + ", " + line.unitPrice + ", " + (Number(line.discountPct) || 0) +
+            (line.leadTimeDays === "" || line.leadTimeDays === null ||
+             line.leadTimeDays === undefined ? "" : ", " + line.leadTimeDays),
           okLabel: "Update line"
         }, function (val) {
           if (val === null) return;
@@ -3690,7 +3718,11 @@
             id: line.id, quotationId: q.id, lineNo: line.lineNo,
             itemType: line.itemType, itemId: line.itemId, itemCode: line.itemCode,
             description: line.description, uom: line.uom,
-            qty: parts[0], unitPrice: parts[1], discountPct: parts[2] || 0, taxPct: line.taxPct
+            qty: parts[0], unitPrice: parts[1], discountPct: parts[2] || 0, taxPct: line.taxPct,
+            // A fourth value left off means "no line-specific promise", not zero — and zero
+            // is Ex-stock, so the two must not be confused. Omitting it clears the line back
+            // to the offer's own period, which is what leaving the field empty looks like.
+            leadTimeDays: parts.length > 3 && parts[3] !== "" ? parts[3] : ""
           });
         });
       });

@@ -461,29 +461,36 @@ function buildQuotationHtml(quotationId) {
   // The HSN code and the unit belong with what is being sold, before the money starts: a
   // storeman reads left to right and stops once the figures begin. On both documents the HSN
   // used to sit past the figures, where it read as an afterthought on a tax document.
+  // A delivery column costs a column on a page that is already tight, so it earns its place
+  // only when a line actually needs it: when every part goes out together the promise is one
+  // sentence in the terms, and repeating it against each row says nothing. It sits with the
+  // goods rather than after the figures — partly for the same reason the HSN does, and partly
+  // because the totals below merge into the last column and would land under "Delivery"
+  // otherwise.
+  var perLine = anyLeadTime_(items);
   var priceCols = isCompressor
-    ? [L('colDescription', 'Description'), L('colHsn', 'HSN code'), L('colUnit', 'Unit'),
-       L('colBasicPrice', 'Basic price'), L('colQty', 'Qty'), L('colTaxRate', 'Tax rate')]
-    : [L('colPartNo', 'Part Number'), L('colDescription', 'Description'),
-       L('colHsn', 'HSN code'), L('colUom', 'Unit of measurement'),
-       L('colPricePer', 'Price Per'), L('colQuantity', 'Quantity'),
-       L('colTotalAmount', 'Total Amount')];
+    ? [{ t: L('colDescription', 'Description'), c: 'w-desc' },
+       { t: L('colHsn', 'HSN code'), c: '' },
+       { t: L('colUnit', 'Unit'), c: '' }]
+    : [{ t: L('colPartNo', 'Part Number'), c: 'w-part' },
+       { t: L('colDescription', 'Description'), c: 'w-desc' },
+       { t: L('colHsn', 'HSN code'), c: '' },
+       { t: L('colUom', 'Unit of measurement'), c: '' }];
+  if (perLine) priceCols.push({ t: L('colDelivery', 'Delivery'), c: '' });
+  if (isCompressor) {
+    priceCols.push({ t: L('colBasicPrice', 'Basic price'), c: 'num' },
+                   { t: L('colQty', 'Qty'), c: 'num' },
+                   { t: L('colTaxRate', 'Tax rate'), c: 'num' });
+  } else {
+    priceCols.push({ t: L('colPricePer', 'Price Per'), c: 'num' },
+                   { t: L('colQuantity', 'Quantity'), c: 'num' },
+                   { t: L('colTotalAmount', 'Total Amount'), c: 'num' });
+  }
 
   push('<table class="price"><thead><tr>' +
-    (isCompressor
-      ? '<th class="w-desc">' + esc_(priceCols[0]) + '</th>' +
-        '<th>' + esc_(priceCols[1]) + '</th>' +
-        '<th>' + esc_(priceCols[2]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[3]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[4]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[5]) + '</th>'
-      : '<th class="w-part">' + esc_(priceCols[0]) + '</th>' +
-        '<th class="w-desc">' + esc_(priceCols[1]) + '</th>' +
-        '<th>' + esc_(priceCols[2]) + '</th>' +
-        '<th>' + esc_(priceCols[3]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[4]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[5]) + '</th>' +
-        '<th class="num">' + esc_(priceCols[6]) + '</th>') +
+    priceCols.map(function (col) {
+      return '<th' + (col.c ? ' class="' + col.c + '"' : '') + '>' + esc_(col.t) + '</th>';
+    }).join('') +
     '</tr></thead><tbody>');
 
   var gross = 0;
@@ -503,6 +510,7 @@ function buildQuotationHtml(quotationId) {
       ? '<td>' + esc_(i.description || i.itemCode) + '</td>' +
         '<td>' + (hsn || '—') + '</td>' +
         '<td>' + esc_(i.uom || 'No') + '</td>' +
+        (perLine ? '<td>' + (isCharge ? '' : esc_(lineDeliveryText_(i, q))) + '</td>' : '') +
         '<td class="num">' + inr_(unit) + '</td>' +
         '<td class="num">' + esc_(qty) + '</td>' +
         '<td class="num">' + (isCharge ? '—' : esc_((Number(i.taxPct) || 0).toFixed(2)) + '%') + '</td>'
@@ -518,6 +526,7 @@ function buildQuotationHtml(quotationId) {
         '<td>' + hsn + '</td>' +
         // A charge is an amount, not a quantity of anything, so it has no unit either.
         '<td>' + (isCharge ? '' : esc_(i.uom || 'Nos')) + '</td>' +
+        (perLine ? '<td>' + (isCharge ? '' : esc_(lineDeliveryText_(i, q))) + '</td>' : '') +
         '<td class="num">' + (isCharge ? '' : inr_(unit)) + '</td>' +
         '<td class="num">' + (isCharge ? '' : esc_(qty)) + '</td>' +
         '<td class="num">' + inr_(lineTotal) + '</td>') +
@@ -589,10 +598,20 @@ function buildQuotationHtml(quotationId) {
       ' days from the date of offer' +
       (q.validUntil ? ' (until ' + ddmmyyyy_(q.validUntil) + ')' : '') + '.';
     var statedValidity = false;
+    // The same treatment for delivery. The standing clause carries the wording that matters
+    // and does not change — what the period is reckoned from — while the period itself is this
+    // offer's to state. Replacing only the period keeps both: "Delivery: 2-3 weeks. This
+    // delivery shall reckon from the date of receipt of your clear and firm order."
+    var deliveryPhrase = deliveryClause_(q, items);
     push('<div class="h1">' + esc_(terms.title || L('termsHeading', 'Terms & conditions')) +
       '</div>');
     push(bulletList_(templateLines_(terms.body).map(function (l) {
       if (/^validity\b/i.test(l)) { statedValidity = true; return validity; }
+      if (deliveryPhrase && /^delivery\s*:/i.test(l)) {
+        return l.replace(/^(delivery\s*:\s*)([^.]*)/i, function (m, head) {
+          return head + deliveryPhrase;
+        });
+      }
       return l;
     }), true));
     if (!statedValidity) push('<div class="note">' + esc_(validity) + '</div>');
@@ -651,6 +670,55 @@ function buildQuotationHtml(quotationId) {
  * Both their documents write "18% GST"; we were printing "18.00% GST", which is the sort of
  * detail nobody asks you to fix and everybody notices.
  */
+/**
+ * How long a line takes, in the words an offer uses.
+ *
+ * Zero is not "0 days". A part on the shelf is the single most useful thing a spares offer can
+ * say, and saying it as a number says the opposite. Whole weeks read as weeks because that is
+ * how both their documents already phrase delivery — "4-6 weeks", not "28-42 days".
+ */
+function leadTimeText_(days) {
+  if (days === '' || days === null || days === undefined) return '';
+  var n = Number(days);
+  if (isNaN(n) || n < 0) return '';
+  if (n === 0) return 'Ex-stock';
+  if (n === 7) return '1 week';
+  if (n % 7 === 0) return (n / 7) + ' weeks';
+  return n + (n === 1 ? ' day' : ' days');
+}
+
+/** Whether any line carries its own promise, which is what makes the column worth a column. */
+function anyLeadTime_(items) {
+  var found = false;
+  (items || []).forEach(function (i) {
+    if (leadTimeText_(i.leadTimeDays)) found = true;
+  });
+  return found;
+}
+
+/**
+ * What one row says under Delivery.
+ *
+ * A line without its own lead time is not undecided — it goes out with the rest of the order,
+ * so it shows the offer's period rather than a dash. A dash appears only when nothing has been
+ * promised anywhere, which is a gap worth seeing on the draft.
+ */
+function lineDeliveryText_(item, q) {
+  return leadTimeText_(item.leadTimeDays) || String(q.deliveryPeriod || '').trim() || '\u2014';
+}
+
+/**
+ * The delivery promise, as the terms should state it.
+ *
+ * Empty means the quotation has said nothing, and then the standing clause is left exactly as
+ * written — the same reasoning as validity: print the concrete promise where there is one, and
+ * never contradict the standing text with a blank.
+ */
+function deliveryClause_(q, items) {
+  if (anyLeadTime_(items)) return 'as stated against each item above';
+  return String(q.deliveryPeriod || '').trim();
+}
+
 /**
  * The GST rows: CGST and SGST inside one state, IGST across a border.
  *

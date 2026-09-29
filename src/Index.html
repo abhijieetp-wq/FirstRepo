@@ -502,8 +502,16 @@
             <div class="field"><label>Valid Until</label><input id="qb-validuntil" readonly /></div>
             <div class="field"><label>Payment Terms</label><input id="qb-paymentterms" list="paymentterms-list" /></div>
           </div>
-          <div class="grid grid-3" style="margin-top:12px;">
-            <div class="field"><label>Delivery Terms</label><input id="qb-deliveryterms" /></div>
+          <div class="grid grid-4" style="margin-top:12px;">
+            <div class="field"><label>Delivery Basis</label>
+              <input id="qb-deliveryterms" list="deliveryterms-list" />
+              <div class="field-note">Where the goods change hands, not when. Carried onto the order.</div>
+            </div>
+            <div class="field"><label>Delivery Period</label>
+              <input id="qb-deliveryperiod" list="deliveryperiod-list" />
+              <div class="field-note">Printed in the terms. Leave blank only if a line-by-line
+                promise is set below.</div>
+            </div>
             <div class="field"><label>Warranty Terms</label><input id="qb-warrantyterms" /></div>
             <div class="field"><label>Notes</label><input id="qb-notes" /></div>
           </div>
@@ -1080,6 +1088,11 @@
 <datalist id="deliveryterms-list">
   <option value="Ex-Factory Delivery"></option><option value="FOR Destination"></option>
   <option value="Ex-Works"></option><option value="Door Delivery"></option>
+</datalist>
+<datalist id="deliveryperiod-list">
+  <option value="Ex-stock"></option><option value="1 week"></option>
+  <option value="2-3 weeks"></option><option value="3-4 weeks"></option>
+  <option value="4-6 weeks"></option>
 </datalist>
 <datalist id="despatch-list">
   <option value="By Road"></option><option value="By Rail"></option><option value="By Air"></option>
@@ -1717,8 +1730,14 @@
     </div>
 
     <!-- Per line, because a part in stock and a part on indent go out weeks apart, and one
-         date across the whole order is the promise that gets broken. -->
+         date across the whole order is the promise that gets broken. The promise itself was
+         made on the quotation and arrives filled in; this is where it is corrected when
+         reality turns out otherwise, not where it is invented. -->
     <div class="card-title" style="margin-top:20px;">Delivery Promise by Line</div>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 10px;">
+      Carried from the quotation. Change a figure only where what was quoted is no longer what
+      you can do — the difference is what the customer has to be told about.
+    </p>
     <div id="om2-duedays"></div>
 
     <div style="display:flex; justify-content:flex-end; margin-top:14px;">

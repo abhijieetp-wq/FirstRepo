@@ -426,7 +426,16 @@ function defaultQuoteTemplates_() {
         'Transit insurance shall be arranged by the Purchaser.\n' +
         'Statutory information: Please advise the GSTIN information in your purchase order.\n' +
         'Terms of payment: 100% advance.\n' +
-        'Delivery: as confirmed at the time of order.\n' +
+        // The period is this offer's to state, not the order's: PIE commit to a delivery when
+        // they quote, and the document substitutes the quotation's own period — or "as stated
+        // against each item" where the lines differ — in place of the words below. The clause
+        // this replaces deferred the promise to the order stage, which is not how they sell.
+        //
+        // It stays one short sentence deliberately. The compressor terms spell out what the
+        // period is reckoned from, and saying the same here read better but cost a line — and
+        // a line is a third page on a ten-part offer, which is a worse document than a terse
+        // one. Two pages is the budget; wording that does not fit it does not go in.
+        'Delivery: as confirmed in this offer.\n' +
         'Warranty: A three-month warranty applies to the Neuron Controller only if installed ' +
         'immediately after supply by our authorised service engineer. The warranty is void in ' +
         'cases of unauthorised installation, delay in installation, misuse, tampering, or repairs ' +

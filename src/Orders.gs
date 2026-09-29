@@ -251,9 +251,13 @@ function createOrderFromQuotation(input) {
         qtyReserved: 0,
         qtyDispatched: 0,
         qtyInvoiced: 0,
-        // Set per line on the order screen. Blank until somebody commits to a date, because a
-        // promise nobody made is worse on a confirmation than no promise at all.
-        dueDays: ''
+        // The promise was made on the quotation, so it arrives with the line rather than
+        // being asked for a second time. The order screen can still change it — that is the
+        // point of holding it here as well as there — but it changes a promise that exists
+        // instead of inventing one, and what it records is the divergence from what was
+        // quoted. Blank only where the offer itself named no period for this line.
+        dueDays: qi.leadTimeDays === '' || qi.leadTimeDays === undefined || qi.leadTimeDays === null
+          ? '' : Number(qi.leadTimeDays)
       }, 'Line carried from the quotation');
     });
 

@@ -308,7 +308,12 @@ var SCHEMA = {
       'customerId', 'contactId', 'billingAddressId', 'shippingAddressId', 'opportunityId',
       'spareEnquiryId', 'machineModel', 'serialNo', 'preparedBy', 'validityDays', 'validUntil',
       'status', 'subtotal', 'discountAmt', 'taxAmt', 'freight', 'grand', 'paymentTerms',
-      'deliveryTerms', 'warrantyTerms', 'notes', 'approvedBy', 'approvalDate', 'submittedDate',
+      // deliveryTerms is the freight basis — Ex-Works, FOR Destination — and says nothing
+      // about time. When the offer is delivered as one lot, deliveryPeriod is where the
+      // promise is made, in the customer's words ("Ex-stock", "2-3 weeks"). A line that goes
+      // out on its own timetable overrides it with QuotationItems.leadTimeDays.
+      'deliveryTerms', 'deliveryPeriod',
+      'warrantyTerms', 'notes', 'approvedBy', 'approvalDate', 'submittedDate',
       'emailSentDate', 'wonDate', 'lostReasonId', 'locked',
       // Why an offer was turned down, past the one-word reason. A dropdown tells you the
       // shape of the losses; these tell you what actually happened, which is the part worth
