@@ -127,12 +127,30 @@ function saveUser(input) {
   }
 
   var users = readTable_('Users');
-  var existing = users.filter(function (u) {
-    return String(u.email).trim().toLowerCase() === email;
-  })[0];
+  // By id when there is one, by address only when deciding whether a new person is already
+  // here. Looking an existing row up by its address meant that retyping the address made
+  // `existing` undefined, and everything hanging off it silently stopped: the session was not
+  // ended, and — the dangerous one — the last-active-admin guard below was skipped, so the only
+  // ERP Admin could be demoted in the same save that changed their address.
+  var existing = input.id
+    ? users.filter(function (u) { return String(u.id) === String(input.id); })[0]
+    : users.filter(function (u) {
+        return String(u.email).trim().toLowerCase() === email;
+      })[0];
 
   if (!input.id && existing) {
     throw new Error(email + ' is already on the list. Edit that row instead of adding a second one.');
+  }
+
+  // An address is not a field on this form, whatever the form appears to offer. It is the name
+  // thirty-odd columns across the sheet call this person by, so changing it here would move the
+  // row and leave every quotation, order and GRN they have touched pointing at the old one —
+  // which the name lookup would then print raw, in place of their name. changeUserEmail moves
+  // both together, and says what it will move first.
+  if (existing && String(existing.email).trim().toLowerCase() !== email) {
+    throw new Error('An address is changed with “Change address” on their row, not here — it ' +
+      'has to move together with everything they have already done, and this form would move ' +
+      'only the row.');
   }
 
   var isSelf = email === String(user.email).trim().toLowerCase();

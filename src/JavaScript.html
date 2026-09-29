@@ -8659,16 +8659,23 @@
               (u.locked ? ' <span class="badge badge-lost">locked</span>' : "") + "</td>" +
             '<td class="center" style="white-space:nowrap;">' +
               '<button class="btn btn-sm" data-user="' + u.id + '">Edit</button> ' +
-              '<button class="btn btn-sm" data-user-pw="' + u.id + '">Set password</button></td>' +
+              '<button class="btn btn-sm" data-user-pw="' + u.id + '">Set password</button> ' +
+              // Deliberately not inside the Edit form. Retyping the address there changes one
+              // cell and strands every record the person has ever touched, so the address is
+              // read-only in that form and changed here, where it can say what it will move.
+              '<button class="btn btn-sm" data-user-email="' + u.id + '">Change address</button>' +
+              "</td>" +
             "</tr>";
         }).join("") + "</tbody></table></div>"
       : '<div class="empty">No users yet.</div>';
 
     $("set-panel").innerHTML = panelCard(
       "Users",
-      "This list decides who gets in and what they may do. People sign in with the email " +
-        "address here and a password you set — no Google account is involved, and the " +
-        "spreadsheet behind the portal is shared with nobody.",
+      "This list decides who gets in and what they may do. People sign in with the username " +
+        "here and a password you set. The address is not a login and nothing is ever sent to " +
+        "it — it is how the records know whose work is whose, so it need not be a real " +
+        "mailbox, and since offers now carry the letterhead address it reaches no customer " +
+        "either.",
       '<button class="btn btn-primary btn-sm" id="btn-add-user">+ Add User</button>',
       body);
 
@@ -8678,6 +8685,54 @@
     });
     $("set-panel").querySelectorAll("[data-user-pw]").forEach(function (btn) {
       btn.addEventListener("click", function () { setPasswordFor(btn.dataset.userPw); });
+    });
+    $("set-panel").querySelectorAll("[data-user-email]").forEach(function (btn) {
+      btn.addEventListener("click", function () { changeAddressFor(btn.dataset.userEmail); });
+    });
+  }
+
+  /**
+   * Moving a person onto a different address, history and all.
+   *
+   * Two steps, because this is not a field edit — it rewrites the name the whole sheet calls
+   * them by. The server counts what it would touch and changes nothing; only the second press
+   * writes. The count is shown per area rather than as one total, because "412 cells" tells an
+   * admin nothing and "Quotations, Sales Orders, GRNs" tells them whether it is the person they
+   * meant.
+   */
+  function changeAddressFor(id) {
+    var u = setData.users.filter(function (x) { return String(x.id) === String(id); })[0];
+    if (!u) return;
+    askDialog({
+      title: "Change the address for " + u.name,
+      message: "They sign in with their username, so this does not change how they get in, " +
+        "and nothing is ever sent here — it is how the records know whose work is whose. It " +
+        "does not have to be a real mailbox. Currently " + u.email + ".",
+      input: true, inputLabel: "New address — e.g. " +
+        (u.username || "name") + "@premierindia.internal",
+      value: u.email, okLabel: "Check what would change"
+    }, function (val) {
+      if (val === null) return;
+      srv.withSuccessHandler(function (p) {
+        var where = p.where.length
+          ? p.where.map(function (w) { return w.tab + " (" + w.rows + ")"; }).join(", ")
+          : "nothing yet — they have no work on file";
+        askDialog({
+          title: "Move " + p.name + " to " + p.newEmail + "?",
+          message: p.total + " place" + (p.total === 1 ? "" : "s") + " would change:\n" +
+            where + "\n\n" + p.notes.join("\n"),
+          okLabel: "Change it", danger: true
+        }, function (go) {
+          if (go === null) return;
+          srv.withSuccessHandler(function (r) {
+            loadSettings();
+            showMsg(r.name + " is now " + r.newEmail + " — " + r.total +
+              " places updated.", "success");
+          }).withFailureHandler(onServerError)
+            .changeUserEmail({ userId: id, newEmail: p.newEmail });
+        });
+      }).withFailureHandler(onServerError)
+        .previewUserEmailChange({ userId: id, newEmail: val });
     });
   }
 
@@ -8712,6 +8767,10 @@
     $("user-modal-title").textContent = u ? "Edit User" : "Add User";
     $("usr-id").value = u ? u.id : "";
     $("usr-email").value = u ? u.email : "";
+    // Read-only on an existing person: the server refuses a change here, because the
+    // address has to move together with everything they have already done. "Change
+    // address" on their row does both.
+    $("usr-email").readOnly = !!u;
     $("usr-email").disabled = !!u;   // the email is the identity; changing it makes a new person
     // The username is only what they type, so unlike the email it can be corrected later.
     $("usr-username").value = u ? (u.username || "") : "";
