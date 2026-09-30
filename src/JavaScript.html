@@ -6985,13 +6985,14 @@
 
     $("dm-date").value = d.dispatchDate || "";
     $("dm-transporter").value = d.transporterName || "";
+    $("dm-vehicle").value = d.vehicleNo || "";
     $("dm-challan").value = d.deliveryChallanNo || "";
     $("dm-lr").value = d.lrNumber || "";
     $("dm-lrdate").value = d.lrDate || "";
     $("dm-eway").value = d.ewayBillNo || "";
     $("dm-packing").value = d.packingListRef || "";
     $("dm-certs").value = d.certificatesRef || "";
-    ["dm-date", "dm-transporter", "dm-challan", "dm-lr", "dm-lrdate", "dm-eway",
+    ["dm-date", "dm-transporter", "dm-vehicle", "dm-challan", "dm-lr", "dm-lrdate", "dm-eway",
      "dm-packing", "dm-certs"].forEach(function (f) { $(f).disabled = !editable; });
     $("btn-dm-savedetails").style.display = editable ? "" : "none";
 
@@ -7107,6 +7108,7 @@
       id: openDispatch.id,
       dispatchDate: $("dm-date").value,
       transporterName: $("dm-transporter").value.trim(),
+      vehicleNo: $("dm-vehicle").value.trim(),
       deliveryChallanNo: $("dm-challan").value.trim(),
       lrNumber: $("dm-lr").value.trim(),
       lrDate: $("dm-lrdate").value,
@@ -7455,14 +7457,36 @@
       '<div style="margin-top:6px;"><b>Bill to:</b> ' + escapeHtml(inv.billingAddress || "—") + "</div>" +
       "</div>";
 
+    $("im-no").value = inv.invoiceNo || "";
+    $("im-value").value = inv.invoiceValue === "" || inv.invoiceValue === null ||
+      inv.invoiceValue === undefined ? "" : inv.invoiceValue;
     $("im-date").value = inv.invoiceDate || "";
     $("im-due").value = inv.dueDate || "";
     $("im-terms").value = inv.paymentTerms || "";
     $("im-warranty").value = inv.warrantyTerms || "";
     $("im-notes").value = inv.notes || "";
-    ["im-date", "im-due", "im-terms", "im-warranty", "im-notes"].forEach(function (f) {
+    ["im-no", "im-value", "im-date", "im-due", "im-terms", "im-warranty",
+     "im-notes"].forEach(function (f) {
       $(f).disabled = !editable;
     });
+
+    // The one figure this portal knows that Tally does not: what this dispatch should have
+    // come to. A rupee of slack because Tally rounds its total off; anything wider is a rate
+    // typed wrong or a line left off, and it is cheaper to see it here than in the ledger.
+    var note = $("im-value-note");
+    if (inv.valueMatches === null || inv.valueMatches === undefined) {
+      note.textContent = "This dispatch comes to " + fmt(inv.computedValue) +
+        ". Enter what the Tally invoice actually says.";
+      note.style.color = "";
+    } else if (inv.valueMatches) {
+      note.textContent = "Matches this dispatch (" + fmt(inv.computedValue) + ").";
+      note.style.color = "";
+    } else {
+      note.textContent = "Does not match: this dispatch comes to " + fmt(inv.computedValue) +
+        ", a difference of " + fmt(Math.abs(inv.valueVariance)) +
+        (inv.valueVariance > 0 ? " more" : " less") + " on the Tally invoice.";
+      note.style.color = "var(--danger, #b42318)";
+    }
     $("btn-im-save").style.display = editable ? "" : "none";
 
     // The e-invoice reference arrives after the invoice is issued, so it stays editable when
@@ -7554,6 +7578,8 @@
       showMsg("Invoice details saved.", "success");
     }).withFailureHandler(onServerError).saveInvoiceDetails({
       id: openInvoice.id,
+      invoiceNo: $("im-no").value.trim(),
+      invoiceValue: $("im-value").value,
       invoiceDate: $("im-date").value,
       dueDate: $("im-due").value,
       paymentTerms: $("im-terms").value.trim(),

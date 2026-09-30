@@ -413,7 +413,10 @@ var SCHEMA = {
   Dispatches: {
     label: 'Readiness checklist, documents and transporter details (FR-045, FR-046)',
     columns: ['id', 'dispatchNo', 'salesOrderId', 'dispatchDate', 'checklistComplete',
-      'checklistNotes', 'transporterName', 'lrNumber', 'lrDate', 'ewayBillNo', 'packingListRef',
+      // The lorry itself. It is on the tax invoice and on the e-way bill, and it is the only
+      // thing that identifies the consignment once it is on the road — an LR number finds the
+      // paperwork, a vehicle number finds the goods.
+      'checklistNotes', 'transporterName', 'vehicleNo', 'lrNumber', 'lrDate', 'ewayBillNo', 'packingListRef',
       'certificatesRef', 'deliveryChallanNo', 'dispatchedBy', 'podRef', 'podDate',
       'deliveryConfirmed', 'deliveryConfirmedDate', 'serviceNotified', 'status',
       'createdAt', 'createdBy']
@@ -492,7 +495,13 @@ var SCHEMA = {
     label: 'Invoice from order + actual dispatch, with Tally sync status (FR-048, FR-050)',
     columns: ['id', 'invoiceNo', 'invoiceDate', 'salesOrderId', 'dispatchId', 'customerId',
       'billingAddressId', 'businessStream', 'brand', 'subtotal', 'discountAmt', 'taxAmt',
-      'freight', 'grand', 'amountReceived', 'paymentTerms', 'dueDate', 'warrantyTerms',
+      'freight', 'grand',
+      // What the Tally invoice actually says, typed off the document. `grand` is what this
+      // dispatch should have come to and stays computed, so the two can be compared — a wrong
+      // rate or a line left off in Tally shows up here rather than in the customer's ledger.
+      // They will not match to the paisa and are not meant to: Tally rounds the total off.
+      'invoiceValue',
+      'amountReceived', 'paymentTerms', 'dueDate', 'warrantyTerms',
       // Every invoice PIE raise carries an IRN and an acknowledgement from the GST portal.
       // An invoice number without them is a note about an invoice rather than the invoice.
       'irn', 'ackNo', 'ackDate',

@@ -1916,6 +1916,7 @@
     <div class="grid grid-3">
       <div class="field"><label>Dispatch Date</label><input id="dm-date" type="date" /></div>
       <div class="field"><label>Transporter</label><input id="dm-transporter" /></div>
+      <div class="field"><label>Vehicle No.</label><input id="dm-vehicle" class="mono" /></div>
       <div class="field"><label>Delivery Challan No.</label><input id="dm-challan" class="mono" /></div>
     </div>
     <div class="grid grid-3" style="margin-top:12px;">
@@ -2006,10 +2007,24 @@
     <div id="im-banner"></div>
     <div id="im-meta"></div>
 
+    <!-- Both typed off the Tally invoice. This portal does not raise one and does not invent
+         its number: ELGI/0444/26-27 is the name the customer, the bank and the GST portal all
+         know the document by, and a second number for the same invoice is a reconciliation
+         nobody asked for. -->
     <div class="grid grid-3" style="margin-top:14px;">
+      <div class="field"><label>Invoice No. (from Tally) *</label>
+        <input id="im-no" class="mono" placeholder="ELGI/0444/26-27" />
+      </div>
       <div class="field"><label>Invoice Date</label><input id="im-date" type="date" /></div>
+      <div class="field"><label>Invoice Value (as printed)</label>
+        <input id="im-value" type="number" step="0.01" min="0" />
+        <div class="field-note" id="im-value-note"></div>
+      </div>
+    </div>
+    <div class="grid grid-3" style="margin-top:12px;">
       <div class="field"><label>Payment Terms</label><input id="im-terms" /></div>
       <div class="field"><label>Due Date</label><input id="im-due" type="date" /></div>
+      <div class="field"></div>
     </div>
     <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Warranty Terms</label><input id="im-warranty" /></div>

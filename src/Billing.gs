@@ -23,6 +23,27 @@ var TALLY_SYNC_STATUSES = ['Pending', 'Synced', 'Failed', 'Not Required'];
 /** Days of credit implied by a payment-terms code, used only when the customer has none set. */
 var TERM_CREDIT_DAYS = { ADV100: 0, ADV_PART: 0, NET30: 30, NET45: 45, NET60: 60 };
 
+/**
+ * What a customer was actually billed.
+ *
+ * PIE raise their invoices in Tally, and what Tally printed is what the customer owes — not
+ * what this system worked out the dispatch should have come to. The two are close and are not
+ * the same: Tally rounds the total off, and a rate corrected there after the dispatch was
+ * recorded here moves one and not the other. Ageing, statements and receipts all have to use
+ * the figure the customer was asked for, or somebody gets chased for money nobody invoiced.
+ *
+ * Falls back to the computed total for an invoice whose Tally value has not been entered yet,
+ * because a blank is not a bill of nothing.
+ */
+function billedAmount_(invoice) {
+  var typed = invoice && invoice.invoiceValue;
+  if (typed === '' || typed === null || typed === undefined) {
+    return roundMoney_(Number((invoice && invoice.grand) || 0));
+  }
+  var n = Number(typed);
+  return roundMoney_(isNaN(n) ? Number((invoice && invoice.grand) || 0) : n);
+}
+
 function listInvoices(options) {
   var user = getCurrentUser();
   requireCommercial_(user, 'Invoices');
@@ -120,7 +141,21 @@ function getInvoice(id) {
   row.receivedAmt = roundMoney_(row.receipts.reduce(function (s, r) {
     return s + (Number(r.amount) || 0);
   }, 0));
-  row.balanceAmt = roundMoney_((Number(row.grand) || 0) - row.receivedAmt);
+  // Receivables age off what Tally actually billed where that is known, and off what this
+  // dispatch came to where it is not. Ageing against a figure nobody ever invoiced is how a
+  // customer gets chased for money they were never asked for.
+  var billed = row.invoiceValue === '' || row.invoiceValue === null || row.invoiceValue === undefined
+    ? null : Number(row.invoiceValue);
+  row.billedAmt = billedAmount_(row);
+  row.balanceAmt = roundMoney_(row.billedAmt - row.receivedAmt);
+
+  // The one thing the portal knows that Tally does not: what this dispatch should have come
+  // to. Worth a rupee of tolerance — Tally rounds the total off and the two will not agree to
+  // the paisa — but a gap wider than that is a rate typed wrong or a line left off, and it is
+  // far cheaper to see it here than in the customer's ledger.
+  row.computedValue = roundMoney_(Number(row.grand) || 0);
+  row.valueVariance = billed === null ? null : roundMoney_(billed - row.computedValue);
+  row.valueMatches = billed === null ? null : Math.abs(row.valueVariance) <= 1;
   return row;
 }
 
@@ -232,7 +267,13 @@ function createInvoiceFromDispatch(input) {
 
   appendRow_('Invoices', {
     id: invoiceId,
-    invoiceNo: nextSeriesNo_('Invoices', 'invoiceNo', 'INV'),
+    // Blank, because this number is not ours to invent. PIE raise the invoice in Tally and it
+    // comes out as ELGI/0444/26-27 — a series Tally owns, that the customer quotes, that the
+    // bank and the GST portal know. A number minted here would be a second name for the same
+    // document, and the two would drift the first time an invoice was cancelled in one system
+    // and not the other. The row already has an id for the portal's own purposes; invoiceNo is
+    // whatever Tally says it is, typed in before the invoice can be issued.
+    invoiceNo: '',
     invoiceDate: invoiceDate,
     salesOrderId: order.id,
     dispatchId: dispatchId,
@@ -279,6 +320,15 @@ function issueInvoice(invoiceId) {
   if (!invoice) throw new Error('Invoice not found.');
   if (invoice.status === 'Cancelled') throw new Error('This invoice was cancelled.');
   if (invoice.status === 'Issued') throw new Error('This invoice has already been issued.');
+
+  // Issuing sends the goods, and the goods travel with the Tally invoice. Without its number
+  // this row is a note about an invoice rather than a record of one — and it is the number
+  // everything downstream quotes: the customer's remittance, the e-way bill, the receipt that
+  // eventually clears it.
+  if (!String(invoice.invoiceNo || '').trim()) {
+    throw new Error('Enter the invoice number from Tally before issuing it — it is the number ' +
+      'the customer will pay against.');
+  }
 
   // Issuing the invoice is the moment the consignment leaves, because the invoice leaves with
   // it. Posting the dispatch separately afterwards was a second action recording the same
@@ -351,7 +401,15 @@ function saveInvoiceDetails(input) {
   }
 
   var invoiceDate = String(input.invoiceDate || invoice.invoiceDate).slice(0, 10);
+  var value = input.invoiceValue === '' || input.invoiceValue === undefined ||
+    input.invoiceValue === null ? '' : Number(input.invoiceValue);
+  if (value !== '' && (isNaN(value) || value < 0)) {
+    throw new Error('The invoice value must be a number.');
+  }
   updateRowById_('Invoices', 'id', input.id, {
+    // Both typed off the Tally document rather than produced here.
+    invoiceNo: String(input.invoiceNo === undefined ? invoice.invoiceNo : input.invoiceNo).trim(),
+    invoiceValue: value,
     invoiceDate: invoiceDate,
     dueDate: String(input.dueDate || invoice.dueDate).slice(0, 10),
     paymentTerms: String(input.paymentTerms || invoice.paymentTerms || '').trim(),

@@ -70,7 +70,7 @@ function getReceivables(options) {
     .filter(function (inv) { return streamAllowed_(user, inv.businessStream); })
     .map(function (inv) {
       var received = receivedByInvoice[String(inv.id)] || 0;
-      var balance = roundMoney_((Number(inv.grand) || 0) - received);
+      var balance = roundMoney_(billedAmount_(inv) - received);
       var overdueDays = inv.dueDate ? daysBetween_(inv.dueDate, today) : 0;
       var followup = followupByInvoice[String(inv.id)];
       var customer = customers[String(inv.customerId)] || {};
@@ -84,7 +84,7 @@ function getReceivables(options) {
         customerName: customer.name || '',
         ownerEmail: customer.ownerEmail || '',
         businessStream: inv.businessStream,
-        grand: roundMoney_(Number(inv.grand) || 0),
+        grand: billedAmount_(inv),
         receivedAmt: roundMoney_(received),
         balanceAmt: balance,
         overdueDays: overdueDays > 0 ? overdueDays : 0,
@@ -259,7 +259,7 @@ function saveReceipt(input) {
   var alreadyReceived = readTable_('Receipts').reduce(function (s, r) {
     return String(r.invoiceId) === String(invoice.id) ? s + (Number(r.amount) || 0) : s;
   }, 0);
-  var balance = roundMoney_((Number(invoice.grand) || 0) - alreadyReceived);
+  var balance = roundMoney_(billedAmount_(invoice) - alreadyReceived);
   if (amount > balance + 0.5) {
     throw new Error('That is more than the ' + roundMoney_(balance) + ' outstanding on ' +
       invoice.invoiceNo + '. Record the excess against the invoice it belongs to.');
@@ -478,7 +478,7 @@ function listFollowups(options) {
       var row = stripRow_(f);
       var invoice = invoices[String(row.invoiceId)] || {};
       row.invoiceNo = invoice.invoiceNo || '';
-      row.balanceAmt = roundMoney_((Number(invoice.grand) || 0) - (Number(invoice.amountReceived) || 0));
+      row.balanceAmt = roundMoney_(billedAmount_(invoice) - (Number(invoice.amountReceived) || 0));
       row.customerName = customerNames[String(row.customerId)] || '';
       row.commitmentAmount = Number(row.commitmentAmount) || 0;
       row.commitmentOverdue = !!(row.commitmentDate && row.commitmentMet !== 'Yes' &&
@@ -664,7 +664,7 @@ function analyseReceiptImport_(csvText) {
 
     var key = String(invoice.id);
     var already = (receivedByInvoice[key] || 0) + (runningTotals[key] || 0);
-    var balance = roundMoney_((Number(invoice.grand) || 0) - already);
+    var balance = roundMoney_(billedAmount_(invoice) - already);
     if (amount > balance + 0.5) {
       errors.push({ line: lineNo, invoiceNo: get('invoiceNo'),
         message: 'Only ' + balance + ' is outstanding on this invoice.' });
