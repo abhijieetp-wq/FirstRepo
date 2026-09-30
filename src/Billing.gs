@@ -140,8 +140,17 @@ function createInvoiceFromDispatch(input) {
     return String(d.id) === String(dispatchId);
   })[0];
   if (!dispatch) throw new Error('Dispatch not found.');
-  if (dispatch.status !== 'Dispatched') {
-    throw new Error('Post the dispatch before invoicing it — the invoice bills what actually shipped.');
+  // Not "post the dispatch first", which is what this used to insist on. The invoice travels
+  // with the consignment — the e-way bill is raised against its number and a lorry stopped
+  // without it is a problem — so demanding that the goods leave before the invoice exists had
+  // the order of the real world backwards, and the only way to comply was to post the dispatch
+  // in the system after the truck had already gone.
+  //
+  // What the old rule was protecting is kept: the lines still come from the dispatch, so a
+  // short shipment still invoices short. It is the dispatch being *decided* that matters, not
+  // the dispatch being *gone*, and by the time the warehouse has packed it, it is decided.
+  if (dispatch.status === 'Cancelled') {
+    throw new Error('Dispatch ' + dispatch.dispatchNo + ' was cancelled.');
   }
 
   var existing = readTable_('Invoices').filter(function (inv) {
@@ -270,6 +279,26 @@ function issueInvoice(invoiceId) {
   if (!invoice) throw new Error('Invoice not found.');
   if (invoice.status === 'Cancelled') throw new Error('This invoice was cancelled.');
   if (invoice.status === 'Issued') throw new Error('This invoice has already been issued.');
+
+  // Issuing the invoice is the moment the consignment leaves, because the invoice leaves with
+  // it. Posting the dispatch separately afterwards was a second action recording the same
+  // event, and the gap between them was a lorry on the road that the system thought was still
+  // in the yard — stock not yet moved out, the order not yet dispatched.
+  //
+  // Before the invoice is marked issued, not after. Posting moves stock and re-checks the
+  // credit hold and the delivery address, so it is the step that can refuse; doing it first
+  // means a refusal leaves nothing issued, rather than an issued invoice for goods still
+  // standing in the yard. There are no transactions here — the only protection is doing the
+  // part that can fail while there is still nothing to undo.
+  //
+  // Only when the dispatch is still waiting. An invoice raised against one already posted is
+  // the ordinary catching-up case and has nothing to move.
+  if (invoice.dispatchId) {
+    var pending = readTable_('Dispatches').filter(function (d) {
+      return String(d.id) === String(invoice.dispatchId) && d.status === 'Planned';
+    })[0];
+    if (pending) postDispatch(pending.id);
+  }
 
   updateRowById_('Invoices', 'id', invoiceId, { status: 'Issued' }, 'Invoice issued');
 

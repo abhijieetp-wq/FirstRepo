@@ -46,9 +46,20 @@ function getDispatchReadiness(salesOrderId) {
   var customer = findRowById_('Customers', order.customerId);
   var customerName = customer && customer.name ? customer.name : '';
 
+  // Which of these stop a dispatch and which only warn is PIE's call, not a property of the
+  // check. Only credit does both — an order on hold is a decision Management has taken and no
+  // amount of the warehouse being ready overrides it. The address stops the goods leaving
+  // rather than the paperwork starting: a coordinator can prepare a dispatch while somebody
+  // chases the address, but a consignment with nowhere to go cannot be posted.
+  //
+  // The rest advise. PIE ship before the advance lands, and the warehouse knows what is on the
+  // shelf better than the reservation does — a check that refuses what the business routinely
+  // and deliberately does is not a control, it is a thing people learn to override, and an
+  // override everybody uses protects nothing.
   var checks = [
     {
       key: 'po',
+      blocks: '',
       label: 'Customer PO recorded and matching the quotation',
       pass: !!String(order.poNo || '').trim() && String(order.poVerified).toUpperCase() !== 'FALSE',
       detail: !String(order.poNo || '').trim()
@@ -57,6 +68,7 @@ function getDispatchReadiness(salesOrderId) {
     },
     {
       key: 'credit',
+      blocks: 'create',
       label: 'Credit cleared',
       pass: String(order.creditHold).toUpperCase() !== 'TRUE',
       detail: String(order.creditHold).toUpperCase() === 'TRUE'
@@ -64,6 +76,7 @@ function getDispatchReadiness(salesOrderId) {
     },
     {
       key: 'advance',
+      blocks: '',
       label: 'Required advance received',
       pass: advanceReceived >= advanceRequired,
       detail: advanceRequired > 0
@@ -72,6 +85,7 @@ function getDispatchReadiness(salesOrderId) {
     },
     {
       key: 'stock',
+      blocks: '',
       label: 'Stock reserved for every line',
       pass: unreserved.length === 0,
       detail: unreserved.length
@@ -81,6 +95,7 @@ function getDispatchReadiness(salesOrderId) {
     },
     {
       key: 'address',
+      blocks: 'post',
       label: 'Shipping address on the order',
       pass: !!shipping,
       detail: shipping
@@ -91,13 +106,28 @@ function getDispatchReadiness(salesOrderId) {
     }
   ];
 
+  var failedBlocking = function (when) {
+    return checks.filter(function (c) {
+      return !c.pass && (c.blocks === when || (when === 'post' && c.blocks === 'create'));
+    });
+  };
+  var names = function (list) { return list.map(function (c) { return c.label; }); };
+
   return {
     salesOrderId: salesOrderId,
     orderNo: order.orderNo,
     orderStatus: order.orderStatus,
     checks: checks,
+    // Everything green. Still worth reporting even though most of it no longer refuses
+    // anything: a coordinator about to ship should see what is not in order, and deciding to
+    // ship anyway is a different thing from not having been told.
     ready: checks.every(function (c) { return c.pass; }),
-    blockers: checks.filter(function (c) { return !c.pass; }).map(function (c) { return c.label; })
+    blockers: names(checks.filter(function (c) { return !c.pass; })),
+    // What actually stops each step. Anything blocking creation blocks posting too — the truck
+    // cannot leave for a reason that was serious enough to stop the paperwork.
+    stopsDispatch: names(failedBlocking('create')),
+    stopsPosting: names(failedBlocking('post')),
+    warnings: names(checks.filter(function (c) { return !c.pass && !c.blocks; }))
   };
 }
 
@@ -206,14 +236,16 @@ function createDispatch(input) {
   var readiness = getDispatchReadiness(input.salesOrderId);
   var override = !!input.overrideReason;
 
-  if (!readiness.ready && !override) {
-    throw new Error('This order is not ready to dispatch: ' + readiness.blockers.join('; ') +
+  // Only the blocking failures refuse. The rest are recorded on the dispatch and shown on the
+  // screen, so what was not in order when it went out is answerable afterwards.
+  if (readiness.stopsDispatch.length && !override) {
+    throw new Error('This order cannot be dispatched: ' + readiness.stopsDispatch.join('; ') +
       '. Management can override with a reason.');
   }
-  if (!readiness.ready && override) {
+  if (readiness.stopsDispatch.length && override) {
     requireRole_(user, DISPATCH_OVERRIDE_ROLES);
     if (!String(input.overrideReason).trim()) {
-      throw new Error('A reason is required to dispatch against an incomplete checklist.');
+      throw new Error('A reason is required to dispatch against a blocking check.');
     }
   }
 
@@ -383,6 +415,14 @@ function postDispatch(dispatchId) {
   })[0];
   if (order && String(order.creditHold).toUpperCase() === 'TRUE') {
     throw new Error('This order is on credit hold. It cannot be dispatched until Management releases it.');
+  }
+
+  // Preparing a dispatch without a delivery address is allowed — somebody can be chasing it
+  // while the warehouse packs. Sending one is not: this is the moment the goods physically
+  // leave, and the challan that travels with them has to say where they are going.
+  if (order && !String(order.shippingAddressId || '').trim()) {
+    throw new Error('This order has no delivery address, so there is nowhere to send it. ' +
+      'Add one on the customer and set it on the order first.');
   }
 
   var reservations = readTable_('StockReservations').filter(function (r) {
