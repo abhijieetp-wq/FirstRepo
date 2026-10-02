@@ -146,6 +146,48 @@ function saveCustomer(input) {
   return record;
 }
 
+/**
+ * A customer, their first address and their first contact, in one press.
+ *
+ * Adding somebody used to take three saves and two of them were locked: the address form
+ * refused until the customer existed, because an address needs a customerId, and so did the
+ * contact. Correct, and it made the common case — a new customer rung in this morning, whose
+ * name, address and the person who rang are all sitting in front of you — into a sequence of
+ * screens with a wait between each. A coordinator with a customer on the phone does not have
+ * three saves' worth of patience, and the ones who ran out left the address off.
+ *
+ * So the dependency is resolved here rather than by the person. The customer is written first
+ * because the other two need its id, and then they follow in the same call — one round trip
+ * on a platform where the round trip is the cost, and one button for what was always one
+ * decision.
+ *
+ * The address and the contact are optional. Nothing is invented: an address block with no
+ * first line is somebody who did not have it to hand, not an empty address to be stored.
+ */
+function saveCustomerWithDetails(input) {
+  getCurrentUser();                       // saveCustomer re-checks the role properly
+  var customer = saveCustomer((input && input.customer) || {});
+
+  var address = (input && input.address) || null;
+  if (address && String(address.line1 || '').trim()) {
+    address.customerId = customer.id;
+    // The first address a customer has is the one everything should resolve to, so it is the
+    // default unless somebody has said otherwise. An order that cannot find an address is a
+    // dispatch that cannot be posted.
+    if (address.isDefault === undefined) address.isDefault = true;
+    saveCustomerAddress(address);
+  }
+
+  var contact = (input && input.contact) || null;
+  if (contact && String(contact.name || '').trim()) {
+    contact.customerId = customer.id;
+    if (contact.isPrimary === undefined) contact.isPrimary = true;
+    saveCustomerContact(contact);
+  }
+
+  return customer;
+}
+
 /** Soft delete — orders, invoices and history all reference this record (FR-001). */
 function deactivateCustomer(id, reason) {
   var user = getCurrentUser();

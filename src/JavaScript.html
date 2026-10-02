@@ -1480,7 +1480,35 @@
     renderContacts(c);
     renderAddresses(c);
     loadItemCodes(c);
+    restoreSubFormButtons();
+    if (!id && canEditCustomers()) openSubFormsForNewCustomer();
+    $("btn-save-customer").textContent = id ? "Save Customer" : "Save Customer & Details";
     $("customer-modal-backdrop").classList.add("show");
+  }
+
+  /**
+   * Everything about a new customer on screen at once, so one press saves the lot.
+   *
+   * Only for a record that does not exist yet. Once it does, the sub-forms go back to being
+   * their own small saves — that is right for an edit, where somebody has come to add a second
+   * address and not to retype the first.
+   */
+  function openSubFormsForNewCustomer() {
+    showContactForm(null);
+    showAddressForm(null);
+    $("af-default").checked = true;
+    $("cf-primary").checked = true;
+    // Their own save buttons would write against a customer that does not exist. Hidden rather
+    // than disabled: a button that cannot be pressed still asks to be.
+    $("btn-save-contact").style.display = "none";
+    $("btn-cancel-contact").style.display = "none";
+    $("btn-save-address").style.display = "none";
+    $("btn-cancel-address").style.display = "none";
+  }
+
+  function restoreSubFormButtons() {
+    ["btn-save-contact", "btn-cancel-contact", "btn-save-address",
+     "btn-cancel-address"].forEach(function (b) { $(b).style.display = ""; });
   }
 
   function renderContacts(c) {
@@ -1665,7 +1693,12 @@
   function renderAddresses(c) {
     var zone = $("cm-addresses");
     if (!c) {
-      zone.innerHTML = '<div class="empty" style="padding:14px;">Save the customer first, then add addresses.</div>';
+      // It used to say "save the customer first", because an address needs a customerId and
+      // there was not one yet. True of the data and wrong for the person: somebody adding a
+      // customer has the address in front of them now, and sending them back for it later is
+      // how customers end up without one. The form below is open and Save Customer takes it.
+      zone.innerHTML = '<div class="empty" style="padding:14px;">Fill the address in above — ' +
+        'it saves together with the customer.</div>';
       $("btn-add-address").disabled = true;
       return;
     }
@@ -1765,9 +1798,39 @@
   // the new customer instead of the user having to go and find it.
   var onCustomerSaved = null;
 
+  /** The address block as typed, or nothing where nobody filled it in. */
+  function newCustomerAddress() {
+    if (!$("af-line1").value.trim()) return null;
+    return {
+      addressType: $("af-type").value,
+      label: $("af-label").value.trim(),
+      line1: $("af-line1").value.trim(),
+      line2: $("af-line2").value.trim(),
+      city: $("af-city").value.trim(),
+      state: $("af-state").value.trim(),
+      pincode: $("af-pincode").value.trim(),
+      gstin: $("af-gstin").value.trim(),
+      isDefault: $("af-default").checked
+    };
+  }
+
+  /** Likewise the contact: a name is what makes it one. */
+  function newCustomerContact() {
+    if (!$("cf-name").value.trim()) return null;
+    return {
+      name: $("cf-name").value.trim(),
+      contactRole: $("cf-role").value,
+      designation: $("cf-designation").value.trim(),
+      phone: $("cf-phone").value.trim(),
+      email: $("cf-email").value.trim(),
+      isPrimary: $("cf-primary").checked
+    };
+  }
+
   function commitCustomer(obj) {
     var isNew = !$("cm-id").value;
-    srv.withSuccessHandler(function (saved) {
+    var hadDetails = isNew && !!(newCustomerAddress() || newCustomerContact());
+    var runner = srv.withSuccessHandler(function (saved) {
       customersLoaded = false;
       srv.withSuccessHandler(function (rows) {
         customersCache = rows; customersLoaded = true; renderCustomers();
@@ -1777,6 +1840,11 @@
         $("customer-modal-title").textContent = "Edit Customer";
         $("cm-code").textContent = saved.customerCode || "";
         var c = customersCache.find(function (x) { return x.id === saved.id; });
+        // The customer exists now, so the sub-forms go back to being their own saves. Without
+        // this the window stays open showing two forms whose buttons are still hidden.
+        restoreSubFormButtons();
+        hideContactForm();
+        hideAddressForm();
         renderContacts(c);
         renderAddresses(c);
 
@@ -1785,7 +1853,11 @@
         // itself stays, because contacts and addresses could not be added until it existed,
         // and the message says so rather than leaving somebody looking at a window that will
         // not go away.
-        if (!isNew || handOff) {
+        // Closing on a new record too, now that the address and the contact go in with it.
+        // It stayed open because they could not be added until the customer existed; that is
+        // no longer true, and a window that stays open after finishing reads as one still
+        // working. Somebody with a second address to add reopens it from the row.
+        if (!isNew || handOff || hadDetails) {
           $("customer-modal-backdrop").classList.remove("show");
           showMsg("Customer " + saved.name + " saved.", "success");
           return;
@@ -1793,7 +1865,21 @@
         showMsg("Customer " + saved.name + " created. Add their contacts and addresses below, " +
           "or press Close.", "success");
       }).withFailureHandler(onServerError).listCustomers();
-    }).withFailureHandler(onServerError).saveCustomer(obj);
+    }).withFailureHandler(onServerError);
+
+    // One call on a new record, so the address and the contact land with the customer rather
+    // than after it. An existing one takes the plain save: its sub-forms are their own small
+    // saves, which is right for somebody adding a second address rather than retyping the
+    // first. Spelled out rather than picking the method by name — this chain is
+    // google.script.run's own object and how it resolves a bracketed name is not ours to
+    // assume.
+    if (isNew) {
+      runner.saveCustomerWithDetails({
+        customer: obj, address: newCustomerAddress(), contact: newCustomerContact()
+      });
+    } else {
+      runner.saveCustomer(obj);
+    }
   }
 
   $("btn-deactivate-customer").addEventListener("click", function () {
@@ -2072,6 +2158,33 @@
     }).createQuotationFromEnquiry(e.id);
   }
 
+  /**
+   * Adding the customer from the enquiry, because this is often where they first exist.
+   *
+   * The same hand-off the compressor quote starter uses. It matters more here: a spares offer
+   * can only begin as an enquiry, so a customer who is not yet on the books had no way in at
+   * all — the form simply refused and named a tab somewhere else.
+   */
+  $("em-new-customer").addEventListener("click", function (ev) {
+    ev.preventDefault();
+    if (!canEditCustomers()) {
+      showMsg("Only Sales and Management can add a customer.", "error");
+      return;
+    }
+    onCustomerSaved = function (saved, isNew) {
+      if (!isNew) return;
+      onCustomerSaved = null;
+      customersLoaded = false;
+      srv.withSuccessHandler(function (rows) {
+        customersCache = rows; customersLoaded = true;
+        fillDatalist("customers-list", rows.map(function (c) { return c.name; }));
+        $("em-customer").value = saved.name;
+        showMsg(saved.name + " added and selected on this enquiry.", "success");
+      }).withFailureHandler(onServerError).listCustomers();
+    };
+    openCustomerModal(null);
+  });
+
   $("enquiry-search").addEventListener("input", renderEnquiries);
   $("enquiry-mine").addEventListener("change", loadEnquiries);
   $("enquiry-closed").addEventListener("change", loadEnquiries);
@@ -2183,13 +2296,19 @@
     // Offered the moment the enquiry is saved. It used to wait until parts had been
     // identified against it, which read as the button being broken — and now that an enquiry
     // is the only way to raise a spares offer, waiting would be a dead end.
-    $("btn-quote-enquiry").style.display = (e && canEditQuotes()) ? "inline-flex" : "none";
+    // Offered on an enquiry that does not exist yet, as well as one that does. Logging the
+    // call and quoting it are usually one intention — somebody is on the phone asking the
+    // price — and making them save, find the row and press again put two screens inside one
+    // thought. On a new enquiry the button saves it first and goes on to the offer.
+    $("btn-quote-enquiry").style.display = canEditQuotes() ? "inline-flex" : "none";
     $("btn-quote-enquiry").textContent = (e && e.items.length)
       ? "Create Quotation (" + e.items.length + (e.items.length === 1 ? " part)" : " parts)")
       : "Create Quotation";
-    $("btn-quote-enquiry").title = (e && e.items.length)
-      ? "The identified parts carry across onto the offer."
-      : "No parts identified yet — the offer opens empty and you pick them there.";
+    $("btn-quote-enquiry").title = e
+      ? (e.items.length
+          ? "The identified parts carry across onto the offer."
+          : "No parts identified yet — the offer opens empty and you pick them there.")
+      : "Logs this enquiry and opens the offer on it.";
     hideIdentifyPanel();
     renderEnquiryItems(e);
     $("enquiry-modal-backdrop").classList.add("show");
@@ -2197,8 +2316,17 @@
 
   $("btn-quote-enquiry").addEventListener("click", function () {
     var e = currentEnquiry();
-    if (!e) return;
-    quoteFromEnquiry(e, busyButton("btn-quote-enquiry", "Creating\u2026"));
+    if (e) {
+      quoteFromEnquiry(e, busyButton("btn-quote-enquiry", "Creating\u2026"));
+      return;
+    }
+    // Nothing saved yet. Save it and carry straight on rather than handing back a row to find.
+    var done = busyButton("btn-quote-enquiry", "Creating\u2026");
+    saveEnquiry(function (saved) {
+      enquiriesCache = enquiriesCache.concat([saved]);
+      $("em-id").value = saved.id;
+      quoteFromEnquiry(saved, done);
+    }, done);
   });
 
   /**
@@ -2296,29 +2424,31 @@
     return function () { btn.disabled = false; btn.textContent = was; };
   }
 
-  $("btn-save-enquiry").addEventListener("click", function () {
+  /**
+   * Writes the enquiry and hands the saved row back.
+   *
+   * Extracted because two buttons need it: Save Enquiry, which finishes, and Create Quotation
+   * on an enquiry nobody has saved yet, which carries on to the offer. Two ways to one action
+   * should not be two pieces of code — that is how a validation rule ends up on one path and
+   * not the other.
+   */
+  function saveEnquiry(onSaved, done) {
     var name = $("em-customer").value.trim();
     var cust = customersCache.find(function (c) { return c.name.toLowerCase() === name.toLowerCase(); });
     if (!cust) {
-      showMsg("Pick an existing customer. Add them on the Customers tab first if they are new.", "error");
+      // It used to name the Customers tab, which on the spares side is a dead end: a spares
+      // offer can only begin here, so somebody not yet on the books had no way through.
+      showMsg("No customer by that name. Use \u201cNot on the list? Add them\u201d under the " +
+        "customer box.", "error");
+      $("em-customer").focus();
+      if (done) done();
       return;
     }
-    var firstSave = !$("em-id").value;
-    var done = busyButton("btn-save-enquiry", "Saving\u2026");
     srv.withSuccessHandler(function (saved) {
-      done();
-      // Saved means finished, and a window that stays open after finishing reads as a window
-      // that is still working — people wait at it, or press the button again. It used to stay
-      // open on a brand-new enquiry so the parts could go on straight away; the pencil on the
-      // list row reopens it in one click, which is the cheaper of the two mistakes.
-      $("enquiry-modal-backdrop").classList.remove("show");
-      loadEnquiries();
-      showMsg(firstSave
-        ? "Enquiry " + (saved.enquiryNo || "") + " logged. Press Quote on its row to raise " +
-          "the offer, or open it to identify the parts first."
-        : "Enquiry " + (saved.enquiryNo || "") + " saved.", "success");
+      if (done) done();
+      onSaved(saved);
     }).withFailureHandler(function (err) {
-      done();
+      if (done) done();
       onServerError(err);
     }).saveSpareEnquiry({
       id: $("em-id").value || null,
@@ -2336,6 +2466,21 @@
       requirementText: $("em-requirement").value.trim(),
       ownerEmail: $("em-owner").value.trim()
     });
+  }
+
+  $("btn-save-enquiry").addEventListener("click", function () {
+    var firstSave = !$("em-id").value;
+    var done = busyButton("btn-save-enquiry", "Saving\u2026");
+    saveEnquiry(function (saved) {
+      // Saved means finished, and a window that stays open after finishing reads as a window
+      // that is still working — people wait at it, or press the button again.
+      $("enquiry-modal-backdrop").classList.remove("show");
+      loadEnquiries();
+      showMsg(firstSave
+        ? "Enquiry " + (saved.enquiryNo || "") + " logged. Press Quote on its row to raise " +
+          "the offer, or open it to identify the parts first."
+        : "Enquiry " + (saved.enquiryNo || "") + " saved.", "success");
+    }, done);
   });
 
   // ---- Part identification ----
@@ -2969,13 +3114,12 @@
     onCustomerSaved = function (saved, isNew) {
       if (!isNew) return;
       onCustomerSaved = null;
-      // The dialog stays open on purpose: the printed offer needs their billing address and a
-      // contact, and this is the one moment someone has both to hand.
+      // The address and the contact go in on that same form now, so there is nothing left to
+      // come back for and the dialog closes itself.
       loadQuoteCustomers(function () {
         $("qs-customer").innerHTML = customerOptions(saved.id);
         $("btn-qs-create").disabled = !quoteCustomers.length;
-        showMsg(saved.name + " is selected on the quotation. Add their billing address and a " +
-          "contact below — both print on the offer — then close this box.", "success");
+        showMsg(saved.name + " is selected on the quotation.", "success");
       });
     };
     openCustomerModal(null);
@@ -7132,7 +7276,11 @@
     }, function (ok) {
       if (ok === null) return;
       srv.withSuccessHandler(function (d) {
-        openDispatch = d; renderDispatchModal();
+        // Posting is the end of this window's work — the goods have gone and nothing on the
+        // form can be changed afterwards. Leaving it open read as though it were still
+        // waiting for something.
+        $("dispatch-modal-backdrop").classList.remove("show");
+        loadDispatchData();
         showMsg("Dispatch " + d.dispatchNo + " posted. Raise the invoice next.", "success");
       }).withFailureHandler(onServerError).postDispatch(openDispatch.id);
     });
@@ -7597,7 +7745,9 @@
     }, function (ok) {
       if (ok === null) return;
       srv.withSuccessHandler(function (inv) {
-        openInvoice = inv; renderInvoiceModal();
+        // Same: an issued invoice can only be cancelled, so there is nothing left to do here.
+        $("invoice-modal-backdrop").classList.remove("show");
+        loadDispatchData();
         showMsg("Invoice " + inv.invoiceNo + " issued.", "success");
       }).withFailureHandler(onServerError).issueInvoice(openInvoice.id);
     });

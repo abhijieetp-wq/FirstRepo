@@ -1319,7 +1319,13 @@
     <input type="hidden" id="em-id" />
 
     <div class="grid grid-2">
-      <div class="field"><label>Customer *</label><input id="em-customer" list="customers-list" placeholder="Type to search" /></div>
+      <div class="field"><label>Customer *</label>
+        <input id="em-customer" list="customers-list" placeholder="Type to search" />
+        <!-- A spares enquiry is often the first time a customer exists at all: somebody rings
+             about a filter and is not on the books. Sending the coordinator to Masters and
+             back lost the call. -->
+        <div class="field-note"><a href="#" id="em-new-customer">Not on the list? Add them</a></div>
+      </div>
       <div class="field"><label>Source</label><input id="em-source" list="leadsource-list" placeholder="Phone / WhatsApp / Email" /></div>
     </div>
     <!-- Who rang. A name on its own is not somebody you can call back, and the quotation this
