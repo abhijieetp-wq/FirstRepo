@@ -1,0 +1,138 @@
+<script>
+/**
+ * The server, faked, for a browser that has no Apps Script behind it.
+ *
+ * `google.script.run` is the only door the client goes through, so standing in for it here
+ * means the real JavaScript.html runs unmodified — the thing under test is the actual client,
+ * not a copy that has drifted from it.
+ *
+ * Every call is recorded in `window.__calls` as { fn, args }, which is how a test asserts that
+ * pressing a button sent what it should have, and how many round trips a screen costs.
+ *
+ * Responses come from `window.__data`: a value is returned as-is, a function is called with
+ * the arguments and its return used. A test overrides either before the app boots.
+ */
+(function () {
+  // The app reads this before anything else; without it the sign-in screen shows instead.
+  try { window.localStorage.setItem("pie.erp.session", "test-token"); } catch (e) { }
+
+  window.__calls = [];
+  window.__failNext = null;
+
+  var CUSTOMERS = [
+    { id: "CU-1", customerCode: "C0001", name: "Topworth Urja", gstin: "27AAECV1234F1Z5",
+      active: "TRUE", addresses: [], contacts: [], paymentTerms: "NET30" },
+    { id: "CU-2", customerCode: "C0002", name: "Kalyani Steels", gstin: "27AAACK5678M1Z9",
+      active: "TRUE", addresses: [], contacts: [], paymentTerms: "NET30" }
+  ];
+
+  var ENQUIRIES = [
+    { id: "SE-1", enquiryNo: "SE2610-0001", customerId: "CU-1", customerName: "Topworth Urja",
+      contactName: "Mr Pathak", contactPhone: "9822737001", contactEmail: "",
+      status: "New", urgency: "Normal", productModel: "EQ 18", serialNo: "",
+      requirementText: "Air filter and separator", items: [], source: "Phone",
+      expectedDeliveryDate: "", ownerEmail: "p@pie.in", ownerName: "Priya",
+      createdAt: "2026-10-06" }
+  ];
+
+  var QUOTE = {
+    id: "QT-9", quoteNo: "PIE/ELGI/QUOT/26-27/401", revision: "R0", date: "2026-10-06",
+    businessStream: "Spare Sales", customerId: "CU-1", customerName: "Topworth Urja",
+    status: "Draft", locked: false, validityDays: 30, validUntil: "2026-11-05",
+    paymentTerms: "100% advance", deliveryTerms: "Ex-Works", deliveryPeriod: "2-3 weeks",
+    warrantyTerms: "", notes: "", packageDiscountPct: 0, pfAmount: 0, taxMode: "Extra",
+    subtotal: 0, discountAmt: 0, taxAmt: 0, grand: 0, items: [], specGaps: []
+  };
+
+  window.__data = {
+    bootstrap: { name: "Priya", email: "p@pie.in", role: "Sales Coordinator",
+      businessStream: "Spare Sales", appName: "ELGi Sales ERP",
+      appSubtitle: "Compressor & Spare Sales", appMark: "EL", build: "test" },
+
+    listCustomers: function () { return CUSTOMERS; },
+    // The enquiry screen asks for everything it needs in one call, which is the shape the
+    // rest of the portal should be moving towards.
+    spareSalesScreen: function () {
+      return { enquiries: ENQUIRIES, customers: CUSTOMERS, lostReasons: [], knownModels: [] };
+    },
+    listPeople: { salesEngineers: [], coordinators: [{ email: "p@pie.in", name: "Priya" }],
+      serviceCoordinators: [], serviceEngineers: [], management: [] },
+    // Advisory only. Missing it wedged the save silently: the success handler calls .filter on
+    // whatever came back, so a null answer throws inside the handler where the failure handler
+    // cannot see it.
+    findDuplicateCustomers: [],
+    listSpareEnquiries: function () { return ENQUIRIES; },
+    listProductGroups: [],
+    listLostReasons: [],
+    listKnownModels: [],
+    getConfigLists: { LeadSource: [], Urgency: [] },
+    listActiveUsers: [{ email: "p@pie.in", name: "Priya", role: "Sales Coordinator" }],
+
+    // Saving a customer mints one and files it, so the hand-off back to the enquiry has
+    // something real to select.
+    saveCustomer: function (obj) {
+      var saved = Object.assign({ id: "CU-" + (CUSTOMERS.length + 1),
+        customerCode: "C000" + (CUSTOMERS.length + 1), addresses: [], contacts: [],
+        active: "TRUE" }, obj);
+      CUSTOMERS.push(saved);
+      return saved;
+    },
+    saveCustomerWithDetails: function (input) {
+      return window.__data.saveCustomer(input.customer);
+    },
+
+    saveSpareEnquiry: function (obj) {
+      var saved = Object.assign({ id: obj.id || "SE-2",
+        enquiryNo: obj.id ? "SE2610-0001" : "SE2610-0002", items: [], status: "New" }, obj);
+      if (!obj.id) ENQUIRIES.push(saved);
+      return saved;
+    },
+    createQuotationFromEnquiry: function () { return QUOTE; },
+    getQuotation: QUOTE,
+    saveQuotationHeader: QUOTE,
+
+    getDashboard: { generatedAt: "2026-10-06T09:00:00Z", stream: "", role: "Sales Coordinator",
+      headline: { openOrderCount: 0, openOrderValue: 0, weightedPipeline: 0, outstanding: 0,
+        overdueAmount: 0, overduePct: 0, invoicedThisMonth: 0, collectedThisMonth: 0,
+        openQuotationCount: 1, openQuotationValue: 0 },
+      exceptions: [], streams: [], funnel: [], ageing: [], recent: [], leadCount: 0 }
+  };
+
+  function respond(name, args, ok, fail) {
+    window.__calls.push({ fn: name, args: args });
+    setTimeout(function () {
+      if (window.__failNext === name) {
+        window.__failNext = null;
+        fail(new Error("deliberate failure for " + name));
+        return;
+      }
+      var entry = window.__data[name];
+      if (entry === undefined) {
+        // Louder than returning undefined: a screen quietly rendering nothing because the
+        // fixture is missing an answer is a test that passes for the wrong reason.
+        console.warn("fixture has no answer for " + name);
+        ok(null);
+        return;
+      }
+      ok(typeof entry === "function" ? entry.apply(null, args) : entry);
+    }, 0);
+  }
+
+  function chain(handlers) {
+    return {
+      withSuccessHandler: function (fn) {
+        return chain({ ok: fn, fail: handlers.fail });
+      },
+      withFailureHandler: function (fn) {
+        return chain({ ok: handlers.ok, fail: fn });
+      },
+      call: function (token, name, args) {
+        respond(name, args || [], handlers.ok || function () { },
+          handlers.fail || function () { });
+      }
+    };
+  }
+
+  window.google = { script: { run: chain({}), host: { close: function () { } } } };
+})();
+</script>

@@ -1483,7 +1483,29 @@
     restoreSubFormButtons();
     if (!id && canEditCustomers()) openSubFormsForNewCustomer();
     $("btn-save-customer").textContent = id ? "Save Customer" : "Save Customer & Details";
-    $("customer-modal-backdrop").classList.add("show");
+    stackModal("customer-modal-backdrop");
+  }
+
+  /**
+   * Opens a window, in front of whatever is already open.
+   *
+   * Every backdrop shares one z-index, so DOM order decides which is in front — and this one
+   * is declared early, which put it behind the enquiry window it gets opened from. Visible
+   * through the dimming, so it looked available, while every click landed on the backdrop in
+   * front of it. The confirm dialog hit the same thing and was given a fixed z-index; this is
+   * the general form, set from whether anything else is actually showing rather than from a
+   * guess about which window outranks which.
+   */
+  function stackModal(id) {
+    var el = $(id);
+    var others = document.querySelectorAll(".modal-backdrop.show");
+    var covered = false;
+    for (var i = 0; i < others.length; i++) {
+      if (others[i] !== el) { covered = true; break; }
+    }
+    // Set either way, so a window opened on its own next time does not keep yesterday's rank.
+    el.classList.toggle("modal-stacked", covered);
+    el.classList.add("show");
   }
 
   /**
@@ -2570,15 +2592,32 @@
    */
   var peopleCache = null;
 
+  /**
+   * The directory, fetched once however many callers want it.
+   *
+   * The cache was only set when the answer came back, so it guarded nothing while the request
+   * was in the air: two forms opening together — which is the ordinary case, a modal with a
+   * coordinator picker and an owner picker — each sent their own. On this platform a wasted
+   * round trip is most of a second, and it was being spent on data the other half of the same
+   * screen had already asked for.
+   *
+   * The same shape as withConfigLists: whoever arrives first sends the request, everybody
+   * after it joins a queue, and all of them are answered together.
+   */
+  var peopleWaiting = null;
   function withPeople(then) {
     if (peopleCache) { then(peopleCache); return; }
-    srv.withSuccessHandler(function (data) {
+    if (peopleWaiting) { peopleWaiting.push(then); return; }
+    peopleWaiting = [then];
+    var settle = function (data) {
       peopleCache = data;
-      then(peopleCache);
-    }).withFailureHandler(function () {
+      var queue = peopleWaiting || [];
+      peopleWaiting = null;
+      queue.forEach(function (fn) { fn(peopleCache); });
+    };
+    srv.withSuccessHandler(settle).withFailureHandler(function () {
       // A dropdown that cannot be filled must not stop the form opening.
-      peopleCache = { salesEngineers: [], coordinators: [], management: [], categories: [] };
-      then(peopleCache);
+      settle({ salesEngineers: [], coordinators: [], management: [], categories: [] });
     }).listPeople();
   }
 
@@ -8717,7 +8756,7 @@
   // ================= SETTINGS =================
   // "tallyconn", not "tally" — the Dispatch screen already owns a subtab-tally element.
   var SET_SUBTABS = ["users", "lists", "reasons", "locations", "company", "quotetext",
-                     "tallyconn", "dataimport", "system"];
+                     "tallyconn", "dataimport", "system", "speed"];
   var setMode = "users";
   var setData = null;
 
@@ -8811,6 +8850,7 @@
     else if (setMode === "quotetext") renderQuoteTextPanel();
     else if (setMode === "tallyconn") renderTallyPanel();
     else if (setMode === "dataimport") renderImportPanel();
+    else if (setMode === "speed") renderSpeedPanel();
     else renderSystemPanel();
   }
 
@@ -10002,6 +10042,101 @@
       active: $("qtpl-active").checked
     });
   });
+
+  /**
+   * Where the seconds go.
+   *
+   * Sorted by total time rather than by the worst single call, because the thing to fix is
+   * whatever the office spends its day waiting on. A four-second report run twice a week
+   * matters less than a four-hundred-millisecond search run two thousand times, and sorting
+   * by the maximum puts them the wrong way round.
+   */
+  var speedReport = null;
+
+  function renderSpeedPanel() {
+    var r = speedReport;
+    var head = r && r.on
+      ? '<button class="btn btn-sm" id="btn-speed-off">Stop measuring</button> ' +
+        '<button class="btn btn-sm" id="btn-speed-flush">Refresh</button> ' +
+        '<button class="btn btn-sm" id="btn-speed-clear">Clear</button>'
+      : '<button class="btn btn-sm btn-primary" id="btn-speed-on">Start measuring</button>' +
+        (r && r.samples ? ' <button class="btn btn-sm" id="btn-speed-clear">Clear</button>' : "");
+
+    var body;
+    if (!r) {
+      body = '<div class="empty">Loading…</div>';
+    } else if (!r.samples) {
+      body = '<div class="empty" style="padding:18px;">Nothing measured yet. ' +
+        (r.on ? "Use the portal normally for a day, then come back."
+              : "Press Start measuring, use the portal normally for a day, then come back.") +
+        "</div>";
+    } else {
+      body =
+        '<div class="grid grid-4" style="margin-bottom:16px;">' +
+          '<div class="kpi-card"><div class="kpi-label">Calls Measured</div>' +
+            '<div class="kpi-value">' + fmtInt(r.samples) + "</div></div>" +
+          '<div class="kpi-card"><div class="kpi-label">Typical Call</div>' +
+            '<div class="kpi-value">' + fmtInt(r.overallMedianMs) + " ms</div></div>" +
+          // The slow one in twenty is what people remember and complain about.
+          '<div class="kpi-card"><div class="kpi-label">Slow Call (95th)</div>' +
+            '<div class="kpi-value">' + fmtInt(r.overallP95Ms) + " ms</div></div>" +
+          '<div class="kpi-card"><div class="kpi-label">Measured</div>' +
+            '<div style="font-size:12px; font-weight:600; color:var(--navy); margin-top:4px;">' +
+            escapeHtml(r.from) + "<br>to " + escapeHtml(r.to) + "</div></div>" +
+        "</div>" +
+        '<div style="overflow-x:auto;"><table><thead><tr>' +
+          "<th>Action</th><th class=\"num\">Calls</th><th class=\"num\">Total</th>" +
+          "<th class=\"num\">Typical</th><th class=\"num\">95th</th><th class=\"num\">Worst</th>" +
+          "<th class=\"num\">Tabs</th><th class=\"num\">Rows</th><th>Biggest read</th>" +
+        "</tr></thead><tbody>" +
+        r.functions.map(function (f) {
+          return "<tr>" +
+            '<td class="mono"><b>' + escapeHtml(f.fn) + "</b>" +
+              (f.errors ? ' <span class="badge badge-lost">' + f.errors + " failed</span>" : "") +
+              "</td>" +
+            '<td class="num">' + fmtInt(f.calls) + "</td>" +
+            '<td class="num"><b>' + (f.totalMs / 1000).toFixed(1) + " s</b></td>" +
+            '<td class="num">' + fmtInt(f.medianMs) + "</td>" +
+            '<td class="num">' + fmtInt(f.p95Ms) + "</td>" +
+            '<td class="num">' + fmtInt(f.maxMs) + "</td>" +
+            '<td class="num">' + f.avgTabs + "</td>" +
+            '<td class="num">' + fmtInt(f.avgRows) + "</td>" +
+            '<td class="mono" style="font-size:11.5px;">' + escapeHtml(f.widest || "—") + "</td>" +
+            "</tr>";
+        }).join("") + "</tbody></table></div>";
+    }
+
+    $("set-panel").innerHTML = panelCard(
+      "Speed",
+      "Nothing is recorded unless this is switched on, and then every server call is timed " +
+        "and the tabs it read are counted. Leave it running for a normal day — it is the " +
+        "only way to tell which screen people are actually waiting on. Timings are written " +
+        "fifty at a time, so press Refresh to bring out what is still held.",
+      head, body);
+
+    var on = $("btn-speed-on"), off = $("btn-speed-off"),
+        flush = $("btn-speed-flush"), clear = $("btn-speed-clear");
+    var take = function (rep) { speedReport = rep; renderSpeedPanel(); };
+    if (on) on.addEventListener("click", function () {
+      srv.withSuccessHandler(take).withFailureHandler(onServerError).setTelemetry(true);
+    });
+    if (off) off.addEventListener("click", function () {
+      srv.withSuccessHandler(take).withFailureHandler(onServerError).setTelemetry(false);
+    });
+    if (flush) flush.addEventListener("click", function () {
+      srv.withSuccessHandler(take).withFailureHandler(onServerError).flushTelemetry();
+    });
+    if (clear) clear.addEventListener("click", function () {
+      askDialog({ title: "Clear the timings?", okLabel: "Clear", danger: true }, function (ok) {
+        if (ok === null) return;
+        srv.withSuccessHandler(take).withFailureHandler(onServerError).clearTelemetry();
+      });
+    });
+
+    if (!speedReport) {
+      srv.withSuccessHandler(take).withFailureHandler(onServerError).getTelemetryReport();
+    }
+  }
 
   function renderSystemPanel() {
     var sys = setData.system;

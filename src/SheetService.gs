@@ -149,9 +149,13 @@ function readTable_(sheetName) {
   // which doubled the cost of reading any tab — and reading a tab is what this application
   // spends its time on. Taking the block from row 1 gets both, and the headers are kept so
   // the next caller in this request does not pay for them again.
-  var block = TABLE_CACHE_.hasOwnProperty(sheetName)
-    ? TABLE_CACHE_[sheetName]
-    : (TABLE_CACHE_[sheetName] = sheet.getRange(1, 1, lastRow, lastCol).getValues());
+  var fresh = !TABLE_CACHE_.hasOwnProperty(sheetName);
+  var block = fresh
+    ? (TABLE_CACHE_[sheetName] = sheet.getRange(1, 1, lastRow, lastCol).getValues())
+    : TABLE_CACHE_[sheetName];
+  // Counted only when it actually cost a round trip. A second read inside the same request
+  // comes from the cache above and is not a read of anything.
+  if (fresh) { try { telemetryRead_(sheetName, Math.max(0, lastRow - 1)); } catch (e) { } }
   var headers = HEADER_CACHE_[sheetName] ||
     (HEADER_CACHE_[sheetName] = block[0].map(function (h) { return String(h).trim(); }));
   if (lastRow < 2 || headers.length === 0) return [];

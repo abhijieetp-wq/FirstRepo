@@ -449,7 +449,9 @@ function call(token, fnName, args) {
   var fn = this[name];
   if (typeof fn !== 'function') throw new Error('Unknown action: ' + name);
 
-  return fn.apply(null, args || []);
+  // Every server call goes through here, which makes this the one place worth timing from.
+  // Off unless somebody has turned it on, and then it costs a Date.now() either side.
+  return telemetryWrap_(name, function () { return fn.apply(null, args || []); });
 }
 
 /**

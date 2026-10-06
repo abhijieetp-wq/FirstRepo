@@ -130,6 +130,10 @@ var SCHEMA = {
       { id: 'LR-006', reasonText: 'Part not available in time', appliesTo: 'Spare', active: 'TRUE' }
     ]
   },
+  Telemetry: {
+    label: 'How long each server call took and how much it read — written only while timing is on',
+    columns: ['id', 'at', 'userEmail', 'fn', 'ms', 'tabsRead', 'rowsRead', 'widestRead', 'error']
+  },
   AuditLog: {
     label: 'Every critical field change: who, when, old value, new value (FR-061)',
     columns: ['id', 'timestamp', 'userEmail', 'action', 'tableName', 'recordId', 'fieldName', 'oldValue', 'newValue', 'reason']

@@ -233,6 +233,11 @@
      them all. Every backdrop shares one z-index, which left DOM order deciding — and the
      dialog is declared early, so it landed underneath and its buttons could not be clicked. */
   #ask-modal-backdrop{ z-index:90; }
+  /* The same trap, one level down: a window opened from inside another window — adding a
+     customer from an enquiry — also lost to DOM order, and landed behind the one it was
+     opened from. It was visible through the dimming, which made it look available, and every
+     click went to the backdrop in front of it. Set when a modal opens over another. */
+  .modal-backdrop.modal-stacked{ z-index:70; }
   .modal{ background:#fff; border-radius:6px; max-width:640px; width:100%; padding:24px; box-shadow:0 20px 50px rgba(18,35,61,.3); }
 
   /* The printed quotation, shown exactly as it will be converted. A white page on a grey

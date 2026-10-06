@@ -1,3 +1,8 @@
 # Screenshots from the headless-browser checks. They are evidence for one run, not
 # source: the repository holds what clasp pushes to the Apps Script project.
 *.png
+
+# Playwright for the browser tests. Installed on demand, never committed:
+#   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save playwright
+node_modules/
+package-lock.json
