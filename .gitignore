@@ -6,3 +6,7 @@
 #   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save playwright
 node_modules/
 package-lock.json
+
+# Price lists and other client data prepared for import. Commercially sensitive and not
+# source: the repository holds what clasp pushes, not what ELGi charge for a separator.
+imports/
