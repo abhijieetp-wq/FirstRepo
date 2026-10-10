@@ -10,3 +10,8 @@ package-lock.json
 # Price lists and other client data prepared for import. Commercially sensitive and not
 # source: the repository holds what clasp pushes, not what ELGi charge for a separator.
 imports/
+
+# The deployment practice app. Its own project, pushed to its own repo — it only lives here
+# so it can be handed over.
+hello-deploy/
+hello-deploy.tar.gz
