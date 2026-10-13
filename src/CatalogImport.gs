@@ -191,6 +191,9 @@ function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
     (analysis.chunked ? ' (rows ' + (analysis.fromRow + 1) + '–' + analysis.nextRow + ' of ' +
       analysis.totalRows + ')' : ''));
 
+  // A chunk has just changed the catalogue, so the answers derived from it are stale.
+  invalidateCatalogCaches_();
+
   return {
     newCount: analysis.creates.length,
     updateCount: analysis.updates.length,

@@ -831,6 +831,12 @@
       <div class="field"><label>HSN Code</label><input id="pm-hsn" class="mono" /></div>
     </div>
     <div class="field" style="margin-top:12px;"><label>Description *</label><input id="pm-description" /></div>
+    <div class="field" style="margin-top:12px;">
+      <label>Product Group</label>
+      <!-- Shares the quotation picker's datalist rather than keeping a second copy: one
+           list, filled once per session, and no way for the two to disagree. -->
+      <input id="pm-group" list="productgroups-list" placeholder="e.g. RCD Spares, OFSAC" />
+    </div>
     <div class="grid grid-3" style="margin-top:12px;">
       <div class="field"><label>Category</label><input id="pm-category" placeholder="e.g. Filter, Belt" /></div>
       <div class="field"><label>UoM</label><input id="pm-unit" placeholder="Nos / Set" value="Nos" /></div>

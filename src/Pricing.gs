@@ -50,10 +50,26 @@ function priceRowActiveOn_(row, asOf) {
 /**
  * Builds { itemId: { PIE: {...}, ELGI: {...} } } for one item type in a single read.
  * Callers that need prices for a whole catalog page use this rather than querying per row.
+ *
+ * `onlyIds` narrows the map to the items the caller will actually use. The read is the same
+ * one round trip either way — the saving is in not constructing an entry for every part in
+ * the catalogue when the answer is about fifty of them. The part search was doing exactly
+ * that on every keystroke: thirteen thousand parts' worth of price objects, built, sorted
+ * past, and dropped.
  */
-function priceMapFor_(itemType, asOf) {
+function priceMapFor_(itemType, asOf, onlyIds) {
   var when = asOf || todayIso_();
   var map = {};
+  var wanted = null;
+  if (onlyIds) {
+    wanted = {};
+    // Accepts either a list of ids or a set already keyed by id, because both callers exist.
+    if (Object.prototype.toString.call(onlyIds) === '[object Array]') {
+      onlyIds.forEach(function (id) { wanted[String(id)] = true; });
+    } else {
+      Object.keys(onlyIds).forEach(function (id) { wanted[String(id)] = true; });
+    }
+  }
 
   // Deliberately not readTable_. That builds an object for every row and normalizes every
   // cell, and this table is the largest in the sheet — two prices for each of 13,000 parts.
@@ -88,6 +104,7 @@ function priceMapFor_(itemType, asOf) {
     if (to && when > to) continue;
 
     var itemId = row[ci.itemId];
+    if (wanted && !wanted.hasOwnProperty(String(itemId))) continue;
     var level = row[ci.priceLevel];
     if (!map[itemId]) map[itemId] = {};
     var existing = map[itemId][level];

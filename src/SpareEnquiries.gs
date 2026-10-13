@@ -217,15 +217,60 @@ function resolveEnquiryContact_(input, user) {
  * on. On a catalogue of a few dozen parts that was a nicety; on thirteen thousand it is how
  * the counter actually works, because that is the term the customer uses on the phone.
  */
-/** The product groups actually present in the catalogue, for the picker's dropdown. */
+/**
+ * The product groups actually present in the catalogue, for the picker's dropdown.
+ *
+ * Ten or so strings, derived from every row in the catalogue. The screen asks for them once
+ * per session, which meant one full read of thirteen thousand parts per person per day to
+ * populate a dropdown whose contents change twice a year — when ELGi sends a new price list.
+ *
+ * So it is cached for the company rather than computed per person, and the import clears it
+ * (see invalidateCatalogCaches_), which is the only thing that can change the answer other
+ * than someone editing a single part's group by hand. An hour of staleness in that case is
+ * the cost, and a stale dropdown shows one group too few until it expires — it cannot show a
+ * wrong price or lose a part, because the search itself never consults this list.
+ */
+var PRODUCT_GROUPS_KEY_ = 'catalog:productGroups:Spare';
+var PRODUCT_GROUPS_SECONDS_ = 3600;
+
 function listProductGroups() {
   getCurrentUser();
+
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (err) { cache = null; }
+  if (cache) {
+    var hit = cache.get(PRODUCT_GROUPS_KEY_);
+    if (hit) {
+      try { return JSON.parse(hit); } catch (e) { /* corrupt entry, rebuilt below */ }
+    }
+  }
+
+  var groups = readProductGroups_();
+  if (cache) {
+    try { cache.put(PRODUCT_GROUPS_KEY_, JSON.stringify(groups), PRODUCT_GROUPS_SECONDS_); }
+    catch (e) { /* over the cache limit — correct either way, just recomputed next time */ }
+  }
+  return groups;
+}
+
+/** The scan itself. One column, by position, rather than an object per part. */
+function readProductGroups_() {
+  var sheet = getSheet_('Spares');
+  if (!sheet) return [];
+  var headers = getHeaders_(sheet, 'Spares');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2 || !headers.length) return [];
+
+  var col = headers.indexOf('productGroup');
+  if (col === -1) return [];
+
+  var column = sheet.getRange(2, col + 1, lastRow - 1, 1).getValues();
   var seen = {};
-  readTable_('Spares').forEach(function (s) {
-    String(s.productGroup || '').split(/\s*[;,]\s*/).forEach(function (g) {
+  for (var r = 0; r < column.length; r++) {
+    String(column[r][0] || '').split(/\s*[;,]\s*/).forEach(function (g) {
       if (g.trim()) seen[g.trim()] = true;
     });
-  });
+  }
   return Object.keys(seen).sort();
 }
 
@@ -246,11 +291,18 @@ function suggestSpares(query, productModel, productGroup) {
     });
   }
 
-  var prices = priceMapFor_('Spare');
-  var onHand = stockOnHandMap_('Spare');
-  var reserved = stockReservedMap_('Spare');
-
-  var results = [];
+  // Match first, price second.
+  //
+  // Prices, on-hand and reservations used to be built for the entire catalogue before a
+  // single part had been matched — a map over every price row in the sheet, and a sum over
+  // every stock movement ever recorded, to decorate the fifty rows that survive. On a
+  // catalogue of a few dozen parts nobody would have noticed. On thirteen thousand it is the
+  // most expensive thing the counter does, and it does it on every search.
+  //
+  // The matching itself needs none of that: it looks at part number, description, category,
+  // group and compatibility, all of which live on the part. So the filter and the cap run
+  // first, and only the survivors are looked up.
+  var matched = [];
   readTable_('Spares').forEach(function (s) {
     if (String(s.active).toUpperCase() === 'FALSE') return;
     var id = String(s.id);
@@ -265,8 +317,28 @@ function suggestSpares(query, productModel, productGroup) {
     if (!matchesText && !isCompatible) return;
     if (q && !matchesText) return;
 
+    matched.push({ spare: s, id: id, compatibilityConfirmed: isCompatible });
+  });
+
+  // Confirmed-compatible parts first; then alphabetically so results are stable. Sorting
+  // and capping before the lookups is the whole point — the cap is what makes them cheap.
+  var top = matched.sort(function (a, b) {
+    if (a.compatibilityConfirmed !== b.compatibilityConfirmed) return a.compatibilityConfirmed ? -1 : 1;
+    return String(a.spare.partNo).localeCompare(String(b.spare.partNo));
+  }).slice(0, 50);
+
+  if (!top.length) return [];
+
+  var ids = top.map(function (m) { return m.id; });
+  var prices = priceMapFor_('Spare', null, ids);
+  var onHand = stockOnHandMap_('Spare', ids);
+  var reserved = stockReservedMap_('Spare', ids);
+
+  return top.map(function (m) {
+    var s = m.spare;
+    var id = m.id;
     var levels = prices[id] || {};
-    results.push({
+    return {
       id: s.id,
       partNo: s.partNo,
       description: s.description,
@@ -279,16 +351,10 @@ function suggestSpares(query, productModel, productGroup) {
       onHand: onHand[id] || 0,
       reserved: reserved[id] || 0,
       available: (onHand[id] || 0) - (reserved[id] || 0),
-      compatibilityConfirmed: isCompatible,
-      isServiceKit: isCompatible && compatibleIds[id].isServiceKit
-    });
+      compatibilityConfirmed: m.compatibilityConfirmed,
+      isServiceKit: m.compatibilityConfirmed && compatibleIds[id].isServiceKit
+    };
   });
-
-  // Confirmed-compatible parts first; then alphabetically so results are stable.
-  return results.sort(function (a, b) {
-    if (a.compatibilityConfirmed !== b.compatibilityConfirmed) return a.compatibilityConfirmed ? -1 : 1;
-    return String(a.partNo).localeCompare(String(b.partNo));
-  }).slice(0, 50);
 }
 
 function saveSpareEnquiryItem(input) {

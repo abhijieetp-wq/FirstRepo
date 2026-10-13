@@ -1107,6 +1107,10 @@
     setMasterRowButtons("part", id ? s : null);
     $("pm-id").value = id || "";
     $("pm-partno").value = s ? s.partNo : "";
+    $("pm-group").value = s ? (s.productGroup || "") : "";
+    // The groups already in the catalogue, offered as suggestions rather than enforced —
+    // a new ELGi group should not need a code change to be typeable.
+    loadProductGroups();
     $("pm-category").value = s ? (s.category || "") : "";
     $("pm-description").value = s ? s.description : "";
     $("pm-unit").value = s ? (s.uom || "Nos") : "Nos";
@@ -1130,6 +1134,7 @@
       id: $("pm-id").value || null,
       partNo: $("pm-partno").value.trim(),
       description: $("pm-description").value.trim(),
+      productGroup: $("pm-group").value.trim(),
       category: $("pm-category").value.trim(),
       uom: $("pm-unit").value.trim() || "Nos",
       gstPct: $("pm-gst").value,

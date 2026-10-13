@@ -76,6 +76,28 @@ function listSpares(includeInactive) {
  * they are written through Pricing/Stock so they land in the right ledgers rather than as
  * columns on this row.
  */
+/**
+ * Drops the derived catalogue answers that are cached for the whole company.
+ *
+ * Two things are cached across users because they are expensive to derive and almost never
+ * change: the product-group list and the below-reorder count. "Almost never" is doing real
+ * work in that sentence, so anything that edits the catalogue says so here rather than
+ * leaving the office looking at an answer from before the change.
+ *
+ * Failing to clear a cache must never fail the save that prompted it. The worst case is a
+ * dropdown an hour out of date; the save itself is already committed and is the thing that
+ * matters.
+ */
+function invalidateCatalogCaches_() {
+  try {
+    var cache = CacheService.getScriptCache();
+    cache.remove(PRODUCT_GROUPS_KEY_);
+    cache.remove(BELOW_REORDER_KEY_);
+  } catch (err) {
+    try { console.warn('Catalog cache not cleared: ' + err.message); } catch (e2) { /* nothing */ }
+  }
+}
+
 function saveSpare(input) {
   var user = getCurrentUser();
   requireRole_(user, CATALOG_EDITORS);
@@ -94,6 +116,13 @@ function saveSpare(input) {
     partNo: partNo,
     hsnCode: String(input.hsnCode || '').trim(),
     description: description,
+    // The group ELGi files the part under — RCD Spares, OFSAC, EPSAC Airend. It was written
+    // by the bulk import and displayed in the list, but the form never sent it and this
+    // never saved it, so a part added by hand had no group at all. On a catalogue of a few
+    // dozen that was cosmetic. On thirteen thousand the group is the first thing the counter
+    // narrows by, because it is the word the customer uses on the phone — so a part without
+    // one is a part nobody finds.
+    productGroup: String(input.productGroup || '').trim(),
     category: String(input.category || '').trim(),
     brand: String(input.brand || 'ELGI').trim(),
     uom: String(input.uom || 'Nos').trim() || 'Nos',
@@ -131,6 +160,7 @@ function saveSpare(input) {
       notes: 'Opening balance entered when the part was created'
     });
   }
+  invalidateCatalogCaches_();
   return record;
 }
 
@@ -145,6 +175,7 @@ function deleteSpare(id, reason) {
   var user = getCurrentUser();
   requireRole_(user, MASTER_EDITORS);
   updateRowById_('Spares', 'id', id, { active: 'FALSE' }, reason || 'Spare deactivated');
+  invalidateCatalogCaches_();
   return true;
 }
 

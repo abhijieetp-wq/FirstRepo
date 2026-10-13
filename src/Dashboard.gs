@@ -76,9 +76,9 @@ function buildDashboard_(stream, user) {
   var followups = readTable_('CollectionFollowups');
   var grns = readTable_('GRNs');
   var customers = readTable_('Customers');
-  var spares = readTable_('Spares');
-  var reservations = readTable_('StockReservations');
-  var movements = readTable_('StockMovements');
+  // Spares, StockMovements and StockReservations were read here. StockReservations was
+  // passed through and never used by anything. The other two existed for one exception tile
+  // and now live behind belowReorderCount_, which caches — see the note on it.
 
   var inStream = function (row) { return !stream || row.businessStream === stream; };
   var streamOrders = orders.filter(inStream);
@@ -171,8 +171,7 @@ function buildDashboard_(stream, user) {
     exceptions: buildExceptions_(stream, {
       orders: streamOrders, orderItems: orderItems, dispatches: dispatches,
       invoices: invoices, openInvoices: openInvoices, followups: followups,
-      grns: grns, quotations: streamQuotes, spares: spares,
-      movements: movements, reservations: reservations, today: today
+      grns: grns, quotations: streamQuotes, today: today
     }),
     orderPipeline: buildOrderPipeline_(streamOrders),
     funnel: stream === STREAM_SPARE ? [] : buildFunnel_(opportunities),
@@ -292,21 +291,10 @@ function buildExceptions_(stream, d) {
   });
 
   if (stream !== STREAM_COMPRESSOR) {
-    var onHand = {};
-    d.movements.forEach(function (m) {
-      if (m.itemType !== 'Spare') return;
-      onHand[String(m.itemId)] = (onHand[String(m.itemId)] || 0) + (Number(m.qty) || 0);
-    });
-    var belowReorder = d.spares.filter(function (sp) {
-      if (String(sp.active).toUpperCase() === 'FALSE') return false;
-      var level = Number(sp.reorderLevel);
-      if (!(level > 0)) return false;
-      return (onHand[String(sp.id)] || 0) < level;
-    });
     add({
       key: 'belowReorder', label: 'Spares below reorder level',
       detail: 'On hand has fallen under the level set on the part',
-      count: belowReorder.length, value: 0,
+      count: belowReorderCount_(), value: 0,
       severity: EXCEPTION_SEVERITY.WARNING, view: 'inventory'
     });
   }
