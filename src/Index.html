@@ -11,6 +11,14 @@
   <div class="card">
     <h3 style="margin-bottom:10px;">Loading…</h3>
     <p style="color:var(--ink-soft); font-size:13px;">Checking your session.</p>
+    <!-- Shown only once the wait is long enough to be worrying. A screen that says nothing
+         for fifteen seconds is indistinguishable from one that has broken, and people react
+         to the two the same way: they reload, which starts the wait again. -->
+    <p id="boot-slow" style="display:none; color:var(--ink-soft); font-size:12.5px;
+       margin:12px 0 0; line-height:1.5;">
+      The first load after a quiet spell takes a few seconds while Google starts the portal
+      up. It is quick from here on — no need to refresh.
+    </p>
   </div>
 </div>
 

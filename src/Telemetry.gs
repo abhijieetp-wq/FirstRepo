@@ -267,6 +267,15 @@ function getTelemetryReport() {
 
   return {
     on: telemetryOn_(),
+    // Whether the keep-warm trigger was running. Without it on the report, a reader a month
+    // from now cannot tell whether a set of fast bootstraps was the experiment working or
+    // simply a busy week. Guarded by typeof for the same reason telemetryWho_ is: a test
+    // that loads a subset of the files should not fail on a module it did not ask for.
+    keepWarm: (function () {
+      try {
+        return typeof keepWarmInstalled_ === 'function' ? keepWarmInstalled_() : false;
+      } catch (err) { return false; }
+    })(),
     samples: rows.length,
     from: rows.length ? String(rows[0].at || '').slice(0, 16).replace('T', ' ') : '',
     to: rows.length ? String(rows[rows.length - 1].at || '').slice(0, 16).replace('T', ' ') : '',

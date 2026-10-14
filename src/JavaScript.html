@@ -10097,7 +10097,12 @@
             '<div class="kpi-value">' + fmtInt(r.overallP95Ms) + " ms</div></div>" +
           '<div class="kpi-card"><div class="kpi-label">Measured</div>' +
             '<div style="font-size:12px; font-weight:600; color:var(--navy); margin-top:4px;">' +
-            escapeHtml(r.from) + "<br>to " + escapeHtml(r.to) + "</div></div>" +
+            escapeHtml(r.from) + "<br>to " + escapeHtml(r.to) +
+            // Which experiment these numbers belong to. Comparing a week against a week is
+            // worthless if you cannot tell what was switched on during each of them.
+            '<div style="font-weight:500; color:var(--ink-soft); margin-top:6px;">' +
+            (r.keepWarm ? "keep-warm on" : "keep-warm off") + "</div>" +
+            "</div></div>" +
         "</div>" +
         '<div style="overflow-x:auto;"><table><thead><tr>' +
           "<th>Action</th><th class=\"num\">Calls</th><th class=\"num\">Total</th>" +
@@ -10545,6 +10550,7 @@
 
   // ---------------- Boot ----------------
   function onBootSuccess(user) {
+    bootWaited();
     currentUser = user;
     if (user.appName) {
       $("app-name").textContent = user.appName;
@@ -10607,6 +10613,7 @@
   }
 
   function onBootFailure(err) {
+    bootWaited();
     var text = err && err.message ? err.message : String(err);
     // No session, or one that has lapsed, is not a fault — it is somebody arriving.
     if (/SESSION_ENDED/.test(text)) { showSignIn(""); return; }
@@ -10802,10 +10809,26 @@
     }).changeMyPassword($("pw-current").value, next);
   });
 
+  /**
+   * Four seconds is the point at which a silent screen stops reading as "loading" and starts
+   * reading as "broken". Shown then rather than immediately, so the usual warm load — which
+   * is well under a second — never mentions a slowness nobody experienced.
+   */
+  var bootSlowTimer = null;
+  function bootWaited() {
+    if (bootSlowTimer) { clearTimeout(bootSlowTimer); bootSlowTimer = null; }
+    var el = $("boot-slow");
+    if (el) el.style.display = "none";
+  }
+
   function init() {
     if (!sessionToken) { showSignIn(""); return; }
     $("signin-screen").style.display = "none";
     $("boot-screen").style.display = "flex";
+    bootSlowTimer = setTimeout(function () {
+      var el = $("boot-slow");
+      if (el) el.style.display = "";
+    }, 4000);
     srv.withSuccessHandler(onBootSuccess).withFailureHandler(onBootFailure).bootstrap();
   }
 

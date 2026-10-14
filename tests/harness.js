@@ -166,6 +166,30 @@ function load(files, props) {
     UrlFetchApp: {
       fetch: () => ({ getResponseCode: () => 200, getContentText: () => '' })
     },
+    // Project triggers, as a list. Enough to install one, find it and delete it — which is
+    // the whole of what the keep-warm experiment does to the project.
+    ScriptApp: {
+      getProjectTriggers: () => sandbox.__triggers.slice(),
+      deleteTrigger: (t) => {
+        const i = sandbox.__triggers.indexOf(t);
+        if (i !== -1) sandbox.__triggers.splice(i, 1);
+      },
+      newTrigger: (fn) => {
+        const spec = { fn, minutes: null };
+        const builder = {
+          timeBased: () => builder,
+          everyMinutes: (n) => { spec.minutes = n; return builder; },
+          create: () => {
+            const t = { getHandlerFunction: () => spec.fn, minutes: spec.minutes };
+            sandbox.__triggers.push(t);
+            return t;
+          }
+        };
+        return builder;
+      },
+      getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' })
+    },
+    __triggers: [],
     __sent: []
   };
 
