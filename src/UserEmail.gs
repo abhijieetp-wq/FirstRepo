@@ -86,7 +86,7 @@ function userEmailMatches_(tab, column, address) {
   if (!sheet) return [];
   var headers = getHeaders_(sheet, tab);
   var col = headers.indexOf(column);
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_(tab, sheet);
   if (col === -1 || lastRow < 2) return [];
 
   var values = sheet.getRange(2, col + 1, lastRow - 1, 1).getValues();
@@ -117,7 +117,7 @@ function rewriteUserEmailColumn_(tab, column, oldEmail, newEmail) {
   if (!sheet) return 0;
   var headers = getHeaders_(sheet, tab);
   var col = headers.indexOf(column);
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_(tab, sheet);
   if (col === -1 || lastRow < 2) return 0;
 
   var range = sheet.getRange(2, col + 1, lastRow - 1, 1);

@@ -405,7 +405,7 @@ function purgeSpares(confirmText) {
   var headers = getHeaders_(sheet, 'Spares');
   var idCol = headers.indexOf('id');
   var activeCol = headers.indexOf('active');
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_('Spares', sheet);
   var block = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
 
   var survivors = block.filter(function (row) {
@@ -584,7 +584,7 @@ function purgeSparesWithDocuments(confirmText) {
 
   var sheet = getSheet_('Spares');
   var headers = getHeaders_(sheet, 'Spares');
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_('Spares', sheet);
   invalidateTable_('Spares');
   if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
 

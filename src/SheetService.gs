@@ -24,15 +24,69 @@ var HEADER_CACHE_ = {};
 // fresh on every readTable_ call, so a caller that mutates a row cannot affect the next one —
 // what is saved is the round trip, not the work.
 var TABLE_CACHE_ = {};
+/**
+ * How many rows and columns a tab has, per tab, for the life of the request.
+ *
+ * getLastRow() and getLastColumn() are not free — each one crosses into the Sheets service
+ * like any other call. Counting the operations in a single saveSpareEnquiry found fourteen,
+ * and five of them were these two asking the same questions over again: three getLastRow on
+ * CustomerContacts, two on SpareEnquiries. Nothing in between had changed the answer.
+ *
+ * Same contract as the caches above — it cannot outlive the request that filled it, and
+ * every write keeps it in step rather than dropping it, because a save that then has to
+ * re-measure the tab has spent the round trip it just saved.
+ */
+var DIM_CACHE_ = {};
 
 /** Forgets a tab's cached headers. Called wherever a column is added or the tab is rebuilt. */
 function invalidateHeaders_(name) {
   if (name === undefined) {
-    HEADER_CACHE_ = {}; SHEET_CACHE_ = {}; TABLE_CACHE_ = {};
+    HEADER_CACHE_ = {}; SHEET_CACHE_ = {}; TABLE_CACHE_ = {}; DIM_CACHE_ = {};
     return;
   }
   delete HEADER_CACHE_[name];
   delete TABLE_CACHE_[name];
+  delete DIM_CACHE_[name];
+}
+
+/**
+ * How many rows the tab has, asked once.
+ *
+ * Deliberately not derived from TABLE_CACHE_ even when that holds the block: the two are
+ * filled by different paths and a caller that has the dimensions but not the block is
+ * ordinary. Keeping them separate means neither has to know about the other.
+ */
+function sheetRows_(sheetName, sheet) {
+  var d = DIM_CACHE_[sheetName];
+  if (d && d.rows !== undefined) return d.rows;
+  var n = (sheet || getSheet_(sheetName)).getLastRow();
+  if (!DIM_CACHE_[sheetName]) DIM_CACHE_[sheetName] = {};
+  DIM_CACHE_[sheetName].rows = n;
+  return n;
+}
+
+/** The same for width, which only moves when a column is added. */
+function sheetCols_(sheetName, sheet) {
+  var d = DIM_CACHE_[sheetName];
+  if (d && d.cols !== undefined) return d.cols;
+  var n = (sheet || getSheet_(sheetName)).getLastColumn();
+  if (!DIM_CACHE_[sheetName]) DIM_CACHE_[sheetName] = {};
+  DIM_CACHE_[sheetName].cols = n;
+  return n;
+}
+
+/**
+ * Keeps the row count in step with a write, or forgets it.
+ *
+ * `delta` of undefined means "I no longer know", which is the honest answer after anything
+ * that moves rows in bulk. A count left cached and wrong is worse than one re-measured: the
+ * next append would land on top of a real row.
+ */
+function noteRowCount_(sheetName, delta) {
+  var d = DIM_CACHE_[sheetName];
+  if (!d || d.rows === undefined) return;
+  if (delta === undefined) { delete d.rows; return; }
+  d.rows += delta;
 }
 
 /**
@@ -42,8 +96,11 @@ function invalidateHeaders_(name) {
  * do harm. Called with no argument it drops everything, which is what the bulk operations do.
  */
 function invalidateTable_(name) {
-  if (name === undefined) { TABLE_CACHE_ = {}; return; }
+  // A write that gives up on the block has usually also moved the row count, and the caller
+  // reaching for this is the one that no longer knows what changed.
+  if (name === undefined) { TABLE_CACHE_ = {}; DIM_CACHE_ = {}; return; }
   delete TABLE_CACHE_[name];
+  delete DIM_CACHE_[name];
 }
 
 /**
@@ -70,6 +127,8 @@ function cacheRowWritten_(sheetName, rowNum, values) {
 
 /** The same, for a row added at the end. */
 function cacheRowAppended_(sheetName, values) {
+  // Before the early return below: the row count moved whether or not the block was held.
+  noteRowCount_(sheetName, 1);
   var cached = TABLE_CACHE_[sheetName];
   if (!cached) return;
   if (!cached[0] || values.length !== cached[0].length) {
@@ -81,6 +140,7 @@ function cacheRowAppended_(sheetName, values) {
 
 /** And for a row taken out, which moves every row below it up one. */
 function cacheRowRemoved_(sheetName, rowNum) {
+  noteRowCount_(sheetName, -1);
   var cached = TABLE_CACHE_[sheetName];
   if (!cached) return;
   var i = rowNum - 1;
@@ -121,7 +181,7 @@ function getSheet_(name) {
 function getHeaders_(sheet, name) {
   var key = name === undefined ? sheet.getName() : name;
   if (HEADER_CACHE_.hasOwnProperty(key)) return HEADER_CACHE_[key];
-  var lastCol = sheet.getLastColumn();
+  var lastCol = sheetCols_(key, sheet);
   if (lastCol === 0) return [];
   var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
     return String(h).trim();
@@ -141,8 +201,8 @@ function normalizeCell_(v) {
  *  Each object also carries `_row`, the 1-indexed sheet row, for later update/delete calls. */
 function readTable_(sheetName) {
   var sheet = getSheet_(sheetName);
-  var lastRow = sheet.getLastRow();
-  var lastCol = sheet.getLastColumn();
+  var lastRow = sheetRows_(sheetName, sheet);
+  var lastCol = sheetCols_(sheetName, sheet);
   if (lastCol === 0) return [];
 
   // One round trip, not two. The header row used to be fetched separately from the body,
@@ -222,7 +282,9 @@ function appendRow_(sheetName, obj, auditReason) {
     sheet.appendRow(row);
     cacheRowAppended_(sheetName, row);
     audit_('Create', sheetName, obj.id || '', '', '', '', auditReason);
-    return sheet.getLastRow();
+    // The row number is known: the append just moved it. Asking the sheet again was a round
+    // trip spent confirming arithmetic.
+    return sheetRows_(sheetName, sheet);
   } finally {
     lock.releaseLock();
   }
@@ -237,7 +299,7 @@ function updateRowById_(sheetName, idField, idValue, patch, auditReason) {
     var idCol = headers.indexOf(idField);
     if (idCol === -1) throw new Error('Column "' + idField + '" not found in ' + sheetName);
     assertWritableFields_(sheetName, headers, patch);
-    var lastRow = sheet.getLastRow();
+    var lastRow = sheetRows_(sheetName, sheet);
     if (lastRow < 2) throw new Error('No rows in ' + sheetName + ' yet.');
     // The tab is usually already in hand — the caller read it to decide on this very update.
     // When it is, finding the row and reading its current values costs nothing; when it is
@@ -282,7 +344,7 @@ function deleteRowById_(sheetName, idField, idValue, auditReason) {
     var headers = getHeaders_(sheet, sheetName);
     var idCol = headers.indexOf(idField);
     if (idCol === -1) throw new Error('Column "' + idField + '" not found in ' + sheetName);
-    var lastRow = sheet.getLastRow();
+    var lastRow = sheetRows_(sheetName, sheet);
     if (lastRow < 2) throw new Error('No rows in ' + sheetName + ' yet.');
     var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
     for (var i = 0; i < ids.length; i++) {
@@ -346,7 +408,7 @@ function deleteRowsWhere_(sheetName, matches, auditReason) {
   try {
     var sheet = getSheet_(sheetName);
     var headers = getHeaders_(sheet, sheetName);
-    var lastRow = sheet.getLastRow();
+    var lastRow = sheetRows_(sheetName, sheet);
     if (lastRow < 2 || !headers.length) return 0;
 
     var block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
@@ -386,12 +448,29 @@ function deleteRowsWhere_(sheetName, matches, auditReason) {
 function findRowById_(sheetName, idValue) {
   var sheet = getSheet_(sheetName);
   var headers = getHeaders_(sheet, sheetName);
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_(sheetName, sheet);
   var idCol = headers.indexOf('id');
   if (lastRow < 2 || idCol === -1) return null;
 
-  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  // Served from the block in hand when something has already read the tab this request —
+  // the same bargain updateRowById_ and columnMap_ already make, and this was the one path
+  // that did not. saveSpareEnquiry on an edit reads the tab and then came straight back here
+  // for one row of it, paying two more round trips for rows it was already holding.
+  var cached = TABLE_CACHE_[sheetName];
   var want = String(idValue);
+
+  if (cached) {
+    for (var c = 1; c < cached.length; c++) {
+      if (String(cached[c][idCol]) !== want) continue;
+      var hit = {};
+      headers.forEach(function (h, idx) { hit[h] = normalizeCell_(cached[c][idx]); });
+      hit._row = c + 1;
+      return hit;
+    }
+    return null;
+  }
+
+  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
   for (var i = 0; i < ids.length; i++) {
     if (String(ids[i][0]) !== want) continue;
     var row = sheet.getRange(i + 2, 1, 1, headers.length).getValues()[0];
@@ -433,7 +512,7 @@ function columnMap_(sheetName, keyColumn, valueColumn) {
     return out;
   }
 
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_(sheetName, sheet);
   if (lastRow < 2) return out;
 
   var lo = Math.min(keyCol, valCol);
@@ -466,7 +545,7 @@ function columnMap_(sheetName, keyColumn, valueColumn) {
 function findRowsByColumn_(sheetName, column, values) {
   var sheet = getSheet_(sheetName);
   var headers = getHeaders_(sheet, sheetName);
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_(sheetName, sheet);
   var col = headers.indexOf(column);
   if (lastRow < 2 || col === -1) return [];
 
@@ -569,13 +648,13 @@ function appendRows_(sheetName, objs, auditReason) {
         return obj.hasOwnProperty(h) && obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
       });
     });
-    var start = sheet.getLastRow() + 1;
+    var start = sheetRows_(sheetName, sheet) + 1;
     sheet.getRange(start, 1, rows.length, headers.length).setValues(rows);
     rows.forEach(function (r) { cacheRowAppended_(sheetName, r); });
     objs.forEach(function (obj) {
       audit_('Create', sheetName, obj.id || '', '', '', '', auditReason);
     });
-    return sheet.getLastRow();
+    return sheetRows_(sheetName, sheet);
   } finally {
     lock.releaseLock();
   }
@@ -675,7 +754,9 @@ function auditMany_(entries) {
       });
     });
     invalidateTable_(AUDIT_TAB);
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+    var at = sheetRows_(AUDIT_TAB, sheet) + 1;
+    sheet.getRange(at, 1, rows.length, headers.length).setValues(rows);
+    noteRowCount_(AUDIT_TAB, rows.length);
   } catch (err) {
     Logger.log('Audit batch write failed: ' + err.message);
   }

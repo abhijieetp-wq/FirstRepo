@@ -79,7 +79,7 @@ function priceMapFor_(itemType, asOf, onlyIds) {
   // for half a minute while it loads.
   var sheet = getSheet_('PriceList');
   var headers = getHeaders_(sheet, 'PriceList');
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_('PriceList', sheet);
   if (lastRow < 2 || !headers.length) return map;
 
   var ci = {};
@@ -156,7 +156,7 @@ function getEffectivePrices_(itemType, itemIds, priceLevel, asOf) {
 
   var sheet = getSheet_('PriceList');
   var headers = getHeaders_(sheet, 'PriceList');
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_('PriceList', sheet);
   var idCol = headers.indexOf('itemId');
   if (lastRow < 2 || idCol === -1) return out;
 
@@ -233,7 +233,7 @@ function savePricesBulk_(entries, reason) {
   try {
     var sheet = getSheet_('PriceList');
     var headers = getHeaders_(sheet, 'PriceList');
-    var lastRow = sheet.getLastRow();
+    var lastRow = sheetRows_('PriceList', sheet);
 
     // One read. Index the open rows by item+level so superseding is a lookup, not a scan.
     var openRows = {};
@@ -300,7 +300,9 @@ function savePricesBulk_(entries, reason) {
       });
     });
     invalidateTable_('PriceList');
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+    var at = sheetRows_('PriceList', sheet) + 1;
+    sheet.getRange(at, 1, rows.length, headers.length).setValues(rows);
+    noteRowCount_('PriceList', rows.length);
 
     // One audit line for the batch: 26,000 would bury everything else in the log.
     audit_('Update', 'PriceList', '(bulk)', '', '',

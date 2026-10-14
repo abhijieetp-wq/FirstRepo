@@ -258,7 +258,7 @@ function readProductGroups_() {
   var sheet = getSheet_('Spares');
   if (!sheet) return [];
   var headers = getHeaders_(sheet, 'Spares');
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_('Spares', sheet);
   if (lastRow < 2 || !headers.length) return [];
 
   var col = headers.indexOf('productGroup');
@@ -492,7 +492,7 @@ function sparePickerData(productModel, customerId) {
   // One block read, and no object built for a row that will not be sent.
   var sheet = getSheet_('Spares');
   var headers = getHeaders_(sheet, 'Spares');
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_('Spares', sheet);
   var rows = [];
   if (lastRow > 1 && headers.length) {
     var ci = {};

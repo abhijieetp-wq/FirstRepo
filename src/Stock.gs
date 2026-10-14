@@ -121,7 +121,7 @@ function countBelowReorder_() {
   var sheet = getSheet_('Spares');
   if (!sheet) return 0;
   var headers = getHeaders_(sheet, 'Spares');
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheetRows_('Spares', sheet);
   if (lastRow < 2 || !headers.length) return 0;
 
   var ci = {};

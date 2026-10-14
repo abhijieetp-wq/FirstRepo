@@ -135,7 +135,7 @@ function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
 
     // One bulk write for changed existing rows.
     if (analysis.updates.length) {
-      var lastRow = sheet.getLastRow();
+      var lastRow = sheetRows_(spec.tab, sheet);
       var block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
       var activeCol = headers.indexOf('active');
       analysis.updates.forEach(function (u) {
@@ -170,7 +170,9 @@ function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
         });
       });
       invalidateTable_(spec.tab);
-      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, headers.length).setValues(newRows);
+      var at = sheetRows_(spec.tab, sheet) + 1;
+      sheet.getRange(at, 1, newRows.length, headers.length).setValues(newRows);
+      noteRowCount_(spec.tab, newRows.length);
     }
   } finally {
     lock.releaseLock();

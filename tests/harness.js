@@ -246,6 +246,73 @@ function cell(sb, name, id, column) {
   return row ? row[col] : undefined;
 }
 
+/**
+ * Counts what a call actually asked the spreadsheet for.
+ *
+ * Not reads-of-tabs — individual operations, because on this platform every one of them is a
+ * round trip and that is the unit the portal is slow in. getLastRow() looks free in the
+ * source and is not; counting one saveSpareEnquiry found fourteen operations, five of them
+ * the same two questions asked over again.
+ *
+ * Wraps getSheetByName only. getSheet_ goes through it, and so does the audit writer, so one
+ * door catches everything — wrapping both counted every operation twice, which is how the
+ * first measurement reported an append that was never happening.
+ */
+function countOps(sb) {
+  const ops = [];
+  const COUNTED = ['appendRow', 'getRange', 'getLastRow', 'getLastColumn', 'deleteRow',
+    'deleteRows', 'clear'];
+  const RANGE_OPS = ['getValues', 'setValues', 'clearContent', 'setValue', 'getValue'];
+
+  const wrapRange = (name, range) => new Proxy(range, {
+    get(t, k) {
+      const v = t[k];
+      if (typeof v !== 'function') return v;
+      return (...a) => {
+        if (RANGE_OPS.indexOf(String(k)) !== -1) ops.push(name + '.' + String(k));
+        return v.apply(t, a);
+      };
+    }
+  });
+
+  const wrapSheet = (name, sheet) => new Proxy(sheet, {
+    get(t, k) {
+      const v = t[k];
+      if (typeof v !== 'function') return v;
+      return (...a) => {
+        if (COUNTED.indexOf(String(k)) !== -1) ops.push(name + '.' + String(k));
+        const out = v.apply(t, a);
+        return String(k) === 'getRange' ? wrapRange(name, out) : out;
+      };
+    }
+  });
+
+  const realGet = sb.SpreadsheetApp.getActiveSpreadsheet;
+  sb.SpreadsheetApp.getActiveSpreadsheet = function () {
+    const ss = realGet.apply(null, arguments);
+    const byName = ss.getSheetByName;
+    ss.getSheetByName = (n) => { const sh = byName(n); return sh ? wrapSheet(n, sh) : sh; };
+    return ss;
+  };
+
+  return {
+    ops,
+    reset() {
+      ops.length = 0;
+      // The sheet cache holds objects fetched before the spy existed, and the header and
+      // dimension caches would answer from the last call. A measurement has to start cold
+      // or it measures the previous one.
+      if (sb.invalidateHeaders_) sb.invalidateHeaders_();
+    },
+    count(suffix) { return ops.filter((o) => o.indexOf(suffix) !== -1).length; },
+    tally() {
+      const out = {};
+      ops.forEach((o) => { out[o] = (out[o] || 0) + 1; });
+      return out;
+    }
+  };
+}
+
 /** A tiny assertion counter. Prints only failures; the tail line carries the score. */
 function checks() {
   let pass = 0;
@@ -270,4 +337,4 @@ function checks() {
   };
 }
 
-module.exports = { load, reset, table, rowsOf, liveRows, makeRow, cell, checks, SRC };
+module.exports = { load, reset, table, rowsOf, liveRows, makeRow, cell, checks, countOps, SRC };
