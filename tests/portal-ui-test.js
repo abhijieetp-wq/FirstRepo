@@ -118,6 +118,32 @@ const ok = (label, cond, detail) => {
   ok('and so are the config lists', count('getConfigLists') <= 1, all);
   ok('and the user list', count('listActiveUsers') <= 1, all);
 
+  // ---------------------------------------------------------------- the catalogue count
+
+  console.log('\nTHE CATALOGUE SAYS HOW MUCH IS IN IT');
+  await page.evaluate(() => document.querySelector('[data-view="catalog"]').click());
+  await page.waitForTimeout(600);
+
+  const countText = () => page.$eval('#catalog-count', (e) => e.textContent.trim());
+  // There was no count anywhere on this screen. With thirteen thousand parts loaded, the
+  // only way to check an import had landed was to open the spreadsheet and count a column.
+  ok('the total is on the screen', (await countText()) === '3 spares', await countText());
+
+  await page.fill('#catalog-search', 'separator');
+  await page.waitForTimeout(300);
+  // Both numbers while filtering: "1 spare" over a filtered table reads as a catalogue of one.
+  ok('a search shows both numbers', (await countText()) === '1 of 3 spares', await countText());
+
+  await page.fill('#catalog-search', 'nothingmatches');
+  await page.waitForTimeout(300);
+  ok('a search that finds nothing says so', (await countText()) === '0 of 3 spares',
+    await countText());
+
+  await page.fill('#catalog-search', '');
+  await page.waitForTimeout(300);
+  ok('and clearing it goes back to the total', (await countText()) === '3 spares',
+    await countText());
+
   ok('no page errors anywhere', errors.length === 0, errors);
 
   await browser.close();

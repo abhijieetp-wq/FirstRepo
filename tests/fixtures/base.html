@@ -62,6 +62,21 @@
     // cannot see it.
     findDuplicateCustomers: [],
     listSpareEnquiries: function () { return ENQUIRIES; },
+
+    // Three parts, so the catalogue header has something to count. The real tab holds
+    // 13,587, which is exactly why the count had to go on the screen at all.
+    listSpares: [
+      { id: "SP-1", partNo: "B010505390017", description: "Air oil separator",
+        productGroup: "RCD Spares", category: "Filter", uom: "Nos", price: 713,
+        active: "TRUE", onHand: 0, reserved: 0, available: 0, alternates: [], compatibility: [] },
+      { id: "SP-2", partNo: "959439", description: "Oil filter element",
+        productGroup: "OFSAC", category: "Filter", uom: "Nos", price: 154,
+        active: "TRUE", onHand: 0, reserved: 0, available: 0, alternates: [], compatibility: [] },
+      { id: "SP-3", partNo: "12437260", description: "Intake valve kit",
+        productGroup: "RCD Spares", category: "Kit", uom: "Set", price: 6233,
+        active: "TRUE", onHand: 0, reserved: 0, available: 0, alternates: [], compatibility: [] }
+    ],
+    listProducts: [],
     listProductGroups: [],
     listLostReasons: [],
     listKnownModels: [],

@@ -553,6 +553,7 @@
    */
   function catalogNotice(html) {
     $("catalog-thead").innerHTML = "";
+    $("catalog-count").textContent = "";
     $("catalog-tbody").innerHTML = '<tr><td><div class="empty" style="padding:22px;">' +
       html + "</div></td></tr>";
   }
@@ -629,6 +630,15 @@
     $("catalog-thead").innerHTML = "<tr><th class=\"checkbox-cell\"></th>" +
       cols.map(function (c) { return "<th" + (c.num ? ' class="num"' : "") + ">" + c.label + "</th>"; }).join("") +
       "<th></th></tr>";
+
+    // Both numbers when a search is narrowing, because "42 spares" over a filtered table
+    // reads as a catalogue of 42. Nothing at all when the list is empty — the empty state
+    // below says it better, and "0 spares" twice is noise.
+    var noun = CATALOG_MODE === "spares" ? "spare" : "compressor";
+    $("catalog-count").textContent = !rows.length ? ""
+      : filtered.length === rows.length
+        ? fmtInt(rows.length) + " " + noun + (rows.length === 1 ? "" : "s")
+        : fmtInt(filtered.length) + " of " + fmtInt(rows.length) + " " + noun + "s";
 
     if (filtered.length === 0) {
       // "No items match your search" over an empty catalogue sends people hunting for a
