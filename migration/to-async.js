@@ -89,6 +89,27 @@ function plan(name) {
           text: lineAt(code, node.loc.start.line) });
         return;
       }
+
+      // `await` is a prefix operator over the WHOLE expression that follows, so putting it
+      // at the front of a call whose result is then indexed into is wrong in a way that
+      // parses perfectly:
+      //
+      //    await readTable_(tab).filter(fn)   ->  await (promise.filter(fn))  -> TypeError
+      //    await stockOnHandMap_(t)[id] || 0  ->  await (promise[id]) || 0    -> silently 0
+      //
+      // The second is the one that matters. It throws nothing, reads as zero, and on-hand
+      // stock quietly becomes nil on every screen. Found by the verifier on the first run
+      // over eighteen files, which is the entire reason that check exists.
+      //
+      // When the call is the object of a member access, the await has to wrap the call
+      // itself: (await readTable_(tab)).filter(fn).
+      const parentIsMember = parent && parent.type === 'MemberExpression' &&
+        parent.object === node;
+      if (parentIsMember) {
+        inserts.push({ at: node.start, text: '(await ', what: '(await ' + callee + ')' });
+        inserts.push({ at: node.end, text: ')', what: '' });
+        return;
+      }
       inserts.push({ at: node.start, text: 'await ', what: 'await ' + callee });
     }
   });
@@ -142,6 +163,7 @@ function convert(name, write) {
     if (inserts.length) {
       console.log('\n  would insert:');
       inserts.slice().sort((a, b) => a.at - b.at).forEach((i) => {
+        if (!i.what) return;                       // the closing paren of a wrap
         const line = code.slice(0, i.at).split('\n').length;
         console.log('    ' + String(line).padStart(5) + '  ' + i.what);
       });

@@ -225,3 +225,56 @@ resolves** — no sleep, deliberately, because a sleep would let a missing `awai
 It also checks the module's own guards still work: switching the Google requirement on from
 a session with no Google account still refuses, which is the logic that stops an
 administrator locking themselves out.
+
+---
+
+## Converted so far
+
+**18 of 43 modules** — every file that needed no hand work:
+
+`CatalogComplete` `Code` `Config` `CustomerItemCodes` `Dashboard` `Documents` `GoogleGate`
+`QuotationDocument` `QuotationEmail` `QuotationJourney` `QuotationProgress` `SalesPolicy`
+`Service` `ServiceReport` `SpareEnquiries` `Stock` `Telemetry` `UserEmail`
+
+Checked by `tests/codemod-test.js`, five ways per file:
+
+1. **The logic is unchanged** — both files parsed, positions dropped, every `async` flag
+   cleared and every `await` unwrapped; the two trees must be identical.
+2. **Every comment survives** — compared in order. An AST comparison would not notice them
+   disappearing, and here they are the part that took longest.
+3. It parses.
+4. Exactly the functions the call graph named are async, and no others.
+5. Nothing asynchronous is called without being awaited.
+
+### What check 5 found on its first run
+
+A bug in the codemod, in eighteen files, of the worst available kind.
+
+`await` is a prefix operator over the *whole* expression that follows. So inserting it at the
+front of a call whose result is then indexed into is wrong in a way that parses perfectly:
+
+```js
+// generated, wrong
+var row    = await readTable_(tab).filter(fn);            // awaits promise.filter -> TypeError
+var onHand = await stockOnHandMap_(t)[id] || 0;           // awaits promise[id] -> undefined -> 0
+
+// generated, right
+var row    = (await readTable_(tab)).filter(fn);
+var onHand = (await stockOnHandMap_(t))[id] || 0;
+```
+
+The first throws. **The second does not** — it quietly evaluates to zero, and on-hand stock
+reads as nil on every screen that asks. No error, no log line, nothing to trace.
+
+That is precisely the failure this migration has to rule out, it was in the output of a tool
+that looked like it worked, and the only reason it is not in the code now is that something
+checked rather than assuming.
+
+It also broke the first version of the verifier, which compared text and flagged the added
+parentheses as a difference. Comparing trees instead is both more correct and simpler —
+parentheses do not exist in an AST.
+
+### Still to do
+
+19 modules with callbacks to unpick by hand, heaviest first: `Quotations` (11),
+`Dispatch` (8), `Spares` (6), `Billing` (6), `Session` (6), `TallyImport` (6).
