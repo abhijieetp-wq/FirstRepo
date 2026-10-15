@@ -15,3 +15,11 @@ imports/
 # so it can be handed over.
 hello-deploy/
 hello-deploy.tar.gz
+
+# Connection strings. server/.env holds the Neon password in plain text, and this tree has
+# had `git add -A` run in it, which is how the OAuth client secret nearly went to GitHub.
+# The patterns are here rather than in server/ so they hold wherever such a file lands.
+.env
+.env.*
+*.env
+secrets/

@@ -1,0 +1,732 @@
+/**
+ * Converted from src/Billing.gs by migration/to-async.js.
+ *
+ * Only two things changed: functions that reach storage are `async`, and the calls that
+ * reach it are `await`ed. Everything else — the logic, the names, the comments — is the
+ * original, because the original is the specification and reformatting it would make the
+ * diff unreadable at exactly the moment it needs to be read.
+ *
+ * Storage comes from server/shim.js, which keeps the old names (`readTable_`,
+ * `appendRow_`) pointing at db.js. If this file is edited from here on, edit this one —
+ * the .gs original stays frozen at the point of conversion so the live portal keeps running.
+ */
+/**
+ * Billing and invoicing — M15.
+ *
+ * An invoice is raised from what actually left the building, not from what was ordered
+ * (FR-048). The dispatch is therefore the source of the lines and the quantities; the order
+ * supplies the prices, taxes and terms. That separation is the whole point: short shipments
+ * invoice short, and nobody has to remember to edit the quantities by hand.
+ *
+ * Tally is the accounting system of record for the finished document (D3). This module writes
+ * every invoice with `tallySyncStatus = Pending` and provides the hooks to mark it Synced or
+ * Failed. The push itself is built and documented here but must be verified by the client's
+ * IT on their own network — Apps Script calls out from Google's servers, not from the office
+ * LAN, so we cannot integration-test it from here. Everything downstream (ageing, collections,
+ * the dispatched-not-invoiced control) works with zero Tally connectivity.
+ */
+
+var BILLING_ROLES = [ROLES.SALES_COORDINATOR, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+var BILLING_CANCEL_ROLES = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+
+var INVOICE_STATUSES = ['Draft', 'Issued', 'Cancelled'];
+var TALLY_SYNC_STATUSES = ['Pending', 'Synced', 'Failed', 'Not Required'];
+
+/** Days of credit implied by a payment-terms code, used only when the customer has none set. */
+var TERM_CREDIT_DAYS = { ADV100: 0, ADV_PART: 0, NET30: 30, NET45: 45, NET60: 60 };
+
+/**
+ * What a customer was actually billed.
+ *
+ * PIE raise their invoices in Tally, and what Tally printed is what the customer owes — not
+ * what this system worked out the dispatch should have come to. The two are close and are not
+ * the same: Tally rounds the total off, and a rate corrected there after the dispatch was
+ * recorded here moves one and not the other. Ageing, statements and receipts all have to use
+ * the figure the customer was asked for, or somebody gets chased for money nobody invoiced.
+ *
+ * Falls back to the computed total for an invoice whose Tally value has not been entered yet,
+ * because a blank is not a bill of nothing.
+ */
+function billedAmount_(invoice) {
+  var typed = invoice && invoice.invoiceValue;
+  if (typed === '' || typed === null || typed === undefined) {
+    return roundMoney_(Number((invoice && invoice.grand) || 0));
+  }
+  var n = Number(typed);
+  return roundMoney_(isNaN(n) ? Number((invoice && invoice.grand) || 0) : n);
+}
+
+async function listInvoices(options) {
+  var user = getCurrentUser();
+  requireCommercial_(user, 'Invoices');
+  var opts = options || {};
+
+  var customerNames = {};
+  (await readTable_('Customers')).forEach(function (c) { customerNames[String(c.id)] = c.name; });
+  var orderNos = {};
+  (await readTable_('SalesOrders')).forEach(function (o) { orderNos[String(o.id)] = o.orderNo; });
+  var dispatchNos = {};
+  (await readTable_('Dispatches')).forEach(function (d) { dispatchNos[String(d.id)] = d.dispatchNo; });
+
+  var receiptsByInvoice = {};
+  (await readTable_('Receipts')).forEach(function (r) {
+    var key = String(r.invoiceId);
+    receiptsByInvoice[key] = (receiptsByInvoice[key] || 0) + (Number(r.amount) || 0);
+  });
+
+  var today = todayIso_();
+
+  return (await readTable_('Invoices'))
+    .filter(function (inv) {
+      if (!opts.includeCancelled && inv.status === 'Cancelled') return false;
+      if (!streamAllowed_(user, inv.businessStream)) return false;
+      if (opts.businessStream && inv.businessStream !== opts.businessStream) return false;
+      if (opts.customerId && String(inv.customerId) !== String(opts.customerId)) return false;
+      if (opts.unpaidOnly) {
+        var bal = (Number(inv.grand) || 0) - (Number(inv.amountReceived) || 0);
+        if (bal <= 0.5) return false;
+      }
+      return true;
+    })
+    .map(function (inv) {
+      var row = stripRow_(inv);
+      row.customerName = customerNames[String(row.customerId)] || '';
+      row.orderNo = orderNos[String(row.salesOrderId)] || '';
+      row.dispatchNo = dispatchNos[String(row.dispatchId)] || '';
+      // Receipts are the ledger; amountReceived on the invoice is a cached total.
+      row.receivedAmt = roundMoney_(receiptsByInvoice[String(row.id)] || Number(row.amountReceived) || 0);
+      row.balanceAmt = roundMoney_((Number(row.grand) || 0) - row.receivedAmt);
+      row.overdueDays = row.dueDate && row.balanceAmt > 0.5 ? daysBetween_(row.dueDate, today) : 0;
+      return row;
+    })
+    .sort(function (a, b) { return String(b.invoiceDate).localeCompare(String(a.invoiceDate)); });
+}
+
+async function getInvoice(id) {
+  var reader = getCurrentUser();
+  var inv = (await readTable_('Invoices')).filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!inv) throw new Error('Invoice not found.');
+  requireCommercial_(reader, 'An invoice');
+  requireStream_(reader, inv.businessStream, 'This invoice');
+  var row = stripRow_(inv);
+
+  row.items = (await readTable_('InvoiceItems'))
+    .filter(function (i) { return String(i.invoiceId) === String(id); })
+    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
+    .map(stripRow_);
+
+  var customer = (await readTable_('Customers')).filter(function (c) {
+    return String(c.id) === String(row.customerId);
+  })[0];
+  row.customerName = customer ? customer.name : '';
+  row.customerGstin = customer ? customer.gstin : '';
+
+  var address = (await readTable_('CustomerAddresses')).filter(function (a) {
+    return String(a.id) === String(row.billingAddressId);
+  })[0];
+  row.billingAddress = address
+    ? [address.line1, address.line2, address.city, address.state, address.pincode]
+        .filter(Boolean).join(', ')
+    : '';
+
+  var order = (await readTable_('SalesOrders')).filter(function (o) {
+    return String(o.id) === String(row.salesOrderId);
+  })[0];
+  row.orderNo = order ? order.orderNo : '';
+  row.poNo = order ? order.poNo : '';
+
+  var dispatch = (await readTable_('Dispatches')).filter(function (d) {
+    return String(d.id) === String(row.dispatchId);
+  })[0];
+  row.dispatchNo = dispatch ? dispatch.dispatchNo : '';
+
+  // PIE raise the invoice in Tally; what the portal holds is the document and the few fields
+  // the ageing and the credit check read off it.
+  row.documents = await listDocuments('Invoice', row.id);
+  row.documentTypes = DOC_TYPES.Invoice.slice();
+  row.lrNumber = dispatch ? dispatch.lrNumber : '';
+
+  row.receipts = (await readTable_('Receipts'))
+    .filter(function (r) { return String(r.invoiceId) === String(id); })
+    .map(stripRow_)
+    .sort(function (a, b) { return String(a.receiptDate).localeCompare(String(b.receiptDate)); });
+  row.receivedAmt = roundMoney_(row.receipts.reduce(function (s, r) {
+    return s + (Number(r.amount) || 0);
+  }, 0));
+  // Receivables age off what Tally actually billed where that is known, and off what this
+  // dispatch came to where it is not. Ageing against a figure nobody ever invoiced is how a
+  // customer gets chased for money they were never asked for.
+  var billed = row.invoiceValue === '' || row.invoiceValue === null || row.invoiceValue === undefined
+    ? null : Number(row.invoiceValue);
+  row.billedAmt = billedAmount_(row);
+  row.balanceAmt = roundMoney_(row.billedAmt - row.receivedAmt);
+
+  // The one thing the portal knows that Tally does not: what this dispatch should have come
+  // to. Worth a rupee of tolerance — Tally rounds the total off and the two will not agree to
+  // the paisa — but a gap wider than that is a rate typed wrong or a line left off, and it is
+  // far cheaper to see it here than in the customer's ledger.
+  row.computedValue = roundMoney_(Number(row.grand) || 0);
+  row.valueVariance = billed === null ? null : roundMoney_(billed - row.computedValue);
+  row.valueMatches = billed === null ? null : Math.abs(row.valueVariance) <= 1;
+  return row;
+}
+
+/**
+ * Raises an invoice from a posted dispatch (FR-048).
+ *
+ * Quantities come from the dispatch, prices and taxes from the matching order line. A
+ * dispatch can be invoiced once; a second call is refused rather than quietly creating a
+ * duplicate document that Tally would then have to reconcile.
+ */
+async function createInvoiceFromDispatch(input) {
+  var user = getCurrentUser();
+  requireRole_(user, BILLING_ROLES);
+
+  var dispatchId = input && input.dispatchId;
+  var dispatch = (await readTable_('Dispatches')).filter(function (d) {
+    return String(d.id) === String(dispatchId);
+  })[0];
+  if (!dispatch) throw new Error('Dispatch not found.');
+  // Not "post the dispatch first", which is what this used to insist on. The invoice travels
+  // with the consignment — the e-way bill is raised against its number and a lorry stopped
+  // without it is a problem — so demanding that the goods leave before the invoice exists had
+  // the order of the real world backwards, and the only way to comply was to post the dispatch
+  // in the system after the truck had already gone.
+  //
+  // What the old rule was protecting is kept: the lines still come from the dispatch, so a
+  // short shipment still invoices short. It is the dispatch being *decided* that matters, not
+  // the dispatch being *gone*, and by the time the warehouse has packed it, it is decided.
+  if (dispatch.status === 'Cancelled') {
+    throw new Error('Dispatch ' + dispatch.dispatchNo + ' was cancelled.');
+  }
+
+  var existing = (await readTable_('Invoices')).filter(function (inv) {
+    return String(inv.dispatchId) === String(dispatchId) && inv.status !== 'Cancelled';
+  })[0];
+  if (existing) {
+    throw new Error('Dispatch ' + dispatch.dispatchNo + ' is already invoiced as ' + existing.invoiceNo + '.');
+  }
+
+  var order = (await readTable_('SalesOrders')).filter(function (o) {
+    return String(o.id) === String(dispatch.salesOrderId);
+  })[0];
+  if (!order) throw new Error('The order behind this dispatch no longer exists.');
+
+  var orderLines = {};
+  (await readTable_('SalesOrderItems')).forEach(function (l) {
+    if (String(l.salesOrderId) === String(order.id)) orderLines[String(l.id)] = l;
+  });
+
+  var dispatchItems = (await readTable_('DispatchItems'))
+    .filter(function (i) { return String(i.dispatchId) === String(dispatchId); })
+    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
+  if (!dispatchItems.length) throw new Error('This dispatch has no lines to invoice.');
+
+  var invoiceDate = String((input && input.invoiceDate) || todayIso_()).slice(0, 10);
+  var customer = (await readTable_('Customers')).filter(function (c) {
+    return String(c.id) === String(order.customerId);
+  })[0];
+
+  var invoiceId = generateId_('INV-');
+  var lines = [];
+  var subtotal = 0, discountAmt = 0, taxAmt = 0;
+
+  dispatchItems.forEach(function (item, idx) {
+    var qty = Number(item.qtyDispatched) || 0;
+    if (qty <= 0) return;
+    var source = orderLines[String(item.salesOrderItemId)] || {};
+
+    var unitPrice = Number(source.unitPrice) || 0;
+    var discountPct = Number(source.discountPct) || 0;
+    var taxPct = Number(source.taxPct) || 0;
+    var gross = unitPrice * qty;
+    var discount = gross * discountPct / 100;
+    var net = gross - discount;
+    var tax = net * taxPct / 100;
+
+    subtotal += gross;
+    discountAmt += discount;
+    taxAmt += tax;
+
+    lines.push({
+      id: generateId_('INVI-'),
+      invoiceId: invoiceId,
+      lineNo: idx + 1,
+      itemType: item.itemType,
+      itemId: item.itemId,
+      itemCode: item.itemCode,
+      description: item.description,
+      qty: qty,
+      uom: source.uom || '',
+      unitPrice: unitPrice,
+      discountPct: discountPct,
+      taxPct: taxPct,
+      lineTotal: roundMoney_(net + tax)
+    });
+  });
+
+  if (!lines.length) throw new Error('Every line on this dispatch has zero quantity.');
+
+  // Freight rides on the order, so it belongs on the invoice that closes the order out.
+  var remainingLines = await outstandingOrderQty_(order.id, dispatchId);
+  var freight = remainingLines === 0 ? (Number(order.freight) || 0) : 0;
+  var grand = roundMoney_(subtotal - discountAmt + taxAmt + freight);
+
+  var paymentTerms = order.paymentTerms || (customer && customer.paymentTerms) || '';
+  var creditDays = customer && customer.creditDays !== '' && customer.creditDays !== null
+    ? Number(customer.creditDays)
+    : (TERM_CREDIT_DAYS[paymentTerms] !== undefined ? TERM_CREDIT_DAYS[paymentTerms] : 0);
+
+  await appendRow_('Invoices', {
+    id: invoiceId,
+    // Blank, because this number is not ours to invent. PIE raise the invoice in Tally and it
+    // comes out as ELGI/0444/26-27 — a series Tally owns, that the customer quotes, that the
+    // bank and the GST portal know. A number minted here would be a second name for the same
+    // document, and the two would drift the first time an invoice was cancelled in one system
+    // and not the other. The row already has an id for the portal's own purposes; invoiceNo is
+    // whatever Tally says it is, typed in before the invoice can be issued.
+    invoiceNo: '',
+    invoiceDate: invoiceDate,
+    salesOrderId: order.id,
+    dispatchId: dispatchId,
+    customerId: order.customerId,
+    billingAddressId: order.billingAddressId,
+    businessStream: order.businessStream,
+    brand: order.brand,
+    subtotal: roundMoney_(subtotal),
+    discountAmt: roundMoney_(discountAmt),
+    taxAmt: roundMoney_(taxAmt),
+    freight: roundMoney_(freight),
+    grand: grand,
+    amountReceived: 0,
+    paymentTerms: paymentTerms,
+    dueDate: addDays_(invoiceDate, creditDays),
+    warrantyTerms: String((input && input.warrantyTerms) || '').trim(),
+    status: 'Draft',
+    tallySyncStatus: 'Pending',
+    tallySyncDate: '',
+    tallySyncError: '',
+    notes: String((input && input.notes) || '').trim(),
+    createdAt: todayIso_(),
+    createdBy: user.email
+  }, 'Invoice raised from dispatch ' + dispatch.dispatchNo);
+
+  for (var line of lines) {
+    await appendRow_('InvoiceItems', line, 'Invoice line from the dispatch');
+  }
+
+  return await getInvoice(invoiceId);
+}
+
+/**
+ * Issues a draft invoice: the document becomes final, the serials pick up the invoice number,
+ * and the order moves to Invoiced (or Closed once nothing is left to ship).
+ */
+async function issueInvoice(invoiceId) {
+  var user = getCurrentUser();
+  requireRole_(user, BILLING_ROLES);
+
+  var invoice = (await readTable_('Invoices')).filter(function (inv) {
+    return String(inv.id) === String(invoiceId);
+  })[0];
+  if (!invoice) throw new Error('Invoice not found.');
+  if (invoice.status === 'Cancelled') throw new Error('This invoice was cancelled.');
+  if (invoice.status === 'Issued') throw new Error('This invoice has already been issued.');
+
+  // Issuing sends the goods, and the goods travel with the Tally invoice. Without its number
+  // this row is a note about an invoice rather than a record of one — and it is the number
+  // everything downstream quotes: the customer's remittance, the e-way bill, the receipt that
+  // eventually clears it.
+  if (!String(invoice.invoiceNo || '').trim()) {
+    throw new Error('Enter the invoice number from Tally before issuing it — it is the number ' +
+      'the customer will pay against.');
+  }
+
+  // Issuing the invoice is the moment the consignment leaves, because the invoice leaves with
+  // it. Posting the dispatch separately afterwards was a second action recording the same
+  // event, and the gap between them was a lorry on the road that the system thought was still
+  // in the yard — stock not yet moved out, the order not yet dispatched.
+  //
+  // Before the invoice is marked issued, not after. Posting moves stock and re-checks the
+  // credit hold and the delivery address, so it is the step that can refuse; doing it first
+  // means a refusal leaves nothing issued, rather than an issued invoice for goods still
+  // standing in the yard. There are no transactions here — the only protection is doing the
+  // part that can fail while there is still nothing to undo.
+  //
+  // Only when the dispatch is still waiting. An invoice raised against one already posted is
+  // the ordinary catching-up case and has nothing to move.
+  if (invoice.dispatchId) {
+    var pending = (await readTable_('Dispatches')).filter(function (d) {
+      return String(d.id) === String(invoice.dispatchId) && d.status === 'Planned';
+    })[0];
+    if (pending) await postDispatch(pending.id);
+  }
+
+  await updateRowById_('Invoices', 'id', invoiceId, { status: 'Issued' }, 'Invoice issued');
+
+  var lines = (await readTable_('InvoiceItems')).filter(function (i) {
+    return String(i.invoiceId) === String(invoiceId);
+  });
+  for (var line of lines) {
+    var orderLine = (await readTable_('SalesOrderItems')).filter(function (l) {
+      return String(l.salesOrderId) === String(invoice.salesOrderId) &&
+        String(l.itemId) === String(line.itemId);
+    })[0];
+    if (orderLine) {
+      await updateRowById_('SalesOrderItems', 'id', orderLine.id, {
+        qtyInvoiced: (Number(orderLine.qtyInvoiced) || 0) + (Number(line.qty) || 0)
+      }, 'Invoiced ' + line.qty);
+    }
+  }
+
+  // Serials carry the invoice number into the installed base (FR-038, FR-056).
+  for (var s of await readTable_('SerialNumbers')) {
+    if (String(s.dispatchId) === String(invoice.dispatchId) && s.dispatchId) {
+      await updateRowById_('SerialNumbers', 'id', s.id, { invoiceNo: invoice.invoiceNo },
+        'Invoiced on ' + invoice.invoiceNo);
+    }
+  }
+
+  // The order becomes Invoiced. Closing it is a separate, deliberate act once the money is in,
+  // so an unpaid order never disappears from the collections worklist.
+  var order = (await readTable_('SalesOrders')).filter(function (o) {
+    return String(o.id) === String(invoice.salesOrderId);
+  })[0];
+  if (order && (ORDER_TRANSITIONS[order.orderStatus] || []).indexOf('Invoiced') !== -1) {
+    await updateRowById_('SalesOrders', 'id', order.id, { orderStatus: 'Invoiced' },
+      'Invoice ' + invoice.invoiceNo + ' issued');
+  }
+
+  return await getInvoice(invoiceId);
+}
+
+async function saveInvoiceDetails(input) {
+  var user = getCurrentUser();
+  requireRole_(user, BILLING_ROLES);
+
+  var invoice = (await readTable_('Invoices')).filter(function (inv) {
+    return String(inv.id) === String(input.id);
+  })[0];
+  if (!invoice) throw new Error('Invoice not found.');
+  if (invoice.status === 'Issued') {
+    throw new Error('An issued invoice cannot be edited. Cancel it and raise a fresh one.');
+  }
+
+  var invoiceDate = String(input.invoiceDate || invoice.invoiceDate).slice(0, 10);
+  var value = input.invoiceValue === '' || input.invoiceValue === undefined ||
+    input.invoiceValue === null ? '' : Number(input.invoiceValue);
+  if (value !== '' && (isNaN(value) || value < 0)) {
+    throw new Error('The invoice value must be a number.');
+  }
+  await updateRowById_('Invoices', 'id', input.id, {
+    // Both typed off the Tally document rather than produced here.
+    invoiceNo: String(input.invoiceNo === undefined ? invoice.invoiceNo : input.invoiceNo).trim(),
+    invoiceValue: value,
+    invoiceDate: invoiceDate,
+    dueDate: String(input.dueDate || invoice.dueDate).slice(0, 10),
+    paymentTerms: String(input.paymentTerms || invoice.paymentTerms || '').trim(),
+    warrantyTerms: String(input.warrantyTerms || '').trim(),
+    notes: String(input.notes || '').trim()
+  }, 'Invoice details updated');
+  return await getInvoice(input.id);
+}
+
+/**
+ * Records the e-invoice acknowledgement against an invoice.
+ *
+ * Deliberately not part of saveInvoiceDetails, which refuses an issued invoice — and issued
+ * is exactly when this arrives. The IRN comes back from the GST portal after the invoice has
+ * been raised, so a rule that protects the figures on an issued invoice would, applied here,
+ * make it impossible to record that it was registered at all.
+ *
+ * Nothing about the invoice changes: the amounts, the date and the number are untouched. What
+ * is added is the proof that the portal accepted it, which is what an auditor asks for and
+ * what makes this row the invoice rather than a note about one.
+ */
+async function saveEInvoiceReference(input) {
+  var user = getCurrentUser();
+  requireRole_(user, BILLING_ROLES);
+
+  var invoice = await findRowById_('Invoices', input && input.id);
+  if (!invoice) throw new Error('Invoice not found.');
+  if (invoice.status === 'Cancelled') {
+    throw new Error('Invoice ' + invoice.invoiceNo + ' is cancelled.');
+  }
+
+  var irn = String((input && input.irn) || '').trim();
+  var ackNo = String((input && input.ackNo) || '').trim();
+  var ackDate = String((input && input.ackDate) || '').slice(0, 10);
+
+  // Clearing all three is how a mistyped reference is taken back; a partial one is not a
+  // reference at all, and half of it in the sheet is worse than none.
+  var given = [irn, ackNo, ackDate].filter(Boolean).length;
+  if (given && given < 3) {
+    throw new Error('An e-invoice reference is the IRN, the acknowledgement number and its ' +
+      'date. Enter all three, or clear all three.');
+  }
+  if (irn && irn.length < 20) {
+    throw new Error('That does not look like an IRN — they are long hashes, not short codes.');
+  }
+
+  await updateRowById_('Invoices', 'id', invoice.id, { irn: irn, ackNo: ackNo, ackDate: ackDate },
+    given ? 'E-invoice reference recorded' : 'E-invoice reference cleared');
+  return await getInvoice(invoice.id);
+}
+
+/**
+ * Cancels an invoice. Nothing is deleted — the number stays in the register with a reason, so
+ * the series has no silent gaps when it is reconciled against Tally.
+ */
+async function cancelInvoice(invoiceId, reason) {
+  var user = getCurrentUser();
+  requireRole_(user, BILLING_CANCEL_ROLES);
+
+  if (!String(reason || '').trim()) throw new Error('A reason is required to cancel an invoice.');
+
+  var invoice = (await readTable_('Invoices')).filter(function (inv) {
+    return String(inv.id) === String(invoiceId);
+  })[0];
+  if (!invoice) throw new Error('Invoice not found.');
+  if (invoice.status === 'Cancelled') throw new Error('This invoice is already cancelled.');
+
+  var received = (await readTable_('Receipts')).reduce(function (s, r) {
+    return String(r.invoiceId) === String(invoiceId) ? s + (Number(r.amount) || 0) : s;
+  }, 0);
+  if (received > 0) {
+    throw new Error('Payments totalling ' + roundMoney_(received) +
+      ' are recorded against this invoice. Reverse them before cancelling.');
+  }
+
+  // Give back the invoiced quantity so the order can be billed again.
+  if (invoice.status === 'Issued') {
+    for (var line of await readTable_('InvoiceItems')) {
+      if (String(line.invoiceId) !== String(invoiceId)) continue;
+      var orderLine = (await readTable_('SalesOrderItems')).filter(function (l) {
+        return String(l.salesOrderId) === String(invoice.salesOrderId) &&
+          String(l.itemId) === String(line.itemId);
+      })[0];
+      if (orderLine) {
+        await updateRowById_('SalesOrderItems', 'id', orderLine.id, {
+          qtyInvoiced: Math.max(0, (Number(orderLine.qtyInvoiced) || 0) - (Number(line.qty) || 0))
+        }, 'Invoice cancelled');
+      }
+    }
+  }
+
+  await updateRowById_('Invoices', 'id', invoiceId, {
+    status: 'Cancelled',
+    tallySyncStatus: 'Not Required',
+    notes: [invoice.notes, 'Cancelled: ' + reason].filter(Boolean).join(' | ')
+  }, 'Invoice cancelled: ' + reason);
+  return await getInvoice(invoiceId);
+}
+
+/**
+ * The dispatched-not-invoiced control (FR-049). Goods that have left without a bill are the
+ * most expensive thing to discover late, so this is a standing report rather than a filter
+ * somebody has to remember to apply.
+ */
+async function listDispatchedNotInvoiced() {
+  getCurrentUser();
+
+  var invoicedDispatches = {};
+  (await readTable_('Invoices')).forEach(function (inv) {
+    if (inv.dispatchId && inv.status !== 'Cancelled') invoicedDispatches[String(inv.dispatchId)] = true;
+  });
+
+  var orders = {};
+  (await readTable_('SalesOrders')).forEach(function (o) { orders[String(o.id)] = o; });
+  var customerNames = {};
+  (await readTable_('Customers')).forEach(function (c) { customerNames[String(c.id)] = c.name; });
+
+  var valueByDispatch = {};
+  var orderLines = {};
+  (await readTable_('SalesOrderItems')).forEach(function (l) { orderLines[String(l.id)] = l; });
+  (await readTable_('DispatchItems')).forEach(function (i) {
+    var source = orderLines[String(i.salesOrderItemId)] || {};
+    var net = (Number(i.qtyDispatched) || 0) * (Number(source.unitPrice) || 0);
+    net -= net * (Number(source.discountPct) || 0) / 100;
+    var key = String(i.dispatchId);
+    valueByDispatch[key] = (valueByDispatch[key] || 0) + net;
+  });
+
+  var today = todayIso_();
+
+  return (await readTable_('Dispatches'))
+    .filter(function (d) {
+      return d.status === 'Dispatched' && !invoicedDispatches[String(d.id)];
+    })
+    .map(function (d) {
+      var order = orders[String(d.salesOrderId)] || {};
+      return {
+        dispatchId: d.id,
+        dispatchNo: d.dispatchNo,
+        dispatchDate: d.dispatchDate,
+        daysPending: daysBetween_(d.dispatchDate, today),
+        salesOrderId: d.salesOrderId,
+        orderNo: order.orderNo || '',
+        customerName: customerNames[String(order.customerId)] || '',
+        uninvoicedValue: roundMoney_(valueByDispatch[String(d.id)] || 0),
+        lrNumber: d.lrNumber || ''
+      };
+    })
+    .sort(function (a, b) { return b.daysPending - a.daysPending; });
+}
+
+/** Posted dispatches with no invoice — what the "raise invoice" picker offers. */
+async function listInvoiceableDispatches() {
+  return await listDispatchedNotInvoiced();
+}
+
+// ---------------------------------------------------------------------------- Tally handoff
+//
+// D3: we build the sync and hand it over. The client's IT points it at their Tally endpoint
+// and verifies it on their own network. Until then invoices sit at Pending and nothing else
+// in the ERP depends on Tally being reachable.
+
+/**
+ * Builds the Tally XML for an invoice (a Sales voucher). Kept as a pure function so the
+ * client's IT can inspect and test the payload without posting anything.
+ */
+async function buildTallyInvoiceXml(invoiceId) {
+  var invoice = await getInvoice(invoiceId);
+  var esc = function (v) {
+    return String(v === null || v === undefined ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  };
+  var tallyDate = String(invoice.invoiceDate).replace(/-/g, '');
+
+  var entries = invoice.items.map(function (line) {
+    return '' +
+      '<ALLINVENTORYENTRIES.LIST>' +
+      '<STOCKITEMNAME>' + esc(line.itemCode) + '</STOCKITEMNAME>' +
+      '<ACTUALQTY>' + esc(line.qty) + '</ACTUALQTY>' +
+      '<BILLEDQTY>' + esc(line.qty) + '</BILLEDQTY>' +
+      '<RATE>' + esc(line.unitPrice) + '</RATE>' +
+      '<AMOUNT>' + esc(line.lineTotal) + '</AMOUNT>' +
+      '</ALLINVENTORYENTRIES.LIST>';
+  }).join('');
+
+  return '' +
+    '<ENVELOPE><HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER><BODY>' +
+    '<IMPORTDATA><REQUESTDESC><REPORTNAME>Vouchers</REPORTNAME></REQUESTDESC><REQUESTDATA>' +
+    '<TALLYMESSAGE xmlns:UDF="TallyUDF">' +
+    '<VOUCHER VCHTYPE="Sales" ACTION="Create">' +
+    '<DATE>' + esc(tallyDate) + '</DATE>' +
+    '<VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>' +
+    '<VOUCHERNUMBER>' + esc(invoice.invoiceNo) + '</VOUCHERNUMBER>' +
+    '<PARTYLEDGERNAME>' + esc(invoice.customerName) + '</PARTYLEDGERNAME>' +
+    '<REFERENCE>' + esc(invoice.poNo) + '</REFERENCE>' +
+    entries +
+    '</VOUCHER></TALLYMESSAGE></REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>';
+}
+
+/**
+ * Pushes one invoice to Tally (FR-050, I01).
+ *
+ * Requires `TALLY_ENDPOINT` in Script Properties. Apps Script sends this from Google's
+ * network, so the endpoint must be reachable from the internet, not just from the office LAN.
+ * Failures are recorded on the invoice and are never fatal: the invoice stands, the ERP keeps
+ * working, and the row can be retried or reconciled by hand.
+ */
+async function pushInvoiceToTally(invoiceId) {
+  var user = getCurrentUser();
+  requireRole_(user, BILLING_ROLES);
+
+  var endpoint = PropertiesService.getScriptProperties().getProperty('TALLY_ENDPOINT');
+  if (!endpoint) {
+    await updateRowById_('Invoices', 'id', invoiceId, {
+      tallySyncStatus: 'Failed',
+      tallySyncDate: todayIso_(),
+      tallySyncError: 'No TALLY_ENDPOINT configured in Script Properties.'
+    }, 'Tally sync skipped — not configured');
+    throw new Error('Tally is not connected yet. Set TALLY_ENDPOINT in Script Properties, ' +
+      'or record the invoice in Tally manually.');
+  }
+
+  var invoice = (await readTable_('Invoices')).filter(function (inv) {
+    return String(inv.id) === String(invoiceId);
+  })[0];
+  if (!invoice) throw new Error('Invoice not found.');
+  if (invoice.status !== 'Issued') throw new Error('Issue the invoice before sending it to Tally.');
+
+  try {
+    var response = UrlFetchApp.fetch(endpoint, {
+      method: 'post',
+      contentType: 'text/xml',
+      payload: await buildTallyInvoiceXml(invoiceId),
+      muteHttpExceptions: true
+    });
+    var body = String(response.getContentText() || '');
+    var ok = response.getResponseCode() === 200 && !/<LINEERROR>/i.test(body);
+
+    await updateRowById_('Invoices', 'id', invoiceId, {
+      tallySyncStatus: ok ? 'Synced' : 'Failed',
+      tallySyncDate: todayIso_(),
+      tallySyncError: ok ? '' : body.slice(0, 500)
+    }, ok ? 'Invoice synced to Tally' : 'Tally rejected the voucher');
+
+    if (!ok) throw new Error('Tally rejected the voucher: ' + body.slice(0, 200));
+  } catch (e) {
+    await updateRowById_('Invoices', 'id', invoiceId, {
+      tallySyncStatus: 'Failed',
+      tallySyncDate: todayIso_(),
+      tallySyncError: String(e.message).slice(0, 500)
+    }, 'Tally sync failed');
+    throw e;
+  }
+
+  return await getInvoice(invoiceId);
+}
+
+/** Marks an invoice as entered in Tally by hand — the fallback while the sync is unverified. */
+async function markInvoiceSyncedManually(invoiceId, reference) {
+  var user = getCurrentUser();
+  requireRole_(user, BILLING_ROLES);
+  var patch = { tallySyncStatus: 'Synced', tallySyncDate: todayIso_(), tallySyncError: '' };
+  if (String(reference || '').trim()) patch.notes = 'Tally ref: ' + String(reference).trim();
+
+  await updateRowById_('Invoices', 'id', invoiceId, patch,
+    'Marked as entered in Tally by ' + user.email);
+  return await getInvoice(invoiceId);
+}
+
+/** Invoices still waiting on Tally — the reconciliation worklist. */
+async function listTallySyncQueue() {
+  getCurrentUser();
+  return (await listInvoices({ includeCancelled: false })).filter(function (inv) {
+    return inv.status === 'Issued' && ['Synced', 'Not Required'].indexOf(inv.tallySyncStatus) === -1;
+  });
+}
+
+// ---------------------------------------------------------------------------------- helpers
+
+/** Order quantity still to ship, optionally counting a dispatch that is about to be invoiced. */
+async function outstandingOrderQty_(salesOrderId, includeDispatchId) {
+  var pending = {};
+  (await readTable_('DispatchItems')).forEach(function (i) {
+    if (includeDispatchId && String(i.dispatchId) === String(includeDispatchId)) {
+      pending[String(i.salesOrderItemId)] = (pending[String(i.salesOrderItemId)] || 0) +
+        (Number(i.qtyDispatched) || 0);
+    }
+  });
+
+  var remaining = 0;
+  (await readTable_('SalesOrderItems')).forEach(function (l) {
+    if (String(l.salesOrderId) !== String(salesOrderId)) return;
+    var shipped = (Number(l.qtyDispatched) || 0) + (pending[String(l.id)] || 0);
+    remaining += Math.max(0, (Number(l.qty) || 0) - shipped);
+  });
+  return remaining;
+}
+
+/** Whole days from an ISO date to another; negative when the first date is later. */
+function daysBetween_(fromIso, toIso) {
+  if (!fromIso || !toIso) return 0;
+  var from = new Date(String(fromIso).slice(0, 10) + 'T00:00:00Z').getTime();
+  var to = new Date(String(toIso).slice(0, 10) + 'T00:00:00Z').getTime();
+  if (isNaN(from) || isNaN(to)) return 0;
+  return Math.round((to - from) / 86400000);
+}
+
+// `addDays_` and `roundMoney_` live in Quotations.gs — Apps Script shares one global scope.

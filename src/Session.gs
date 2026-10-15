@@ -234,13 +234,13 @@ function freeUsername_(base, exceptUserId) {
  */
 function backfillUsernames_() {
   var filled = 0;
-  readTable_('Users').forEach(function (u) {
-    if (String(u.username || '').trim()) return;
+  for (var u of readTable_('Users')) {
+    if (String(u.username || '').trim()) continue;
     var candidate = freeUsername_(derivedUsername_(u), u.id);
     updateRowById_('Users', 'id', u.id, { username: candidate },
       'Username filled in from ' + (u.email || u.name));
     filled++;
-  });
+  }
   return filled;
 }
 
@@ -407,11 +407,11 @@ function forgetSessionsFor_(email) {
   var wanted = String(email || '').toLowerCase();
   var cache = CacheService.getScriptCache();
   var now = new Date().toISOString();
-  readTable_('Sessions').forEach(function (s) {
-    if (String(s.userEmail).toLowerCase() !== wanted || s.revokedAt) return;
+  for (var s of readTable_('Sessions')) {
+    if (String(s.userEmail).toLowerCase() !== wanted || s.revokedAt) continue;
     cache.remove('sess:' + fromStoredText_(s.tokenHash));
     updateRowById_('Sessions', 'id', s.id, { revokedAt: now }, 'Session ended');
-  });
+  }
 }
 
 // ---------------------------------------------------------------- the one door in
@@ -501,14 +501,14 @@ function readablePassword_() {
  */
 function createSignInPasswords() {
   var made = [];
-  readTable_('Users').forEach(function (row) {
-    if (String(row.active).toUpperCase() === 'FALSE') return;
-    if (row.passwordHash) return;
+  for (var row of readTable_('Users')) {
+    if (String(row.active).toUpperCase() === 'FALSE') continue;
+    if (row.passwordHash) continue;
     var password = readablePassword_();
     storePassword_(row, password, true);
     made.push({ login: loginNameFor_(row), name: row.name, role: row.role,
                 password: password });
-  });
+  }
 
   if (!made.length) {
     return 'Everybody active already has a password. To replace one, use Settings → Users → ' +
@@ -525,14 +525,14 @@ function createSignInPasswords() {
  */
 function resetAllSignInPasswords() {
   var made = [];
-  readTable_('Users').forEach(function (row) {
-    if (String(row.active).toUpperCase() === 'FALSE') return;
+  for (var rr of readTable_('Users')) {
+    if (String(rr.active).toUpperCase() === 'FALSE') continue;
     var password = readablePassword_();
-    storePassword_(row, password, true);
-    forgetSessionsFor_(row.email);
-    made.push({ login: loginNameFor_(row), name: row.name, role: row.role,
+    storePassword_(rr, password, true);
+    forgetSessionsFor_(rr.email);
+    made.push({ login: loginNameFor_(rr), name: rr.name, role: rr.role,
                 password: password });
-  });
+  }
   if (!made.length) return 'There are no active users in the Users tab.';
   return describePasswords_(made);
 }

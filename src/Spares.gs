@@ -229,24 +229,27 @@ function purgeSpare(id) {
 function removeSpareDependents_(ids) {
   var prices = 0, compat = 0, alts = 0;
 
-  readTable_('PriceList').forEach(function (r) {
+  // Loops: each body deletes, and the counts below are only honest if the deletes have
+  // actually happened by the time they are read. Iterating rows already in hand, so
+  // removing as we go cannot disturb the loop.
+  for (var r of readTable_('PriceList')) {
     if (r.itemType === 'Spare' && ids.hasOwnProperty(String(r.itemId))) {
       deleteRowById_('PriceList', 'id', r.id, 'Removed with the spare');
       prices++;
     }
-  });
-  readTable_('SpareCompatibility').forEach(function (r) {
-    if (ids.hasOwnProperty(String(r.spareId))) {
-      deleteRowById_('SpareCompatibility', 'id', r.id, 'Removed with the spare');
+  }
+  for (var rc of readTable_('SpareCompatibility')) {
+    if (ids.hasOwnProperty(String(rc.spareId))) {
+      deleteRowById_('SpareCompatibility', 'id', rc.id, 'Removed with the spare');
       compat++;
     }
-  });
-  readTable_('SpareAlternates').forEach(function (r) {
-    if (ids.hasOwnProperty(String(r.spareId))) {
-      deleteRowById_('SpareAlternates', 'id', r.id, 'Removed with the spare');
+  }
+  for (var ra of readTable_('SpareAlternates')) {
+    if (ids.hasOwnProperty(String(ra.spareId))) {
+      deleteRowById_('SpareAlternates', 'id', ra.id, 'Removed with the spare');
       alts++;
     }
-  });
+  }
 
   return { prices: prices, compatibility: compat, alternates: alts };
 }
@@ -474,12 +477,14 @@ function planSparePurge() {
 
   // Committed records: named, never removed.
   var blocked = [];
-  var refuse = function (tab, label, parentField, parentTab, parentField2) {
+  // A declaration, not `var refuse = function ...`, because it reads and only a declaration
+  // can carry `async`. Nested so it keeps closing over `isOurs` and `blocked`.
+  function refuse(tab, label, parentField, parentTab, parentField2) {
     var hits = readTable_(tab).filter(isOurs);
     if (!hits.length) return;
     var names = {};
     if (parentTab) {
-      readTable_(parentTab).forEach(function (r) { names[String(r.id)] = r[parentField2]; });
+      for (var pr of readTable_(parentTab)) { names[String(pr.id)] = pr[parentField2]; }
     }
     var shown = [];
     hits.forEach(function (h) {
@@ -487,7 +492,7 @@ function planSparePurge() {
       if (shown.indexOf(n) === -1) shown.push(n);
     });
     blocked = blocked.concat(shown);
-  };
+  }
   refuse('SalesOrderItems', 'sales order', 'salesOrderId', 'SalesOrders', 'orderNo');
   refuse('GRNItems', 'goods receipt', 'grnId', 'GRNs', 'grnNo');
   refuse('DispatchItems', 'dispatch', 'dispatchId', 'Dispatches', 'dispatchNo');
@@ -566,10 +571,10 @@ function purgeSparesWithDocuments(confirmText) {
   // Documents first: while the parts still exist, so an interrupted run leaves lines whose
   // part resolves rather than lines pointing at nothing.
   var discarded = [];
-  plan.quotations.forEach(function (q) {
+  for (var q of plan.quotations) {
     var res = discardQuotation(q.id);
     discarded.push(res.quoteNo);
-  });
+  }
 
   var enquiryLines = deleteRowsWhere_('SpareEnquiryItems', function (r) {
     return ids.hasOwnProperty(String(r.spareId));

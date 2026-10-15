@@ -243,7 +243,7 @@ function analyseCustomers_(rows, reader) {
 }
 
 function commitCustomerImport_(analysis, user) {
-  analysis.valid.forEach(function (row) {
+  for (var row of analysis.valid) {
     var record = {
       name: row.name,
       gstin: row.gstin,
@@ -270,7 +270,7 @@ function commitCustomerImport_(analysis, user) {
       record.createdBy = user.email;
       appendRow_('Customers', record, 'Imported from Tally');
     }
-  });
+  }
 }
 
 // -------------------------------------------------------------------------- opening stock
@@ -391,7 +391,7 @@ function analyseOpeningStock_(rows, reader) {
 }
 
 function commitOpeningStockImport_(analysis, user) {
-  analysis.valid.forEach(function (row) {
+  for (var row of analysis.valid) {
     appendRow_('StockMovements', {
       id: generateId_('SM-'),
       timestamp: new Date().toISOString(),
@@ -409,7 +409,7 @@ function commitOpeningStockImport_(analysis, user) {
       enteredBy: user.email,
       notes: row.notes || 'Opening balance imported from Tally'
     });
-  });
+  }
 }
 
 // ------------------------------------------------------------------------ open receivables
@@ -539,7 +539,7 @@ function analyseOpenInvoices_(rows, reader) {
  * invoice, so ageing and collections work from day one.
  */
 function commitOpenInvoiceImport_(analysis, user) {
-  analysis.valid.forEach(function (row) {
+  for (var row of analysis.valid) {
     var invoiceId = generateId_('INV-');
 
     appendRow_('Invoices', {
@@ -589,5 +589,5 @@ function commitOpenInvoiceImport_(analysis, user) {
         createdBy: user.email
       });
     }
-  });
+  }
 }

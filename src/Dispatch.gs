@@ -294,10 +294,11 @@ function createDispatch(input) {
     .filter(function (i) { return String(i.salesOrderId) === String(input.salesOrderId); })
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
 
-  lines.forEach(function (line, idx) {
+  for (var idx = 0; idx < lines.length; idx++) {
+    var line = lines[idx];
     var outstanding = (Number(line.qty) || 0) - (Number(line.qtyDispatched) || 0);
     var qty = Math.min(outstanding, Number(line.qtyReserved) || 0);
-    if (qty <= 0) return;
+    if (qty <= 0) continue;
     appendRow_('DispatchItems', {
       id: generateId_('DSPI-'),
       dispatchId: dispatch.id,
@@ -312,7 +313,7 @@ function createDispatch(input) {
       binId: '',
       notes: ''
     }, 'Line seeded from the reservation');
-  });
+  }
 
   return getDispatch(dispatch.id);
 }
@@ -429,9 +430,9 @@ function postDispatch(dispatchId) {
     return String(r.salesOrderId) === String(dispatch.salesOrderId) && String(r.status) === 'Active';
   });
 
-  items.forEach(function (item) {
+  for (var item of items) {
     var qty = Number(item.qtyDispatched) || 0;
-    if (qty <= 0) return;
+    if (qty <= 0) continue;
 
     // Stock out.
     recordStockMovement({
@@ -448,19 +449,19 @@ function postDispatch(dispatchId) {
 
     // Consume the matching reservation so the commitment is not counted twice.
     var remaining = qty;
-    reservations
-      .filter(function (r) { return String(r.salesOrderItemId) === String(item.salesOrderItemId); })
-      .forEach(function (r) {
-        if (remaining <= 0) return;
-        var take = Math.min(remaining, Number(r.qtyReserved) || 0);
-        remaining -= take;
-        updateRowById_('StockReservations', 'id', r.id, {
-          status: take >= (Number(r.qtyReserved) || 0) ? 'Consumed' : 'Active',
-          qtyReserved: Math.max(0, (Number(r.qtyReserved) || 0) - take),
-          releasedDate: todayIso_(),
-          releaseReason: 'Consumed by dispatch ' + dispatch.dispatchNo
-        }, 'Reservation consumed on dispatch');
-      });
+    var against = reservations
+      .filter(function (r) { return String(r.salesOrderItemId) === String(item.salesOrderItemId); });
+    for (var r of against) {
+      if (remaining <= 0) continue;
+      var take = Math.min(remaining, Number(r.qtyReserved) || 0);
+      remaining -= take;
+      updateRowById_('StockReservations', 'id', r.id, {
+        status: take >= (Number(r.qtyReserved) || 0) ? 'Consumed' : 'Active',
+        qtyReserved: Math.max(0, (Number(r.qtyReserved) || 0) - take),
+        releasedDate: todayIso_(),
+        releaseReason: 'Consumed by dispatch ' + dispatch.dispatchNo
+      }, 'Reservation consumed on dispatch');
+    }
 
     var line = readTable_('SalesOrderItems').filter(function (l) {
       return String(l.id) === String(item.salesOrderItemId);
@@ -474,9 +475,9 @@ function postDispatch(dispatchId) {
 
     // Serials follow the goods (FR-038).
     if (String(item.serialNos || '').trim()) {
-      String(item.serialNos).split(/[,\n]/).forEach(function (sn) {
+      for (var sn of String(item.serialNos).split(/[,\n]/)) {
         var serial = sn.trim();
-        if (!serial) return;
+        if (!serial) continue;
         var record = readTable_('SerialNumbers').filter(function (s) {
           return String(s.serialNo).trim().toLowerCase() === serial.toLowerCase();
         })[0];
@@ -487,9 +488,9 @@ function postDispatch(dispatchId) {
             dispatchId: dispatchId
           }, 'Dispatched on ' + dispatch.dispatchNo);
         }
-      });
+      }
     }
-  });
+  }
 
   updateRowById_('Dispatches', 'id', dispatchId, { status: 'Dispatched' },
     'Dispatch posted — stock released');
@@ -549,19 +550,22 @@ function listDispatchableOrders() {
   var customerNames = {};
   readTable_('Customers').forEach(function (c) { customerNames[String(c.id)] = c.name; });
 
-  return readTable_('SalesOrders')
+  var candidates = readTable_('SalesOrders')
     .filter(function (o) {
       return ['Material Pending', 'Ready for Dispatch'].indexOf(o.orderStatus) !== -1;
-    })
-    .map(function (o) {
-      var readiness = getDispatchReadiness(o.id);
-      return {
-        id: o.id, orderNo: o.orderNo, date: o.date,
-        customerName: customerNames[String(o.customerId)] || '',
-        grand: Number(o.grand) || 0,
-        orderStatus: o.orderStatus,
-        ready: readiness.ready,
-        blockers: readiness.blockers
-      };
     });
+
+  var out = [];
+  for (var o of candidates) {
+    var readiness = getDispatchReadiness(o.id);
+    out.push({
+      id: o.id, orderNo: o.orderNo, date: o.date,
+      customerName: customerNames[String(o.customerId)] || '',
+      grand: Number(o.grand) || 0,
+      orderStatus: o.orderStatus,
+      ready: readiness.ready,
+      blockers: readiness.blockers
+    });
+  }
+  return out;
 }

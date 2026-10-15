@@ -233,7 +233,7 @@ function listQuotations(options) {
   // orders, dispatches and invoices per quotation would be three scans per row, and reading
   // them whole would be three tables the screen does not need most of.
   var journey = journeyIndex_(rows.map(function (r) { return String(r.id); }));
-  rows.forEach(function (r) { r.journey = quotationJourney_(r, journey); });
+  for (var r of rows) { r.journey = quotationJourney_(r, journey); }
 
   return rows.sort(function (a, b) {
     return String(b.date + b.quoteNo).localeCompare(String(a.date + a.quoteNo));
@@ -409,7 +409,8 @@ function createQuotationFromEnquiry(spareEnquiryId) {
   var spareById = {};
   readTable_('Spares').forEach(function (s) { spareById[String(s.id)] = s; });
 
-  items.forEach(function (item, idx) {
+  for (var idx = 0; idx < items.length; idx++) {
+    var item = items[idx];
     var spare = spareById[String(item.spareId)] || {};
     var level = prices[String(item.spareId)] || {};
     var unitPrice = level[SELLING_PRICE_LEVEL] ? level[SELLING_PRICE_LEVEL].price : 0;
@@ -435,7 +436,7 @@ function createQuotationFromEnquiry(spareEnquiryId) {
       availabilityNote: item.availabilityNote || '',
       leadTimeDays: ''
     }, 'Line carried over from the enquiry');
-  });
+  }
 
   recalcQuotation_(quote.id);
   updateRowById_('SpareEnquiries', 'id', spareEnquiryId, { status: 'Quoted' },
@@ -863,11 +864,11 @@ function saveQuotationItems(input) {
 
   var masters = {};
   var prices = {};
-  Object.keys(idsByType).forEach(function (t) {
+  for (var t of Object.keys(idsByType)) {
     var tab = t === 'Product' ? 'Products' : 'Spares';
     masters[t] = findRowsByIds_(tab, idsByType[t]);
     prices[t] = getEffectivePrices_(t, idsByType[t], SELLING_PRICE_LEVEL, quote.date);
-  });
+  }
 
   var existingLines = quotationLines_(input.quotationId);
   var nextLineNo = existingLines.length + 1;
@@ -876,34 +877,35 @@ function saveQuotationItems(input) {
   // made in a row — two of its own. Both fold into the line that is already there.
   var settled = existingLines.slice();
   var records = [], merged = [];
-  lines.forEach(function (l, i) {
-    var t = types[i];
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i];
+    var lt = types[i];
     var key = String(l.itemId);
     var record = quoteItemRecord_(
       { quotationId: input.quotationId, itemId: l.itemId, itemCode: l.itemCode,
         description: l.description, qty: l.qty, uom: l.uom, unitPrice: l.unitPrice,
         discountPct: l.discountPct, taxPct: l.taxPct,
         availabilityNote: l.availabilityNote, leadTimeDays: l.leadTimeDays },
-      t, masters[t][key] || null, prices[t][key] || null, nextLineNo);
+      lt, masters[lt][key] || null, prices[lt][key] || null, nextLineNo);
 
     var twin = matchingQuoteLine_(settled, record);
     if (twin && records.indexOf(twin) !== -1) {
       // A twin from this same selection has not been written yet, so it is only a quantity to
       // carry — updating it by id would be updating a row that does not exist.
       addQuoteLineQty_(twin, record.qty);
-      return;
+      continue;
     }
     if (twin) {
       var note = mergeIntoQuoteLine_(twin, record);
       twin.qty = note.qty;                 // so a third copy in the same call lands here too
       merged.push(note);
-      return;
+      continue;
     }
     record.id = generateId_('QI-');
     records.push(record);
     settled.push(record);
     nextLineNo++;
-  });
+  }
 
   appendRows_('QuotationItems', records, 'Quotation lines added');
   recalcQuotation_(input.quotationId);
@@ -1005,9 +1007,9 @@ function discardQuotation(quotationId) {
   }
 
   var lines = quotationLines_(quotationId);
-  lines.forEach(function (line) {
+  for (var line of lines) {
     deleteRowById_('QuotationItems', 'id', line.id, 'Line removed with discarded quotation');
-  });
+  }
 
   var quoteNo = quote.quoteNo;
   deleteRowById_('Quotations', 'id', quotationId,
@@ -1199,13 +1201,12 @@ function reviseQuotation(id) {
   copy.createdBy = user.email;
   appendRow_('Quotations', copy, 'Revision ' + nextRevision + ' of ' + source.quoteNo);
 
-  quotationLines_(id)
-    .forEach(function (i) {
-      var line = stripRow_(i);
-      line.id = generateId_('QI-');
-      line.quotationId = copy.id;
-      appendRow_('QuotationItems', line, 'Line copied into ' + nextRevision);
-    });
+  for (var src of quotationLines_(id)) {
+    var copied = stripRow_(src);
+    copied.id = generateId_('QI-');
+    copied.quotationId = copy.id;
+    appendRow_('QuotationItems', copied, 'Line copied into ' + nextRevision);
+  }
 
   updateRowById_('Quotations', 'id', id, { status: 'Revised' },
     'Superseded by revision ' + nextRevision);
@@ -1238,30 +1239,32 @@ function listQuotationVersions(id) {
 
   var journey = journeyIndex_(family.map(function (q) { return String(q.id); }));
 
-  return family
-    .map(function (q) {
-      return {
-        id: String(q.id),
-        quoteNo: String(q.quoteNo || ''),
-        revision: String(q.revision || 'R0'),
-        date: String(q.date || ''),
-        validUntil: String(q.validUntil || ''),
-        status: String(q.status || ''),
-        locked: String(q.locked).toUpperCase() === 'TRUE',
-        grand: Number(q.grand) || 0,
-        // Named here too. The versions window sits beside the ownership strip and the journey
-        // strip, both of which name people; an address in the third one is the same leak
-        // wearing a different hat.
-        preparedBy: approverName_(q.preparedBy),
-        approvedBy: approverName_(q.approvedBy),
-        approvalDate: String(q.approvalDate || ''),
-        submittedDate: String(q.submittedDate || ''),
-        // Which one is the live offer: the newest that was not superseded by another.
-        superseded: String(q.status) === 'Revised',
-        isCurrent: String(q.id) === String(id),
-        journeyLabel: quotationJourney_(q, journey).label
-      };
-    })
+  var versions = [];
+  for (var q of family) {
+    versions.push({
+      id: String(q.id),
+      quoteNo: String(q.quoteNo || ''),
+      revision: String(q.revision || 'R0'),
+      date: String(q.date || ''),
+      validUntil: String(q.validUntil || ''),
+      status: String(q.status || ''),
+      locked: String(q.locked).toUpperCase() === 'TRUE',
+      grand: Number(q.grand) || 0,
+      // Named here too. The versions window sits beside the ownership strip and the journey
+      // strip, both of which name people; an address in the third one is the same leak
+      // wearing a different hat.
+      preparedBy: approverName_(q.preparedBy),
+      approvedBy: approverName_(q.approvedBy),
+      approvalDate: String(q.approvalDate || ''),
+      submittedDate: String(q.submittedDate || ''),
+      // Which one is the live offer: the newest that was not superseded by another.
+      superseded: String(q.status) === 'Revised',
+      isCurrent: String(q.id) === String(id),
+      journeyLabel: quotationJourney_(q, journey).label
+    });
+  }
+
+  return versions
     .sort(function (a, b) {
       return (Number(String(a.revision).replace(/[^0-9]/g, '')) || 0) -
              (Number(String(b.revision).replace(/[^0-9]/g, '')) || 0);
@@ -1364,13 +1367,14 @@ function requireUnlockedQuote_(quotationId) {
 }
 
 function renumberQuotationLines_(quotationId) {
-  quotationLines_(quotationId)
-    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
-    .forEach(function (line, idx) {
-      if (Number(line.lineNo) !== idx + 1) {
-        updateRowById_('QuotationItems', 'id', line.id, { lineNo: idx + 1 }, 'Lines renumbered');
-      }
-    });
+  var ordered = quotationLines_(quotationId)
+    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
+  for (var idx = 0; idx < ordered.length; idx++) {
+    var line = ordered[idx];
+    if (Number(line.lineNo) !== idx + 1) {
+      updateRowById_('QuotationItems', 'id', line.id, { lineNo: idx + 1 }, 'Lines renumbered');
+    }
+  }
 }
 
 function masterRecordFor_(itemType, itemId) {
@@ -1503,7 +1507,8 @@ function createQuotationFromOpportunity(opportunityId) {
   var productById = {};
   readTable_('Products').forEach(function (p) { productById[String(p.id)] = p; });
 
-  selections.forEach(function (sel, idx) {
+  for (var idx = 0; idx < selections.length; idx++) {
+    var sel = selections[idx];
     var product = productById[String(sel.productId)] || {};
     var level = prices[String(sel.productId)] || {};
     var unitPrice = level[SELLING_PRICE_LEVEL] ? level[SELLING_PRICE_LEVEL].price : 0;
@@ -1530,7 +1535,7 @@ function createQuotationFromOpportunity(opportunityId) {
       availabilityNote: '',
       leadTimeDays: product.leadTimeDays || ''
     }, 'Selected compressor carried onto the quotation');
-  });
+  }
 
   recalcQuotation_(quote.id);
 

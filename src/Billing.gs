@@ -299,9 +299,9 @@ function createInvoiceFromDispatch(input) {
     createdBy: user.email
   }, 'Invoice raised from dispatch ' + dispatch.dispatchNo);
 
-  lines.forEach(function (line) {
+  for (var line of lines) {
     appendRow_('InvoiceItems', line, 'Invoice line from the dispatch');
-  });
+  }
 
   return getInvoice(invoiceId);
 }
@@ -355,7 +355,7 @@ function issueInvoice(invoiceId) {
   var lines = readTable_('InvoiceItems').filter(function (i) {
     return String(i.invoiceId) === String(invoiceId);
   });
-  lines.forEach(function (line) {
+  for (var line of lines) {
     var orderLine = readTable_('SalesOrderItems').filter(function (l) {
       return String(l.salesOrderId) === String(invoice.salesOrderId) &&
         String(l.itemId) === String(line.itemId);
@@ -365,15 +365,15 @@ function issueInvoice(invoiceId) {
         qtyInvoiced: (Number(orderLine.qtyInvoiced) || 0) + (Number(line.qty) || 0)
       }, 'Invoiced ' + line.qty);
     }
-  });
+  }
 
   // Serials carry the invoice number into the installed base (FR-038, FR-056).
-  readTable_('SerialNumbers').forEach(function (s) {
+  for (var s of readTable_('SerialNumbers')) {
     if (String(s.dispatchId) === String(invoice.dispatchId) && s.dispatchId) {
       updateRowById_('SerialNumbers', 'id', s.id, { invoiceNo: invoice.invoiceNo },
         'Invoiced on ' + invoice.invoiceNo);
     }
-  });
+  }
 
   // The order becomes Invoiced. Closing it is a separate, deliberate act once the money is in,
   // so an unpaid order never disappears from the collections worklist.
@@ -487,8 +487,8 @@ function cancelInvoice(invoiceId, reason) {
 
   // Give back the invoiced quantity so the order can be billed again.
   if (invoice.status === 'Issued') {
-    readTable_('InvoiceItems').forEach(function (line) {
-      if (String(line.invoiceId) !== String(invoiceId)) return;
+    for (var line of readTable_('InvoiceItems')) {
+      if (String(line.invoiceId) !== String(invoiceId)) continue;
       var orderLine = readTable_('SalesOrderItems').filter(function (l) {
         return String(l.salesOrderId) === String(invoice.salesOrderId) &&
           String(l.itemId) === String(line.itemId);
@@ -498,7 +498,7 @@ function cancelInvoice(invoiceId, reason) {
           qtyInvoiced: Math.max(0, (Number(orderLine.qtyInvoiced) || 0) - (Number(line.qty) || 0))
         }, 'Invoice cancelled');
       }
-    });
+    }
   }
 
   updateRowById_('Invoices', 'id', invoiceId, {

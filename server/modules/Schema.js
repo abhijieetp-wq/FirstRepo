@@ -1,0 +1,594 @@
+/**
+ * Converted from src/Schema.gs by migration/to-async.js.
+ *
+ * Only two things changed: functions that reach storage are `async`, and the calls that
+ * reach it are `await`ed. Everything else — the logic, the names, the comments — is the
+ * original, because the original is the specification and reformatting it would make the
+ * diff unreadable at exactly the moment it needs to be read.
+ *
+ * Storage comes from server/shim.js, which keeps the old names (`readTable_`,
+ * `appendRow_`) pointing at db.js. If this file is edited from here on, edit this one —
+ * the .gs original stays frozen at the point of conversion so the live portal keeps running.
+ */
+/**
+ * SINGLE SOURCE OF TRUTH for the Sheet schema.
+ *
+ * Every tab and every column the ERP uses is declared here, aligned to
+ * ELGI_PMT_ERP_Detailed_Blueprint.xlsx (the authoritative spec). `Setup.gs` reads this
+ * declaration to create/upgrade the spreadsheet, so the Sheet is never hand-edited into
+ * shape and headers can never drift from what the code expects.
+ *
+ * Conventions (see docs/ARCHITECTURE.md):
+ *  - every table has a surrogate `id`; nothing is addressed by row number outside SheetService
+ *  - foreign keys are ids (`customerId`), never names
+ *  - money/qty are numbers, dates are yyyy-MM-dd strings, flags are TRUE/FALSE
+ *  - ledgers (StockMovements, AuditLog, Receipts) are append-only; current state is derived
+ *  - `brand` defaults to ELGI (D5: Cumi/Champion follow) and `businessStream` to the
+ *    transaction's stream (D2: Compressor / Spare share one backbone)
+ *
+ * Adding a column: append it here and re-run setupSheet(). Existing data is preserved —
+ * Setup only ever adds missing tabs and appends missing columns.
+ */
+
+var AUDIT_TAB = 'AuditLog';
+
+var SCHEMA = {
+
+  // ---------------------------------------------------------------- Foundation / admin
+  Users: {
+    label: 'People who can sign in, and what they may do (FR-062)',
+    // `role` is what they may do; `designation` is what prints under their signature on a
+    // quotation. They are not the same thing and conflating them puts "ERP Admin" on a
+    // document a customer reads.
+    //
+    // The password columns are the sign-in itself. PIE's staff have no company Google
+    // addresses and the business does not want their personal ones holding access to company
+    // data, so the portal checks the password rather than Google doing it. `email` is still
+    // the identity — it is what the audit trail records and what a quotation is signed with —
+    // it simply no longer has to be a Google account. The hash is salted per user and the
+    // iteration count is stored beside it so the cost can be raised later without locking
+    // anybody out.
+    // `username` is what they type to sign in. `email` remains the identity everything else
+    // is stored against — the audit trail, preparedBy, assignedSalesperson — and the address a
+    // customer's reply goes back to. Two fields because they answer two questions: PIE's staff
+    // have no company addresses, so asking for one at the sign-in box read as though the
+    // portal wanted a personal account.
+    columns: ['id', 'username', 'email', 'name', 'role', 'designation', 'businessStream',
+      'active',
+      'passwordHash', 'passwordSalt', 'passwordIterations', 'passwordSetAt',
+      'mustChangePassword', 'failedAttempts', 'lockedUntil',
+      'createdAt', 'createdBy']
+  },
+  Sessions: {
+    label: 'Live sign-ins. The token is stored hashed, so a copy of this sheet is not a set of keys',
+    columns: ['id', 'tokenHash', 'userEmail', 'createdAt', 'expiresAt', 'lastSeenAt',
+      'revokedAt',
+      // Which Google account the browser was signed in as when this session was opened.
+      // Blank on every session opened before the requirement existed, and on every one
+      // opened while it is switched off.
+      'googleEmail']
+  },
+  CompanyProfile: {
+    label: 'The seller as it appears on every printed document — one row, edited in Settings',
+    columns: ['id', 'legalName', 'tradeName', 'partnerLine', 'addressLine1', 'addressLine2',
+      'city', 'state', 'pincode', 'gstin', 'pan', 'phone', 'altPhone', 'email', 'website',
+      'logoUrl', 'bankName', 'bankAccount', 'bankIfsc', 'quotePrefix', 'jurisdiction',
+      // Everything below exists so a second client is a Settings exercise, not a code change:
+      // the images, the phrases the letter opens and closes with, the number under the
+      // signature, the brand the numbering is built from, and what the app calls itself.
+      'sealUrl', 'signOffPhone', 'salutation', 'signOffLine', 'defaultBrand', 'appName',
+      'appSubtitle', 'logoShowsName', 'partnerLogoUrl', 'docAccentColor']
+  },
+  QuoteTemplates: {
+    label: 'The standing text on a quotation — cover letter, scope of supply, terms',
+    columns: ['id', 'section', 'brand', 'businessStream', 'appliesTo', 'title', 'body',
+      'sortOrder', 'active']
+  },
+  BusinessStreams: {
+    label: 'Compressor vs Spare — the discriminator on every transaction (D2)',
+    columns: ['id', 'name', 'active'],
+    seed: [
+      { id: 'BS-COMP', name: 'Compressor Sales', active: 'TRUE' },
+      { id: 'BS-SPARE', name: 'Spare Sales', active: 'TRUE' }
+    ]
+  },
+  Brands: {
+    label: 'ELGI first; Cumi/Champion follow the same pattern (D5)',
+    columns: ['id', 'name', 'accentColor', 'active'],
+    seed: [
+      { id: 'BR-ELGI', name: 'ELGI', accentColor: '#E8871E', active: 'TRUE' },
+      { id: 'BR-CUMI', name: 'Cumi', accentColor: '#2E8B8B', active: 'FALSE' },
+      { id: 'BR-CHAMP', name: 'Champion', accentColor: '#8B3A62', active: 'FALSE' }
+    ]
+  },
+  ConfigLists: {
+    label: 'Admin-maintainable dropdowns — no developer change needed (FR-074)',
+    columns: ['id', 'category', 'code', 'label', 'sortOrder', 'active'],
+    seed: [
+      { id: 'CL-001', category: 'LeadSource', code: 'ELGI', label: 'ELGI Lead', sortOrder: 1, active: 'TRUE' },
+      { id: 'CL-002', category: 'LeadSource', code: 'REFERENCE', label: 'Reference', sortOrder: 2, active: 'TRUE' },
+      { id: 'CL-003', category: 'LeadSource', code: 'FIELD_VISIT', label: 'Field Visit', sortOrder: 3, active: 'TRUE' },
+      { id: 'CL-004', category: 'LeadSource', code: 'EXISTING', label: 'Existing Customer', sortOrder: 4, active: 'TRUE' },
+      { id: 'CL-005', category: 'LeadSource', code: 'WHATSAPP', label: 'WhatsApp', sortOrder: 5, active: 'TRUE' },
+      { id: 'CL-006', category: 'LeadSource', code: 'PHONE', label: 'Phone', sortOrder: 6, active: 'TRUE' },
+      { id: 'CL-007', category: 'LeadSource', code: 'EMAIL', label: 'Email', sortOrder: 7, active: 'TRUE' },
+      { id: 'CL-008', category: 'LeadSource', code: 'WEBSITE', label: 'Website', sortOrder: 8, active: 'TRUE' },
+      { id: 'CL-009', category: 'LeadSource', code: 'OTHER', label: 'Other', sortOrder: 9, active: 'TRUE' },
+      { id: 'CL-020', category: 'PaymentTerms', code: 'ADV100', label: '100% Advance', sortOrder: 1, active: 'TRUE' },
+      { id: 'CL-021', category: 'PaymentTerms', code: 'ADV_PART', label: 'Part Advance, Balance Before Dispatch', sortOrder: 2, active: 'TRUE' },
+      { id: 'CL-022', category: 'PaymentTerms', code: 'NET30', label: '30 Days Credit', sortOrder: 3, active: 'TRUE' },
+      { id: 'CL-023', category: 'PaymentTerms', code: 'NET45', label: '45 Days Credit', sortOrder: 4, active: 'TRUE' },
+      { id: 'CL-030', category: 'Urgency', code: 'NORMAL', label: 'Normal', sortOrder: 1, active: 'TRUE' },
+      { id: 'CL-031', category: 'Urgency', code: 'URGENT', label: 'Urgent', sortOrder: 2, active: 'TRUE' },
+      { id: 'CL-032', category: 'Urgency', code: 'BREAKDOWN', label: 'Breakdown', sortOrder: 3, active: 'TRUE' },
+      { id: 'CL-050', category: 'CompressorType', code: 'SCREW', label: 'Rotary Screw', sortOrder: 1, active: 'TRUE' },
+      { id: 'CL-051', category: 'CompressorType', code: 'PISTON', label: 'Reciprocating (Piston)', sortOrder: 2, active: 'TRUE' },
+      { id: 'CL-040', category: 'Industry', code: 'ENGINEERING', label: 'Engineering', sortOrder: 1, active: 'TRUE' },
+      { id: 'CL-041', category: 'Industry', code: 'PHARMA', label: 'Pharma', sortOrder: 2, active: 'TRUE' },
+      { id: 'CL-042', category: 'Industry', code: 'TEXTILE', label: 'Textile', sortOrder: 3, active: 'TRUE' },
+      { id: 'CL-043', category: 'Industry', code: 'AUTOMOTIVE', label: 'Automotive', sortOrder: 4, active: 'TRUE' },
+      { id: 'CL-044', category: 'Industry', code: 'OTHER', label: 'Other', sortOrder: 5, active: 'TRUE' }
+    ]
+  },
+  LostReasons: {
+    label: 'Managed dropdown replacing free-text lost reasons (FR-013)',
+    columns: ['id', 'reasonText', 'appliesTo', 'active'],
+    seed: [
+      { id: 'LR-001', reasonText: 'Price too high', appliesTo: 'All', active: 'TRUE' },
+      { id: 'LR-002', reasonText: 'Competitor selected', appliesTo: 'All', active: 'TRUE' },
+      { id: 'LR-003', reasonText: 'Delivery time too long', appliesTo: 'All', active: 'TRUE' },
+      { id: 'LR-004', reasonText: 'Requirement dropped/postponed', appliesTo: 'All', active: 'TRUE' },
+      { id: 'LR-005', reasonText: 'No response from customer', appliesTo: 'All', active: 'TRUE' },
+      { id: 'LR-006', reasonText: 'Part not available in time', appliesTo: 'Spare', active: 'TRUE' }
+    ]
+  },
+  Telemetry: {
+    label: 'How long each server call took and how much it read — written only while timing is on',
+    columns: ['id', 'at', 'userEmail', 'fn', 'ms', 'tabsRead', 'rowsRead', 'widestRead', 'error']
+  },
+  AuditLog: {
+    label: 'Every critical field change: who, when, old value, new value (FR-061)',
+    columns: ['id', 'timestamp', 'userEmail', 'action', 'tableName', 'recordId', 'fieldName', 'oldValue', 'newValue', 'reason']
+  },
+
+  // ---------------------------------------------------------------- Customer master
+  Customers: {
+    label: 'One customer code used across both streams (FR-001, FR-003)',
+    columns: ['id', 'customerCode', 'name', 'legalName', 'gstin', 'pan', 'industry', 'segment',
+      'assignedSalesperson', 'territory', 'paymentTerms', 'creditLimit', 'creditDays',
+      'advanceRule', 'riskStatus', 'brand', 'lastOrderDate', 'notes', 'active', 'createdAt',
+      'createdBy']
+  },
+  CustomerContacts: {
+    label: 'Purchase / maintenance / accounts / owner contacts (FR-002)',
+    columns: ['id', 'customerId', 'name', 'contactRole', 'designation', 'phone', 'email', 'isPrimary', 'active']
+  },
+  CustomerAddresses: {
+    label: 'Multiple billing and shipping addresses (FR-002)',
+    columns: ['id', 'customerId', 'addressType', 'label', 'line1', 'line2', 'city', 'state',
+      'pincode', 'gstin', 'isDefault', 'active']
+  },
+
+  // ---------------------------------------------------------------- Product / spare masters
+  Products: {
+    label: 'Compressor product hierarchy (FR-014) — replaces the old Units tab',
+    columns: ['id', 'productCode', 'hsnCode', 'brand', 'family', 'series', 'model', 'description',
+      'category', 'hpRating', 'fad', 'workingPressure', 'gstPct', 'warrantyMonths',
+      'standardAccessories', 'leadTimeDays', 'uom', 'notes',
+      // The specification table printed on a compressor offer (ISO 1217 Annex C figures)
+      'capacityCfm', 'maxPressure', 'motorKw', 'starterType', 'dimensionsMm', 'weightKg',
+      'active', 'createdAt', 'createdBy']
+  },
+  Spares: {
+    label: 'ELGI spare master (FR-015) — replaces the old Parts tab',
+    // productGroup is ELGi's own grouping (RCD Spares, EPSAC Airend, OFSAC…). The counter
+    // refers to parts by it, and with thousands of parts it is the only practical way to
+    // narrow a search.
+    columns: ['id', 'partNo', 'hsnCode', 'description', 'productGroup', 'category', 'brand', 'uom', 'gstPct',
+      'purchasePrice', 'reorderLevel', 'safetyStock', 'defaultWarehouseId', 'defaultBinId',
+      'notes', 'active', 'createdAt', 'createdBy']
+  },
+  SpareCompatibility: {
+    label: 'Many-to-many spare ↔ compressor model mapping (FR-023)',
+    columns: ['id', 'spareId', 'productModel', 'productId', 'isServiceKit', 'notes', 'active']
+  },
+  SpareAlternates: {
+    label: 'Substitute/equivalent parts — distinct from model compatibility. Feeds the ' +
+      'List/Special/Alternate rate-comparison chips carried over from the reference UI.',
+    columns: ['id', 'spareId', 'alternateSpareId', 'altPartNo', 'altDescription', 'altSource',
+      'notes', 'active']
+  },
+  /**
+   * What a customer calls a part in their own system.
+   *
+   * Sanvijay's purchase orders name each line by their material code — 2000004278 for an oil
+   * filter — and mention ELGi's part number, if at all, somewhere inside the description:
+   * "PART NO. X017503" on one line, "PRE FILTER 015400889" with no label on the next. Every
+   * repeat order therefore begins with somebody reading prose to work out which part is
+   * meant, and the prose is not written the same way twice.
+   *
+   * Their code is meaningless outside their system, so this is a mapping per customer, not a
+   * column on the spare: two customers will have different codes for the same filter, and
+   * neither is the part's own number.
+   */
+  CustomerItemCodes: {
+    label: "The customer's own code for a part, so their next order can be read directly",
+    columns: ['id', 'customerId', 'itemType', 'itemId', 'theirCode', 'theirDescription',
+      'notes', 'active', 'createdAt', 'createdBy']
+  },
+  PriceList: {
+    label: 'Effective-dated prices; old quotes keep old prices (FR-016, FR-017). Two levels: ' +
+      'PIE is the buying/cost price, ELGI is the selling price. Quotations use ELGI, shown ' +
+      'simply as "Price". `purchasePrice` on Spares is superseded by the PIE level and unused.',
+    columns: ['id', 'itemType', 'itemId', 'itemCode', 'priceLevel', 'price', 'minPrice',
+      'maxDiscountPct', 'currency', 'effectiveFrom', 'effectiveTo', 'approvedBy', 'active',
+      'createdAt', 'createdBy']
+  },
+  Warehouses: {
+    label: 'Warehouse and bin locations for picking (FR-039)',
+    columns: ['id', 'code', 'name', 'type', 'parentId', 'address', 'active'],
+    seed: [
+      { id: 'WH-MAIN', code: 'MAIN', name: 'Main Store', type: 'Warehouse', parentId: '', address: '', active: 'TRUE' }
+    ]
+  },
+
+  // ---------------------------------------------------------------- Compressor front office
+  Leads: {
+    label: 'Compressor lead capture with source and ownership (FR-005, FR-006)',
+    columns: ['id', 'leadNo', 'date', 'customerId', 'customerName', 'contactName', 'contactPhone',
+      'contactEmail', 'prospectCity',
+      'source', 'requirementSummary', 'industry', 'application', 'urgency', 'budget',
+      // Two people, not one. A sales engineer finds the lead; a coordinator is then put in
+      // charge of it. One owner column could not say who did which, so neither could be
+      // credited or chased.
+      'salesEngineerEmail', 'ownerEmail', 'status', 'nextActionDate', 'lostReasonId',
+      'businessStream', 'brand', 'createdAt', 'createdBy']
+  },
+  LeadRequirements: {
+    label: 'What the prospect wants, per compressor type — a lead may want both',
+    columns: ['id', 'leadId', 'lineNo', 'compressorType', 'quantity', 'capacityHint', 'notes']
+  },
+  Activities: {
+    label: 'Follow-ups against any record; drives overdue alerts (FR-007, N01, N02)',
+    columns: ['id', 'relatedType', 'relatedId', 'activityType', 'activityDate', 'ownerEmail',
+      'contactPerson', 'notes', 'outcome', 'nextActionDate', 'status', 'createdAt', 'createdBy']
+  },
+  SiteVisits: {
+    label: 'Site visit report linked to the opportunity (FR-008, D002)',
+    columns: ['id', 'visitNo', 'leadId', 'opportunityId', 'customerId', 'visitDate', 'participants',
+      'objective', 'existingEquipment', 'observations', 'nextSteps', 'attachmentUrl',
+      'createdAt', 'createdBy']
+  },
+  TechnicalRequirements: {
+    label: 'Technical requirement sheet gating the quote (FR-009, D003)',
+    columns: ['id', 'opportunityId', 'leadId', 'customerId', 'application', 'requiredFad',
+      'workingPressure', 'dutyCycle', 'operatingHours', 'airQuality', 'powerSupply',
+      'futureExpansion', 'existingCompressor', 'notes', 'createdAt', 'createdBy']
+  },
+  CompressorSelections: {
+    label: 'Recommended solution that flows into the quotation (FR-010, D004)',
+    columns: ['id', 'technicalRequirementId', 'opportunityId', 'productId', 'productCode', 'hpRating',
+      'workingPressure', 'fad', 'dryer', 'receiver', 'filters', 'accessories', 'notes',
+      'createdAt', 'createdBy']
+  },
+  Opportunities: {
+    label: 'Compressor funnel: 7 stages, weighted pipeline (FR-011, FR-012, FR-013)',
+    columns: ['id', 'opportunityNo', 'date', 'customerId', 'leadId', 'title', 'stage',
+      'expectedValue', 'probability', 'expectedCloseDate', 'competitor', 'lostReasonId',
+      // Unit Sales runs an engineer under a coordinator, so an opportunity records both. This
+      // was being written without a column to write it into, and silently dropped.
+      'salesEngineerEmail',
+      'lostNotes', 'ownerEmail', 'nextActionDate', 'businessStream', 'brand',
+      'createdAt', 'createdBy']
+  },
+
+  // ---------------------------------------------------------------- Spare front office
+  SpareEnquiries: {
+    label: 'Spare enquiry by machine/serial with urgency (FR-022)',
+    columns: ['id', 'enquiryNo', 'date', 'customerId', 'customerName',
+      // Who actually rang. The name alone was all this ever held, and a name is not somebody
+      // you can call back — so the number and the address are kept here too, and contactId
+      // ties the enquiry to the customer's own contact list rather than to a typed string.
+      'contactName', 'contactId', 'contactPhone', 'contactEmail', 'productModel',
+      'serialNo', 'installedBaseId', 'requirementText', 'urgency', 'source',
+      // No engineer here. PIE's Spare Sales office is a coordinator and nobody else — the
+      // engineers sit under Unit Sales and Service — so a field for one would never be
+      // filled, and an empty box on a form is a question somebody has to keep deciding not
+      // to answer.
+      'ownerEmail',
+      // Set when the enquiry came out of a service visit rather than a phone call, so the
+      // parts can be traced back to the machine that needed them.
+      'serviceJobId',
+      // The status is not set by hand on a spares enquiry — it follows what happens to it:
+      // New on logging, Identifying once a part is named, Quoted when the offer is raised,
+      // Won or Lost when that offer is marked.
+      'status',
+      // When the customer expects the parts. A spares enquiry is not worked like a lead —
+      // nobody schedules a chase on it — so the column that used to hold a next-action date
+      // holds the date that actually matters to the customer. The old column is left in the
+      // sheet rather than dropped: its values meant something else and are not carried over.
+      'expectedDeliveryDate', 'nextActionDate',
+      'lostReasonId', 'businessStream', 'brand',
+      'createdAt', 'createdBy']
+  },
+  SpareEnquiryItems: {
+    label: 'Identified parts against an enquiry (FR-023, D011)',
+    columns: ['id', 'spareEnquiryId', 'lineNo', 'spareId', 'partNo', 'description', 'qty',
+      'identifiedBy', 'compatibilityConfirmed', 'availabilityNote', 'notes']
+  },
+
+  // ---------------------------------------------------------------- Quotation (shared)
+  Quotations: {
+    label: 'Shared across both streams; revision-controlled (FR-018, FR-019, FR-020)',
+    columns: ['id', 'quoteNo', 'revision', 'parentQuotationId', 'date', 'businessStream', 'brand',
+      'customerId', 'contactId', 'billingAddressId', 'shippingAddressId', 'opportunityId',
+      'spareEnquiryId', 'machineModel', 'serialNo', 'preparedBy', 'validityDays', 'validUntil',
+      'status', 'subtotal', 'discountAmt', 'taxAmt', 'freight', 'grand', 'paymentTerms',
+      // deliveryTerms is the freight basis — Ex-Works, FOR Destination — and says nothing
+      // about time. When the offer is delivered as one lot, deliveryPeriod is where the
+      // promise is made, in the customer's words ("Ex-stock", "2-3 weeks"). A line that goes
+      // out on its own timetable overrides it with QuotationItems.leadTimeDays.
+      'deliveryTerms', 'deliveryPeriod',
+      'warrantyTerms', 'notes', 'approvedBy', 'approvalDate', 'submittedDate',
+      'emailSentDate', 'wonDate', 'lostReasonId', 'locked',
+      // Why an offer was turned down, past the one-word reason. A dropdown tells you the
+      // shape of the losses; these tell you what actually happened, which is the part worth
+      // reading before quoting that customer again. The competitor's price is the most useful
+      // number PIE can collect about their own pricing and the only place it is ever offered.
+      'lostDate', 'lostNotes', 'lostToCompetitor', 'lostAtPrice',
+      // A package discount off the total, the way their own offers are priced, plus whether
+      // GST is added into the total or quoted as extra — their two documents differ on this.
+      'packageDiscountPct', 'pfAmount', 'taxMode',
+      'createdAt', 'createdBy']
+  },
+  QuotationItems: {
+    label: 'Quote lines from either catalog (Product or Spare)',
+    columns: ['id', 'quotationId', 'lineNo', 'lineType', 'itemType', 'itemId', 'itemCode',
+      'description', 'qty', 'uom', 'listPrice', 'rateType', 'unitPrice', 'discountPct', 'taxPct',
+      'lineTotal', 'availabilityNote', 'leadTimeDays']
+  },
+
+  // ---------------------------------------------------------------- Order & commercial control
+  SalesOrders: {
+    label: '8-state order lifecycle (FR-031); PO validated against quote (FR-030)',
+    columns: ['id', 'orderNo', 'date', 'businessStream', 'brand', 'customerId', 'quotationId',
+      'poNo', 'poDate', 'poValue', 'poAttachmentUrl', 'poVerified', 'poVarianceNotes',
+      'billingAddressId', 'shippingAddressId', 'orderStatus', 'paymentTerms', 'advanceRequired',
+      'advanceReceived', 'promisedDispatchDate',
+      // The five things an order confirmation has to state that nothing before it knows.
+      // A quotation is an offer to sell; an order is an agreement to deliver, and delivery is
+      // where these are settled. None can be carried from the enquiry, the quotation or the
+      // purchase order, because none of those say how the goods travel or who pays the
+      // carrier — which is exactly why they have to be asked for here rather than derived.
+      //
+      // paymentMode reads beside paymentTerms as one sentence on the printed order: "15 Days"
+      // and "Cheque" make "15 Days Via Cheque". Kept apart because the days are a credit
+      // decision the credit check reads, and the instrument is not.
+      'paymentMode', 'deliveryTerms', 'despatchThrough', 'destination', 'otherReference',
+      'subtotal', 'discountAmt', 'taxAmt', 'freight',
+      'grand', 'creditHold', 'creditHoldReason', 'ownerEmail', 'closedDate', 'notes',
+      'createdAt', 'createdBy']
+  },
+  SalesOrderItems: {
+    label: 'Order lines carrying reserved/dispatched/invoiced quantities',
+    columns: ['id', 'salesOrderId', 'lineNo', 'itemType', 'itemId', 'itemCode', 'description',
+      'qty', 'uom', 'unitPrice', 'discountPct', 'taxPct', 'lineTotal', 'qtyReserved',
+      'qtyDispatched', 'qtyInvoiced',
+      // How long this line was promised, in days from the order date. Per line rather than per
+      // order because a part in stock and a part on indent go out weeks apart, and one date
+      // across the whole order is the promise that gets broken.
+      'dueDays']
+  },
+  Approvals: {
+    label: 'Approval register for A01–A11; immutable audit record (M20, D035)',
+    columns: ['id', 'approvalType', 'relatedType', 'relatedId', 'requestedBy', 'requestDate',
+      'requestReason', 'contextSummary', 'level1Approver', 'level1Status', 'level1Date',
+      'level1Notes', 'level2Approver', 'level2Status', 'level2Date', 'level2Notes',
+      'status', 'closedDate']
+  },
+  CreditChecks: {
+    label: 'Exposure calculation and hold/release trail (FR-033, FR-034, FR-035)',
+    columns: ['id', 'salesOrderId', 'customerId', 'checkDate', 'creditLimit', 'outstandingAmt',
+      'openOrderExposure', 'currentOrderValue', 'totalExposure', 'availableCredit',
+      'advanceRequired', 'advanceReceived', 'result', 'holdReason', 'releasedBy',
+      'releaseDate', 'releaseNotes']
+  },
+
+  // ---------------------------------------------------------------- Inventory & inward
+  StockMovements: {
+    label: 'Append-only stock ledger; on-hand is derived, never overwritten (FR-036)',
+    columns: ['id', 'timestamp', 'movementDate', 'itemType', 'itemId', 'itemCode', 'movementType',
+      'qty', 'warehouseId', 'binId', 'serialNo', 'referenceType', 'referenceId', 'enteredBy',
+      'notes']
+  },
+  StockReservations: {
+    label: 'Stock reserved against a sales order so it cannot be promised twice (FR-037)',
+    columns: ['id', 'salesOrderId', 'salesOrderItemId', 'itemType', 'itemId', 'itemCode',
+      'qtyReserved', 'warehouseId', 'status', 'reservedBy', 'reservedDate', 'releasedDate',
+      'releaseReason']
+  },
+  SerialNumbers: {
+    label: 'Compressor serial lifecycle: inward → dispatch → install → warranty (FR-038)',
+    columns: ['id', 'productId', 'productCode', 'serialNo', 'status', 'warehouseId', 'grnId',
+      'salesOrderId', 'dispatchId', 'invoiceNo', 'installedBaseId', 'notes', 'createdAt']
+  },
+  GRNs: {
+    label: 'Goods receipt with checker/verifier before stock updates (FR-043, D015/D016)',
+    columns: ['id', 'grnNo', 'grnDate', 'poRef', 'supplierName', 'invoiceRef', 'receivedBy',
+      'checkedBy', 'verifiedBy', 'verificationStatus', 'verificationDate', 'notes',
+      'createdAt', 'createdBy']
+  },
+  GRNItems: {
+    label: 'Received lines with accepted/rejected quantity and condition',
+    columns: ['id', 'grnId', 'lineNo', 'itemType', 'itemId', 'itemCode', 'description',
+      'qtyReceived', 'qtyAccepted', 'qtyRejected', 'condition', 'serialNos', 'warehouseId',
+      'binId', 'notes']
+  },
+
+  // ---------------------------------------------------------------- Dispatch & billing
+  Dispatches: {
+    label: 'Readiness checklist, documents and transporter details (FR-045, FR-046)',
+    columns: ['id', 'dispatchNo', 'salesOrderId', 'dispatchDate', 'checklistComplete',
+      // The lorry itself. It is on the tax invoice and on the e-way bill, and it is the only
+      // thing that identifies the consignment once it is on the road — an LR number finds the
+      // paperwork, a vehicle number finds the goods.
+      'checklistNotes', 'transporterName', 'vehicleNo', 'lrNumber', 'lrDate', 'ewayBillNo', 'packingListRef',
+      'certificatesRef', 'deliveryChallanNo', 'dispatchedBy', 'podRef', 'podDate',
+      'deliveryConfirmed', 'deliveryConfirmedDate', 'serviceNotified', 'status',
+      'createdAt', 'createdBy']
+  },
+  DispatchItems: {
+    label: 'Actually dispatched quantities — the basis for the invoice (FR-048)',
+    columns: ['id', 'dispatchId', 'salesOrderItemId', 'lineNo', 'itemType', 'itemId', 'itemCode',
+      'description', 'qtyDispatched', 'serialNos', 'binId', 'notes']
+  },
+  // ---------------------------------------------------------------- After delivery
+  DeliveryProofs: {
+    label: 'The photographs a customer sends back on delivery (FR-047)',
+    // PIE take proof of delivery as WhatsApp photos. A reference typed into a cell is not
+    // evidence; the picture is. Each one is a Drive file, so several can hang off one
+    // dispatch and the sheet stays small.
+    columns: ['id', 'dispatchId', 'fileId', 'fileName', 'fileUrl', 'mimeType', 'sizeBytes',
+      'caption', 'uploadedBy', 'uploadedAt']
+  },
+  ServiceProofs: {
+    label: 'The photographs taken when a service job is finished (FR-047)',
+    // Same idea as DeliveryProofs, against a job rather than a dispatch: the customer's own
+    // photograph of the finished work, which is what makes a service report evidence rather
+    // than an assertion.
+    columns: ['id', 'serviceJobId', 'fileId', 'fileName', 'fileUrl', 'mimeType', 'sizeBytes',
+      'caption', 'uploadedBy', 'uploadedAt']
+  },
+  /**
+   * The customer's own paperwork, held rather than referred to.
+   *
+   * A purchase order used to be a Drive link somebody was asked to paste into a text box,
+   * which meant it was usually empty: PIE receive the PO as an email attachment, and nobody
+   * uploads it to Drive and copies a link on the way past. A tax invoice had nowhere to go at
+   * all — twenty-five columns on Invoices and not one for the document.
+   *
+   * The division of labour is the point. A few fields stay on the order and the invoice,
+   * because the code acts on them: dispatch refuses without a PO number, the variance check
+   * compares the PO's value against what was quoted, receivables age from the invoice date.
+   * The rest is evidence, and evidence belongs in the document rather than retyped out of it.
+   *
+   * One tab rather than one per record type, because a purchase order and a tax invoice are
+   * the same kind of thing — paper that arrived from outside — and the delivery challan and
+   * the packing list will be too.
+   */
+  Documents: {
+    label: 'Purchase orders, tax invoices and the rest of the paperwork that arrives',
+    columns: ['id', 'recordType', 'recordId', 'docType', 'fileId', 'fileName', 'fileUrl',
+      'mimeType', 'sizeBytes', 'caption', 'uploadedBy', 'uploadedAt']
+  },
+  ServiceJobs: {
+    label: 'Fitting the delivered parts — raised when a delivery is confirmed (FR-047)',
+    // The last step of PIE's process: once the goods are known to have arrived, a service
+    // engineer is told to go and fit them. `serviceNotified` on the dispatch used to be the
+    // only trace of this, and nothing ever set it.
+    columns: ['id', 'jobNo', 'date', 'dispatchId', 'salesOrderId', 'customerId', 'customerName',
+      'machineModel', 'serialNo', 'siteAddressId', 'engineerEmail', 'status', 'scopeText',
+      'scheduledDate', 'completedDate', 'notes', 'createdAt', 'createdBy',
+      // Not every job follows a delivery. A machine that has stopped is a phone call, and it
+      // needs the same engineer, the same allocation and the same record — but it arrives
+      // with nothing behind it, so what it is and how urgent it is have to be stated.
+      'jobType', 'urgency', 'reportedBy',
+      // The handover. When the goods land, the sales coordinator passes the customer to
+      // service — in practice by sharing the contact. Copying it onto the job is that act:
+      // service can ring the customer without being given the customer master, which carries
+      // credit limits and pricing they have no business seeing.
+      'contactName', 'contactPhone', 'contactEmail', 'handedOverBy',
+      // The enquiry this visit raised, if the engineer found something that had to be quoted.
+      'spareEnquiryId']
+  },
+  ServiceJobItems: {
+    label: 'The parts a service job is to fit, carried from the dispatch',
+    columns: ['id', 'serviceJobId', 'lineNo', 'itemType', 'itemId', 'itemCode', 'description',
+      'qty']
+  },
+
+  Invoices: {
+    label: 'Invoice from order + actual dispatch, with Tally sync status (FR-048, FR-050)',
+    columns: ['id', 'invoiceNo', 'invoiceDate', 'salesOrderId', 'dispatchId', 'customerId',
+      'billingAddressId', 'businessStream', 'brand', 'subtotal', 'discountAmt', 'taxAmt',
+      'freight', 'grand',
+      // What the Tally invoice actually says, typed off the document. `grand` is what this
+      // dispatch should have come to and stays computed, so the two can be compared — a wrong
+      // rate or a line left off in Tally shows up here rather than in the customer's ledger.
+      // They will not match to the paisa and are not meant to: Tally rounds the total off.
+      'invoiceValue',
+      'amountReceived', 'paymentTerms', 'dueDate', 'warrantyTerms',
+      // Every invoice PIE raise carries an IRN and an acknowledgement from the GST portal.
+      // An invoice number without them is a note about an invoice rather than the invoice.
+      'irn', 'ackNo', 'ackDate',
+      'status', 'tallySyncStatus', 'tallySyncDate', 'tallySyncError', 'notes',
+      'createdAt', 'createdBy']
+  },
+  InvoiceItems: {
+    label: 'Invoice lines mirroring the dispatch',
+    columns: ['id', 'invoiceId', 'lineNo', 'itemType', 'itemId', 'itemCode', 'description',
+      'qty', 'uom', 'unitPrice', 'discountPct', 'taxPct', 'lineTotal']
+  },
+
+  // ---------------------------------------------------------------- Collections
+  Receipts: {
+    label: 'Payments, primarily imported from Tally (FR-055, I02)',
+    columns: ['id', 'receiptNo', 'receiptDate', 'customerId', 'invoiceId', 'amount', 'mode',
+      'reference', 'tallyRef', 'importedDate', 'notes', 'createdAt', 'createdBy']
+  },
+  CollectionFollowups: {
+    label: 'Follow-ups, commitments and next actions on receivables (FR-052)',
+    columns: ['id', 'invoiceId', 'customerId', 'contactDate', 'contactPerson', 'discussion',
+      'commitmentAmount', 'commitmentDate', 'commitmentMet', 'nextFollowupDate', 'ownerEmail',
+      'status', 'createdAt', 'createdBy']
+  },
+
+  // ---------------------------------------------------------------- Phase 2 placeholder
+  InstalledBase: {
+    label: 'Machine registry created after dispatch/commissioning (FR-056, Phase 2)',
+    columns: ['id', 'customerId', 'productId', 'productModel', 'serialNo', 'siteAddress',
+      'dispatchDate', 'installDate', 'warrantyStart', 'warrantyEnd', 'responsibleEngineer',
+      'invoiceNo', 'status', 'notes', 'createdAt', 'createdBy']
+  }
+};
+
+/**
+ * The two business streams (D2), spelled exactly as they are stored.
+ *
+ * These strings are written into every transaction and compared against on the way out, so
+ * they have to be one value, not two spellings of the same idea. Filtering for 'Spare' against
+ * rows stored as 'Spare Sales' matches nothing and reports zero — which reads as "no business"
+ * rather than "wrong filter", and is the worst kind of wrong.
+ */
+var STREAM_COMPRESSOR = 'Compressor Sales';
+var STREAM_SPARE = 'Spare Sales';
+var BUSINESS_STREAMS = [STREAM_COMPRESSOR, STREAM_SPARE];
+
+/** Tabs whose rows carry a businessStream value. */
+var STREAMED_TABS = ['Leads', 'Opportunities', 'SpareEnquiries', 'Quotations', 'SalesOrders', 'Invoices'];
+
+/** Order lifecycle for SalesOrders.orderStatus (FR-031). */
+var ORDER_STATUSES = ['Draft', 'Approval Pending', 'Credit Hold', 'Material Pending',
+  'Ready for Dispatch', 'Dispatched', 'Invoiced', 'Closed'];
+
+/** Quotation statuses (FR-020). */
+// 'Negotiating' is the step PIE described that had no home here: the customer has the offer
+// and is discussing the terms. Without it a quotation sat on 'Submitted' from the day it was
+// sent until the day it was won, and nobody could tell a live conversation from silence.
+/** Why an engineer is going: to fit what was delivered, or because a machine has stopped. */
+var SERVICE_JOB_TYPES = ['Installation', 'Breakdown'];
+
+/** How soon, for a job nobody scheduled in advance. */
+var SERVICE_URGENCIES = ['Normal', 'Urgent', 'Immediate'];
+
+/** A service job's life (FR-047). Unassigned exists because a delivery is confirmed before
+ * anybody has decided which engineer is going. */
+var SERVICE_JOB_STATUSES = ['Unassigned', 'Assigned', 'Scheduled', 'In Progress', 'Completed',
+  'Cancelled'];
+
+var QUOTATION_STATUSES = ['Draft', 'Approved', 'Submitted', 'Negotiating', 'Revised', 'Won',
+  'Lost', 'Expired'];
+
+/** Compressor funnel stages (FR-011). */
+var OPPORTUNITY_STAGES = ['Requirement Identified', 'Technical Discussion', 'Quotation',
+  'Negotiation', 'PO Expected', 'Won', 'Lost'];
