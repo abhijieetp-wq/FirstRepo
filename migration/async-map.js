@@ -115,6 +115,26 @@ function spread(fns) {
   return { isAsync, rounds };
 }
 
+/**
+ * The graph and its closure, worked out once and shared.
+ *
+ * to-async.js needs exactly the same answer this file prints — which functions become async
+ * — and computing it twice from two copies of the rules is how the tool and the measurement
+ * come to disagree about what the job is.
+ */
+let CACHED = null;
+function closure() {
+  if (CACHED) return CACHED;
+  const g = buildGraph();
+  const s = spread(g.fns);
+  CACHED = { fns: g.fns, files: g.files, isAsync: s.isAsync, rounds: s.rounds };
+  return CACHED;
+}
+
+module.exports = { ASYNC_SEEDS, DISAPPEARING, buildGraph, spread, closure };
+
+if (require.main !== module) return;
+
 const { fns, files } = buildGraph();
 const { isAsync, rounds } = spread(fns);
 

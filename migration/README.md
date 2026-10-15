@@ -173,3 +173,55 @@ something small enough to read in full before touching the quotation engine.
 `Auth`, `Schema`, `Sha256`, `StreamAccess` are pure logic with no storage in them.
 `KeepWarm` goes away with Apps Script. `SheetService` is replaced wholesale by `db.js`
 rather than edited.
+
+---
+
+## The codemod
+
+```bash
+bash migration/dev-db.sh                          # a local Postgres, idempotent
+eval "$(bash migration/dev-db.sh)"                # ...and DATABASE_URL set
+
+node migration/to-async.js GoogleGate             # what would change
+node migration/to-async.js GoogleGate --write     # do it
+node migration/to-async.js --all                  # survey every module
+```
+
+It does two things and refuses to do a third:
+
+1. a function the call graph says must be async gets `async` in front of it
+2. a call to something asynchronous gets `await` in front of it
+3. **a call inside a callback is reported, not edited** — and the file is not written until
+   those are gone
+
+That third rule is the important one. `rows.forEach(function (r) { ... audit_(r) })` cannot
+be fixed by inserting `await`: the callback becomes an async function returning a promise
+that `forEach` throws away, so the loop finishes while the writes are still in flight and the
+save reports success. Silent, intermittent, and only under load — the worst kind. Each one
+becomes a `for...of`, by hand.
+
+**24 of 43 files convert mechanically. 19 need hand work first.**
+
+### Two decisions worth knowing
+
+**Nothing is renamed.** `readTable_('Spares')` stays exactly that; `server/shim.js` defines
+the twelve old names as async functions forwarding to `db.js`. So the diff is purely `async`
+and `await` — reviewable line by line — rather than 967 renames tangled into the same change.
+
+**Edits are spliced by position, never reprinted from the AST.** Regenerating code from the
+tree would be functionally identical and would strip every comment in the file. In this
+project the comments are the part that took longest and are worth most.
+
+**The originals are not touched.** `src/X.gs` stays frozen and the live portal keeps running
+on it; converted copies go to `server/modules/X.js`. PIE cannot stop working for the weeks
+this takes.
+
+### Proved end to end
+
+`tests/converted-test.js` loads the real converted `GoogleGate.js` into a vm with the shim,
+calls `setGoogleGate`, and checks the audit row is in Postgres **the instant the call
+resolves** — no sleep, deliberately, because a sleep would let a missing `await` pass.
+
+It also checks the module's own guards still work: switching the Google requirement on from
+a session with no Google account still refuses, which is the logic that stops an
+administrator locking themselves out.
