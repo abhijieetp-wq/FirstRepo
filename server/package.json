@@ -4,11 +4,17 @@
   "private": true,
   "type": "commonjs",
   "description": "The ERP's data layer and API, replacing Apps Script + Google Sheets.",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node ../tests/db-test.js"
   },
   "dependencies": {
     "pg": "8.13.1"
+  },
+  "devDependencies": {
+    "acorn": "^8.19.0",
+    "acorn-walk": "^8.3.5"
   }
 }

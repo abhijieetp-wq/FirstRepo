@@ -125,3 +125,51 @@ fifteen seconds on the first try of the day.
 - The exporter: the live sheet's rows into this schema, verified row for row
 - The async conversion across the 43 modules — ~630 call sites
 - Then replace the faithful `readTable` calls on the hot paths with real queries
+
+---
+
+## How big the async conversion really is
+
+```bash
+node migration/async-map.js           # the summary
+node migration/async-map.js --files   # per file, worst first
+node migration/async-map.js --list    # every function that must change
+node migration/async-map.js --clean   # the files that need nothing
+```
+
+This parses all 43 files with a real JavaScript parser, builds the call graph, seeds it with
+the twelve functions `db.js` makes asynchronous, and propagates until nothing changes.
+
+Worth doing properly, because counting calls to the storage functions gave 630 and that was
+wrong in both directions. It overcounted — many of those calls sit in the same few functions.
+And it badly undercounted, because `async` is contagious: anything that awaits must itself be
+async, and so must everything that calls it, four rounds up to the entry points.
+
+| | |
+|---|---|
+| Functions that must become async | **281** |
+| `await`s to type in | **967** |
+| Files touched | **37 of 43** |
+| Files needing nothing at all | **6** |
+| **Of those awaits, inside a callback** | **71** |
+
+**That last row is the only part that is not mechanical**, and it is why the estimate still
+holds. 896 of the 967 are "put `await` in front of this call and `async` on the function
+around it" — scriptable, and the test suite catches what is missed. The other 71 sit inside
+`rows.forEach(function (r) { ... })`, which cannot simply be awaited because `forEach` returns
+before the work finishes. Each becomes a `for...of` loop, read individually, by hand.
+
+Seventy-one considered edits is a week's careful work, not a month's.
+
+### Where it is concentrated
+
+`Quotations` is the heaviest at 141 awaits and 11 callbacks, then `Billing`, `CompressorSales`
+and `Dispatch`. The order to convert in is the reverse: `GoogleGate` (1 await),
+`CatalogComplete` (3), `Config` (4), `SalesPolicy` (4) first, to prove the method on
+something small enough to read in full before touching the quotation engine.
+
+### The six files that need nothing
+
+`Auth`, `Schema`, `Sha256`, `StreamAccess` are pure logic with no storage in them.
+`KeepWarm` goes away with Apps Script. `SheetService` is replaced wholesale by `db.js`
+rather than edited.
