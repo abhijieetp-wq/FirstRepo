@@ -55,15 +55,23 @@ function itemReferenceMap_(itemType, ids) {
   var out = {};
   var lookups = {};
 
+  // Declarations rather than `var x = function ...`, and loops rather than forEach. Both
+  // for the same reason: these three reach storage, and only a declaration can carry the
+  // `async` a storage call now needs. They stay nested because they close over `out`,
+  // `lookups` and `ids`, which is the whole reason they are small and readable.
+  //
+  // `idOf` below is still a plain function expression, and correctly so — it decides which
+  // id a row refers to and never reads anything.
+
   // Only built for a tab that actually produced a hit, so a clean catalogue reads nothing.
-  var docNumber = function (ref, row) {
+  function refDocNumber_(ref, row) {
     var key = row[ref.parent];
     if (key === undefined || key === '') return '';
     if (!ref.parentTab) return String(key);
     if (!lookups[ref.parentTab]) {
       var map = {};
       try {
-        readTable_(ref.parentTab).forEach(function (r) { map[String(r.id)] = r[ref.parentField]; });
+        for (var r of readTable_(ref.parentTab)) { map[String(r.id)] = r[ref.parentField]; }
       } catch (e) {
         // A sheet set up before that tab existed. The reference is still real and still has
         // to block the delete — only the friendly number is unavailable, so fall back to the
@@ -73,28 +81,28 @@ function itemReferenceMap_(itemType, ids) {
       lookups[ref.parentTab] = map;
     }
     return String(lookups[ref.parentTab][String(key)] || key);
-  };
+  }
 
-  var note = function (id, ref, row) {
-    var num = ref.parent ? docNumber(ref, row) : '';
+  function refNote_(id, ref, row) {
+    var num = ref.parent ? refDocNumber_(ref, row) : '';
     var phrase = ref.label + (num ? ' ' + num : '');
     if (!out[id]) out[id] = [];
     if (out[id].indexOf(phrase) === -1) out[id].push(phrase);
-  };
+  }
 
-  var scan = function (list, idOf) {
-    list.forEach(function (ref) {
-      readTable_(ref.tab).forEach(function (row) {
+  function refScan_(list, idOf) {
+    for (var ref of list) {
+      for (var row of readTable_(ref.tab)) {
         var id = idOf(ref, row);
-        if (id && ids.hasOwnProperty(id)) note(id, ref, row);
-      });
-    });
-  };
+        if (id && ids.hasOwnProperty(id)) refNote_(id, ref, row);
+      }
+    }
+  }
 
-  scan(TYPED_ITEM_REFERENCES_, function (ref, row) {
+  refScan_(TYPED_ITEM_REFERENCES_, function (ref, row) {
     return row.itemType === itemType ? String(row.itemId) : '';
   });
-  scan(DIRECT_ITEM_REFERENCES_[itemType] || [], function (ref, row) {
+  refScan_(DIRECT_ITEM_REFERENCES_[itemType] || [], function (ref, row) {
     return String(row[ref.field]);
   });
 

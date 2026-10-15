@@ -230,10 +230,14 @@ function createOrderFromQuotation(input) {
   };
   appendRow_('SalesOrders', order, 'Order created from quotation ' + quote.quoteNo);
 
-  readTable_('QuotationItems')
+  // The filter and sort are pure and stay as they are; only the step that writes becomes a
+  // loop. `idx` was the callback's second argument, so it is counted here instead.
+  var quoteLines = readTable_('QuotationItems')
     .filter(function (i) { return String(i.quotationId) === String(quote.id); })
-    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
-    .forEach(function (qi, idx) {
+    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
+  for (var idx = 0; idx < quoteLines.length; idx++) {
+    var qi = quoteLines[idx];
+    {
       appendRow_('SalesOrderItems', {
         id: generateId_('SOI-'),
         salesOrderId: order.id,
@@ -259,7 +263,8 @@ function createOrderFromQuotation(input) {
         dueDays: qi.leadTimeDays === '' || qi.leadTimeDays === undefined || qi.leadTimeDays === null
           ? '' : Number(qi.leadTimeDays)
       }, 'Line carried from the quotation');
-    });
+    }
+  }
 
   // Run the credit check immediately — the answer belongs before anyone plans a dispatch.
   runCreditCheck(order.id);
@@ -440,25 +445,25 @@ function releaseCreditHold(salesOrderId, reason, nextStatus) {
     creditHoldReason: ''
   }, 'Credit hold released by ' + user.email + ': ' + reason);
 
-  readTable_('CreditChecks')
-    .filter(function (c) { return String(c.salesOrderId) === String(salesOrderId) && c.result === 'Hold' && !c.releasedBy; })
-    .forEach(function (c) {
-      updateRowById_('CreditChecks', 'id', c.id, {
-        releasedBy: user.email, releaseDate: todayIso_(), releaseNotes: reason
-      }, 'Hold released');
-    });
+  var holds = readTable_('CreditChecks')
+    .filter(function (c) { return String(c.salesOrderId) === String(salesOrderId) && c.result === 'Hold' && !c.releasedBy; });
+  for (var c of holds) {
+    updateRowById_('CreditChecks', 'id', c.id, {
+      releasedBy: user.email, releaseDate: todayIso_(), releaseNotes: reason
+    }, 'Hold released');
+  }
 
-  readTable_('Approvals')
+  var pending = readTable_('Approvals')
     .filter(function (a) {
       return a.relatedType === 'SalesOrder' && String(a.relatedId) === String(salesOrderId) &&
         a.status === 'Pending';
-    })
-    .forEach(function (a) {
-      updateRowById_('Approvals', 'id', a.id, {
-        level1Approver: user.email, level1Status: 'Approved', level1Date: todayIso_(),
-        level1Notes: reason, status: 'Approved', closedDate: todayIso_()
-      }, 'Credit hold approved');
     });
+  for (var a of pending) {
+    updateRowById_('Approvals', 'id', a.id, {
+      level1Approver: user.email, level1Status: 'Approved', level1Date: todayIso_(),
+      level1Notes: reason, status: 'Approved', closedDate: todayIso_()
+    }, 'Credit hold approved');
+  }
 
   return getSalesOrder(salesOrderId);
 }
@@ -573,14 +578,14 @@ function saveOrderDetails(input) {
   // screen can save the whole grid in the one call it already makes.
   if (input.dueDays && typeof input.dueDays === 'object') {
     var lines = findRowsByColumn_('SalesOrderItems', 'salesOrderId', [String(input.id)]);
-    lines.forEach(function (line) {
-      if (!input.dueDays.hasOwnProperty(String(line.id))) return;
+    for (var line of lines) {
+      if (!input.dueDays.hasOwnProperty(String(line.id))) continue;
       var raw = String(input.dueDays[String(line.id)] || '').trim();
       var days = raw === '' ? '' : Math.max(0, Math.round(Number(raw) || 0));
-      if (String(line.dueDays || '') === String(days)) return;
+      if (String(line.dueDays || '') === String(days)) continue;
       updateRowById_('SalesOrderItems', 'id', line.id, { dueDays: days },
         'Delivery promise set on line ' + line.lineNo);
-    });
+    }
   }
 
   // Advance and value changes move the credit answer, so re-evaluate rather than go stale.

@@ -101,9 +101,11 @@ function reserveStockForOrder(salesOrderId) {
   var reservedNow = [];
   var shortfalls = [];
 
-  lines.forEach(function (line) {
+  // A loop, and the order matters here more than most: each line's reservation changes what
+  // the next line sees available, which is why the running maps are updated inside it.
+  for (var line of lines) {
     var want = (Number(line.qty) || 0) - (existing[String(line.id)] || 0);
-    if (want <= 0) return;
+    if (want <= 0) continue;
 
     var isProduct = line.itemType === 'Product';
     var onHand = (isProduct ? onHandProduct : onHandSpare)[String(line.itemId)] || 0;
@@ -141,7 +143,7 @@ function reserveStockForOrder(salesOrderId) {
     if (qty < want) {
       shortfalls.push({ itemCode: line.itemCode, shortBy: want - qty, available: Math.max(0, available) });
     }
-  });
+  }
 
   // The order's own status should tell the truth about whether material is ready.
   if (['Draft', 'Approval Pending', 'Material Pending'].indexOf(order.orderStatus) !== -1 && !order.creditHold) {
@@ -432,7 +434,7 @@ function verifyGRN(grnId, notes) {
       'Ask a colleague, or have Management verify it.');
   }
 
-  accepted.forEach(function (line) {
+  for (var line of accepted) {
     recordStockMovement({
       itemType: line.itemType,
       itemId: line.itemId,
@@ -448,13 +450,13 @@ function verifyGRN(grnId, notes) {
 
     // Compressor serials become trackable assets the moment they are accepted (FR-038).
     if (line.itemType === 'Product' && String(line.serialNos || '').trim()) {
-      String(line.serialNos).split(/[,\n]/).forEach(function (sn) {
+      for (var sn of String(line.serialNos).split(/[,\n]/)) {
         var serial = sn.trim();
-        if (!serial) return;
+        if (!serial) continue;
         var clash = readTable_('SerialNumbers').filter(function (s) {
           return String(s.serialNo).trim().toLowerCase() === serial.toLowerCase();
         })[0];
-        if (clash) return;
+        if (clash) continue;
         appendRow_('SerialNumbers', {
           id: generateId_('SN-'),
           productId: line.itemId,
@@ -467,9 +469,9 @@ function verifyGRN(grnId, notes) {
           notes: 'Created from GRN ' + grn.grnNo,
           createdAt: todayIso_()
         }, 'Serial received on GRN ' + grn.grnNo);
-      });
+      }
     }
-  });
+  }
 
   updateRowById_('GRNs', 'id', grnId, {
     verificationStatus: 'Verified',

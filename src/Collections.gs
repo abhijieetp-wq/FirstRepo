@@ -499,16 +499,16 @@ function settleCommitments_(invoiceId) {
     return String(r.invoiceId) === String(invoiceId) ? s + (Number(r.amount) || 0) : s;
   }, 0);
 
-  readTable_('CollectionFollowups').forEach(function (f) {
-    if (String(f.invoiceId) !== String(invoiceId)) return;
-    if (f.commitmentMet === 'Yes' || f.status === 'Closed') return;
+  for (var f of readTable_('CollectionFollowups')) {
+    if (String(f.invoiceId) !== String(invoiceId)) continue;
+    if (f.commitmentMet === 'Yes' || f.status === 'Closed') continue;
     var promised = Number(f.commitmentAmount) || 0;
-    if (promised <= 0 || received + 0.5 < promised) return;
+    if (promised <= 0 || received + 0.5 < promised) continue;
     updateRowById_('CollectionFollowups', 'id', f.id, {
       commitmentMet: 'Yes',
       status: 'Closed'
     }, 'Commitment met by payment');
-  });
+  }
 }
 
 /** Commitments whose date has passed with the money still missing (FR-052). */
@@ -555,7 +555,9 @@ function commitReceiptImport(csvText) {
   }
 
   var touchedInvoices = {};
-  analysis.valid.forEach(function (row) {
+  // Loops from here down: every body writes, and an import that returned while its receipts
+  // were still in flight would report a total nobody could reconcile.
+  for (var row of analysis.valid) {
     appendRow_('Receipts', {
       id: generateId_('RCP-'),
       receiptNo: row.receiptNo,
@@ -572,12 +574,12 @@ function commitReceiptImport(csvText) {
       createdBy: user.email
     });
     touchedInvoices[String(row.invoiceId)] = true;
-  });
+  }
 
-  Object.keys(touchedInvoices).forEach(function (invoiceId) {
+  for (var invoiceId of Object.keys(touchedInvoices)) {
     syncInvoiceReceipts_(invoiceId);
     settleCommitments_(invoiceId);
-  });
+  }
 
   audit_('Import', 'Receipts', '', 'rowCount', '', analysis.valid.length,
     'Receipt import: ' + analysis.valid.length + ' posted, ' + analysis.errors.length + ' rejected');

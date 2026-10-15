@@ -1,0 +1,629 @@
+/**
+ * Converted from src/Orders.gs by migration/to-async.js.
+ *
+ * Only two things changed: functions that reach storage are `async`, and the calls that
+ * reach it are `await`ed. Everything else — the logic, the names, the comments — is the
+ * original, because the original is the specification and reformatting it would make the
+ * diff unreadable at exactly the moment it needs to be read.
+ *
+ * Storage comes from server/shim.js, which keeps the old names (`readTable_`,
+ * `appendRow_`) pointing at db.js. If this file is edited from here on, edit this one —
+ * the .gs original stays frozen at the point of conversion so the live portal keeps running.
+ */
+/**
+ * Sales orders and commercial control — M09, M10, M20.
+ *
+ * An order is created by converting a won quotation once the customer's PO arrives, and the
+ * PO is checked against the quote rather than trusted (FR-030): value, and the presence of a
+ * number and date. A mismatch does not silently pass — it is recorded on the order and
+ * surfaced, because unnoticed PO variance is how orders get executed at the wrong price.
+ *
+ * The lifecycle is the blueprint's eight states (FR-031), and it is a real state machine:
+ *   Draft → Approval Pending → Credit Hold → Material Pending → Ready for Dispatch →
+ *   Dispatched → Invoiced → Closed
+ * Transitions are validated, so an order cannot jump from Draft to Dispatched and leave the
+ * commercial checks behind it unperformed.
+ *
+ * Credit control (FR-032/033/034/035) is the point of the module. Exposure is
+ * outstanding invoices + open orders not yet invoiced + this order, measured against the
+ * customer's approved limit. Breaching it puts the order on Credit Hold automatically; only
+ * Management or ERP Admin can release it, they must give a reason, and the release is
+ * written to the Approvals register as well as the audit log.
+ */
+
+var ORDER_EDITORS = [ROLES.SALES_COORDINATOR, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+// Who may lift a hold is decided per order by `creditReleaseRule_`, because it depends on
+// whether the customer has broken an agreement or merely filled their pipeline. This is the
+// set that can always do it, whatever the rule says.
+var CREDIT_APPROVERS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+
+/**
+ * What each state may become. Backward moves are allowed where the business genuinely
+ * reverses (a released hold going back to material shortage, for instance); the ones left
+ * out are the ones that would skip a control.
+ */
+var ORDER_TRANSITIONS = {
+  'Draft': ['Approval Pending', 'Credit Hold', 'Material Pending', 'Ready for Dispatch'],
+  'Approval Pending': ['Credit Hold', 'Material Pending', 'Ready for Dispatch', 'Draft'],
+  'Credit Hold': ['Material Pending', 'Ready for Dispatch', 'Draft'],
+  'Material Pending': ['Ready for Dispatch', 'Credit Hold'],
+  'Ready for Dispatch': ['Dispatched', 'Credit Hold', 'Material Pending'],
+  'Dispatched': ['Invoiced'],
+  'Invoiced': ['Closed'],
+  'Closed': []
+};
+
+async function listSalesOrders(options) {
+  var user = getCurrentUser();
+  requireCommercial_(user, 'Sales orders');
+  var opts = options || {};
+
+  var customerNames = {};
+  (await readTable_('Customers')).forEach(function (c) { customerNames[String(c.id)] = c.name; });
+
+  var itemCounts = {};
+  (await readTable_('SalesOrderItems')).forEach(function (i) {
+    var key = String(i.salesOrderId);
+    itemCounts[key] = (itemCounts[key] || 0) + 1;
+  });
+
+  var rows = (await readTable_('SalesOrders')).map(function (o) {
+    var row = stripRow_(o);
+    row.customerName = customerNames[String(row.customerId)] || '';
+    row.itemCount = itemCounts[String(row.id)] || 0;
+    row.creditHold = String(row.creditHold).toUpperCase() === 'TRUE';
+    row.overdueDispatch = row.promisedDispatchDate &&
+      String(row.promisedDispatchDate) < todayIso_() &&
+      ['Dispatched', 'Invoiced', 'Closed'].indexOf(row.orderStatus) === -1;
+    return row;
+  });
+
+  if (opts.mineOnly) {
+    rows = rows.filter(function (r) { return String(r.ownerEmail).toLowerCase() === user.email.toLowerCase(); });
+  }
+  if (!opts.includeClosed) {
+    rows = rows.filter(function (r) { return r.orderStatus !== 'Closed'; });
+  }
+  if (opts.creditHoldOnly) {
+    rows = rows.filter(function (r) { return r.creditHold || r.orderStatus === 'Credit Hold'; });
+  }
+  rows = forStream_(user, rows);
+  return rows.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+}
+
+async function getSalesOrder(id) {
+  var reader = getCurrentUser();
+  var o = (await readTable_('SalesOrders')).filter(function (r) { return String(r.id) === String(id); })[0];
+  if (!o) throw new Error('Order not found.');
+  requireCommercial_(reader, 'A sales order');
+  requireStream_(reader, o.businessStream, 'This order');
+  var row = stripRow_(o);
+  row.creditHold = String(row.creditHold).toUpperCase() === 'TRUE';
+
+  row.items = (await readTable_('SalesOrderItems'))
+    .filter(function (i) { return String(i.salesOrderId) === String(id); })
+    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
+    .map(stripRow_);
+
+  var customer = (await readTable_('Customers')).filter(function (c) {
+    return String(c.id) === String(row.customerId);
+  })[0];
+  row.customerName = customer ? customer.name : '';
+  row.creditLimit = customer && customer.creditLimit !== '' ? Number(customer.creditLimit) : null;
+  row.creditDays = customer && customer.creditDays !== '' ? Number(customer.creditDays) : null;
+
+  row.creditChecks = (await readTable_('CreditChecks'))
+    .filter(function (c) { return String(c.salesOrderId) === String(id); })
+    .map(stripRow_)
+    .sort(function (a, b) { return String(b.checkDate).localeCompare(String(a.checkDate)); });
+
+  row.approvals = (await readTable_('Approvals'))
+    .filter(function (a) { return a.relatedType === 'SalesOrder' && String(a.relatedId) === String(id); })
+    .map(stripRow_);
+
+  row.allowedTransitions = ORDER_TRANSITIONS[row.orderStatus] || [];
+  // Who can lift this particular hold, and why — so the screen says it rather than letting
+  // somebody discover it by pressing a button and being refused.
+  if (row.creditHold) {
+    row.creditRelease = creditReleaseRule_(customer, row.creditChecks.filter(function (c) {
+      return c.result === 'Hold';
+    })[0] || null);
+    row.creditRelease.youMay = mayReleaseCredit_(getCurrentUser(), customer, row.creditRelease);
+  }
+  row.coordinatorInCharge = coordinatorInCharge_(customer);
+  // Which of the customer's premises this order could bill or ship to.
+  row.addressChoices = (await readTable_('CustomerAddresses'))
+    .filter(function (a) {
+      return String(a.customerId) === String(row.customerId) &&
+        String(a.active).toUpperCase() !== 'FALSE';
+    })
+    .map(function (a) {
+      return { id: String(a.id), addressType: String(a.addressType || ''),
+               label: String(a.label || ''), line1: String(a.line1 || ''),
+               city: String(a.city || ''),
+               isDefault: String(a.isDefault).toUpperCase() === 'TRUE' };
+    });
+  // The customer's own paperwork, so the screen can show the PO rather than a link to it.
+  row.documents = await listDocuments('SalesOrder', id);
+  row.documentTypes = DOC_TYPES.SalesOrder.slice();
+  return row;
+}
+
+/**
+ * Converts a won quotation into an order once the customer PO is in hand, and validates the
+ * PO against the quote (FR-029, FR-030).
+ */
+async function createOrderFromQuotation(input) {
+  var user = getCurrentUser();
+  requireRole_(user, ORDER_EDITORS);
+
+  var quote = (await readTable_('Quotations')).filter(function (q) {
+    return String(q.id) === String(input.quotationId);
+  })[0];
+  if (!quote) throw new Error('That quotation no longer exists.');
+  if (quote.status !== 'Won') {
+    throw new Error('Mark the quotation Won before converting it — an order should follow a ' +
+      'decision, not precede it.');
+  }
+
+  var already = (await readTable_('SalesOrders')).filter(function (o) {
+    return String(o.quotationId) === String(quote.id);
+  })[0];
+  if (already) throw new Error('Order ' + already.orderNo + ' already exists for this quotation.');
+
+  var poNo = String(input.poNo || '').trim();
+  if (!poNo) throw new Error("Enter the customer's PO number.");
+
+  // The figure the customer raised their order against: the total printed on the offer, tax
+  // included. Comparing against `grand`, which excludes GST on an offer that quotes tax as
+  // extra, made every purchase order look short by exactly the tax and put a variance note on
+  // orders that matched the offer to the rupee.
+  var quoteGrand = payableTotal_(quote);
+  var poValue = input.poValue === '' || input.poValue === undefined || input.poValue === null
+    ? '' : Number(input.poValue);
+
+  // FR-030: the mismatch is recorded rather than blocking, so the coordinator can proceed
+  // knowingly but nobody can later claim the variance went unseen.
+  var variance = [];
+  if (poValue !== '' && Math.abs(poValue - quoteGrand) > 1) {
+    variance.push('PO value ' + poValue.toFixed(2) + ' differs from the quoted ' +
+      quoteGrand.toFixed(2) + ' by ' + (poValue - quoteGrand).toFixed(2));
+  }
+  if (!String(input.poDate || '').trim()) variance.push('No PO date recorded');
+
+  var customer = (await readTable_('Customers')).filter(function (c) {
+    return String(c.id) === String(quote.customerId);
+  })[0];
+
+  var order = {
+    id: generateId_('SO-'),
+    orderNo: await nextSeriesNo_('SalesOrders', 'orderNo', 'SO'),
+    date: todayIso_(),
+    businessStream: quote.businessStream,
+    brand: quote.brand || await defaultBrand_(),
+    customerId: quote.customerId,
+    quotationId: quote.id,
+    poNo: poNo,
+    poDate: String(input.poDate || '').slice(0, 10),
+    poValue: poValue,
+    poAttachmentUrl: String(input.poAttachmentUrl || '').trim(),
+    poVerified: variance.length ? 'FALSE' : 'TRUE',
+    poVarianceNotes: variance.join('; '),
+    // Resolved rather than copied: a quotation drafted before the customer had an address
+    // still carries an empty pointer, and an order without one cannot be dispatched.
+    billingAddressId: (await resolveQuoteAddress_(quote) || {}).id || '',
+    shippingAddressId: await quoteShippingAddressId_(quote),
+    orderStatus: 'Draft',
+    paymentTerms: quote.paymentTerms || (customer ? customer.paymentTerms : ''),
+    advanceRequired: input.advanceRequired === '' || input.advanceRequired === undefined ? '' : Number(input.advanceRequired),
+    advanceReceived: 0,
+    promisedDispatchDate: String(input.promisedDispatchDate || '').slice(0, 10),
+    // The order confirmation's own terms. Delivery terms come across from the offer because
+    // they were quoted and agreed; the rest start empty because nothing before this point
+    // knows them — how the goods travel and where they finally go are settled when the order
+    // is confirmed, not when it was priced.
+    paymentMode: String(input.paymentMode || '').trim(),
+    deliveryTerms: String(input.deliveryTerms || quote.deliveryTerms || '').trim(),
+    despatchThrough: String(input.despatchThrough || '').trim(),
+    destination: String(input.destination || '').trim(),
+    otherReference: String(input.otherReference || '').trim(),
+    subtotal: quote.subtotal,
+    discountAmt: quote.discountAmt,
+    taxAmt: quote.taxAmt,
+    freight: quote.freight || 0,
+    grand: quote.grand,
+    creditHold: 'FALSE',
+    creditHoldReason: '',
+    ownerEmail: user.email,
+    closedDate: '',
+    notes: '',
+    createdAt: todayIso_(),
+    createdBy: user.email
+  };
+  await appendRow_('SalesOrders', order, 'Order created from quotation ' + quote.quoteNo);
+
+  // The filter and sort are pure and stay as they are; only the step that writes becomes a
+  // loop. `idx` was the callback's second argument, so it is counted here instead.
+  var quoteLines = (await readTable_('QuotationItems'))
+    .filter(function (i) { return String(i.quotationId) === String(quote.id); })
+    .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
+  for (var idx = 0; idx < quoteLines.length; idx++) {
+    var qi = quoteLines[idx];
+    {
+      await appendRow_('SalesOrderItems', {
+        id: generateId_('SOI-'),
+        salesOrderId: order.id,
+        lineNo: idx + 1,
+        itemType: qi.itemType,
+        itemId: qi.itemId,
+        itemCode: qi.itemCode,
+        description: qi.description,
+        qty: qi.qty,
+        uom: qi.uom,
+        unitPrice: qi.unitPrice,
+        discountPct: qi.discountPct,
+        taxPct: qi.taxPct,
+        lineTotal: qi.lineTotal,
+        qtyReserved: 0,
+        qtyDispatched: 0,
+        qtyInvoiced: 0,
+        // The promise was made on the quotation, so it arrives with the line rather than
+        // being asked for a second time. The order screen can still change it — that is the
+        // point of holding it here as well as there — but it changes a promise that exists
+        // instead of inventing one, and what it records is the divergence from what was
+        // quoted. Blank only where the offer itself named no period for this line.
+        dueDays: qi.leadTimeDays === '' || qi.leadTimeDays === undefined || qi.leadTimeDays === null
+          ? '' : Number(qi.leadTimeDays)
+      }, 'Line carried from the quotation');
+    }
+  }
+
+  // Run the credit check immediately — the answer belongs before anyone plans a dispatch.
+  await runCreditCheck(order.id);
+  return await getSalesOrder(order.id);
+}
+
+/**
+ * Credit exposure (FR-033).
+ *
+ * Exposure is deliberately broader than unpaid invoices: an order accepted but not yet
+ * invoiced is money already committed, so counting only invoices would understate the risk
+ * and let a customer quietly exceed their limit through open orders.
+ */
+async function calculateCreditExposure(customerId, excludeOrderId) {
+  getCurrentUser();
+
+  var customer = (await readTable_('Customers')).filter(function (c) {
+    return String(c.id) === String(customerId);
+  })[0];
+  if (!customer) throw new Error('Customer not found.');
+
+  var outstanding = 0;
+  (await readTable_('Invoices')).forEach(function (inv) {
+    if (String(inv.customerId) !== String(customerId)) return;
+    var balance = (Number(inv.grand) || 0) - (Number(inv.amountReceived) || 0);
+    if (balance > 0) outstanding += balance;
+  });
+
+  var openOrders = 0;
+  (await readTable_('SalesOrders')).forEach(function (o) {
+    if (String(o.customerId) !== String(customerId)) return;
+    if (excludeOrderId && String(o.id) === String(excludeOrderId)) return;
+    // Once invoiced the value has moved into `outstanding`; counting it here would double it.
+    if (['Invoiced', 'Closed'].indexOf(o.orderStatus) !== -1) return;
+    openOrders += Number(o.grand) || 0;
+  });
+
+  var limit = customer.creditLimit === '' || customer.creditLimit === null
+    ? null : Number(customer.creditLimit);
+
+  return {
+    customerId: customerId,
+    customerName: customer.name,
+    creditLimit: limit,
+    creditDays: customer.creditDays === '' ? null : Number(customer.creditDays),
+    paymentTerms: customer.paymentTerms || '',
+    outstandingAmt: roundMoney_(outstanding),
+    openOrderExposure: roundMoney_(openOrders),
+    existingExposure: roundMoney_(outstanding + openOrders)
+  };
+}
+
+/**
+ * Evaluates one order against the customer's limit and advance rule, records the result, and
+ * puts the order on hold when policy is breached (FR-034).
+ */
+async function runCreditCheck(salesOrderId) {
+  var user = getCurrentUser();
+
+  var order = (await readTable_('SalesOrders')).filter(function (o) {
+    return String(o.id) === String(salesOrderId);
+  })[0];
+  if (!order) throw new Error('Order not found.');
+
+  var exposure = await calculateCreditExposure(order.customerId, salesOrderId);
+  var orderValue = Number(order.grand) || 0;
+  var totalExposure = exposure.existingExposure + orderValue;
+  var limit = exposure.creditLimit;
+  var outstanding = Number(exposure.outstandingAmt) || 0;
+
+  var advanceRequired = order.advanceRequired === '' || order.advanceRequired === null
+    ? 0 : Number(order.advanceRequired);
+  var advanceReceived = Number(order.advanceReceived) || 0;
+
+  // Money already invoiced and unpaid is what decides this, not the pipeline. PIE's customers
+  // buy when they need stock, with no pattern to read into the gaps, so a big order in
+  // progress says nothing about whether somebody pays. This used to compare the limit against
+  // outstanding plus every open order plus this one, which held customers who had never been
+  // late and whose only crime was ordering again.
+  var reasons = [];
+  if (limit !== null && outstanding > limit) {
+    reasons.push('Unpaid invoices of ' + inr_(outstanding) + ' are over the credit limit of ' +
+      inr_(limit) + '. ' + inr_(outstanding - limit) + ' has to come in before this order ' +
+      'can go.');
+  }
+  if (advanceRequired > advanceReceived) {
+    reasons.push('Advance of ' + inr_(advanceRequired) + ' required, ' +
+      inr_(advanceReceived) + ' received');
+  }
+
+  var result = reasons.length ? 'Hold' : 'Pass';
+  var check = {
+    id: generateId_('CC-'),
+    salesOrderId: salesOrderId,
+    customerId: order.customerId,
+    checkDate: todayIso_(),
+    creditLimit: limit === null ? '' : limit,
+    outstandingAmt: exposure.outstandingAmt,
+    openOrderExposure: exposure.openOrderExposure,
+    currentOrderValue: orderValue,
+    totalExposure: roundMoney_(totalExposure),
+    availableCredit: limit === null ? '' : roundMoney_(limit - totalExposure),
+    advanceRequired: advanceRequired,
+    advanceReceived: advanceReceived,
+    result: result,
+    holdReason: reasons.join('; '),
+    releasedBy: '',
+    releaseDate: '',
+    releaseNotes: ''
+  };
+  await appendRow_('CreditChecks', check, 'Credit check: ' + result);
+
+  if (result === 'Hold') {
+    await updateRowById_('SalesOrders', 'id', salesOrderId, {
+      orderStatus: 'Credit Hold',
+      creditHold: 'TRUE',
+      creditHoldReason: check.holdReason
+    }, 'Automatic credit hold: ' + check.holdReason);
+
+    // The register is what makes the exception auditable, separately from the field change.
+    await appendRow_('Approvals', {
+      id: generateId_('APR-'),
+      approvalType: 'Credit Limit Exceeded',
+      relatedType: 'SalesOrder',
+      relatedId: salesOrderId,
+      requestedBy: user.email,
+      requestDate: todayIso_(),
+      requestReason: check.holdReason,
+      contextSummary: 'Limit ' + (limit === null ? 'not set' : limit) +
+        ', exposure ' + roundMoney_(totalExposure),
+      level1Approver: '', level1Status: 'Pending', level1Date: '', level1Notes: '',
+      level2Approver: '', level2Status: '', level2Date: '', level2Notes: '',
+      status: 'Pending',
+      closedDate: ''
+    }, 'Credit hold raised for approval');
+  } else if (String(order.creditHold).toUpperCase() === 'TRUE') {
+    await updateRowById_('SalesOrders', 'id', salesOrderId, {
+      creditHold: 'FALSE', creditHoldReason: ''
+    }, 'Credit check passed — hold cleared');
+  }
+
+  return check;
+}
+
+/**
+ * Releases a hold with a reason (FR-035). Restricted to Management and ERP Admin, and the
+ * reason is mandatory — an untraceable override is the thing this control exists to prevent.
+ */
+async function releaseCreditHold(salesOrderId, reason, nextStatus) {
+  var user = getCurrentUser();
+  if (!String(reason || '').trim()) {
+    throw new Error('A reason is required to release a credit hold.');
+  }
+
+  var order = (await readTable_('SalesOrders')).filter(function (o) {
+    return String(o.id) === String(salesOrderId);
+  })[0];
+  if (!order) throw new Error('Order not found.');
+
+  // Not every hold is Management's to lift. A customer inside their agreed limit on money
+  // already invoiced has broken nothing — the hold came from orders still in the pipeline —
+  // and the coordinator can release that. A customer past the limit, or one never given one,
+  // is Management's call.
+  var customer = await findRowById_('Customers', order.customerId);
+  var rule = creditReleaseRule_(customer, openCreditCheckFor_(salesOrderId));
+  if (!mayReleaseCredit_(user, customer, rule)) {
+    throw new Error(rule.why + ' You are signed in as ' + user.email + '.');
+  }
+
+  var target = String(nextStatus || 'Material Pending').trim();
+  if ((ORDER_TRANSITIONS['Credit Hold'] || []).indexOf(target) === -1) {
+    throw new Error('A released order can move to: ' + ORDER_TRANSITIONS['Credit Hold'].join(', ') + '.');
+  }
+
+  await updateRowById_('SalesOrders', 'id', salesOrderId, {
+    orderStatus: target,
+    creditHold: 'FALSE',
+    creditHoldReason: ''
+  }, 'Credit hold released by ' + user.email + ': ' + reason);
+
+  var holds = (await readTable_('CreditChecks'))
+    .filter(function (c) { return String(c.salesOrderId) === String(salesOrderId) && c.result === 'Hold' && !c.releasedBy; });
+  for (var c of holds) {
+    await updateRowById_('CreditChecks', 'id', c.id, {
+      releasedBy: user.email, releaseDate: todayIso_(), releaseNotes: reason
+    }, 'Hold released');
+  }
+
+  var pending = (await readTable_('Approvals'))
+    .filter(function (a) {
+      return a.relatedType === 'SalesOrder' && String(a.relatedId) === String(salesOrderId) &&
+        a.status === 'Pending';
+    });
+  for (var a of pending) {
+    await updateRowById_('Approvals', 'id', a.id, {
+      level1Approver: user.email, level1Status: 'Approved', level1Date: todayIso_(),
+      level1Notes: reason, status: 'Approved', closedDate: todayIso_()
+    }, 'Credit hold approved');
+  }
+
+  return await getSalesOrder(salesOrderId);
+}
+
+/** Moves an order through the lifecycle, refusing transitions that would skip a control. */
+async function setOrderStatus(salesOrderId, status, note) {
+  var user = getCurrentUser();
+  requireRole_(user, ORDER_EDITORS);
+
+  var order = (await readTable_('SalesOrders')).filter(function (o) {
+    return String(o.id) === String(salesOrderId);
+  })[0];
+  if (!order) throw new Error('Order not found.');
+  if (ORDER_STATUSES.indexOf(status) === -1) {
+    throw new Error('Status must be one of: ' + ORDER_STATUSES.join(', ') + '.');
+  }
+
+  var allowed = ORDER_TRANSITIONS[order.orderStatus] || [];
+  if (allowed.indexOf(status) === -1) {
+    throw new Error('An order that is ' + order.orderStatus + ' can only move to: ' +
+      (allowed.length ? allowed.join(', ') : 'nothing — it is complete') + '.');
+  }
+
+  // Dispatch is the gate the credit control exists to defend (FR-034).
+  if (status === 'Ready for Dispatch' || status === 'Dispatched') {
+    if (String(order.creditHold).toUpperCase() === 'TRUE') {
+      throw new Error('This order is on credit hold. It must be released by Management before dispatch.');
+    }
+    var check = await runCreditCheck(salesOrderId);
+    if (check.result === 'Hold') {
+      throw new Error('Credit check failed: ' + check.holdReason +
+        '. The order has been placed on hold and needs Management release.');
+    }
+  }
+
+  var patch = { orderStatus: status };
+  if (status === 'Closed') patch.closedDate = todayIso_();
+  if (note) patch.notes = String(note).trim();
+
+  await updateRowById_('SalesOrders', 'id', salesOrderId, patch,
+    'Status ' + order.orderStatus + ' → ' + status + (note ? ': ' + note : ''));
+  return await getSalesOrder(salesOrderId);
+}
+
+/** PO details and dispatch promise — the fields a coordinator maintains on an open order. */
+async function saveOrderDetails(input) {
+  var user = getCurrentUser();
+  requireRole_(user, ORDER_EDITORS);
+
+  var order = (await readTable_('SalesOrders')).filter(function (o) {
+    return String(o.id) === String(input.id);
+  })[0];
+  if (!order) throw new Error('Order not found.');
+  if (order.orderStatus === 'Closed') throw new Error('A closed order cannot be edited.');
+
+  var quote = (await readTable_('Quotations')).filter(function (q) {
+    return String(q.id) === String(order.quotationId);
+  })[0];
+  // The same comparison as when the order was created: against the total printed on the
+  // offer, which includes the GST.
+  var quoteGrand = quote ? payableTotal_(quote) : Number(order.grand) || 0;
+  var poValue = input.poValue === '' || input.poValue === undefined || input.poValue === null
+    ? '' : Number(input.poValue);
+
+  var variance = [];
+  if (poValue !== '' && Math.abs(poValue - quoteGrand) > 1) {
+    variance.push('PO value ' + poValue.toFixed(2) + ' differs from the quoted ' +
+      quoteGrand.toFixed(2) + ' by ' + (poValue - quoteGrand).toFixed(2));
+  }
+  if (!String(input.poDate || '').trim()) variance.push('No PO date recorded');
+
+  var advanceReceived = input.advanceReceived === '' || input.advanceReceived === undefined
+    ? Number(order.advanceReceived) || 0 : Number(input.advanceReceived);
+
+  // Where this order bills and where it ships. Carried from the quotation when the order was
+  // created, and changeable here because a customer can send the PO and then say the goods go
+  // to a different plant — which is the address the dispatch and the challan will use.
+  var places = {};
+  if (input.billingAddressId !== undefined || input.shippingAddressId !== undefined) {
+    var chosen = await chooseCustomerParties_(order.customerId, {
+      billingAddressId: input.billingAddressId,
+      shippingAddressId: input.shippingAddressId
+    });
+    // A blank is "leave it as it was" here rather than "nobody": an order with no address to
+    // ship to cannot be dispatched, and clearing one by accident is not worth allowing.
+    places.billingAddressId = chosen.billingAddressId || order.billingAddressId;
+    places.shippingAddressId = chosen.shippingAddressId || order.shippingAddressId;
+  }
+
+  await updateRowById_('SalesOrders', 'id', input.id, Object.keys(places).reduce(
+    function (into, k) { into[k] = places[k]; return into; }, {
+    poNo: String(input.poNo || '').trim(),
+    poDate: String(input.poDate || '').slice(0, 10),
+    poValue: poValue,
+    poAttachmentUrl: String(input.poAttachmentUrl || '').trim(),
+    poVerified: variance.length ? 'FALSE' : 'TRUE',
+    poVarianceNotes: variance.join('; '),
+    promisedDispatchDate: String(input.promisedDispatchDate || '').slice(0, 10),
+    paymentTerms: String(input.paymentTerms || '').trim(),
+    paymentMode: String(input.paymentMode || '').trim(),
+    deliveryTerms: String(input.deliveryTerms || '').trim(),
+    despatchThrough: String(input.despatchThrough || '').trim(),
+    destination: String(input.destination || '').trim(),
+    otherReference: String(input.otherReference || '').trim(),
+    advanceRequired: input.advanceRequired === '' || input.advanceRequired === undefined
+      ? '' : Number(input.advanceRequired),
+    advanceReceived: advanceReceived,
+    notes: String(input.notes || '').trim()
+  }), 'Order details updated');
+
+  // The promised days, line by line. Sent as a map of line id to a number of days so the
+  // screen can save the whole grid in the one call it already makes.
+  if (input.dueDays && typeof input.dueDays === 'object') {
+    var lines = await findRowsByColumn_('SalesOrderItems', 'salesOrderId', [String(input.id)]);
+    for (var line of lines) {
+      if (!input.dueDays.hasOwnProperty(String(line.id))) continue;
+      var raw = String(input.dueDays[String(line.id)] || '').trim();
+      var days = raw === '' ? '' : Math.max(0, Math.round(Number(raw) || 0));
+      if (String(line.dueDays || '') === String(days)) continue;
+      await updateRowById_('SalesOrderItems', 'id', line.id, { dueDays: days },
+        'Delivery promise set on line ' + line.lineNo);
+    }
+  }
+
+  // Advance and value changes move the credit answer, so re-evaluate rather than go stale.
+  await runCreditCheck(input.id);
+  return await getSalesOrder(input.id);
+}
+
+/** Quotations that are Won and not yet converted — what the "create order" picker offers. */
+// The screen defaults the PO value from this, so it has to be the figure on the printed
+// offer rather than the pre-tax one, or every order starts with a variance.
+
+async function listConvertibleQuotations() {
+  getCurrentUser();
+  var converted = {};
+  (await readTable_('SalesOrders')).forEach(function (o) { converted[String(o.quotationId)] = true; });
+
+  var customerNames = {};
+  (await readTable_('Customers')).forEach(function (c) { customerNames[String(c.id)] = c.name; });
+
+  return (await readTable_('Quotations'))
+    .filter(function (q) { return q.status === 'Won' && !converted[String(q.id)]; })
+    .map(function (q) {
+      return {
+        id: q.id, quoteNo: q.quoteNo, revision: q.revision, date: q.date,
+        customerId: q.customerId, customerName: customerNames[String(q.customerId)] || '',
+        businessStream: q.businessStream, grand: payableTotal_(q)
+      };
+    });
+}
