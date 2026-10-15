@@ -450,7 +450,7 @@ function saveFollowup(input) {
 }
 
 function listFollowups(options) {
-  getCurrentUser();
+  var user = getCurrentUser();
   var opts = options || {};
   var today = todayIso_();
 
@@ -466,7 +466,8 @@ function listFollowups(options) {
       if (opts.invoiceId && String(f.invoiceId) !== String(opts.invoiceId)) return false;
       if (opts.customerId && String(f.customerId) !== String(opts.customerId)) return false;
       if (opts.openOnly && f.status === 'Closed') return false;
-      if (opts.mineOnly && String(f.ownerEmail) !== getCurrentUserEmail_()) return false;
+      if (opts.mineOnly &&
+        String(f.ownerEmail).toLowerCase() !== String(user.email).toLowerCase()) return false;
       if (opts.dueOnly) {
         if (!f.nextFollowupDate) return false;
         if (daysBetween_(f.nextFollowupDate, today) < 0) return false;

@@ -410,6 +410,27 @@ function runCreditCheck(salesOrderId) {
 }
 
 /**
+ * The hold currently standing against an order, or null.
+ *
+ * creditReleaseRule_ needs the numbers the check was made on — what was outstanding, what
+ * advance was asked for and what came in — to work out whether lifting the hold is the
+ * coordinator's to do or Management's. This was called and never written: releasing a credit
+ * hold threw a ReferenceError every time, which nobody had hit because the hold had to exist
+ * first and PIE have not run an order into one yet.
+ *
+ * Newest first, because a check can be re-run and the latest one is the live position.
+ */
+function openCreditCheckFor_(salesOrderId) {
+  return readTable_('CreditChecks')
+    .filter(function (c) {
+      return String(c.salesOrderId) === String(salesOrderId) && c.result === 'Hold' &&
+        !c.releasedBy;
+    })
+    .sort(function (a, b) { return String(b.checkDate).localeCompare(String(a.checkDate)); })[0]
+    || null;
+}
+
+/**
  * Releases a hold with a reason (FR-035). Restricted to Management and ERP Admin, and the
  * reason is mandatory — an untraceable override is the thing this control exists to prevent.
  */
