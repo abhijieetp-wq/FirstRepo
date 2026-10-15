@@ -61,3 +61,67 @@ wrong.
 - The loader, and a count check per table before anything is believed
 - `NOT NULL` and foreign keys — deliberately absent until the real data is loaded and we
   know which columns are genuinely always present
+
+---
+
+## Phase 2 — the data layer
+
+`server/db.js` is what `SheetService.gs` becomes. Twelve functions, same names, same return
+shapes, against Postgres.
+
+```bash
+cd server && npm install
+
+# a local Postgres to develop against
+export PATH=/usr/lib/postgresql/16/bin:$PATH
+initdb -D /var/tmp/erp-pg -U erp --auth=trust
+pg_ctl -D /var/tmp/erp-pg -o '-p 5433 -k /var/tmp' start
+createdb -h /var/tmp -p 5433 -U erp erp_dev
+node migration/schema.js | psql -h /var/tmp -p 5433 -U erp -d erp_dev
+
+export DATABASE_URL="postgres://erp@/erp_dev?host=/var/tmp&port=5433"
+node tests/db-test.js
+```
+
+### Faithful first
+
+Everything returns exactly what the Apps Script version returned, oddities included:
+
+- **blanks are `''`, not null** — a spreadsheet has no null, and the portal is full of
+  `String(x).trim()` written against that. null would print as "null" on a quotation.
+- **dates are `'yyyy-MM-dd'` strings** — pg builds a `Date` at the server's midnight, which
+  can slide the day across time zones. The portal compares these as text throughout.
+- **NUMERIC comes back as a number** — pg returns strings to protect precision; the widest
+  column here is `NUMERIC(14,2)`, comfortably exact as a double.
+- **one audit row per changed field** on update, not one per save. The log exists to answer
+  "who changed the price and what was it before".
+- **an update that matches no row throws**, rather than succeeding quietly.
+
+Making the queries clever comes after everything works, not during.
+
+### What a tenant is for
+
+Every statement carries `tenant_id`, and `connect()` refuses without one. A missing `WHERE`
+on a shared table is how one client reads another's prices, so the tests check it on reads,
+lookups, column maps **and** writes.
+
+### Measured, on the real catalogue
+
+13,587 parts and 27,174 prices, loaded in **1.5 seconds** — against an evening of chunked
+uploads and HTTP 503s through the portal.
+
+| | |
+|---|---|
+| `readTable('Spares')` — all 13,587, the deliberately naive port | **76 ms** |
+| `findRowById` | **0.4 ms** |
+| search by part number, indexed | **0.4 ms** |
+| the counter's real search — group + text + price, capped at 50 | **5.2 ms** |
+
+The last line is the one to hold on to. That same search in the live portal takes ten to
+fifteen seconds on the first try of the day.
+
+### Still to do in Phase 2
+
+- The exporter: the live sheet's rows into this schema, verified row for row
+- The async conversion across the 43 modules — ~630 call sites
+- Then replace the faithful `readTable` calls on the hot paths with real queries

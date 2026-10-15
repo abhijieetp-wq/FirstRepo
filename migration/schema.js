@@ -199,6 +199,16 @@ function build() {
   return { ddl: ddl.join('\n'), report, tables };
 }
 
+/**
+ * Also a module. `server/db.js` needs the same three answers this file already works out —
+ * which tabs exist, what each column is called in Postgres, and what type it holds — and a
+ * second copy of those rules would drift from this one within a month. One source, used by
+ * the thing that creates the schema and the thing that reads it.
+ */
+module.exports = { loadSchema, typeFor, snake, build, OVERRIDES, UNSURE };
+
+if (require.main !== module) return;
+
 const { ddl, report, tables } = build();
 
 if (process.argv.indexOf('--report') !== -1) {
