@@ -141,12 +141,13 @@ function purgeProduct(id) {
   assertItemUnreferenced_('Product', ids, 'Product ' + product.productCode + ' is');
 
   var prices = 0;
-  readTable_('PriceList').forEach(function (r) {
+  // Iterating the rows already read, so removing as we go cannot disturb the loop.
+  for (var r of readTable_('PriceList')) {
     if (r.itemType === 'Product' && ids.hasOwnProperty(String(r.itemId))) {
       deleteRowById_('PriceList', 'id', r.id, 'Removed with the product');
       prices++;
     }
-  });
+  }
 
   deleteRowById_('Products', 'id', product.id, 'Product deleted — nothing referred to it');
   return { productCode: product.productCode, prices: prices };

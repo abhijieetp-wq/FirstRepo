@@ -148,13 +148,19 @@ function saveLead(input) {
  * machines in different quantities, so this is a list rather than one type and one number.
  */
 function saveLeadRequirements_(leadId, requirements) {
-  readTable_('LeadRequirements')
-    .filter(function (r) { return String(r.leadId) === String(leadId); })
-    .forEach(function (r) { deleteRowById_('LeadRequirements', 'id', r.id); });
+  // Loops rather than forEach: both bodies write, and a promise handed back to forEach is
+  // discarded — the function would return with the deletes and inserts still in flight.
+  var existing = readTable_('LeadRequirements')
+    .filter(function (r) { return String(r.leadId) === String(leadId); });
+  for (var old of existing) {
+    deleteRowById_('LeadRequirements', 'id', old.id);
+  }
 
-  (requirements || []).forEach(function (req, idx) {
+  var list = requirements || [];
+  for (var idx = 0; idx < list.length; idx++) {
+    var req = list[idx];
     var type = String(req.compressorType || '').trim();
-    if (!type) return;
+    if (!type) continue;
     var qty = Number(req.quantity);
     appendRow_('LeadRequirements', {
       id: generateId_('LR'),
@@ -165,7 +171,7 @@ function saveLeadRequirements_(leadId, requirements) {
       capacityHint: String(req.capacityHint || '').trim(),
       notes: String(req.notes || '').trim()
     });
-  });
+  }
 }
 
 function leadRequirementsFor_(leadId) {

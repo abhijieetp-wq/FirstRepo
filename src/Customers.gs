@@ -219,13 +219,13 @@ function saveCustomerContact(input) {
 
   // Only one primary per customer, so promoting one demotes the rest.
   if (record.isPrimary === 'TRUE') {
-    readTable_('CustomerContacts').forEach(function (c) {
-      if (String(c.customerId) !== record.customerId) return;
-      if (String(c.id) === String(input.id || '')) return;
+    for (var c of readTable_('CustomerContacts')) {
+      if (String(c.customerId) !== record.customerId) continue;
+      if (String(c.id) === String(input.id || '')) continue;
       if (String(c.isPrimary).toUpperCase() === 'TRUE') {
         updateRowById_('CustomerContacts', 'id', c.id, { isPrimary: 'FALSE' }, 'Another contact was made primary');
       }
-    });
+    }
   }
 
   if (input.id) {
@@ -272,15 +272,15 @@ function saveCustomerAddress(input) {
 
   // One default per address type, so orders and invoices always resolve to exactly one.
   if (record.isDefault === 'TRUE') {
-    readTable_('CustomerAddresses').forEach(function (a) {
-      if (String(a.customerId) !== record.customerId) return;
-      if (String(a.addressType) !== addressType) return;
-      if (String(a.id) === String(input.id || '')) return;
+    for (var a of readTable_('CustomerAddresses')) {
+      if (String(a.customerId) !== record.customerId) continue;
+      if (String(a.addressType) !== addressType) continue;
+      if (String(a.id) === String(input.id || '')) continue;
       if (String(a.isDefault).toUpperCase() === 'TRUE') {
         updateRowById_('CustomerAddresses', 'id', a.id, { isDefault: 'FALSE' },
           'Another ' + addressType.toLowerCase() + ' address was made default');
       }
-    });
+    }
   }
 
   if (input.id) {

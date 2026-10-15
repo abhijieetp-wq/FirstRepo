@@ -329,12 +329,15 @@ function savePrice(input) {
   var effectiveFrom = String(input.effectiveFrom || todayIso_()).slice(0, 10);
 
   // Close any row for this item+level that is still open on the new start date.
-  readTable_('PriceList').forEach(function (row) {
-    if (row.itemType !== itemType || String(row.itemId) !== itemId || row.priceLevel !== priceLevel) return;
-    if (!priceRowActiveOn_(row, effectiveFrom)) return;
+  // A loop, because closing a row is a write. `return` inside the old callback meant "skip
+  // this one", which is `continue` here — the two read almost identically and mean entirely
+  // different things, so this is the line to be careful about.
+  for (var row of readTable_('PriceList')) {
+    if (row.itemType !== itemType || String(row.itemId) !== itemId || row.priceLevel !== priceLevel) continue;
+    if (!priceRowActiveOn_(row, effectiveFrom)) continue;
     updateRowById_('PriceList', 'id', row.id,
       { effectiveTo: previousDay_(effectiveFrom) }, 'Superseded by a new price effective ' + effectiveFrom);
-  });
+  }
 
   var record = {
     id: generateId_('PRC-'),

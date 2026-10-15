@@ -214,21 +214,24 @@ function restoreQuoteTemplates() {
   readTable_('QuoteTemplates').forEach(function (t) { existing[String(t.id)] = t; });
 
   var restored = [], added = [];
-  defaultQuoteTemplates_().forEach(function (t) {
+  // A loop, because the two branches below write. Each `return` in the old callback meant
+  // "skip this section", which is `continue` — the same word would mean "stop entirely"
+  // here, and the sections after it would silently never be restored.
+  for (var t of defaultQuoteTemplates_()) {
     if (!existing[t.id]) {
       appendRow_('QuoteTemplates', t, 'Standard quotation text installed');
       added.push(t.section);
-      return;
+      continue;
     }
     if (String(existing[t.id].body).trim() === String(t.body).trim() &&
         String(existing[t.id].title).trim() === String(t.title).trim()) {
-      return;   // already identical — no write, no audit noise
+      continue;   // already identical — no write, no audit noise
     }
     var patch = {};
     Object.keys(t).forEach(function (k) { if (k !== 'id') patch[k] = t[k]; });
     updateRowById_('QuoteTemplates', 'id', t.id, patch, 'Standard quotation text restored');
     restored.push(t.section);
-  });
+  }
 
   return { restored: restored, added: added, unchanged: !restored.length && !added.length };
 }
@@ -253,11 +256,11 @@ function installMissingQuoteTemplates_(auditReason) {
   readTable_('QuoteTemplates').forEach(function (t) { have[String(t.id)] = true; });
 
   var added = [];
-  defaultQuoteTemplates_().forEach(function (t) {
-    if (have[t.id]) return;
+  for (var t of defaultQuoteTemplates_()) {
+    if (have[t.id]) continue;
     appendRow_('QuoteTemplates', t, auditReason);
     added.push(t.section);
-  });
+  }
   return added;
 }
 

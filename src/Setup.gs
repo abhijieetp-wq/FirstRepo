@@ -142,7 +142,8 @@ function migratePriceLevels_(ss, report) {
 
   var converted = 0;
   var retired = 0;
-  readTable_('PriceList').forEach(function (row) {
+  // A loop, because both branches write and a promise given to forEach is discarded.
+  for (var row of readTable_('PriceList')) {
     var level = String(row.priceLevel || '').trim();
     if (level === 'List') {
       updateRowById_('PriceList', 'id', row.id, { priceLevel: SELLING_PRICE_LEVEL },
@@ -153,7 +154,7 @@ function migratePriceLevels_(ss, report) {
         'Price level "' + level + '" retired — the model is now PIE (cost) and ELGI (selling)');
       retired++;
     }
-  });
+  }
 
   if (converted) report.migrated.push('PriceList: ' + converted + ' List price(s) became ELGI');
   if (retired) report.migrated.push('PriceList: ' + retired + ' row(s) on retired levels deactivated');

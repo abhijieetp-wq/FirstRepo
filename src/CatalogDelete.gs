@@ -162,9 +162,12 @@ function deleteCatalogItems(itemType, ids, withDocuments, confirmText) {
         quoteIds[String(i.quotationId)] = true;
       }
     });
-    Object.keys(quoteIds).forEach(function (qid) {
+    // A loop rather than forEach because discarding a quotation reaches storage, and an
+    // async callback handed to forEach returns a promise forEach throws away — the loop
+    // would finish with the discards still in flight.
+    for (var qid of Object.keys(quoteIds)) {
       quotations.push(discardQuotation(qid).quoteNo);
-    });
+    }
   }
 
   var isMine = function (row) {

@@ -230,51 +230,56 @@ administrator locking themselves out.
 
 ## Converted so far
 
-**18 of 43 modules** — every file that needed no hand work:
+**26 of 43 modules.**
 
-`CatalogComplete` `Code` `Config` `CustomerItemCodes` `Dashboard` `Documents` `GoogleGate`
-`QuotationDocument` `QuotationEmail` `QuotationJourney` `QuotationProgress` `SalesPolicy`
-`Service` `ServiceReport` `SpareEnquiries` `Stock` `Telemetry` `UserEmail`
+The eighteen that needed nothing, plus eight whose callbacks were turned into loops first:
+`CatalogDelete` `CatalogImport` `CompanyProfile` `CompressorSales` `Customers` `Pricing`
+`Products` `Setup`.
 
-Checked by `tests/codemod-test.js`, five ways per file:
+### The loops are rewritten in `src/`, not in the output
 
-1. **The logic is unchanged** — both files parsed, positions dropped, every `async` flag
-   cleared and every `await` unwrapped; the two trees must be identical.
-2. **Every comment survives** — compared in order. An AST comparison would not notice them
-   disappearing, and here they are the part that took longest.
-3. It parses.
-4. Exactly the functions the call graph named are async, and no others.
-5. Nothing asynchronous is called without being awaited.
+`forEach` → `for...of` is behaviour-identical and runs on Apps Script V8, so it goes into the
+original. Three things follow from that and all three matter:
 
-### What check 5 found on its first run
+- the live portal keeps running on it, and the change is deployable
+- the existing test suite proves the rewrite before anything is generated
+- the codemod then has nothing left to decide, so the generated files stay disposable —
+  regenerate them any time rather than hand-patching output that would drift from its source
 
-A bug in the codemod, in eighteen files, of the worst available kind.
+**The one thing to be careful about**: `return` inside a `forEach` callback means *skip this
+one*. In a loop that same word means *stop entirely*. Every one of these became `continue`,
+and a missed one would silently stop processing partway with no error — in
+`restoreQuoteTemplates` it would have restored the first changed section and quietly skipped
+the rest.
 
-`await` is a prefix operator over the *whole* expression that follows. So inserting it at the
-front of a call whose result is then indexed into is wrong in a way that parses perfectly:
+### One of them was not a loop problem at all
 
-```js
-// generated, wrong
-var row    = await readTable_(tab).filter(fn);            // awaits promise.filter -> TypeError
-var onHand = await stockOnHandMap_(t)[id] || 0;           // awaits promise[id] -> undefined -> 0
+`CatalogImport` called `defaultBrand_()` inside two nested `map`s — once per column, per new
+part. On a full catalogue load that is thirteen thousand calls for an answer that cannot
+change during the write. Hoisted out of both loops: correct, and faster.
 
-// generated, right
-var row    = (await readTable_(tab)).filter(fn);
-var onHand = (await stockOnHandMap_(t))[id] || 0;
-```
+### Checked, five ways per file
 
-The first throws. **The second does not** — it quietly evaluates to zero, and on-hand stock
-reads as nil on every screen that asks. No error, no log line, nothing to trace.
+`tests/codemod-test.js`, **130 assertions**: the logic is unchanged (trees compared with
+`async` cleared and `await` unwrapped); every comment survives in order; it parses; exactly
+the right functions are async; nothing asynchronous goes un-awaited.
 
-That is precisely the failure this migration has to rule out, it was in the output of a tool
-that looked like it worked, and the only reason it is not in the code now is that something
-checked rather than assuming.
+### Still to do — 11 modules
 
-It also broke the first version of the verifier, which compared text and flagged the added
-parentheses as a difference. Comparing trees instead is both more correct and simpler —
-parentheses do not exist in an AST.
+| | callbacks |
+|---|---|
+| `Quotations` | 11 |
+| `Dispatch` | 8 |
+| `Billing` `Session` `Spares` `TallyImport` | 6 each |
+| `Inventory` | 5 |
+| `Collections` `Orders` | 4 each |
+| `ItemReferences` | 2 |
+| `SheetService` | 1 |
 
-### Still to do
+`ItemReferences` is the odd one and needs more than a loop swap: its storage calls sit inside
+**function expressions assigned to variables** (`docNumber`, `scan`), which the codemod does
+not touch because it only marks function *declarations*. Those want restructuring so the
+reads happen once up front rather than inside nested helpers — better code either way, but
+a real change rather than a mechanical one.
 
-19 modules with callbacks to unpick by hand, heaviest first: `Quotations` (11),
-`Dispatch` (8), `Spares` (6), `Billing` (6), `Session` (6), `TallyImport` (6).
+`SheetService` is replaced by `db.js` and never converts.

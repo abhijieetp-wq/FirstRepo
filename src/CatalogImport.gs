@@ -158,10 +158,14 @@ function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
 
     // One bulk append for new rows.
     if (analysis.creates.length) {
+      // Hoisted out of both loops. It never depended on the row or the column, and inside
+      // them it was being asked the same question once per new part — thirteen thousand
+      // times on a full catalogue load — for an answer that cannot change during the write.
+      var brand = defaultBrand_();
       var newRows = analysis.creates.map(function (c) {
         return headers.map(function (h) {
           if (h === 'id') return c.id;
-          if (h === 'brand') return defaultBrand_();
+          if (h === 'brand') return brand;
           if (h === 'active') return 'TRUE';
           if (h === 'createdAt') return todayIso_();
           if (h === 'createdBy') return user.email;
