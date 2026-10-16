@@ -515,6 +515,35 @@ async function main() {
   console.log('Timezone the dates were written in: ' + manifest.timezone);
   console.log('');
 
+  // Before anything else, because it invalidates the whole export rather than part of it.
+  const moved = manifest.tabsThatMovedDuringExport || [];
+  if (moved.length && !force) {
+    console.log('THE SPREADSHEET CHANGED WHILE IT WAS BEING EXPORTED. Nothing has been ' +
+      'written.\n');
+    moved.forEach((m) => console.log('  ' + m.tab + ': ' +
+      (m.by > 0 ? m.by + ' row(s) added' : (-m.by) + ' row(s) removed') + ' after it was read'));
+    console.log('\nThe 52 tabs are read one after another — Sheets offers no way to read them');
+    console.log('as of one moment — and name order puts a document\u2019s lines before its header:');
+    console.log('QuotationItems before Quotations, InvoiceItems before Invoices. So anything');
+    console.log('saved part-way through can arrive here as a header with no lines, or lines');
+    console.log('belonging to nothing. Both load without complaint and both are wrong.');
+    console.log('\nAsk everyone to stay out of the portal, then run resetMigrationExport() and');
+    console.log('exportForMigration() again in the Apps Script editor.');
+    console.log('\n--force overrides this, and should not be used for the real cutover.');
+    process.exit(1);
+  }
+  if (moved.length) {
+    console.log('WARNING: ' + moved.length + ' tab(s) changed during the export, overridden ' +
+      'with --force.\n');
+  }
+  // An export taken before this check existed has no opinion either way. Said out loud rather
+  // than treated as a pass, because "the field is absent" and "nothing moved" are not the
+  // same fact and only one of them is evidence.
+  if (manifest.tabsThatMovedDuringExport === undefined) {
+    console.log('NOTE: this export predates the did-anything-move check, so it cannot say ' +
+      'whether\n      the spreadsheet was quiet while it was read. Fine for a rehearsal.\n');
+  }
+
   console.log('1. every row and tab digest, recomputed here');
   const digestProblems = checkDigests(manifest, files);
   if (digestProblems.length) {

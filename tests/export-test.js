@@ -212,6 +212,28 @@ function drainDrive(sb, into) {
   ok('and leaves everything else alone', sb.normalizeCell_('2026-01-15') === '2026-01-15' &&
     sb.normalizeCell_(18) === 18 && sb.normalizeCell_('') === '');
 
+  console.log('\nAND IT NOTICES IF SOMEBODY USED THE PORTAL MID-EXPORT');
+  // The 52 tabs are read one after another, and name order puts a document's lines before its
+  // header — QuotationItems before Quotations. A quotation saved between those two reads
+  // arrives as a header with no lines, which loads without complaint and is wrong. The only
+  // real answer is that nobody uses the portal during the export; this is the tripwire for
+  // when somebody does.
+  ok('a quiet spreadsheet reports nothing moved',
+    Array.isArray(manifest.tabsThatMovedDuringExport) &&
+    manifest.tabsThatMovedDuringExport.length === 0, manifest.tabsThatMovedDuringExport);
+
+  // Somebody saves a quotation line while the export is between tabs.
+  const qi = table('QuotationItems');
+  qi.rows.push(new Array(qi.headers.length).fill('x'));
+  const movedNow = sb.exportTabsThatMoved_(sb.exportDone_());
+  ok('an appended row is caught', movedNow.length === 1, movedNow);
+  ok('and named with the tab and how many',
+    movedNow.length && movedNow[0].tab === 'QuotationItems' && movedNow[0].by === 1,
+    movedNow[0]);
+  qi.rows.pop();
+  ok('and once it is undone, nothing moved again',
+    sb.exportTabsThatMoved_(sb.exportDone_()).length === 0);
+
   console.log('\nAND A CORRUPTED ROW IS CAUGHT, NOT LOADED');
   // The failure this check exists for: a partial download, an editor that re-encoded the file,
   // a zip opened and resaved. One character changed in one cell of one row.

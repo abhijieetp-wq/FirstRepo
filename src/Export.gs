@@ -199,7 +199,47 @@ function exportTab_(tab, folder) {
   while (existing.hasNext()) existing.next().setTrashed(true);
   folder.createFile(Utilities.newBlob(JSON.stringify(payload), 'application/json', name));
 
-  return { rows: rows.length, columns: headers, digest: digest, blankRowsSkipped: blankRows };
+  return { rows: rows.length, columns: headers, digest: digest, blankRowsSkipped: blankRows,
+           sheetLastRow: lastRow };
+}
+
+/**
+ * Did the spreadsheet change while we were reading it?
+ *
+ * THE EXPORT IS NOT ATOMIC ACROSS TABS, and it cannot be: there are 52 of them and Sheets
+ * offers no way to read them all as of one moment. They are read in name order, which puts a
+ * document's LINES before its HEADER — QuotationItems before Quotations, InvoiceItems before
+ * Invoices, DispatchItems before Dispatches. So a quotation saved between those two reads
+ * arrives in the export as a header with no lines, and a quotation deleted between them as
+ * lines belonging to nothing. Both load without complaint and both are wrong.
+ *
+ * The only real answer is that nobody uses the portal while the export runs. This is the
+ * tripwire that catches it when somebody does, instead of relying on everyone having
+ * remembered.
+ *
+ * WHAT IT CATCHES AND WHAT IT DOES NOT, plainly, because a safeguard that is trusted further
+ * than it reaches is worse than none. getLastRow moves when rows are added or removed, so a
+ * saved quotation, a new order, a stock movement, an audit entry — anything that appends — is
+ * caught. EDITING a row that already exists does not move it, so a price changed on an
+ * existing quotation line during the export is not caught. Appending is what almost everything
+ * in this portal does, the audit log included, so in practice any use of the portal at all
+ * trips this. It is a tripwire, not a lock.
+ */
+function exportTabsThatMoved_(done) {
+  var moved = [];
+  var tabs = Object.keys(done);
+  for (var i = 0; i < tabs.length; i++) {
+    var tab = tabs[i];
+    var before = done[tab].sheetLastRow;
+    if (before === undefined || done[tab].missing) continue;
+    var sheet = getSheet_(tab);
+    if (!sheet) continue;
+    var after = sheet.getLastRow();
+    if (after !== before) {
+      moved.push({ tab: tab, wasLastRow: before, nowLastRow: after, by: after - before });
+    }
+  }
+  return moved;
 }
 
 /**
@@ -239,7 +279,8 @@ function exportForMigration() {
     return msg;
   }
 
-  var manifest = exportManifest_(folder, done);
+  var moved = exportTabsThatMoved_(done);
+  var manifest = exportManifest_(folder, done, moved);
   Logger.log(manifest.text);
   return manifest.text;
 }
@@ -254,7 +295,7 @@ function exportForMigration() {
  * the code and becomes blank, which is fine but should be said out loud. Either way nobody
  * should discover it by comparing row counts afterwards and wondering.
  */
-function exportManifest_(folder, done) {
+function exportManifest_(folder, done, moved) {
   var tabs = Object.keys(done).sort();
   var total = 0;
   var entries = [];
@@ -307,7 +348,11 @@ function exportManifest_(folder, done) {
     tabs: entries,
     columnsNotInSchema: notInSchema,
     columnsNotInSheet: notInSheet,
-    tabsMissingFromSheet: missingTabs
+    tabsMissingFromSheet: missingTabs,
+    // Empty means nothing was added to or removed from any tab between its read and the end
+    // of the run. The import refuses an export where this is not empty, because the pieces of
+    // one document may have landed either side of the change.
+    tabsThatMovedDuringExport: moved || []
   };
 
   var name = '_manifest.json';
@@ -316,7 +361,22 @@ function exportManifest_(folder, done) {
   folder.createFile(Utilities.newBlob(JSON.stringify(manifest, null, 2),
     'application/json', name));
 
-  var text = 'Export complete.\n\n' +
+  var movedText = '';
+  if (moved && moved.length) {
+    movedText = 'THE SPREADSHEET CHANGED WHILE THIS WAS READING IT.\n\n' +
+      moved.map(function (m) {
+        return '  ' + m.tab + ': ' + (m.by > 0 ? m.by + ' row(s) added' : (-m.by) +
+          ' row(s) removed') + ' after it had been read';
+      }).join('\n') + '\n\n' +
+      'The tabs are read one after another, in name order, and that puts a document\u2019s ' +
+      'lines before its header \u2014 QuotationItems before Quotations. So something saved ' +
+      'part-way through can land in the export as a header with no lines, which loads ' +
+      'without complaint and is wrong.\n\n' +
+      'The import will refuse this export. Ask everyone to stay out of the portal, then run ' +
+      'resetMigrationExport() and exportForMigration() again.\n\n';
+  }
+
+  var text = (movedText ? movedText : 'Export complete.\n\n') +
     entries.length + ' tabs, ' + total + ' rows.\n' +
     'Folder: ' + folder.getUrl() + '\n\n' +
     (notInSchema.length
