@@ -208,7 +208,6 @@ function exportTab_(tab, folder) {
  * @return a report, printed to the execution log, saying what was written and what is left.
  */
 function exportForMigration() {
-  var user = Session.getEffectiveUser().getEmail();
   var folder = exportFolder_();
   var done = exportDone_();
   var started = Date.now();
@@ -240,7 +239,7 @@ function exportForMigration() {
     return msg;
   }
 
-  var manifest = exportManifest_(folder, done, user);
+  var manifest = exportManifest_(folder, done);
   Logger.log(manifest.text);
   return manifest.text;
 }
@@ -255,7 +254,7 @@ function exportForMigration() {
  * the code and becomes blank, which is fine but should be said out loud. Either way nobody
  * should discover it by comparing row counts afterwards and wondering.
  */
-function exportManifest_(folder, done, user) {
+function exportManifest_(folder, done) {
   var tabs = Object.keys(done).sort();
   var total = 0;
   var entries = [];
@@ -291,7 +290,14 @@ function exportManifest_(folder, done, user) {
 
   var manifest = {
     build: typeof APP_BUILD === 'string' ? APP_BUILD : 'unknown',
-    exportedBy: user,
+    // Who ran it is deliberately NOT recorded here, and that is worth explaining because the
+    // obvious one-liner for it is a trap. Session.getEffectiveUser().getEmail() would be the
+    // first call to that service anywhere in this project, and Apps Script works out a
+    // deployment's OAuth scopes by scanning the source — so adding it would add
+    // userinfo.email to the set. A deployed web app running as USER_DEPLOYING stops serving
+    // when its scope set grows until the owner opens the editor and authorises again, which
+    // for PIE would be an authorisation error on every screen until somebody noticed. Not
+    // worth one field in a file. Apps Script's own execution log records who pressed Run.
     exportedAt: new Date().toISOString(),
     startedAt: PropertiesService.getScriptProperties().getProperty(EXPORT_STARTED_PROP_) || '',
     timezone: Session.getScriptTimeZone() || 'Etc/UTC',

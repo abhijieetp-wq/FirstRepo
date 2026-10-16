@@ -443,7 +443,10 @@ async function forgetSessionsFor_(email) {
 var CALL_DENY_ = ['call', 'doGet', 'include', 'login', 'logout',
   // The editor-only doors. Their authority is that Google checked who opened the editor, so
   // reaching them from the web app would be handing that authority to anybody with the URL.
-  'setInitialAdminPassword', 'createSignInPasswords', 'resetAllSignInPasswords'];
+  'setInitialAdminPassword', 'createSignInPasswords', 'resetAllSignInPasswords',
+  // The way back in when the Google requirement itself is what is broken. Anybody holding the
+  // /exec URL must not be able to switch an access control off.
+  'disableGoogleGate'];
 
 async function call(token, fnName, args) {
   var user = await userForToken_(token);

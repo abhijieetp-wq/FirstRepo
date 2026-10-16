@@ -457,6 +457,57 @@ function googleGateReport() {
 }
 
 /**
+ * Switches the Google requirement off from the editor, when nobody can get in to do it.
+ *
+ * There was no way to do this, and the gap is the shape that locks everybody out. Turning the
+ * requirement off goes through setGoogleGate, which starts with getCurrentUser() — and
+ * getCurrentUser needs a portal session, and a portal session needs the gate to let you past
+ * it. So the moment the gate stops working, the only control for it is behind the gate.
+ *
+ * It stops working for one ordinary reason: the client secret stored here is sent to Google's
+ * token endpoint on every sign-in, and rotating the secret in the Google Cloud console — which
+ * is a thing one SHOULD do, and which was done — makes the stored copy dead. Google refuses
+ * the exchange, nobody gets a pass, and everyone is stopped at the door of a portal whose
+ * password login was working perfectly.
+ *
+ * Same shape as createSignInPasswords and resetAllSignInPasswords, and for the same reason:
+ * its authority is that Google already checked who opened the editor, it takes no arguments
+ * because the Run button cannot pass any, and it is on CALL_DENY_ so the web app cannot reach
+ * it. Anybody with the /exec URL must not be able to switch the requirement off.
+ *
+ * The accounts list and the client details are left exactly as they are. This turns off the
+ * demand, not the configuration, so switching it back on once the new secret is in needs no
+ * setting up again.
+ */
+async function disableGoogleGate() {
+  var props = PropertiesService.getScriptProperties();
+  var was = googleGateEnforced_();
+  if (!was) {
+    return 'The Google requirement was already off. If people still cannot sign in, the ' +
+      'problem is elsewhere \u2014 run googleGateReport() and look at what it says.';
+  }
+  props.setProperty(GOOGLE_GATE_PROPS_.ENFORCED, 'off');
+  // Nothing to clear from the cache: the only thing in it is short-lived sign-in passes, and
+  // with the requirement off nobody is asked for one. googleGateEnforced_ reads the property
+  // on every request rather than caching it, so this takes effect on the next click.
+
+  // Written to the audit log as the owner rather than as a user, because there is no session
+  // to attribute it to and an override of an access control is the last thing that should
+  // happen without a trace.
+  try {
+    await audit_('Update', 'GoogleGate', '', 'enforced', 'on', 'off',
+      'Switched off from the Apps Script editor by the project owner');
+  } catch (err) {
+    /* the switch is what matters; a failed log must not undo it */
+  }
+
+  return 'The Google requirement is OFF. Everyone can sign in with their username and ' +
+    'password again.\n\nThe accounts list and the client details are untouched, so once the ' +
+    'new client secret is in Settings \u2192 Google sign-in, switch the requirement back on ' +
+    'there and nothing needs setting up again.';
+}
+
+/**
  * Sets the client details, the list of accounts, and whether the requirement is enforced.
  *
  * It refuses to switch on without the Google details, and refuses to switch on while the

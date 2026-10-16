@@ -249,33 +249,31 @@ async function createOrderFromQuotation(input) {
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
   for (var idx = 0; idx < quoteLines.length; idx++) {
     var qi = quoteLines[idx];
-    {
-      await appendRow_('SalesOrderItems', {
-        id: generateId_('SOI-'),
-        salesOrderId: order.id,
-        lineNo: idx + 1,
-        itemType: qi.itemType,
-        itemId: qi.itemId,
-        itemCode: qi.itemCode,
-        description: qi.description,
-        qty: qi.qty,
-        uom: qi.uom,
-        unitPrice: qi.unitPrice,
-        discountPct: qi.discountPct,
-        taxPct: qi.taxPct,
-        lineTotal: qi.lineTotal,
-        qtyReserved: 0,
-        qtyDispatched: 0,
-        qtyInvoiced: 0,
-        // The promise was made on the quotation, so it arrives with the line rather than
-        // being asked for a second time. The order screen can still change it — that is the
-        // point of holding it here as well as there — but it changes a promise that exists
-        // instead of inventing one, and what it records is the divergence from what was
-        // quoted. Blank only where the offer itself named no period for this line.
-        dueDays: qi.leadTimeDays === '' || qi.leadTimeDays === undefined || qi.leadTimeDays === null
-          ? '' : Number(qi.leadTimeDays)
-      }, 'Line carried from the quotation');
-    }
+    await appendRow_('SalesOrderItems', {
+      id: generateId_('SOI-'),
+      salesOrderId: order.id,
+      lineNo: idx + 1,
+      itemType: qi.itemType,
+      itemId: qi.itemId,
+      itemCode: qi.itemCode,
+      description: qi.description,
+      qty: qi.qty,
+      uom: qi.uom,
+      unitPrice: qi.unitPrice,
+      discountPct: qi.discountPct,
+      taxPct: qi.taxPct,
+      lineTotal: qi.lineTotal,
+      qtyReserved: 0,
+      qtyDispatched: 0,
+      qtyInvoiced: 0,
+      // The promise was made on the quotation, so it arrives with the line rather than
+      // being asked for a second time. The order screen can still change it — that is the
+      // point of holding it here as well as there — but it changes a promise that exists
+      // instead of inventing one, and what it records is the divergence from what was
+      // quoted. Blank only where the offer itself named no period for this line.
+      dueDays: qi.leadTimeDays === '' || qi.leadTimeDays === undefined || qi.leadTimeDays === null
+        ? '' : Number(qi.leadTimeDays)
+    }, 'Line carried from the quotation');
   }
 
   // Run the credit check immediately — the answer belongs before anyone plans a dispatch.

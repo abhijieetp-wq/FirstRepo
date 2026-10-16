@@ -18,7 +18,7 @@
  * a stale deployment from a broken feature except by hunting for the feature. This is shown in
  * the footer of every screen and on Settings → System. Bump it with anything worth deploying.
  */
-var APP_BUILD = '2026-10-16.2';
+var APP_BUILD = '2026-10-16.3';
 
 async function doGet(e) {
   // Which Google account, if the office has asked for one. This either says "carry on", or

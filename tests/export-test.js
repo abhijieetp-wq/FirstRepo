@@ -338,6 +338,42 @@ function drainDrive(sb, into) {
     !report.lost.some((d) => d.field === 'timestamp'),
     report.lost.filter((d) => d.field === 'timestamp'));
 
+  console.log('\nAND THERE IS A WAY BACK IN IF THE GOOGLE GATE BREAKS');
+  // Not about the export, but it is about the same cutover and it is the gap that locks
+  // everybody out. Switching the Google requirement off goes through setGoogleGate, which
+  // starts with getCurrentUser() — and that needs a portal session, which needs the gate to
+  // let you past it. So when the gate itself stops working, its only control is behind it.
+  //
+  // It stops working for one ordinary reason: the client secret stored in the project is sent
+  // to Google's token endpoint on every sign-in, and rotating that secret in the Cloud console
+  // — which one should do, and which was done — kills the stored copy.
+  const gate = load(['Auth.gs', 'Settings.gs', 'Schema.gs', 'SheetService.gs', 'Sha256.gs',
+    'Session.gs', 'GoogleGate.gs', 'Code.gs'], {
+    GOOGLE_GATE: 'on', GOOGLE_GATE_CLIENT_ID: 'x.apps.googleusercontent.com',
+    GOOGLE_GATE_CLIENT_SECRET: 'the-rotated-away-one',
+    GOOGLE_GATE_ACCOUNTS: 'boss@imcglobal.in'
+  });
+  reset(gate);
+  ok('the requirement starts on, as PIE has it', gate.googleGateEnforced_() === true);
+  const said = gate.disableGoogleGate();
+  ok('it switches off', gate.googleGateEnforced_() === false);
+  ok('and says so in words somebody can act on', /requirement is OFF/.test(said),
+    said.slice(0, 60));
+  // Off, not unconfigured. Switching it back on once the new secret is in must not mean
+  // setting the whole thing up again.
+  ok('the accounts list is kept',
+    gate.googleGateAccounts_().indexOf('boss@imcglobal.in') !== -1, gate.googleGateAccounts_());
+  ok('and the client id', gate.googleGateClientId_() === 'x.apps.googleusercontent.com');
+  const twice = gate.disableGoogleGate();
+  ok('running it again is not an error', /already off/.test(twice), twice.slice(0, 50));
+  // The one that matters: its authority is that Google checked who opened the editor, so
+  // anybody holding the /exec URL must not be able to switch an access control off.
+  ok('it is on the web app\u2019s deny list',
+    gate.CALL_DENY_.indexOf('disableGoogleGate') !== -1, gate.CALL_DENY_);
+  let reached = null;
+  try { gate.call('not-a-token', 'disableGoogleGate', []); } catch (e) { reached = e.message; }
+  ok('and the web app door refuses it', reached !== null, reached);
+
   console.log('\nAND LOADING TWICE IS REFUSED, NOT DOUBLED');
   // The mistake anybody would make: run it again because the first run looked wrong. Without
   // this, PIE's catalogue silently becomes two of everything.
