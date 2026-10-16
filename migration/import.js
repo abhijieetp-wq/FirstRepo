@@ -153,13 +153,42 @@ function loadExport(dir) {
   }
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const files = {};
+
   for (const entry of manifest.tabs) {
-    const file = path.join(dir, entry.tab + '.json');
-    if (!fs.existsSync(file)) {
-      throw new Error('The manifest lists ' + entry.tab + ' but ' + entry.tab +
-        '.json is not in the folder. A partial download is the usual cause.');
+    // A tab is written in one file per 5,000 rows, so that nothing goes to Drive big enough
+    // for Drive to refuse it and nothing has to be held in memory whole. They are read back
+    // in order and joined here, so everything downstream sees one tab as one list of rows,
+    // exactly as it did when a tab was one file.
+    const partCount = entry.parts === undefined ? 1 : entry.parts;
+    const rows = [];
+    const rowDigests = [];
+    const partDigests = [];
+    let columns = entry.columns || [];
+
+    for (let part = 1; part <= partCount; part++) {
+      const name = entry.tab + '.' + (part < 10 ? '0' + part : String(part)) + '.json';
+      const file = path.join(dir, name);
+      if (!fs.existsSync(file)) {
+        throw new Error('The manifest says ' + entry.tab + ' was written in ' + partCount +
+          ' file(s) and ' + name + ' is not in the folder. A partial download is the usual ' +
+          'cause — take the whole folder again rather than the files that are missing.');
+      }
+      const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (payload.tab !== entry.tab) {
+        throw new Error(name + ' says it holds ' + payload.tab + ' rather than ' + entry.tab +
+          '. Two exports have been mixed in one folder.');
+      }
+      rows.push.apply(rows, payload.rows);
+      rowDigests.push.apply(rowDigests, payload.rowDigests);
+      partDigests.push(payload.digest);
+      if (payload.columns && payload.columns.length) columns = payload.columns;
     }
-    files[entry.tab] = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+    files[entry.tab] = {
+      tab: entry.tab, columns, rows, rowDigests, partDigests,
+      rowCount: rows.length, digest: entry.digest,
+      blankRowsSkipped: entry.blankRowsSkipped
+    };
   }
   return { manifest, files };
 }
@@ -201,13 +230,13 @@ function checkDigests(manifest, files) {
         firstFew.join(', ') + (bad > firstFew.length ? ', and others' : ''));
     }
 
-    const whole = tabDigest(payload.rowDigests);
-    if (whole !== payload.digest) {
-      problems.push(entry.tab + ': the tab digest does not match its rows. Rows may have ' +
-        'been reordered or removed even though each one that is there is intact.');
-    }
-    if (payload.digest !== entry.digest) {
-      problems.push(entry.tab + ': the file and the manifest disagree about the tab digest.');
+    // The tab's digest is over its PARTS' digests, not over every row's — so that the export
+    // never has to hold 200,000 row digests at once. Two levels, checked at both.
+    const whole = tabDigest(payload.partDigests);
+    if (whole !== entry.digest) {
+      problems.push(entry.tab + ': the tab digest does not match its ' +
+        payload.partDigests.length + ' part(s). A whole file may be missing or stale, even ' +
+        'though every row in the ones that are here is intact.');
     }
   }
 

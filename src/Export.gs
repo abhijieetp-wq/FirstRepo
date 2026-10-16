@@ -49,6 +49,24 @@ var EXPORT_STARTED_PROP_ = 'MIGRATION_EXPORT_STARTED';
 var EXPORT_BUDGET_MS_ = 270000;
 
 /**
+ * Rows per file. Tabs bigger than this are written in several.
+ *
+ * The first two real runs against PIE's sheet both died on the Drive write with "Service
+ * error: Drive", and the two candidates were a file too big for Drive to take in one go and a
+ * Drive fault that was simply passing. This removes the first candidate: nothing now goes to
+ * Drive bigger than a few megabytes however large the tab, and the retry handles the second.
+ *
+ * It also bounds memory, which matters more than the file size. Reading 200,000 audit rows,
+ * building a text for each, hashing each, and then JSON.stringify-ing the lot means several
+ * copies of the whole tab alive at once inside a runtime with a fixed and undocumented
+ * ceiling. A block at a time keeps one block alive, whatever the tab.
+ *
+ * 5,000 is chosen to be comfortably small rather than optimal: 5,000 rows of the widest tab
+ * here is well under a megabyte, and at PIE's volumes the most any tab needs is six files.
+ */
+var EXPORT_ROWS_PER_FILE_ = 5000;
+
+/**
  * The canonical text of one row, which both sides have to agree on exactly.
  *
  * This string is what gets hashed, so the rule has to be written down precisely and
@@ -131,11 +149,35 @@ function exportDone_() {
   try { return JSON.parse(raw); } catch (err) { return {}; }
 }
 
+/**
+ * Records one finished tab, in a form that fits.
+ *
+ * A Script Property value may be 9 KB and no more, and the first version of this stored the
+ * full column list for every tab — 9,478 bytes of column names on their own. The property
+ * crossed the limit at around the 28th of the 52 tabs, at which point setProperty throws and
+ * the export can never finish however well Drive behaves. Found by measuring it rather than
+ * by reaching tab 28.
+ *
+ * So what is kept here is only what a resumed run and the manifest need as NUMBERS. The
+ * column names live in the part files, where they are needed anyway, and the manifest reads
+ * the header row again at the end — 52 one-row reads, which costs nothing and has the side
+ * benefit of noticing a header that changed during the run.
+ */
 function noteExported_(tab, summary) {
   var done = exportDone_();
-  done[tab] = summary;
-  PropertiesService.getScriptProperties()
-    .setProperty(EXPORT_DONE_PROP_, JSON.stringify(done));
+  done[tab] = {
+    rows: summary.rows, parts: summary.parts, digest: summary.digest,
+    blankRowsSkipped: summary.blankRowsSkipped, sheetLastRow: summary.sheetLastRow,
+    bytes: summary.bytes, columnCount: summary.columnCount,
+    missing: summary.missing || undefined, empty: summary.empty || undefined
+  };
+  var text = JSON.stringify(done);
+  if (text.length > 9000) {
+    throw new Error('The export progress record has reached ' + text.length + ' bytes and ' +
+      'Apps Script allows 9,216 per property. This should not happen \u2014 it holds only ' +
+      'numbers now. Something is storing more than it should in noteExported_.');
+  }
+  PropertiesService.getScriptProperties().setProperty(EXPORT_DONE_PROP_, text);
 }
 
 /**
@@ -198,52 +240,100 @@ function exportWriteFile_(folder, name, text, tab, rowCount) {
 function exportTab_(tab, folder) {
   var sheet = getSheet_(tab);
   if (!sheet) {
-    return { rows: 0, columns: [], digest: '', missing: true };
+    return { rows: 0, parts: 0, digest: '', missing: true };
   }
 
   var lastRow = sheet.getLastRow();
   var lastCol = sheet.getLastColumn();
-  if (lastCol === 0) return { rows: 0, columns: [], digest: '', empty: true };
+  if (lastCol === 0) return { rows: 0, parts: 0, digest: '', empty: true };
 
-  var block = sheet.getRange(1, 1, lastRow, lastCol).getValues();
-  var headers = block[0].map(function (h) { return String(h).trim(); });
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
 
-  var rows = [];
-  var digests = [];
+  // Any file of this tab's from an earlier attempt goes first. A run that failed part-way
+  // through a big tab leaves some of its parts behind, and parts from two attempts in one
+  // folder is an import that silently reads a mixture.
+  exportTrashParts_(folder, tab);
+
+  var partDigests = [];
+  var totalRows = 0;
   var blankRows = 0;
-  for (var r = 1; r < block.length; r++) {
-    var cells = block[r];
-    var blank = true;
-    for (var c = 0; c < cells.length; c++) {
-      if (cells[c] !== '' && cells[c] !== null) { blank = false; break; }
-    }
-    if (blank) { blankRows++; continue; }
+  var bytes = 0;
+  var part = 0;
 
-    var text = [];
-    for (var k = 0; k < cells.length; k++) text.push(exportCellText_(cells[k]));
-    rows.push(text);
-    digests.push(base64FromBytes_(sha256Bytes_(utf8Bytes_(text.join('\u001f')))));
+  // One block of rows at a time, read to written, so only one block is ever in memory.
+  for (var start = 2; start <= lastRow; start += EXPORT_ROWS_PER_FILE_) {
+    var height = Math.min(EXPORT_ROWS_PER_FILE_, lastRow - start + 1);
+    if (height <= 0) break;
+    var block = sheet.getRange(start, 1, height, lastCol).getValues();
+
+    var rows = [];
+    var digests = [];
+    for (var r = 0; r < block.length; r++) {
+      var cells = block[r];
+      var blank = true;
+      for (var c = 0; c < cells.length; c++) {
+        if (cells[c] !== '' && cells[c] !== null) { blank = false; break; }
+      }
+      if (blank) { blankRows++; continue; }
+
+      var text = [];
+      for (var k = 0; k < cells.length; k++) text.push(exportCellText_(cells[k]));
+      rows.push(text);
+      digests.push(base64FromBytes_(sha256Bytes_(utf8Bytes_(text.join('\u001f')))));
+    }
+    if (!rows.length) continue;        // a block of nothing but blank rows
+
+    part++;
+    var partDigest = exportTabDigest_(digests);
+    partDigests.push(partDigest);
+    totalRows += rows.length;
+
+    var payload = {
+      tab: tab,
+      part: part,
+      columns: headers,
+      rowCount: rows.length,
+      digest: partDigest,
+      rowDigests: digests,
+      rows: rows
+    };
+    var text2 = JSON.stringify(payload);
+    bytes += text2.length;
+    exportWriteFile_(folder, exportPartName_(tab, part), text2, tab, rows.length);
   }
 
-  var digest = exportTabDigest_(digests);
-  var payload = {
-    tab: tab,
-    columns: headers,
-    rowCount: rows.length,
-    blankRowsSkipped: blankRows,
-    sheetLastRow: lastRow,
-    digest: digest,
-    rowDigests: digests,
-    rows: rows
+  // The tab's digest is over its parts' digests, in order. It still changes if any row
+  // changes, if two rows swap places, or if a whole part goes missing — and it never needs
+  // every row's digest alive at once, which is the point.
+  return {
+    rows: totalRows, parts: part, digest: exportTabDigest_(partDigests),
+    partDigests: partDigests, blankRowsSkipped: blankRows, sheetLastRow: lastRow,
+    bytes: bytes, columnCount: headers.length
   };
+}
 
-  // Replaced rather than added to, so re-running a tab after fixing something in it does not
-  // leave two files and an ambiguous import.
-  var text = JSON.stringify(payload);
-  var attempts = exportWriteFile_(folder, tab + '.json', text, tab, rows.length);
+/** Tab.1.json, Tab.2.json. Padded so a folder listing sorts the way the parts run. */
+function exportPartName_(tab, part) {
+  return tab + '.' + (part < 10 ? '0' + part : String(part)) + '.json';
+}
 
-  return { rows: rows.length, columns: headers, digest: digest, blankRowsSkipped: blankRows,
-           sheetLastRow: lastRow, bytes: text.length, driveAttempts: attempts };
+/**
+ * Removes every part file for one tab, from whatever attempt wrote them.
+ *
+ * Stops at the first one that is not there. Parts are written in order and a failed write
+ * ends the run, so there is never a gap — part 1 missing means none of them exist. The
+ * earlier version looked one past the gap "just in case", which cost two Drive lookups for
+ * every one of the 52 tabs on every run whether or not anything was there. Drive chatter is
+ * the leading suspect for the service errors that stopped the first two attempts, so a
+ * hundred pointless calls is not a cost worth paying for a case that cannot arise.
+ */
+function exportTrashParts_(folder, tab) {
+  for (var part = 1; part <= 500; part++) {
+    var hits = folder.getFilesByName(exportPartName_(tab, part));
+    if (!hits.hasNext()) return;
+    while (hits.hasNext()) hits.next().setTrashed(true);
+  }
 }
 
 /**
@@ -366,7 +456,15 @@ function exportManifest_(folder, done, moved) {
     if (s.missing) { missingTabs.push(tab); }
 
     var declared = (SCHEMA[tab] && SCHEMA[tab].columns) || [];
-    var have = s.columns || [];
+    // Read again rather than carried in the progress record, which has only 9 KB to live in.
+    // One row per tab, and it also catches a header renamed while the export was running.
+    var have = [];
+    var sheet = getSheet_(tab);
+    if (sheet && sheet.getLastColumn()) {
+      have = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+        .map(function (h) { return String(h).trim(); })
+        .filter(function (h) { return h !== ''; });
+    }
     for (var h = 0; h < have.length; h++) {
       if (have[h] && declared.indexOf(have[h]) === -1) notInSchema.push(tab + '.' + have[h]);
     }
@@ -379,8 +477,8 @@ function exportManifest_(folder, done, moved) {
     // one of the 52 tabs as disagreeing with itself. Two names for one thing across a file
     // boundary is how that happens.
     entries.push({
-      tab: tab, rowCount: Number(s.rows) || 0, columns: have, digest: s.digest || '',
-      blankRowsSkipped: Number(s.blankRowsSkipped) || 0
+      tab: tab, rowCount: Number(s.rows) || 0, parts: Number(s.parts) || 0, columns: have,
+      digest: s.digest || '', blankRowsSkipped: Number(s.blankRowsSkipped) || 0
     });
   }
 
@@ -431,8 +529,11 @@ function exportManifest_(folder, done, moved) {
       'resetMigrationExport() and exportForMigration() again.\n\n';
   }
 
+  var parts = 0;
+  for (var e = 0; e < entries.length; e++) parts += entries[e].parts;
+
   var text = (movedText ? movedText : 'Export complete.\n\n') +
-    entries.length + ' tabs, ' + total + ' rows.\n' +
+    entries.length + ' tabs, ' + total + ' rows, ' + parts + ' file(s).\n' +
     'Folder: ' + folder.getUrl() + '\n\n' +
     (notInSchema.length
       ? 'THE SHEET HAS ' + notInSchema.length + ' COLUMN(S) THE SCHEMA DOES NOT DECLARE:\n  ' +

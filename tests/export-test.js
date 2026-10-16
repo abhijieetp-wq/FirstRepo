@@ -123,7 +123,9 @@ function drainDrive(sb, into) {
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pie-export-'));
   const { written } = drainDrive(sb, dir);
-  ok('a file per tab plus a manifest reached the folder', written === 53, written);
+  // Three tabs have rows (Spares, PriceList, AuditLog), so three part files, plus the
+  // manifest. Tabs with nothing in them write no file at all.
+  ok('a part file per non-empty tab, plus a manifest', written === 4, written);
   ok('the manifest is one of them', fs.existsSync(path.join(dir, '_manifest.json')));
 
   const { manifest, files } = imp.loadExport(dir);
@@ -151,7 +153,10 @@ function drainDrive(sb, into) {
     imp.rowDigest(files.Spares.rows[0]) === files.Spares.rowDigests[0]);
   ok('including the row with a separator character in it',
     imp.rowDigest(files.Spares.rows[2]) === files.Spares.rowDigests[2]);
-  ok('and the tab digest over them', imp.tabDigest(files.Spares.rowDigests) === files.Spares.digest);
+  // The tab digest is over its PARTS' digests, so that an export never holds every row's
+  // digest at once. Two levels, and both have to agree.
+  ok('and the tab digest over its parts',
+    imp.tabDigest(files.Spares.partDigests) === files.Spares.digest);
 
   console.log('\nA DATE BECAME A DATE STRING, IN PIE’S TIMEZONE');
   const effFrom = files.PriceList.columns.indexOf('effectiveFrom');
@@ -295,14 +300,23 @@ function drainDrive(sb, into) {
   ok('and the part number, so somebody can look at it', /SP-2/.test(caught[0]), caught[0]);
 
   console.log('\nAND A ROW REMOVED FROM THE FILE IS CAUGHT TOO');
-  // Every remaining row still matches its own digest, so only the tab digest can see this.
+  // Every remaining row still matches its own digest, so only the counts and the tab digest
+  // can see this.
   const short = JSON.parse(JSON.stringify(files));
   short.Spares.rows.splice(2, 1);
   short.Spares.rowDigests.splice(2, 1);
   const missed = imp.checkDigests(manifest, short);
   ok('the row count disagreement is reported',
     missed.some((p) => /holds 4 rows and says it holds 5/.test(p)), missed);
-  ok('and so is the tab digest', missed.some((p) => /tab digest does not match/.test(p)), missed);
+
+  console.log('\nAND A WHOLE PART FILE GOING MISSING IS CAUGHT');
+  // The failure a per-row check cannot see: every row present is intact, but a file is stale
+  // or absent. This is why the tab digest covers the parts.
+  const lostPart = JSON.parse(JSON.stringify(files));
+  lostPart.Spares.partDigests[0] = 'a digest from some other export';
+  const partGone = imp.checkDigests(manifest, lostPart);
+  ok('the tab digest notices', partGone.some((p) => /does not match its 1 part/.test(p)),
+    partGone);
 
   console.log('\nAND A COLUMN WITH NOWHERE TO GO STOPS THE IMPORT');
   // Somebody adds a column to a tab by hand, because that is what a spreadsheet is for. It
@@ -325,6 +339,56 @@ function drainDrive(sb, into) {
   ok('it is not refused', lackPlan.unmapped.length === 0, lackPlan.unmapped);
   ok('but it is noticed', lackPlan.plan.Spares.absent.indexOf('safetyStock') !== -1,
     lackPlan.plan.Spares.absent);
+
+  // LAST, deliberately. The harness holds ONE set of tabs at module level, so the
+  // reset() below empties the sheet every check above is still using.
+  console.log('\nA TAB BIGGER THAN ONE FILE IS SPLIT, AND STILL ADDS UP');
+  // PIE's AuditLog and PriceList are far bigger than anything Drive took happily in one go,
+  // and two real export attempts died on the Drive write. Nothing now goes to Drive bigger
+  // than a few megabytes, and nothing is held in memory whole.
+  const big = load(['Auth.gs', 'Settings.gs', 'Schema.gs', 'SheetService.gs', 'Sha256.gs',
+    'Code.gs', 'Export.gs']);
+  big.CURRENT_USER_ = BOSS;
+  reset(big);
+  const tel = table('Telemetry');
+  const tAt = (n) => tel.headers.indexOf(n);
+  for (let i = 0; i < 12000; i++) {
+    const r = new Array(tel.headers.length).fill('');
+    r[tAt('id')] = 'TLM-' + i;
+    r[tAt('fn')] = 'suggestSpares';
+    r[tAt('ms')] = 200 + (i % 700);
+    tel.rows.push(r);
+  }
+  big.exportForMigration();
+  const bigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pie-big-'));
+  drainDrive(big, bigDir);
+  const bigRead = imp.loadExport(bigDir);
+  ok('12,000 rows were written in three files',
+    bigRead.manifest.tabs.filter((t) => t.tab === 'Telemetry')[0].parts === 3,
+    bigRead.manifest.tabs.filter((t) => t.tab === 'Telemetry')[0].parts);
+  ok('and read back as one tab of 12,000',
+    bigRead.files.Telemetry.rows.length === 12000, bigRead.files.Telemetry.rows.length);
+  ok('in the right order', bigRead.files.Telemetry.rows[0][tAt('id')] === 'TLM-0' &&
+    bigRead.files.Telemetry.rows[11999][tAt('id')] === 'TLM-11999',
+    [bigRead.files.Telemetry.rows[0][tAt('id')], bigRead.files.Telemetry.rows[11999][tAt('id')]]);
+  ok('and every digest still agrees', imp.checkDigests(bigRead.manifest, bigRead.files).length === 0,
+    imp.checkDigests(bigRead.manifest, bigRead.files).slice(0, 3));
+  // The point of splitting: no single file big enough for Drive to refuse.
+  const sizes = fs.readdirSync(bigDir).map((f) => fs.statSync(path.join(bigDir, f)).size);
+  ok('and no single file is large', Math.max.apply(null, sizes) < 2 * 1024 * 1024,
+    Math.round(Math.max.apply(null, sizes) / 1024) + ' KB');
+  fs.rmSync(bigDir, { recursive: true, force: true });
+
+  console.log('\nAND THE PROGRESS RECORD STAYS INSIDE APPS SCRIPT\u2019S 9 KB');
+  // The bug that made finishing impossible regardless of Drive: the progress property held
+  // every tab's full column list, 9,478 bytes of column names alone, and crossed the limit
+  // at around the 28th of 52 tabs. setProperty throws there and the run can never complete.
+  const record = big.exportDone_();
+  ok('all 52 tabs are recorded', Object.keys(record).length === 52, Object.keys(record).length);
+  ok('and the record is well inside the limit', JSON.stringify(record).length < 9000,
+    JSON.stringify(record).length + ' bytes');
+  ok('because it holds no column names',
+    !/\bpartNo\b|\bquoteNo\b/.test(JSON.stringify(record)));
 
   // ---------------------------------------------------------------- against a real database
   if (!process.env.DATABASE_URL) {
