@@ -483,8 +483,8 @@ async function disableGoogleGate() {
   var props = PropertiesService.getScriptProperties();
   var was = googleGateEnforced_();
   if (!was) {
-    return 'The Google requirement was already off. If people still cannot sign in, the ' +
-      'problem is elsewhere \u2014 run googleGateReport() and look at what it says.';
+    return editorSays_('The Google requirement was already off. If people still cannot sign ' +
+      'in, the problem is elsewhere \u2014 run googleGateReport() and look at what it says.');
   }
   props.setProperty(GOOGLE_GATE_PROPS_.ENFORCED, 'off');
   // Nothing to clear from the cache: the only thing in it is short-lived sign-in passes, and
@@ -501,10 +501,10 @@ async function disableGoogleGate() {
     /* the switch is what matters; a failed log must not undo it */
   }
 
-  return 'The Google requirement is OFF. Everyone can sign in with their username and ' +
-    'password again.\n\nThe accounts list and the client details are untouched, so once the ' +
-    'new client secret is in Settings \u2192 Google sign-in, switch the requirement back on ' +
-    'there and nothing needs setting up again.';
+  return editorSays_('The Google requirement is OFF. Everyone can sign in with their ' +
+    'username and password again.\n\nThe accounts list and the client details are ' +
+    'untouched, so once the new client secret is in Settings \u2192 Google sign-in, switch ' +
+    'the requirement back on there and nothing needs setting up again.');
 }
 
 /**

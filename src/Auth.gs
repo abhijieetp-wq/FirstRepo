@@ -140,6 +140,30 @@ function getCurrentUser() {
   throw new Error('SESSION_ENDED');
 }
 
+/**
+ * Prints a result where the person who pressed Run will actually see it.
+ *
+ * The Apps Script editor does not show what a function returns. It shows what the function
+ * LOGGED. Every editor-only door in this project returned its result and logged nothing, so
+ * pressing Run produced "Execution completed" and a blank log — including
+ * undeclaredColumnReport, which spent nineteen seconds working out an answer and threw it
+ * away, and including createSignInPasswords, whose own comment says the passwords "are
+ * printed once, to the execution log". They were not. Running it would have set a password
+ * for everybody and shown nobody what any of them was.
+ *
+ * A helper rather than a Logger.log in each one, so that the next door added anywhere is
+ * obvious about needing it.
+ *
+ * It lives in Auth.gs for a plain reason: the doors are spread across Session.gs,
+ * GoogleGate.gs and Export.gs, and Auth.gs is the one file all of them — and every test —
+ * already load. Their authority is an auth matter anyway, being "Google checked who opened
+ * the editor", which is what CALL_DENY_ in Session.gs exists to keep hold of.
+ */
+function editorSays_(text) {
+  Logger.log(text);
+  return text;
+}
+
 /** Call at the top of any server function that must be restricted to specific roles. */
 function requireRole_(user, allowedRoles) {
   if (allowedRoles.indexOf(user.role) === -1) {

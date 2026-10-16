@@ -491,6 +491,31 @@ function drainDrive(sb, into) {
     !report.lost.some((d) => d.field === 'timestamp'),
     report.lost.filter((d) => d.field === 'timestamp'));
 
+  console.log('\nEVERY EDITOR-ONLY DOOR PUTS ITS ANSWER WHERE IT CAN BE SEEN');
+  // The Apps Script editor shows what a function LOGGED, never what it returned. All seven
+  // editor doors in this project returned only, so pressing Run gave "Execution completed"
+  // and an empty log — undeclaredColumnReport spent nineteen seconds working out an answer
+  // and threw it away, and createSignInPasswords would have set a password for everybody
+  // while showing nobody what any of them was, which its own comment claims it does not do.
+  const seen = [];
+  const doors = load(['Auth.gs', 'Settings.gs', 'Schema.gs', 'SheetService.gs', 'Sha256.gs',
+    'Session.gs', 'GoogleGate.gs', 'Code.gs', 'Export.gs'], { GOOGLE_GATE: 'on' });
+  doors.Logger = { log: (t) => seen.push(String(t)) };
+  [
+    ['migrationExportStatus', () => doors.migrationExportStatus()],
+    ['undeclaredColumnReport', () => doors.undeclaredColumnReport()],
+    ['resetMigrationExport', () => doors.resetMigrationExport()],
+    ['disableGoogleGate', () => doors.disableGoogleGate()],
+    ['createSignInPasswords', () => doors.createSignInPasswords()],
+    ['resetAllSignInPasswords', () => doors.resetAllSignInPasswords()]
+  ].forEach(([name, call]) => {
+    seen.length = 0;
+    const returned = call();
+    ok(name + ' prints, rather than only returning', seen.length > 0);
+    ok('  and prints exactly what it returns', seen.join('\n') === String(returned),
+      [String(seen[0]).slice(0, 40), String(returned).slice(0, 40)]);
+  });
+
   console.log('\nAND THERE IS A WAY BACK IN IF THE GOOGLE GATE BREAKS');
   // Not about the export, but it is about the same cutover and it is the gap that locks
   // everybody out. Switching the Google requirement off goes through setGoogleGate, which

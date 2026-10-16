@@ -514,10 +514,11 @@ function createSignInPasswords() {
   }
 
   if (!made.length) {
-    return 'Everybody active already has a password. To replace one, use Settings → Users → ' +
-      'Set password inside the portal, or resetAllSignInPasswords() if nobody can get in.';
+    return editorSays_('Everybody active already has a password. To replace one, use ' +
+      'Settings \u2192 Users \u2192 Set password inside the portal, or ' +
+      'resetAllSignInPasswords() if nobody can get in.');
   }
-  return describePasswords_(made);
+  return editorSays_(describePasswords_(made));
 }
 
 /**
@@ -536,8 +537,8 @@ function resetAllSignInPasswords() {
     made.push({ login: loginNameFor_(rr), name: rr.name, role: rr.role,
                 password: password });
   }
-  if (!made.length) return 'There are no active users in the Users tab.';
-  return describePasswords_(made);
+  if (!made.length) return editorSays_('There are no active users in the Users tab.');
+  return editorSays_(describePasswords_(made));
 }
 
 /** What this person types to sign in — their username, or the address if they have none yet. */
@@ -579,5 +580,6 @@ function setInitialAdminPassword(email, password) {
   if (!row) throw new Error('No user with the address ' + email + ' in the Users tab.');
   storePassword_(row, password, true);
   forgetSessionsFor_(row.email);
-  return 'Password set for ' + row.email + '. They must change it when they first sign in.';
+  return editorSays_('Password set for ' + row.email +
+    '. They must change it when they first sign in.');
 }

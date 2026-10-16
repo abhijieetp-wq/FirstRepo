@@ -593,16 +593,16 @@ function migrationExportStatus() {
   }
 
   if (!finished.length) {
-    return 'Nothing exported yet. Run exportForMigration() to start.';
+    return editorSays_('Nothing exported yet. Run exportForMigration() to start.');
   }
 
-  return finished.length + ' of ' + tabs.length + ' tabs done, ' + rows + ' rows, ' +
+  return editorSays_(finished.length + ' of ' + tabs.length + ' tabs done, ' + rows + ' rows, ' +
     Math.round(bytes / 1024) + ' KB written.\n' +
     (where ? 'Folder: ' + where + '\n' : '') +
     (left.length
       ? '\n' + left.length + ' still to go, starting with ' + left[0] + ':\n  ' +
         left.join(', ') + '\n\nRun exportForMigration() to carry on.'
-      : '\nAll tabs are done. Run exportForMigration() once more to write the manifest.');
+      : '\nAll tabs are done. Run exportForMigration() once more to write the manifest.'));
 }
 
 /**
@@ -704,14 +704,15 @@ function undeclaredColumnReport() {
     out.push(lines.join('\n'));
   }
 
-  if (!out.length) return 'Every column in the sheet is declared in Schema.gs.';
+  if (!out.length) return editorSays_('Every column in the sheet is declared in Schema.gs.');
 
-  return totalUndeclared + ' undeclared column(s), ' + totalWithData + ' of them holding ' +
+  return editorSays_(totalUndeclared + ' undeclared column(s), ' + totalWithData +
+    ' of them holding ' +
     'data.\n\n' + out.join('\n\n') +
     '\n\nFor each one that holds data, the question is whether the declared column that ' +
     'replaced it holds the same thing. Where it does, the old column is a stale copy and can ' +
     'be ignored. Where the declared one is empty, the data lives only in the old column and ' +
-    'dropping it would lose it.';
+    'dropping it would lose it.');
 }
 
 /**
@@ -728,6 +729,6 @@ function resetMigrationExport() {
   props.deleteProperty(EXPORT_DONE_PROP_);
   props.deleteProperty(EXPORT_FOLDER_PROP_);
   props.deleteProperty(EXPORT_STARTED_PROP_);
-  return 'Progress cleared. The next exportForMigration() starts a new folder.' +
-    (old ? ' The previous one is left in Drive, untouched.' : '');
+  return editorSays_('Progress cleared. The next exportForMigration() starts a new ' +
+    'folder.' + (old ? ' The previous one is left in Drive, untouched.' : ''));
 }
