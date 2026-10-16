@@ -330,6 +330,23 @@ function drainDrive(sb, into) {
     cols.unmapped.indexOf('Spares.scribbledNote') !== -1, cols.unmapped);
   ok('and nothing else is swept up with it', cols.unmapped.length === 1, cols.unmapped);
 
+  console.log('\nUNLESS IT IS NAMED AS DELIBERATELY LEFT BEHIND');
+  // PIE's real sheet has 21 of these, all of them looking like fossils from before the schema
+  // settled. Leaving one behind has to be possible — but as a decision somebody made and that
+  // is written down afterwards, not as a silent drop.
+  const kept = imp.checkColumns(manifest, extra, ['Spares.scribbledNote']);
+  ok('it is no longer refused', kept.unmapped.length === 0, kept.unmapped);
+  ok('but it is recorded as left behind',
+    kept.ignored.length === 1 && kept.ignored[0].column === 'Spares.scribbledNote',
+    kept.ignored);
+  ok('with how many rows actually held something',
+    kept.ignored[0].rowsHoldingData === 5, kept.ignored[0]);
+  ok('and it really is not in the load plan',
+    kept.plan.Spares.columns.every((c) => c.field !== 'scribbledNote'));
+  // Naming a different column must not excuse this one.
+  ok('naming something else does not excuse it',
+    imp.checkColumns(manifest, extra, ['Spares.somethingElse']).unmapped.length === 1);
+
   console.log('\nWHILE A COLUMN THE SHEET HAS NOT GOT IS FINE, AND COUNTED');
   const lacking = JSON.parse(JSON.stringify(files));
   const dropped = lacking.Spares.columns.indexOf('safetyStock');

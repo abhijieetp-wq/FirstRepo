@@ -253,9 +253,12 @@ function checkDigests(manifest, files) {
  * believes is there. Silently not carrying it over is the single easiest way for this
  * migration to lose something nobody notices for a year.
  */
-function checkColumns(manifest, files) {
+function checkColumns(manifest, files, ignore) {
   const unmapped = [];
   const missingTables = [];
+  const ignored = [];
+  const ignoreSet = {};
+  (ignore || []).forEach((name) => { ignoreSet[name] = true; });
   const plan = {};
 
   for (const entry of manifest.tabs) {
@@ -272,6 +275,15 @@ function checkColumns(manifest, files) {
     payload.columns.forEach((name, index) => {
       if (!name) return;                                  // a blank header spans no data
       if (!m.toDb[name]) {
+        // Named on the command line as deliberately not coming across. Recorded rather than
+        // silently skipped: --ignore is somebody deciding to leave data behind, and the one
+        // thing that must never happen is for that to be invisible afterwards.
+        if (ignoreSet[entry.tab + '.' + name]) {
+          const held = payload.rows.filter((r) =>
+            r[index] !== '' && r[index] !== null && r[index] !== undefined).length;
+          ignored.push({ column: entry.tab + '.' + name, rowsHoldingData: held });
+          return;
+        }
         unmapped.push(entry.tab + '.' + name);
         return;
       }
@@ -283,7 +295,7 @@ function checkColumns(manifest, files) {
     plan[entry.tab] = { map: m, columns, absent, rows: payload.rows };
   }
 
-  return { unmapped, missingTables, plan };
+  return { unmapped, missingTables, ignored, plan };
 }
 
 /**
@@ -586,7 +598,10 @@ async function main() {
   console.log('   intact: ' + manifest.totalRows + ' rows across ' + manifest.tabCount + ' tabs');
 
   console.log('2. every column has somewhere to go');
-  const { unmapped, missingTables, plan } = checkColumns(manifest, files);
+  const ignoreArg = args.indexOf('--ignore');
+  const ignore = ignoreArg !== -1 ? String(args[ignoreArg + 1] || '').split(',')
+    .map((x) => x.trim()).filter(Boolean) : [];
+  const { unmapped, missingTables, ignored, plan } = checkColumns(manifest, files, ignore);
   if (missingTables.length) {
     console.log('\nTABS WITH NO TABLE. Nothing has been written.\n');
     missingTables.forEach((t) => console.log('  ' + t));
@@ -599,7 +614,22 @@ async function main() {
     console.log('and expects to find. Add them to Schema.gs and regenerate, or decide');
     console.log('deliberately that the data is not coming across.\n');
     unmapped.forEach((c) => console.log('  ' + c));
+    console.log('\nTo leave one behind deliberately, name it:');
+    console.log('  --ignore ' + unmapped.slice(0, 2).join(',') +
+      (unmapped.length > 2 ? ',...' : ''));
+    console.log('Run undeclaredColumnReport() in the Apps Script editor first — it says how');
+    console.log('many rows each one holds and which declared columns are empty, which is what');
+    console.log('decides whether a column is a stale copy or the only place the data lives.');
     process.exit(1);
+  }
+  if (ignored.length) {
+    // Loud, and in the record. Somebody chose to leave this behind and the number of rows it
+    // held is the thing they will want to know if they ever wonder.
+    console.log('\n   LEAVING BEHIND, AS ASKED:');
+    ignored.forEach((i) => console.log('     ' + i.column + ' \u2014 ' + i.rowsHoldingData +
+      ' row(s) held something'));
+    const lost = ignored.reduce((n, i) => n + i.rowsHoldingData, 0);
+    console.log('     ' + lost + ' value(s) in total are not coming across.\n');
   }
   const absent = Object.keys(plan).reduce((s, t) => s + plan[t].absent.length, 0);
   console.log('   every exported column maps' +

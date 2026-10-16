@@ -606,6 +606,115 @@ function migrationExportStatus() {
 }
 
 /**
+ * The columns the sheet has and Schema.gs does not, with how much is actually in them.
+ *
+ * The export found 21 of these and refuses to guess what they are, which is right — a column
+ * somebody added by hand holds data they entered and expect to find, and dropping it quietly
+ * is the easiest way for this migration to lose something nobody notices for a year.
+ *
+ * But a NAME is not enough to decide on. Every one of the 21 has a declared column that looks
+ * like its successor — Quotations.customer beside customerId, QuotationItems.rate beside
+ * unitPrice, Customers.phone beside the CustomerContacts tab — which fits them being fossils
+ * from before the schema settled: Setup.gs's appendMissingColumns_ adds columns the schema
+ * declares and never removes ones it does not, so an old name survives every upgrade.
+ *
+ * Fits is not is. What settles it is whether they hold anything, and there are exactly three
+ * answers:
+ *
+ *   empty                      ignore it, and nothing is lost
+ *   full, and its successor is full too    a stale duplicate; ignore it
+ *   full, and its successor is EMPTY       the data lives ONLY here, and dropping the
+ *                                          column drops the data
+ *
+ * The third is the one that matters and the only one worth anybody's attention. So this
+ * reports, per tab, how full each undeclared column is — and which declared columns are
+ * completely empty, because those are the ones an undeclared column might be the only source
+ * for. Pairing them is a judgement, and it belongs to somebody who knows what PIE typed into
+ * which box, not to this function.
+ *
+ * Samples are cut to 24 characters: enough to recognise what kind of thing it is, not a dump
+ * of customer details into an execution log.
+ */
+function undeclaredColumnReport() {
+  var out = [];
+  var tabs = Object.keys(SCHEMA).sort();
+  var totalUndeclared = 0;
+  var totalWithData = 0;
+
+  for (var t = 0; t < tabs.length; t++) {
+    var tab = tabs[t];
+    var sheet = getSheet_(tab);
+    if (!sheet) continue;
+    var lastCol = sheet.getLastColumn();
+    var lastRow = sheet.getLastRow();
+    if (!lastCol || lastRow < 2) continue;
+
+    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0]
+      .map(function (h) { return String(h).trim(); });
+    var declared = SCHEMA[tab].columns;
+
+    var undeclared = [];
+    for (var h = 0; h < headers.length; h++) {
+      if (headers[h] && declared.indexOf(headers[h]) === -1) {
+        undeclared.push({ name: headers[h], at: h });
+      }
+    }
+    if (!undeclared.length) continue;
+
+    // One read of the tab, however many columns are in question.
+    var block = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+
+    // How full every column is, declared or not — the empty declared ones are half the
+    // answer and cost nothing to count while the block is here.
+    var filled = {};
+    var samples = {};
+    for (var r = 0; r < block.length; r++) {
+      for (var c = 0; c < headers.length; c++) {
+        var name = headers[c];
+        if (!name) continue;
+        var v = block[r][c];
+        if (v === '' || v === null || v === undefined) continue;
+        filled[name] = (filled[name] || 0) + 1;
+        if (!samples[name]) samples[name] = [];
+        if (samples[name].length < 3) {
+          var text = String(v);
+          samples[name].push(text.length > 24 ? text.slice(0, 24) + '\u2026' : text);
+        }
+      }
+    }
+
+    var lines = [tab + '  (' + block.length + ' rows)'];
+    for (var u = 0; u < undeclared.length; u++) {
+      var n = undeclared[u].name;
+      var count = filled[n] || 0;
+      totalUndeclared++;
+      if (count) totalWithData++;
+      lines.push('    ' + n + ': ' + (count
+        ? count + ' row(s) have a value \u2014 e.g. ' + samples[n].join(' | ')
+        : 'EMPTY \u2014 nothing to lose'));
+    }
+
+    var emptyDeclared = declared.filter(function (d) {
+      return headers.indexOf(d) !== -1 && !filled[d];
+    });
+    if (emptyDeclared.length) {
+      lines.push('    declared columns with nothing in them, for comparison:');
+      lines.push('      ' + emptyDeclared.join(', '));
+    }
+    out.push(lines.join('\n'));
+  }
+
+  if (!out.length) return 'Every column in the sheet is declared in Schema.gs.';
+
+  return totalUndeclared + ' undeclared column(s), ' + totalWithData + ' of them holding ' +
+    'data.\n\n' + out.join('\n\n') +
+    '\n\nFor each one that holds data, the question is whether the declared column that ' +
+    'replaced it holds the same thing. Where it does, the old column is a stale copy and can ' +
+    'be ignored. Where the declared one is empty, the data lives only in the old column and ' +
+    'dropping it would lose it.';
+}
+
+/**
  * Forgets the progress so the next run starts over in a new folder.
  *
  * Needed for a second export — the real one after a rehearsal — and for the case where
