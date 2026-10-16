@@ -510,6 +510,41 @@ function drainDrive(sb, into) {
     !report.lost.some((d) => d.field === 'timestamp'),
     report.lost.filter((d) => d.field === 'timestamp'));
 
+  console.log('\nAND A BUILD CHANGE MID-EXPORT STARTS AGAIN RATHER THAN MIXING FORMATS');
+  // This is the one that actually cost a real export. The first attempts, under a build that
+  // wrote one file per tab, got through 27 tabs before Drive refused the 19 MB PriceList.
+  // The next build wrote 5,000 rows per file — but the progress record still said those 27
+  // were done, so the run carried on from the 28th and the folder ended up holding two
+  // formats: Activities.json beside PriceList.01.json. The importer refused the lot, which
+  // is what it is for, but the export was two hours of pressing Run.
+  //
+  // The instruction to reset between builds existed, was reasonable, and was not followed —
+  // the ordinary fate of a step a person has to remember in the middle of something else.
+  const mixed = load(['Auth.gs', 'Settings.gs', 'Schema.gs', 'SheetService.gs', 'Sha256.gs',
+    'Code.gs', 'Export.gs']);
+  reset(mixed);
+  const spares2 = table('Spares');
+  spares2.rows.push(spares2.headers.map((h) => (h === 'id' ? 'SP-X' : h === 'partNo' ? 'PX' : '')));
+  mixed.exportForMigration();
+  ok('the first run records what it did', Object.keys(mixed.exportDone_()).length === 52);
+  const firstFolder = Object.keys(mixed.DriveApp._folders).pop();
+
+  // The same project, a build later.
+  mixed.APP_BUILD = '2026-10-16.99';
+  const said2 = mixed.exportForMigration();
+  ok('it says it started again', /Starting again in a new folder/.test(said2),
+    said2.slice(0, 80));
+  ok('and names both builds', /2026-10-16\.99/.test(said2) && /52 tab\(s\) were exported/.test(said2));
+  ok('in a NEW folder, so no two formats share one',
+    Object.keys(mixed.DriveApp._folders).pop() !== firstFolder);
+  ok('and the old folder is left alone, not emptied',
+    mixed.DriveApp._folders[firstFolder]._files.some((f) => !f.trashed));
+  ok('and the new export is complete on its own', /Export complete/.test(said2));
+  // Running again on the same build must NOT start over.
+  const again2 = mixed.exportForMigration();
+  ok('a second run on the same build does not restart',
+    !/Starting again/.test(again2), again2.slice(0, 60));
+
   console.log('\nEVERY EDITOR-ONLY DOOR PUTS ITS ANSWER WHERE IT CAN BE SEEN');
   // The Apps Script editor shows what a function LOGGED, never what it returned. All seven
   // editor doors in this project returned only, so pressing Run gave "Execution completed"

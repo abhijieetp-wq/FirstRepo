@@ -142,11 +142,53 @@ function exportFolder_() {
   return folder;
 }
 
+var EXPORT_BUILD_PROP_ = 'MIGRATION_EXPORT_BUILD';
+
 /** Which tabs are already written, so a second run does not redo them. */
 function exportDone_() {
   var raw = PropertiesService.getScriptProperties().getProperty(EXPORT_DONE_PROP_);
   if (!raw) return {};
   try { return JSON.parse(raw); } catch (err) { return {}; }
+}
+
+/**
+ * Refuses to continue an export that a different build started.
+ *
+ * This is the one that actually bit. The first attempts, under a build that wrote one file
+ * per tab, got through 27 tabs before Drive refused the 19 MB PriceList. The next build wrote
+ * 5,000 rows per file — but the progress record still said those 27 were done, so the run
+ * carried on from the 28th and the folder ended up holding two formats: Activities.json from
+ * the old one beside PriceList.01.json from the new. The manifest described it with the old
+ * build's fields, the importer looked for Activities.01.json, and the whole export had to be
+ * thrown away.
+ *
+ * The instruction to run resetMigrationExport() between builds existed and was reasonable and
+ * was not followed, which is the ordinary fate of a step a person has to remember in the
+ * middle of something else. So the export remembers instead: the build is stored with the
+ * progress, and a run under a different one clears the progress and starts a new folder,
+ * saying so. The old folder is left in Drive — deciding to throw away evidence of what the
+ * sheet held is not this function's business.
+ */
+function exportBuildChanged_() {
+  var props = PropertiesService.getScriptProperties();
+  var now = typeof APP_BUILD === 'string' ? APP_BUILD : 'unknown';
+  var was = props.getProperty(EXPORT_BUILD_PROP_);
+
+  if (!was) { props.setProperty(EXPORT_BUILD_PROP_, now); return null; }
+  if (was === now) return null;
+
+  var done = exportDone_();
+  var hadTabs = Object.keys(done).length;
+  props.deleteProperty(EXPORT_DONE_PROP_);
+  props.deleteProperty(EXPORT_FOLDER_PROP_);
+  props.deleteProperty(EXPORT_STARTED_PROP_);
+  props.setProperty(EXPORT_BUILD_PROP_, now);
+
+  return 'Starting again in a new folder.\n\n' + hadTabs + ' tab(s) were exported by build ' +
+    was + ' and this is build ' + now + '. Carrying on would leave one folder holding files ' +
+    'written two different ways, which is an export nobody can check — so it starts over ' +
+    'rather than continuing. The old folder is left in Drive, untouched.\n\n' +
+    'Nothing is lost and nothing needs doing: the run below is the whole export.\n';
 }
 
 /**
@@ -381,6 +423,7 @@ function exportTabsThatMoved_(done) {
  * @return a report, printed to the execution log, saying what was written and what is left.
  */
 function exportForMigration() {
+  var restarted = exportBuildChanged_();
   var folder = exportFolder_();
   var done = exportDone_();
   var started = Date.now();
@@ -417,7 +460,8 @@ function exportForMigration() {
   }
 
   if (remaining.length) {
-    var msg = 'Wrote ' + wrote.length + ' tab(s) this run: ' + wrote.join(', ') + '\n\n' +
+    var msg = (restarted ? restarted + '\n' : '') +
+      'Wrote ' + wrote.length + ' tab(s) this run: ' + wrote.join(', ') + '\n\n' +
       remaining.length + ' tab(s) still to go. Run exportForMigration() again — it carries ' +
       'on from here. Nothing is repeated and nothing is lost.';
     Logger.log(msg);
@@ -426,8 +470,9 @@ function exportForMigration() {
 
   var moved = exportTabsThatMoved_(done);
   var manifest = exportManifest_(folder, done, moved);
-  Logger.log(manifest.text);
-  return manifest.text;
+  var text = (restarted ? restarted + '\n' : '') + manifest.text;
+  Logger.log(text);
+  return text;
 }
 
 /**
@@ -729,6 +774,7 @@ function resetMigrationExport() {
   props.deleteProperty(EXPORT_DONE_PROP_);
   props.deleteProperty(EXPORT_FOLDER_PROP_);
   props.deleteProperty(EXPORT_STARTED_PROP_);
+  props.deleteProperty(EXPORT_BUILD_PROP_);
   return editorSays_('Progress cleared. The next exportForMigration() starts a new ' +
     'folder.' + (old ? ' The previous one is left in Drive, untouched.' : ''));
 }
