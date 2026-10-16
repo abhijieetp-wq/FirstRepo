@@ -144,12 +144,17 @@ Object.keys(calls).sort().forEach((n) => {
   else piles.UNKNOWN.push(row);
 });
 
-const only = process.argv.indexOf('--sheet') !== -1 ? ['SHEET-BOUND'] : Object.keys(piles);
+const only = Object.keys(piles);
 
-console.log(files.length + ' converted module(s), ' + defined.size + ' name(s) they define ' +
-  'between them, ' + shim.size + ' the shim covers.\n');
+const sheetOnly = process.argv.indexOf('--sheet') !== -1;
+
+if (!sheetOnly) {
+  console.log(files.length + ' converted module(s), ' + defined.size + ' name(s) they define ' +
+    'between them, ' + shim.size + ' the shim covers.\n');
+}
 
 only.forEach((pile) => {
+  if (sheetOnly) return;
   const rows = piles[pile];
   if (!rows.length) return;
   const total = rows.reduce((s, r) => s + r.sites.length, 0);
@@ -163,7 +168,95 @@ only.forEach((pile) => {
   console.log('');
 });
 
-const left = piles['SHEET-BOUND'].reduce((s, r) => s + r.sites.length, 0);
-console.log(left
-  ? left + ' call site(s) read the grid directly and have to become SQL.'
-  : 'Nothing reads the grid directly.');
+// ------------------------------------------------------------------ what is left to rewrite
+//
+// The sheet-bound names above say which helpers are missing; they do not say how much work is
+// left, because 41 call sites live in 16 functions and a function is the unit of rewriting.
+// And a function a query file has already replaced is finished, even though the faithful
+// translation in modules/ still calls getSheet_ — that copy is kept on purpose as the
+// specification the query reproduces, and counting it as outstanding makes the report say the
+// work is never done.
+
+/** Top-level function names each query file defines, i.e. what has been rewritten. */
+function replaced() {
+  const dir = path.join(__dirname, '..', 'server', 'queries');
+  const out = {};
+  if (!fs.existsSync(dir)) return out;
+  fs.readdirSync(dir).filter((f) => f.endsWith('.js')).forEach((f) => {
+    const ast = acorn.parse(fs.readFileSync(path.join(dir, f), 'utf8'), { ecmaVersion: 2020 });
+    ast.body.forEach((n) => {
+      if (n.type === 'FunctionDeclaration' && n.id) out[n.id.name] = f;
+    });
+  });
+  return out;
+}
+
+const DONE = replaced();
+const SHEET_NAMES = /^(getSheet_|getHeaders_|sheetRows_|sheetCols_)$/;
+
+// Setup.gs is not a rewrite and never will be. It builds the spreadsheet — creates the tabs,
+// writes the header rows, adds a column that a new release needs. On Postgres that job belongs
+// to migration/schema.js, which generates the DDL, and to the exporter. Counting its six call
+// sites as outstanding SQL would mean the number never reaches zero.
+const REPLACED_WHOLESALE = { Setup: 'migration/schema.js generates the DDL instead' };
+
+const work = [];
+files.forEach((f) => {
+  const name = f.replace('.js', '');
+  const { ast, code } = parsed[f];
+  ast.body.forEach((n) => {
+    if (n.type !== 'FunctionDeclaration' || !n.id) return;
+    const body = code.slice(n.start, n.end);
+    const hits = (body.match(/\b(getSheet_|getHeaders_|sheetRows_|sheetCols_)\b/g) || []).length;
+    if (!hits) return;
+    work.push({ module: name, fn: n.id.name, sites: hits, line: n.loc.start.line });
+  });
+});
+void SHEET_NAMES;
+
+const byState = { done: [], wholesale: [], todo: [] };
+work.forEach((w) => {
+  if (DONE[w.fn]) byState.done.push(w);
+  else if (REPLACED_WHOLESALE[w.module]) byState.wholesale.push(w);
+  else byState.todo.push(w);
+});
+
+{
+  const total = work.reduce((s, w) => s + w.sites, 0);
+  const doneSites = byState.done.reduce((s, w) => s + w.sites, 0);
+  const wholesaleSites = byState.wholesale.reduce((s, w) => s + w.sites, 0);
+
+  console.log('WHAT IS LEFT TO TURN INTO SQL\n');
+  if (byState.done.length) {
+    console.log('  rewritten — a query file serves these now');
+    byState.done.forEach((w) => {
+      console.log('    ' + (w.module + '.' + w.fn).padEnd(40) + w.sites + ' site(s)   ' +
+        'server/queries/' + DONE[w.fn]);
+    });
+    console.log('');
+  }
+  if (byState.wholesale.length) {
+    const mods = {};
+    byState.wholesale.forEach((w) => { (mods[w.module] = mods[w.module] || []).push(w); });
+    Object.keys(mods).forEach((m) => {
+      console.log('  not a rewrite — ' + REPLACED_WHOLESALE[m]);
+      mods[m].forEach((w) => {
+        console.log('    ' + (m + '.' + w.fn).padEnd(40) + w.sites + ' site(s)');
+      });
+      console.log('');
+    });
+  }
+  if (byState.todo.length) {
+    console.log('  still to do');
+    byState.todo.sort((a, b) => b.sites - a.sites).forEach((w) => {
+      console.log('    ' + (w.module + '.' + w.fn).padEnd(40) + w.sites + ' site(s)   ' +
+        'src/' + w.module + '.gs:' + w.line);
+    });
+    console.log('');
+  }
+  const todoSites = byState.todo.reduce((s, w) => s + w.sites, 0);
+  console.log('  ' + byState.done.length + ' function(s) rewritten (' + doneSites + ' sites), ' +
+    byState.wholesale.length + ' replaced wholesale (' + wholesaleSites + '), ' +
+    byState.todo.length + ' to go (' + todoSites + ').');
+  console.log('  ' + (total - todoSites) + ' of ' + total + ' call sites accounted for.');
+}

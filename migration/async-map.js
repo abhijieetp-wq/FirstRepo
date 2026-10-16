@@ -29,9 +29,48 @@ const SRC = path.join(__dirname, '..', 'src');
  * Taken from what db.js implements, not from a list typed out by hand — the two have to say
  * the same thing or this whole exercise measures the wrong graph.
  */
-const ASYNC_SEEDS = ['readTable_', 'findRowById_', 'findRowsByColumn_', 'findRowsByIds_',
+const DB_SEEDS = ['readTable_', 'findRowById_', 'findRowsByColumn_', 'findRowsByIds_',
   'columnMap_', 'appendRow_', 'appendRows_', 'updateRowById_', 'deleteRowById_',
   'deleteRowsWhere_', 'audit_', 'auditMany_'];
+
+/**
+ * And the ones a hand-written query file replaced, which are seeds for exactly the same reason.
+ *
+ * This was missing, and it cost a real bug. `getEffectivePrices_` reached the sheet through
+ * `getSheet_` rather than through `readTable_`, so the graph never called it async and the
+ * codemod left its caller alone:
+ *
+ *     function getEffectivePrice_(itemType, itemId, priceLevel, asOf) {
+ *       var found = getEffectivePrices_(itemType, [itemId], priceLevel, asOf);
+ *       return found[String(itemId)] || null;          // found is a Promise
+ *     }
+ *
+ * The moment the SQL replacement made that function async, `found` became a promise,
+ * `found['SP-2']` became undefined, and every price lookup on a quotation line answered "no
+ * price" — no error, no warning, a zero on the offer. Found by the side-by-side test on its
+ * first run, which is the entire reason that test compares against the sheet instead of
+ * checking the SQL looks reasonable.
+ *
+ * So the seeds are read from server/queries/ rather than listed here: a new query file makes
+ * its functions seeds automatically, the closure grows, and the codemod puts the awaits in.
+ * Nobody has to remember.
+ */
+function querySeeds() {
+  const dir = path.join(__dirname, '..', 'server', 'queries');
+  if (!fs.existsSync(dir)) return [];
+  const found = [];
+  fs.readdirSync(dir).filter((f) => f.endsWith('.js')).forEach((f) => {
+    const code = fs.readFileSync(path.join(dir, f), 'utf8');
+    const ast = acorn.parse(code, { ecmaVersion: 2020 });
+    ast.body.forEach((n) => {
+      if (n.type === 'FunctionDeclaration' && n.id && n.async) found.push(n.id.name);
+    });
+  });
+  return found;
+}
+
+const QUERY_SEEDS = querySeeds();
+const ASYNC_SEEDS = DB_SEEDS.concat(QUERY_SEEDS.filter((n) => DB_SEEDS.indexOf(n) === -1));
 
 /**
  * Functions that exist only because the storage was a spreadsheet.
@@ -110,8 +149,11 @@ function spread(fns) {
       changed = true;
     });
   }
-  // The seeds live in SheetService.gs, which is being replaced wholesale rather than edited.
-  ASYNC_SEEDS.forEach((s) => isAsync.delete(s));
+  // The db seeds live in SheetService.gs, which is being replaced wholesale rather than
+  // edited, so they are not functions anyone converts. A query seed is different: it is
+  // still declared in the .gs the module is generated from, and that declaration has to
+  // carry `async` too, or the generated module's own internal calls to it go unawaited.
+  DB_SEEDS.forEach((s) => isAsync.delete(s));
   return { isAsync, rounds };
 }
 
@@ -131,7 +173,8 @@ function closure() {
   return CACHED;
 }
 
-module.exports = { ASYNC_SEEDS, DISAPPEARING, buildGraph, spread, closure };
+module.exports = { ASYNC_SEEDS, DB_SEEDS, QUERY_SEEDS, DISAPPEARING,
+  buildGraph, spread, closure };
 
 if (require.main !== module) return;
 

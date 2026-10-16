@@ -34,7 +34,7 @@ async function listSpares(includeInactive) {
   var spares = (await readTable_('Spares'))
     .filter(function (s) { return includeInactive || String(s.active).toUpperCase() !== 'FALSE'; })
     .map(stripRow_);
-  var prices = priceMapFor_('Spare');
+  var prices = await priceMapFor_('Spare');
   var onHand = await stockOnHandMap_('Spare');
   var reserved = await stockReservedMap_('Spare');
 
@@ -345,7 +345,7 @@ function canSeeCostPrices_(user) {
  * description would create a pointless price revision and clutter the price history.
  */
 async function applyCatalogPrices_(itemType, itemId, itemCode, input) {
-  var current = priceMapFor_(itemType)[String(itemId)] || {};
+  var current = (await priceMapFor_(itemType))[String(itemId)] || {};
 
   async function maybeWrite(level, value) {
     if (value === '' || value === undefined || value === null) return;

@@ -42,7 +42,7 @@ async function listInventory(itemType) {
 
   var onHand = await stockOnHandMap_(type);
   var reserved = await stockReservedMap_(type);
-  var prices = priceMapFor_(type);
+  var prices = await priceMapFor_(type);
 
   var warehouseNames = {};
   (await readTable_('Warehouses')).forEach(function (w) { warehouseNames[String(w.id)] = w.name; });

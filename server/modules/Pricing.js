@@ -69,7 +69,7 @@ function priceRowActiveOn_(row, asOf) {
  * that on every keystroke: thirteen thousand parts' worth of price objects, built, sorted
  * past, and dropped.
  */
-function priceMapFor_(itemType, asOf, onlyIds) {
+async function priceMapFor_(itemType, asOf, onlyIds) {
   var when = asOf || todayIso_();
   var map = {};
   var wanted = null;
@@ -144,8 +144,8 @@ function priceMapFor_(itemType, asOf, onlyIds) {
  * could be the answer, then fetch those rows in full. About fifteen times less, and the same
  * answer, because the narrowing column is the one the map was keyed on anyway.
  */
-function getEffectivePrice_(itemType, itemId, priceLevel, asOf) {
-  var found = getEffectivePrices_(itemType, [itemId], priceLevel, asOf);
+async function getEffectivePrice_(itemType, itemId, priceLevel, asOf) {
+  var found = await getEffectivePrices_(itemType, [itemId], priceLevel, asOf);
   return found[String(itemId)] || null;
 }
 
@@ -157,7 +157,7 @@ function getEffectivePrice_(itemType, itemId, priceLevel, asOf) {
  * and `priceMapFor_` indexed all of it. One read of the id column says which rows can possibly
  * matter; only those rows are then fetched.
  */
-function getEffectivePrices_(itemType, itemIds, priceLevel, asOf) {
+async function getEffectivePrices_(itemType, itemIds, priceLevel, asOf) {
   var when = asOf || todayIso_();
   var out = {};
 

@@ -30,23 +30,43 @@ function globalsFor(db, actor) {
   const bound = Object.create(db);
   bound.actor = actor || 'system';
 
+  /**
+   * The connection everything below runs on, which is the pool until a transaction opens.
+   *
+   * This was `bound` everywhere, and it meant `withTransaction` did nothing. db.js hands its
+   * callback a copy of itself bound to the one connection holding the transaction, and the
+   * shim threw that copy away and kept calling `bound` — so a BEGIN was issued on one
+   * connection while every statement inside ran on another from the pool. Reads could not see
+   * the transaction's own writes, a nested withTransaction opened a second independent
+   * transaction and committed it, and a rollback rolled back nothing but the BEGIN.
+   *
+   * Found by a test that opened a transaction, wrote prices, threw, and then found the prices
+   * still there. The shape of the bug is why it is worth naming: everything reported success.
+   *
+   * One of these per request, because globalsFor is per request. Two requests never share it,
+   * which is what makes a single mutable reference safe here — within a request the awaits
+   * make execution sequential.
+   */
+  let current = bound;
+  const on = () => current;
+
   return {
     // ---- the twelve, all async now
-    readTable_: (tab) => bound.readTable(tab),
-    findRowById_: (tab, id) => bound.findRowById(tab, id),
-    findRowsByColumn_: (tab, col, values) => bound.findRowsByColumn(tab, col, values),
-    findRowsByIds_: (tab, ids) => bound.findRowsByIds(tab, ids),
-    columnMap_: (tab, k, v) => bound.columnMap(tab, k, v),
-    appendRow_: (tab, obj, reason) => bound.appendRow(tab, obj, reason),
-    appendRows_: (tab, objs, reason) => bound.appendRows(tab, objs, reason),
-    updateRowById_: (tab, f, v, patch, reason) => bound.updateRowById(tab, f, v, patch, reason),
-    deleteRowById_: (tab, f, v, reason) => bound.deleteRowById(tab, f, v, reason),
-    deleteRowsWhere_: (tab, matches, reason) => bound.deleteRowsWhere(tab, matches, reason),
+    readTable_: (tab) => on().readTable(tab),
+    findRowById_: (tab, id) => on().findRowById(tab, id),
+    findRowsByColumn_: (tab, col, values) => on().findRowsByColumn(tab, col, values),
+    findRowsByIds_: (tab, ids) => on().findRowsByIds(tab, ids),
+    columnMap_: (tab, k, v) => on().columnMap(tab, k, v),
+    appendRow_: (tab, obj, reason) => on().appendRow(tab, obj, reason),
+    appendRows_: (tab, objs, reason) => on().appendRows(tab, objs, reason),
+    updateRowById_: (tab, f, v, patch, reason) => on().updateRowById(tab, f, v, patch, reason),
+    deleteRowById_: (tab, f, v, reason) => on().deleteRowById(tab, f, v, reason),
+    deleteRowsWhere_: (tab, matches, reason) => on().deleteRowsWhere(tab, matches, reason),
     audit_: (action, table, id, field, oldV, newV, reason) =>
-      bound.audit(action, table, id, field, oldV, newV, reason),
+      on().audit(action, table, id, field, oldV, newV, reason),
     auditMany_: async (entries) => {
       for (const e of (entries || [])) {
-        await bound.audit(e.action, e.tableName, e.recordId, e.fieldName,
+        await on().audit(e.action, e.tableName, e.recordId, e.fieldName,
           e.oldValue, e.newValue, e.reason);
       }
     },
@@ -75,13 +95,39 @@ function globalsFor(db, actor) {
      * change, and releaseLock is a no-op because the transaction ends with the request.
      */
     acquireLock_: () => ({ releaseLock: () => {} }),
-    withTransaction: (fn) => bound.withTransaction(fn),
+
+    /**
+     * Opens a transaction and points everything above at it until the callback finishes.
+     *
+     * Nested calls join the outer transaction rather than opening a second one — db.js already
+     * does that, and this is what lets it: an inner call sees `current` is already scoped and
+     * passes it straight through. So a query file can wrap its own writes in withTransaction
+     * without caring whether the request already opened one, which is the only way code that
+     * is called from several places can be safe on its own.
+     *
+     * `current` is restored in a finally, so a throw inside the callback leaves the following
+     * statements in the request running on the pool rather than on a released connection.
+     */
+    withTransaction: async (fn) => {
+      const outer = current;
+      try {
+        return await outer.withTransaction(async (scoped) => {
+          current = scoped;
+          return await fn(scoped);
+        });
+      } finally {
+        current = outer;
+      }
+    },
 
     // ---- pure helpers that never touched storage
     generateId_: generateId,
 
     // ---- the database itself, for code written after the migration
-    db: bound
+    //
+    // A getter, so code reaching for `db` inside a transaction gets the transaction. A plain
+    // property would hand out the pool and quietly leave that code outside it.
+    get db() { return current; }
   };
 }
 

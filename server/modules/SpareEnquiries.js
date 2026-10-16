@@ -342,7 +342,7 @@ async function suggestSpares(query, productModel, productGroup) {
   if (!top.length) return [];
 
   var ids = top.map(function (m) { return m.id; });
-  var prices = priceMapFor_('Spare', null, ids);
+  var prices = await priceMapFor_('Spare', null, ids);
   var onHand = await stockOnHandMap_('Spare', ids);
   var reserved = await stockReservedMap_('Spare', ids);
 
@@ -497,7 +497,7 @@ async function sparePickerData(productModel, customerId) {
     });
   }
 
-  var prices = priceMapFor_('Spare');
+  var prices = await priceMapFor_('Spare');
   var onHand = await stockOnHandMap_('Spare');
   var reserved = await stockReservedMap_('Spare');
 

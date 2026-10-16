@@ -35,7 +35,7 @@ async function listProducts(includeInactive) {
   var products = (await readTable_('Products'))
     .filter(function (p) { return includeInactive || String(p.active).toUpperCase() !== 'FALSE'; })
     .map(stripRow_);
-  var prices = priceMapFor_('Product');
+  var prices = await priceMapFor_('Product');
   var onHand = await stockOnHandMap_('Product');
   var reserved = await stockReservedMap_('Product');
 

@@ -29,6 +29,10 @@ const path = require('path');
 
 const SRC = path.join(__dirname, '..', 'src');
 
+// Shared with the server rather than written twice. Its own test checks it against the
+// timezone PIE works in and against the two patterns this code uses.
+const { formatDate: realFormatDate } = require(path.join(__dirname, '..', 'server', 'platform.js'));
+
 /** The tabs of the current fake spreadsheet: { name: { headers: [], rows: [[]] } }. */
 let TABS = {};
 
@@ -147,7 +151,18 @@ function load(files, props) {
       getEffectiveUser: () => ({ getEmail: () => 'tester@pie.in' })
     },
     Utilities: {
-      formatDate: () => '2026-10-06',
+      // The real implementation, shared with the server, not a constant.
+      //
+      // This returned the fixed string '2026-10-06' whatever it was asked, which made every
+      // date the sheet code computes a lie. `previousDay_('2026-10-16')` answered '2026-10-06'
+      // — ten days adrift — so savePricesBulk_ closed a superseded price ten days before its
+      // replacement started and the price vanished for that window. Nothing noticed, because
+      // the only thing checking was comparing one stubbed answer against another.
+      //
+      // This file's own opening comment warns about exactly this: "A test passing against a
+      // stub that behaves differently from the real API is worse than no test, because it is
+      // believed." It was true of this line.
+      formatDate: (d, tz, pattern) => realFormatDate(d, tz, pattern),
       getUuid: () => 'u' + (++uuid),
       sleep() {},
       base64Encode: (s) => Buffer.from(String(s)).toString('base64'),

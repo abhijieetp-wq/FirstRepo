@@ -417,7 +417,7 @@ async function createQuotationFromEnquiry(spareEnquiryId) {
   };
   await appendRow_('Quotations', quote, 'Quotation created from enquiry ' + (enquiry.enquiryNo || ''));
 
-  var prices = priceMapFor_('Spare', quote.date);
+  var prices = await priceMapFor_('Spare', quote.date);
   var spareById = {};
   (await readTable_('Spares')).forEach(function (s) { spareById[String(s.id)] = s; });
 
@@ -758,7 +758,7 @@ async function saveQuotationItem(input) {
 
   var itemType = quoteItemType_(input.itemType);
   var master = await masterRecordFor_(itemType, input.itemId);
-  var effective = getEffectivePrice_(itemType, String(input.itemId), SELLING_PRICE_LEVEL, quote.date);
+  var effective = await getEffectivePrice_(itemType, String(input.itemId), SELLING_PRICE_LEVEL, quote.date);
 
   var existingLines = await quotationLines_(input.quotationId);
 
@@ -879,7 +879,7 @@ async function saveQuotationItems(input) {
   for (var t of Object.keys(idsByType)) {
     var tab = t === 'Product' ? 'Products' : 'Spares';
     masters[t] = await findRowsByIds_(tab, idsByType[t]);
-    prices[t] = getEffectivePrices_(t, idsByType[t], SELLING_PRICE_LEVEL, quote.date);
+    prices[t] = await getEffectivePrices_(t, idsByType[t], SELLING_PRICE_LEVEL, quote.date);
   }
 
   var existingLines = await quotationLines_(input.quotationId);
@@ -1515,7 +1515,7 @@ async function createQuotationFromOpportunity(opportunityId) {
   };
   await appendRow_('Quotations', quote, 'Quotation created from opportunity ' + opportunity.opportunityNo);
 
-  var prices = priceMapFor_('Product', quote.date);
+  var prices = await priceMapFor_('Product', quote.date);
   var productById = {};
   (await readTable_('Products')).forEach(function (p) { productById[String(p.id)] = p; });
 

@@ -288,7 +288,7 @@ async function analyseImport_(itemType, csvText, opts) {
     if (key) byKey[key] = { row: row, rowIndex: idx };
   });
 
-  var prices = options.comparePrices ? priceMapFor_(itemType) : {};
+  var prices = options.comparePrices ? await priceMapFor_(itemType) : {};
   var creates = [], updates = [], skipped = [], priceChanges = [];
 
   for (var n = 0; n < slice.length; n++) {
