@@ -18,6 +18,7 @@
 'use strict';
 
 const { generateId, mapFor } = require('./db.js');
+const helpers = require('./helpers.js');
 
 /**
  * Builds the globals a converted module expects, bound to one database and one user.
@@ -121,7 +122,15 @@ function globalsFor(db, actor) {
     },
 
     // ---- pure helpers that never touched storage
+    //
+    // The four from SheetService.gs are copied verbatim in helpers.js rather than left
+    // behind with the rest of that file. 61 call sites across the converted modules need
+    // them, and the portal fell over on the first one — "stripRow_ is not defined" — the
+    // moment it was run against Postgres for real.
     generateId_: generateId,
+    stripRow_: helpers.stripRow_,
+    inr_: helpers.inr_,
+    rowRuns_: helpers.rowRuns_,
 
     /**
      * Tab name and portal field names to table name and column names.

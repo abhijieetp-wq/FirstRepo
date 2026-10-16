@@ -66,6 +66,14 @@ function loadPortal(db, actor, opts) {
   // wrapped in, and a rollback rolled back nothing. Found by a rename test that threw halfway
   // and then found the new addresses still there.
   Object.defineProperties(sandbox, Object.getOwnPropertyDescriptors(globalsFor(db, actor)));
+
+  // normalizeCell_ needs the platform's date formatting, which the shim has no handle on, so
+  // it is bound here where both halves are in scope. Nothing reaches it any more — the only
+  // caller was a Pricing function that server/queries replaced — but an unreachable function
+  // that would throw if it were ever reached is not worth the saving.
+  const { normalizeCell_ } = require('./helpers.js');
+  sandbox.normalizeCell_ = (v) => normalizeCell_(v, sandbox.Utilities, sandbox.Session);
+
   vm.createContext(sandbox);
 
   const modulesDir = o.modulesDir || MODULES;
