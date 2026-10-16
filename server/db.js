@@ -388,17 +388,37 @@ function generateId(prefix) {
 }
 
 /** Opens a pool and hands back a Db bound to one client's data. */
+/**
+ * How to talk to this database over TLS, decided in one place.
+ *
+ * A unix socket or localhost is the dev database on this machine and needs no TLS. Anything
+ * else is across the internet and gets it — and the certificate is CHECKED.
+ *
+ * It was `rejectUnauthorized: false`, which encrypts the connection without authenticating
+ * the other end: anybody positioned to intercept can present their own certificate, and what
+ * they capture first is the password in the connection string, followed by PIE's prices and
+ * every customer they have. Neon's certificates are issued by a public CA that Node already
+ * trusts, so verifying costs nothing and the setting bought nothing.
+ *
+ * PGSSL_NO_VERIFY=1 turns the check off for a self-signed server. It is deliberately an
+ * environment variable and deliberately not the default, so that running without
+ * verification is a thing somebody did rather than a thing that happened.
+ */
+function sslFor(url) {
+  if (/localhost|127\.0\.0\.1|\/var\/tmp|\/tmp|host=\//.test(url || '')) return false;
+  if (process.env.PGSSL_NO_VERIFY === '1') return { rejectUnauthorized: false };
+  return { rejectUnauthorized: true };
+}
+
 function connect(options) {
   const opts = options || {};
+  const url = opts.connectionString || process.env.DATABASE_URL;
   const pool = new Pool({
-    connectionString: opts.connectionString || process.env.DATABASE_URL,
-    ssl: /localhost|127\.0\.0\.1|\/var\/tmp|\/tmp/.test(
-      opts.connectionString || process.env.DATABASE_URL || '')
-      ? false
-      : { rejectUnauthorized: false },
+    connectionString: url,
+    ssl: sslFor(url),
     max: opts.max || 10
   });
   return new Db(pool, opts.tenant || process.env.TENANT_ID);
 }
 
-module.exports = { connect, Db, generateId, mapFor, toRecord, coerce, SCHEMA };
+module.exports = { connect, Db, generateId, mapFor, toRecord, coerce, sslFor, SCHEMA };

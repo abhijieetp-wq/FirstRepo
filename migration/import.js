@@ -565,9 +565,11 @@ async function main() {
   const batchSize = batchArg !== -1 ? Number(args[batchArg + 1]) : 500;
 
   const { manifest, files } = loadExport(dir);
+  // No "by" — the export deliberately does not record who ran it, because the one-liner for
+  // that (Session.getEffectiveUser) would have added an OAuth scope and stopped the live web
+  // app serving until the owner re-authorised. Apps Script's own execution log has it.
   console.log('Export: ' + manifest.tabCount + ' tabs, ' + manifest.totalRows + ' rows, ' +
-    'taken from build ' + manifest.build + ' by ' + manifest.exportedBy +
-    ' at ' + manifest.exportedAt);
+    'taken from build ' + manifest.build + ' at ' + manifest.exportedAt);
   console.log('Timezone the dates were written in: ' + manifest.timezone);
   console.log('');
 
