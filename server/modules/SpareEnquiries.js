@@ -245,7 +245,7 @@ async function resolveEnquiryContact_(input, user) {
 var PRODUCT_GROUPS_KEY_ = 'catalog:productGroups:Spare';
 var PRODUCT_GROUPS_SECONDS_ = 3600;
 
-function listProductGroups() {
+async function listProductGroups() {
   getCurrentUser();
 
   var cache = null;
@@ -257,7 +257,7 @@ function listProductGroups() {
     }
   }
 
-  var groups = readProductGroups_();
+  var groups = await readProductGroups_();
   if (cache) {
     try { cache.put(PRODUCT_GROUPS_KEY_, JSON.stringify(groups), PRODUCT_GROUPS_SECONDS_); }
     catch (e) { /* over the cache limit — correct either way, just recomputed next time */ }
@@ -266,7 +266,7 @@ function listProductGroups() {
 }
 
 /** The scan itself. One column, by position, rather than an object per part. */
-function readProductGroups_() {
+async function readProductGroups_() {
   var sheet = getSheet_('Spares');
   if (!sheet) return [];
   var headers = getHeaders_(sheet, 'Spares');

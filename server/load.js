@@ -52,13 +52,20 @@ const QUERIES = path.join(__dirname, 'queries');
  */
 function loadPortal(db, actor, opts) {
   const o = opts || {};
-  const sandbox = Object.assign(
-    { console, JSON, Math, Date, isNaN, isFinite, parseInt, parseFloat, RegExp, Error,
-      String, Number, Boolean, Array, Object, Promise, encodeURIComponent,
-      decodeURIComponent, setTimeout, clearTimeout },
-    platformFor(Object.assign({ actor }, o)),
-    globalsFor(db, actor)
-  );
+  const sandbox = {
+    console, JSON, Math, Date, isNaN, isFinite, parseInt, parseFloat, RegExp, Error,
+    String, Number, Boolean, Array, Object, Promise, encodeURIComponent,
+    decodeURIComponent, setTimeout, clearTimeout
+  };
+  Object.defineProperties(sandbox,
+    Object.getOwnPropertyDescriptors(platformFor(Object.assign({ actor }, o))));
+  // Descriptors, not Object.assign. The shim exposes `db` as a GETTER returning whichever
+  // connection is current, so that a query file writing `db.q(...)` inside a transaction runs
+  // on the transaction. Object.assign invokes the getter and copies the value it happened to
+  // return, which was the pool — so every such query ran outside the transaction it was
+  // wrapped in, and a rollback rolled back nothing. Found by a rename test that threw halfway
+  // and then found the new addresses still there.
+  Object.defineProperties(sandbox, Object.getOwnPropertyDescriptors(globalsFor(db, actor)));
   vm.createContext(sandbox);
 
   const modulesDir = o.modulesDir || MODULES;

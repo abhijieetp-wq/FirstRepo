@@ -17,7 +17,7 @@
  */
 'use strict';
 
-const { generateId } = require('./db.js');
+const { generateId, mapFor } = require('./db.js');
 
 /**
  * Builds the globals a converted module expects, bound to one database and one user.
@@ -122,6 +122,19 @@ function globalsFor(db, actor) {
 
     // ---- pure helpers that never touched storage
     generateId_: generateId,
+
+    /**
+     * Tab name and portal field names to table name and column names.
+     *
+     * Only a hand-written query in server/queries/ needs this: it is writing SQL and has to
+     * know that `SpareEnquiries.createdBy` is `spare_enquiries.created_by`. Nothing generated
+     * uses it. Exposed rather than re-derived in each query file so there is one answer to
+     * what a column is called, and it is the one db.js uses.
+     *
+     * It throws for a tab Schema.gs does not declare, which is the right answer — a query
+     * naming a tab that does not exist is a mistake, not an empty result.
+     */
+    mapFor_: mapFor,
 
     // ---- the database itself, for code written after the migration
     //

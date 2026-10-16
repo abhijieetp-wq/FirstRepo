@@ -104,6 +104,34 @@ console.log('\nAND THE REAL QUERY FILES ARE REPORTED TOO');
   ok('  and is async', portal[fn].constructor.name === 'AsyncFunction');
 });
 
+console.log('\nAND `db` INSIDE A TRANSACTION IS THE TRANSACTION');
+// The trap: the shim exposes `db` as a getter returning whichever connection is current, and
+// Object.assign copies what a getter RETURNS rather than the getter. The context was built
+// with Object.assign, so `db` was frozen as the pool and every query a query file wrote as
+// `db.q(...)` inside withTransaction ran outside it — rollbacks rolled back nothing, and
+// everything reported success. Checked here with two distinguishable connections because the
+// end-to-end version of this test took a rename, a throw and a re-read to notice.
+const pool = { id: 'pool', q: async () => ({ rows: [], rowCount: 0 }) };
+const txDb = {
+  tenant: 'test',
+  id: 'pool',
+  q: pool.q,
+  readTable: async () => [],
+  withTransaction: async (fn) => fn(Object.assign(Object.create(txDb), { id: 'transaction' }))
+};
+const t = loadPortal(txDb, 'x', { quiet: true });
+ok('outside a transaction it is the pool', t.db.id === 'pool', t.db.id);
+let inside = null;
+let afterwards = null;
+t.withTransaction(async () => { inside = t.db.id; }).then(() => {
+  afterwards = t.db.id;
+  ok('inside one it is the transaction', inside === 'transaction', inside);
+  ok('and it goes back to the pool afterwards', afterwards === 'pool', afterwards);
+  finish();
+});
+
+function finish() {
+
 console.log('\nAND TWO REQUESTS DO NOT SHARE ANYTHING');
 // One context per request. The whole shim design rests on this: a mutable "which connection
 // am I on" lives in globalsFor, and two requests sharing one would put one request's
@@ -120,3 +148,5 @@ console.log('\n' + (failures.length
   ? 'FAILED ' + failures.length + '  (' + pass + '/' + (pass + failures.length) + ')'
   : 'all ' + pass + ' passed'));
 process.exit(failures.length ? 1 : 0);
+
+}

@@ -92,7 +92,7 @@ function userIdentityColumns_() {
  * cost. A tab the sheet does not have yet is not an error — a sheet set up before a feature
  * shipped simply has nothing to rename in it.
  */
-function userEmailMatches_(tab, column, address) {
+async function userEmailMatches_(tab, column, address) {
   var sheet;
   try { sheet = getSheet_(tab); } catch (err) { return []; }
   if (!sheet) return [];
@@ -123,7 +123,7 @@ function userEmailMatches_(tab, column, address) {
  * quotations sat either side of a colleague's rewrote the colleague's too, and the sheet would
  * have said the wrong person prepared it with no trace of the change.
  */
-function rewriteUserEmailColumn_(tab, column, oldEmail, newEmail) {
+async function rewriteUserEmailColumn_(tab, column, oldEmail, newEmail) {
   var sheet;
   try { sheet = getSheet_(tab); } catch (err) { return 0; }
   if (!sheet) return 0;
@@ -192,14 +192,14 @@ async function previewUserEmailChange(input) {
 
   var tabs = {};
   var total = 0;
-  userIdentityColumns_().forEach(function (spec) {
-    var rows = userEmailMatches_(spec.tab, spec.column, plan.oldEmail);
-    if (!rows.length) return;
+  for (var spec of userIdentityColumns_()) {
+    var rows = await userEmailMatches_(spec.tab, spec.column, plan.oldEmail);
+    if (!rows.length) continue;
     if (!tabs[spec.tab]) tabs[spec.tab] = { tab: spec.tab, columns: [], rows: 0 };
     tabs[spec.tab].columns.push(spec.column);
     tabs[spec.tab].rows += rows.length;
     total += rows.length;
-  });
+  }
 
   var where = Object.keys(tabs).map(function (t) { return tabs[t]; })
     .sort(function (a, b) { return b.rows - a.rows; });
@@ -236,15 +236,15 @@ async function changeUserEmail(input) {
   try {
     var changed = [];
     var total = 0;
-    userIdentityColumns_().forEach(function (spec) {
-      if (spec.tab === 'Users' && spec.column === 'email') return;   // last, below
-      var n = rewriteUserEmailColumn_(spec.tab, spec.column, plan.oldEmail, plan.newEmail);
-      if (!n) return;
+    for (var spec of userIdentityColumns_()) {
+      if (spec.tab === 'Users' && spec.column === 'email') continue;   // last, below
+      var n = await rewriteUserEmailColumn_(spec.tab, spec.column, plan.oldEmail, plan.newEmail);
+      if (!n) continue;
       total += n;
       changed.push(spec.tab + '.' + spec.column + ' (' + n + ')');
-    });
+    }
 
-    total += rewriteUserEmailColumn_('Users', 'email', plan.oldEmail, plan.newEmail);
+    total += await rewriteUserEmailColumn_('Users', 'email', plan.oldEmail, plan.newEmail);
 
     // Sessions carry the address and the cache carries the user built from it, so a live
     // session would go on asking for a row that no longer answers to that name. Ending them is

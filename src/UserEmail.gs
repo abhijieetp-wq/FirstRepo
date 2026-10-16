@@ -180,14 +180,14 @@ function previewUserEmailChange(input) {
 
   var tabs = {};
   var total = 0;
-  userIdentityColumns_().forEach(function (spec) {
+  for (var spec of userIdentityColumns_()) {
     var rows = userEmailMatches_(spec.tab, spec.column, plan.oldEmail);
-    if (!rows.length) return;
+    if (!rows.length) continue;
     if (!tabs[spec.tab]) tabs[spec.tab] = { tab: spec.tab, columns: [], rows: 0 };
     tabs[spec.tab].columns.push(spec.column);
     tabs[spec.tab].rows += rows.length;
     total += rows.length;
-  });
+  }
 
   var where = Object.keys(tabs).map(function (t) { return tabs[t]; })
     .sort(function (a, b) { return b.rows - a.rows; });
@@ -224,13 +224,13 @@ function changeUserEmail(input) {
   try {
     var changed = [];
     var total = 0;
-    userIdentityColumns_().forEach(function (spec) {
-      if (spec.tab === 'Users' && spec.column === 'email') return;   // last, below
+    for (var spec of userIdentityColumns_()) {
+      if (spec.tab === 'Users' && spec.column === 'email') continue;   // last, below
       var n = rewriteUserEmailColumn_(spec.tab, spec.column, plan.oldEmail, plan.newEmail);
-      if (!n) return;
+      if (!n) continue;
       total += n;
       changed.push(spec.tab + '.' + spec.column + ' (' + n + ')');
-    });
+    }
 
     total += rewriteUserEmailColumn_('Users', 'email', plan.oldEmail, plan.newEmail);
 
