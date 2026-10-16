@@ -257,6 +257,7 @@ function checkColumns(manifest, files, ignore) {
   const unmapped = [];
   const missingTables = [];
   const ignored = [];
+  const empties = [];
   const ignoreSet = {};
   (ignore || []).forEach((name) => { ignoreSet[name] = true; });
   const plan = {};
@@ -275,16 +276,30 @@ function checkColumns(manifest, files, ignore) {
     payload.columns.forEach((name, index) => {
       if (!name) return;                                  // a blank header spans no data
       if (!m.toDb[name]) {
-        // Named on the command line as deliberately not coming across. Recorded rather than
-        // silently skipped: --ignore is somebody deciding to leave data behind, and the one
-        // thing that must never happen is for that to be invisible afterwards.
+        const held = payload.rows.filter((r) =>
+          r[index] !== '' && r[index] !== null && r[index] !== undefined).length;
+
+        // An undeclared column with NOTHING IN IT is not a decision. You cannot lose data
+        // that is not there, and making somebody name twenty empty columns on a command line
+        // to get past them teaches them to name columns without reading the list — which is
+        // exactly the habit that loses the twenty-first.
+        //
+        // PIE's sheet has 21 undeclared columns and 20 are empty: fossils from before the
+        // schema settled, left behind because Setup.gs adds columns the schema declares and
+        // never removes ones it does not. They are reported and passed over.
+        if (!held) {
+          empties.push(entry.tab + '.' + name);
+          return;
+        }
+
+        // One that holds something is a real decision, and stays refused until it is named.
+        // Recorded when it is, because --ignore is somebody choosing to leave data behind and
+        // the one thing that must never happen is for that to be invisible afterwards.
         if (ignoreSet[entry.tab + '.' + name]) {
-          const held = payload.rows.filter((r) =>
-            r[index] !== '' && r[index] !== null && r[index] !== undefined).length;
           ignored.push({ column: entry.tab + '.' + name, rowsHoldingData: held });
           return;
         }
-        unmapped.push(entry.tab + '.' + name);
+        unmapped.push({ column: entry.tab + '.' + name, rowsHoldingData: held });
         return;
       }
       columns.push({ field: name, column: m.toDb[name], index, type: m.kind[name] });
@@ -295,7 +310,7 @@ function checkColumns(manifest, files, ignore) {
     plan[entry.tab] = { map: m, columns, absent, rows: payload.rows };
   }
 
-  return { unmapped, missingTables, ignored, plan };
+  return { unmapped, missingTables, ignored, empties, plan };
 }
 
 /**
@@ -601,7 +616,8 @@ async function main() {
   const ignoreArg = args.indexOf('--ignore');
   const ignore = ignoreArg !== -1 ? String(args[ignoreArg + 1] || '').split(',')
     .map((x) => x.trim()).filter(Boolean) : [];
-  const { unmapped, missingTables, ignored, plan } = checkColumns(manifest, files, ignore);
+  const { unmapped, missingTables, ignored, empties, plan } =
+    checkColumns(manifest, files, ignore);
   if (missingTables.length) {
     console.log('\nTABS WITH NO TABLE. Nothing has been written.\n');
     missingTables.forEach((t) => console.log('  ' + t));
@@ -613,14 +629,20 @@ async function main() {
     console.log('there is no database column to put them in. They hold data somebody entered');
     console.log('and expects to find. Add them to Schema.gs and regenerate, or decide');
     console.log('deliberately that the data is not coming across.\n');
-    unmapped.forEach((c) => console.log('  ' + c));
+    unmapped.forEach((c) => console.log('  ' + c.column + ' \u2014 ' + c.rowsHoldingData +
+      ' row(s) hold something'));
     console.log('\nTo leave one behind deliberately, name it:');
-    console.log('  --ignore ' + unmapped.slice(0, 2).join(',') +
+    console.log('  --ignore ' + unmapped.map((c) => c.column).slice(0, 2).join(',') +
       (unmapped.length > 2 ? ',...' : ''));
     console.log('Run undeclaredColumnReport() in the Apps Script editor first — it says how');
     console.log('many rows each one holds and which declared columns are empty, which is what');
     console.log('decides whether a column is a stale copy or the only place the data lives.');
     process.exit(1);
+  }
+  if (empties.length) {
+    console.log('   ' + empties.length + ' undeclared column(s), all empty, passed over: ' +
+      empties.slice(0, 6).join(', ') +
+      (empties.length > 6 ? ', and ' + (empties.length - 6) + ' more' : ''));
   }
   if (ignored.length) {
     // Loud, and in the record. Somebody chose to leave this behind and the number of rows it

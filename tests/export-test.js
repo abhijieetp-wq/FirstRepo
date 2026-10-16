@@ -327,8 +327,24 @@ function drainDrive(sb, into) {
   extra.Spares.rows.forEach((r) => r.push('remember to check this'));
   const cols = imp.checkColumns(manifest, extra);
   ok('it is refused rather than dropped',
-    cols.unmapped.indexOf('Spares.scribbledNote') !== -1, cols.unmapped);
+    cols.unmapped.some((c) => c.column === 'Spares.scribbledNote'), cols.unmapped);
+  ok('with how many rows hold something, so the size of the decision is visible',
+    cols.unmapped[0].rowsHoldingData === 5, cols.unmapped[0]);
   ok('and nothing else is swept up with it', cols.unmapped.length === 1, cols.unmapped);
+
+  console.log('\nBUT AN UNDECLARED COLUMN THAT IS EMPTY IS NOT A DECISION');
+  // PIE's sheet has 21 undeclared columns and 20 of them hold nothing at all. Making
+  // somebody name twenty empty columns on a command line to get past them teaches the habit
+  // of naming columns without reading the list, which is what loses the twenty-first.
+  const blank = JSON.parse(JSON.stringify(files));
+  blank.Spares.columns.push('neverUsed');
+  blank.Spares.rows.forEach((r) => r.push(''));
+  const blankPlan = imp.checkColumns(manifest, blank);
+  ok('it is not refused', blankPlan.unmapped.length === 0, blankPlan.unmapped);
+  ok('but it is reported, not silently skipped',
+    blankPlan.empties.indexOf('Spares.neverUsed') !== -1, blankPlan.empties);
+  ok('and it is not in the load plan either',
+    blankPlan.plan.Spares.columns.every((c) => c.field !== 'neverUsed'));
 
   console.log('\nUNLESS IT IS NAMED AS DELIBERATELY LEFT BEHIND');
   // PIE's real sheet has 21 of these, all of them looking like fossils from before the schema
@@ -346,6 +362,9 @@ function drainDrive(sb, into) {
   // Naming a different column must not excuse this one.
   ok('naming something else does not excuse it',
     imp.checkColumns(manifest, extra, ['Spares.somethingElse']).unmapped.length === 1);
+  ok('and the one that holds data is still named in the refusal',
+    imp.checkColumns(manifest, extra, ['Spares.somethingElse'])
+      .unmapped[0].column === 'Spares.scribbledNote');
 
   console.log('\nWHILE A COLUMN THE SHEET HAS NOT GOT IS FINE, AND COUNTED');
   const lacking = JSON.parse(JSON.stringify(files));
