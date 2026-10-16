@@ -127,7 +127,7 @@ function appendMissingColumns_(sheet, tabName, columns, report) {
  * creating tabs, seeding rows and the legacy migrations stay with Setup, where somebody is
  * watching.
  */
-function addMissingColumnsEverywhere_() {
+async function addMissingColumnsEverywhere_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var added = [];
   Object.keys(SCHEMA).forEach(function (tabName) {
@@ -219,7 +219,7 @@ function backfillIds_(ss, report) {
  * Read-only sibling of setupSheet(): the same comparison, reported instead of applied, so a
  * sheet that needs Setup can say so on screen rather than waiting to swallow someone's edit.
  */
-function schemaDrift_() {
+async function schemaDrift_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var drift = [];
   Object.keys(SCHEMA).forEach(function (tabName) {

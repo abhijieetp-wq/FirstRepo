@@ -25,6 +25,28 @@ var TALLY_PROPS = {
 };
 
 /** The one payload behind the whole screen. */
+/**
+ * What the System panel says about where the data actually lives.
+ *
+ * Its own function because the answer depends entirely on the storage, and only this part of
+ * getSettings does. On a spreadsheet it is the sheet's name and a link to it; on the server
+ * there is no spreadsheet to name, and server/queries/setup.js answers instead with the
+ * database and the tenant.
+ */
+function systemInfo_() {
+  return {
+    build: APP_BUILD,
+    // Named here so a sheet behind the code announces itself, rather than waiting to
+    // swallow the next thing somebody saves into a column that does not exist.
+    drift: schemaDrift_(),
+    storage: 'Google Sheets',
+    spreadsheetName: SpreadsheetApp.getActiveSpreadsheet().getName(),
+    spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
+    declaredTabs: Object.keys(SCHEMA).length,
+    timeZone: Session.getScriptTimeZone()
+  };
+}
+
 function getSettings() {
   var user = getCurrentUser();
   requireRole_(user, SETTINGS_ROLES);
@@ -80,16 +102,7 @@ function getSettings() {
       // The credential itself never leaves the server — only whether one exists.
       hasCredential: !!props.getProperty(TALLY_PROPS.CREDENTIAL)
     },
-    system: {
-      build: APP_BUILD,
-      // Named here so a sheet behind the code announces itself, rather than waiting to
-      // swallow the next thing somebody saves into a column that does not exist.
-      drift: schemaDrift_(),
-      spreadsheetName: SpreadsheetApp.getActiveSpreadsheet().getName(),
-      spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
-      declaredTabs: Object.keys(SCHEMA).length,
-      timeZone: Session.getScriptTimeZone()
-    }
+    system: systemInfo_()
   };
 }
 

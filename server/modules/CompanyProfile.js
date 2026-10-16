@@ -303,7 +303,7 @@ async function applyBuildUpdates_() {
     // failure the text still installs — one repair going wrong must not take the other with
     // it, nor the load.
     try {
-      addMissingColumnsEverywhere_();
+      await addMissingColumnsEverywhere_();
     } catch (err) {
       console.warn('Could not add missing columns: ' + err.message);
     }

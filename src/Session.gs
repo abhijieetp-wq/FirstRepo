@@ -449,6 +449,17 @@ function call(token, fnName, args) {
   if (!name || name.slice(-1) === '_' || CALL_DENY_.indexOf(name) !== -1) {
     throw new Error('Unknown action: ' + name);
   }
+  // On Apps Script the three rules above are the whole answer, because every global here IS
+  // one of this project's declarations — there is nothing else in the scope to find. On the
+  // Node server the same scope also holds the platform shim, the database shim and
+  // JavaScript's own intrinsics, so `constructor`, `toString`, `Object` and `setTimeout`
+  // satisfy all three and become callable by anybody with a session. The server therefore
+  // supplies PORTAL_FUNCTIONS_ — what its module files actually declared — and where it
+  // exists it is the allow list. Guarded by typeof so this file keeps working unchanged on
+  // Apps Script, where there is no such thing and no such problem.
+  if (typeof PORTAL_FUNCTIONS_ !== 'undefined' && !PORTAL_FUNCTIONS_[name]) {
+    throw new Error('Unknown action: ' + name);
+  }
   var fn = this[name];
   if (typeof fn !== 'function') throw new Error('Unknown action: ' + name);
 

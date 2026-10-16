@@ -43,6 +43,30 @@ const MODULES = path.join(__dirname, 'modules');
 const QUERIES = path.join(__dirname, 'queries');
 
 /**
+ * Compiled once, run into a fresh context per request.
+ *
+ * A context per request is not negotiable — the shim keeps "which connection am I on" and
+ * "who is calling" in it, and two requests sharing that would put one person's statements
+ * inside another's transaction. But PARSING 42 files for every request is waste: it is the
+ * same 42 files, and V8 will happily run one compiled script into many contexts.
+ *
+ * Keyed by path and modification time, so editing a module during development picks the new
+ * one up without a restart, and production never recompiles at all.
+ */
+const COMPILED = new Map();
+
+function compiled(file) {
+  let stamp = 0;
+  try { stamp = fs.statSync(file).mtimeMs; } catch (err) { stamp = 0; }
+  const hit = COMPILED.get(file);
+  if (hit && hit.stamp === stamp) return hit.script;
+  const script = new vm.Script(fs.readFileSync(file, 'utf8'),
+    { filename: path.relative(__dirname, file) });
+  COMPILED.set(file, { stamp, script });
+  return script;
+}
+
+/**
  * @param db       a Db from db.js, already bound to a tenant
  * @param actor    whose email the audit trail and the per-user cache are keyed by
  * @param opts     passed through to platformFor: properties, baseUrl, cache, quiet.
@@ -67,6 +91,11 @@ function loadPortal(db, actor, opts) {
   // and then found the new addresses still there.
   Object.defineProperties(sandbox, Object.getOwnPropertyDescriptors(globalsFor(db, actor)));
 
+  // Everything present before a single portal file is loaded: the intrinsics above, the
+  // platform shim, the database shim. Whatever is a function after loading and is not in
+  // here was declared by the portal, and that is the set the browser may reach.
+  const injected = new Set(Object.keys(sandbox));
+
   // normalizeCell_ needs the platform's date formatting, which the shim has no handle on, so
   // it is bound here where both halves are in scope. Nothing reaches it any more — the only
   // caller was a Pricing function that server/queries replaced — but an unreachable function
@@ -90,8 +119,7 @@ function loadPortal(db, actor, opts) {
 
     for (const f of waiting) {
       try {
-        vm.runInContext(fs.readFileSync(path.join(modulesDir, f), 'utf8'), sandbox,
-          { filename: 'modules/' + f });
+        compiled(path.join(modulesDir, f)).runInContext(sandbox);
         order.push(f);
       } catch (err) {
         // A name this file needs is in a file not loaded yet. Anything else is a real
@@ -133,8 +161,7 @@ function loadPortal(db, actor, opts) {
       // was replaced says nothing, and it made the check that priceMapFor_ really had been
       // replaced pass for the wrong reason.
       const before = new Map(Object.keys(sandbox).map((k) => [k, sandbox[k]]));
-      vm.runInContext(fs.readFileSync(path.join(queriesDir, f), 'utf8'), sandbox,
-        { filename: 'queries/' + f });
+      compiled(path.join(queriesDir, f)).runInContext(sandbox);
       // What a query file redefines is the interesting part, so it is recorded rather than
       // assumed: a file that was meant to replace priceMapFor_ and quietly defines
       // priceMapFor2_ because of a typo would otherwise look like it worked.
@@ -148,6 +175,38 @@ function loadPortal(db, actor, opts) {
 
   sandbox.__loaded = order;
   sandbox.__overridden = overridden;
+
+  /**
+   * The names the portal's own files declared, and nothing else.
+   *
+   * Session.gs's `call` decides what the browser may reach with a DENY list: not ending in
+   * an underscore, not one of the editor-only doors, and `typeof this[name] === 'function'`.
+   * On Apps Script that was airtight, because on Apps Script every global IS a portal
+   * declaration — there is nothing else in the scope to find.
+   *
+   * Here there is. The context also holds the shim, the platform and JavaScript's own
+   * intrinsics, so `constructor`, `toString`, `Object`, `Array`, `setTimeout` and
+   * `withTransaction` all satisfy those three conditions. None of them is an escape today —
+   * `eval` and `Function` are not reachable through this object, and arguments arrive as
+   * JSON so no function can be passed in — but the shape is wrong, and the risk is not
+   * today's: it is that the next useful global somebody adds to this sandbox joins the
+   * public API without anybody deciding that it should.
+   *
+   * So the deny list gains an allow list. Only what the module and query files declared,
+   * captured here where it is known exactly.
+   */
+  // Object.create(null), not {}. A plain object inherits from Object.prototype, so
+  // `declared['constructor']` and `declared['toString']` are truthy whatever is in it — and
+  // those are exactly the two names this list was added to shut out. The fix for a
+  // prototype-chain hole had the same hole in it, which the check below caught.
+  const declared = Object.create(null);
+  for (const name of Object.keys(sandbox)) {
+    if (injected.has(name)) continue;
+    if (typeof sandbox[name] !== 'function') continue;
+    declared[name] = true;
+  }
+  sandbox.PORTAL_FUNCTIONS_ = declared;
+
   return sandbox;
 }
 

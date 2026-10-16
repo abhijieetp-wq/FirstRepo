@@ -81,6 +81,22 @@ function globalsFor(db, actor) {
     // zero. Leaving them as no-ops is honest. Leaving them doing something would not be.
     invalidateTable_: () => {},
     invalidateHeaders_: () => {},
+
+    /**
+     * Adding a column to a tab, which the database does not need adding to.
+     *
+     * applyBuildUpdates_ runs this on the first load after a deployment, because on a
+     * spreadsheet a build that writes a new field has nowhere to put it until somebody adds
+     * the column. Here the columns come from the generated DDL and are there before the
+     * first row is. Left as a no-op rather than removed from the caller: that caller also
+     * installs standard quotation text and backfills usernames, and both of those still
+     * matter.
+     *
+     * Without this it reached SpreadsheetApp, was refused, and logged "a module reaching for
+     * one has not been migrated" on every restart — which is not true of this one. A warning
+     * that is wrong is worse than no warning, because the next real one looks like it.
+     */
+    addMissingColumnsEverywhere_: () => 0,
     noteRowCount_: () => {},
     rememberSheet_: (name, sheet) => sheet,
     cacheRowWritten_: () => {},
