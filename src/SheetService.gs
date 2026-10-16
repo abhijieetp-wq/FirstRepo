@@ -191,7 +191,14 @@ function getHeaders_(sheet, name) {
 }
 
 function normalizeCell_(v) {
-  if (v instanceof Date) {
+  // Object.prototype.toString rather than `instanceof Date`. In the live portal the two agree
+  // always, because the Dates come from the Sheets host in the same realm as the script. They
+  // part company in the test harness, which runs this code in a `vm` and hands it Dates made
+  // by Node: `instanceof` says no, and the cell comes back as
+  // 'Thu Jan 15 2026 00:00:00 GMT+0000' instead of '2026-01-15'. No test seeded a Date, so
+  // nothing was wrong — but the next one to do it would have been testing against behaviour
+  // the portal does not have, and believed it. This costs nothing where it runs for real.
+  if (Object.prototype.toString.call(v) === '[object Date]') {
     return Utilities.formatDate(v, Session.getScriptTimeZone() || 'Etc/UTC', 'yyyy-MM-dd');
   }
   return v;

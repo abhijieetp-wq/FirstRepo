@@ -141,10 +141,73 @@ function load(files, props) {
         getSheetByName: (n) => (TABS[n] ? sheetFor(n) : null),
         insertSheet: (n) => { TABS[n] = { headers: [], rows: [] }; return sheetFor(n); },
         getName: () => 'ERP (test)',
+        getId: () => 'test-spreadsheet-id',
         getUrl: () => 'https://example.invalid/sheet',
         getSheets: () => Object.keys(TABS).map(sheetFor)
       })
     },
+
+    /**
+     * Drive, in memory. Its folders are reachable as `sandbox.DriveApp._folders`.
+     *
+     * Added for the migration export, which writes one file per tab and whose whole value is
+     * that the files can be checked afterwards. A stub that accepted createFile and threw the
+     * content away would let the export pass every test while writing nothing — which is
+     * precisely the failure that matters on a cutover there is one attempt at.
+     *
+     * Trashing is modelled rather than ignored, because the export replaces a tab's file on a
+     * re-run and a stub that kept both would hide a duplicate-file bug that makes an import
+     * ambiguous.
+     */
+    DriveApp: (() => {
+      const folders = {};
+      const makeFolder = (name) => {
+        const id = 'folder-' + (Object.keys(folders).length + 1);
+        const files = [];
+        const folder = {
+          getId: () => id,
+          getName: () => name,
+          getUrl: () => 'https://example.invalid/folder/' + id,
+          createFile: (blob) => {
+            const file = {
+              getName: () => blob.getName(),
+              getBlob: () => blob,
+              getId: () => 'file-' + files.length,
+              trashed: false,
+              setTrashed: (t) => { file.trashed = !!t; return file; }
+            };
+            files.push(file);
+            return file;
+          },
+          getFilesByName: (wanted) => {
+            const hits = files.filter((f) => !f.trashed && f.getName() === wanted);
+            let at = 0;
+            return { hasNext: () => at < hits.length, next: () => hits[at++] };
+          },
+          getFiles: () => {
+            const live = files.filter((f) => !f.trashed);
+            let at = 0;
+            return { hasNext: () => at < live.length, next: () => live[at++] };
+          },
+          _files: files
+        };
+        folders[id] = folder;
+        return folder;
+      };
+      return {
+        createFolder: makeFolder,
+        getFolderById: (id) => {
+          if (!folders[id]) throw new Error('No folder with id ' + id);
+          return folders[id];
+        },
+        getFoldersByName: (wanted) => {
+          const hits = Object.values(folders).filter((f) => f.getName() === wanted);
+          let at = 0;
+          return { hasNext: () => at < hits.length, next: () => hits[at++] };
+        },
+        _folders: folders
+      };
+    })(),
     Session: {
       getScriptTimeZone: () => 'Asia/Kolkata',
       getActiveUser: () => ({ getEmail: () => 'tester@pie.in' }),
@@ -167,12 +230,30 @@ function load(files, props) {
       sleep() {},
       base64Encode: (s) => Buffer.from(String(s)).toString('base64'),
       base64Decode: (s) => Array.from(Buffer.from(String(s), 'base64')),
-      newBlob: (content, type, name) => ({
-        getBytes: () => Array.from(Buffer.from(String(content))),
-        getAs: () => ({ setName: () => ({}) }),
-        setName: () => ({}),
-        getName: () => name || ''
-      })
+      /**
+       * A blob that still holds what it was given.
+       *
+       * This kept the bytes and discarded everything else: getDataAsString did not exist and
+       * setName returned an empty object instead of the blob. Fine while the only callers
+       * were attaching a PDF nobody read back; not fine for the migration export, whose whole
+       * value is that the files it writes can be opened afterwards and checked. A stub that
+       * accepts content and loses it lets an export pass every test while writing nothing.
+       */
+      newBlob: (content, type, name) => {
+        let blobName = name || '';
+        const bytes = Buffer.isBuffer(content) ? content
+          : Buffer.from(typeof content === 'string' ? content : Array.from(content));
+        const blob = {
+          getBytes: () => Array.from(bytes),
+          getDataAsString: () => bytes.toString('utf8'),
+          getContentType: () => type || 'application/octet-stream',
+          getName: () => blobName,
+          setName: (n) => { blobName = n; return blob; },
+          getAs: () => blob,
+          copyBlob: () => blob
+        };
+        return blob;
+      }
     },
     MailApp: {
       sendEmail: (o) => { sandbox.__sent.push(o); },

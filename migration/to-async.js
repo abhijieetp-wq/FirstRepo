@@ -36,6 +36,22 @@ const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, '..', 'server', 'modules');
 
 /**
+ * Files that have no server existence at all, and are not conversions that are pending.
+ *
+ * SheetService.gs IS the spreadsheet storage layer; db.js replaces it rather than translating
+ * it. Export.gs reads the live spreadsheet to get the data out of it once, which is a thing
+ * only Apps Script can do and only before the cutover — a copy of it on the server would be a
+ * file whose every line calls a service that refuses.
+ *
+ * Named here rather than skipped by hand so that `--all` counts them as decided rather than
+ * outstanding, and so the next person does not wonder which of the two it is.
+ */
+const APPS_SCRIPT_ONLY = {
+  SheetService: 'the spreadsheet storage layer — server/db.js replaces it',
+  Export: 'reads the live spreadsheet for the one-off migration export'
+};
+
+/**
  * Works out every edit one file needs, without making any of them.
  *
  * Returns the insertions, and separately the places it refuses to touch. A call inside
@@ -187,16 +203,28 @@ function convert(name, write) {
 const args = process.argv.slice(2);
 if (args[0] === '--all') {
   const names = fs.readdirSync(SRC).filter((f) => f.endsWith('.gs')).sort();
-  let clean = 0, blocked = 0;
+  let clean = 0, blocked = 0, skipped = 0;
   names.forEach((f) => {
+    const base = f.replace('.gs', '');
+    if (APPS_SCRIPT_ONLY[base]) {
+      console.log(base + ': not converted — ' + APPS_SCRIPT_ONLY[base]);
+      skipped++;
+      return;
+    }
     const r = convert(f, false);
     if (r.callbacks) blocked++; else clean++;
   });
-  console.log('\n' + clean + ' file(s) convert mechanically, ' + blocked + ' need hand work first.');
+  console.log('\n' + clean + ' file(s) convert mechanically, ' + blocked +
+    ' need hand work first, ' + skipped + ' never convert.');
 } else if (!args.length) {
   console.log('usage: node migration/to-async.js <Module> [--write]');
   process.exit(1);
 } else {
+  const base = args[0].replace('.gs', '');
+  if (APPS_SCRIPT_ONLY[base]) {
+    console.log(base + ' is not converted: ' + APPS_SCRIPT_ONLY[base] + '.');
+    process.exit(0);
+  }
   const r = convert(args[0], args.indexOf('--write') !== -1);
   process.exit(r.ok ? 0 : 1);
 }

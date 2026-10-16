@@ -43,6 +43,11 @@ function loadSchema() {
  */
 const OVERRIDES = {
   priceLevel: ['TEXT', 'PIE or ELGI, not a number — matched a rule meant for reorderLevel'],
+  revision: ['TEXT', 'the quotation revision LABEL: R0, R1, R2. I put this in the INTEGER rule ' +
+    'myself and it was wrong. Quotations.gs settles the argument — it reads the number out ' +
+    'with String(r.revision).replace(/[^0-9]/g, \'\'), which it would not need to do for an ' +
+    'integer. As INTEGER every revision came back blank, and the revision chain is what ' +
+    'decides which offer is the live one'],
   oldValue: ['TEXT', 'audit log: whatever changed, which is usually not money'],
   newValue: ['TEXT', 'audit log: whatever changed, which is usually not money'],
   serialNos: ['TEXT', 'a list of serials in one cell, not one number'],
@@ -115,7 +120,7 @@ const RULES = [
     type: 'NUMERIC(14,3)', why: 'quantity, which can be fractional (metres, litres)' },
 
   { when: (c) => /(Days|Months|Count|Level|Stock|Order|Attempts|Iterations)$/.test(c) ||
-                 ['ms', 'tabsRead', 'rowsRead', 'revision'].indexOf(c) !== -1,
+                 ['ms', 'tabsRead', 'rowsRead'].indexOf(c) !== -1,
     type: 'INTEGER', why: 'whole number' },
 
   { when: (c) => /^(is|has|must|can)[A-Z]/.test(c) ||
