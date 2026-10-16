@@ -596,9 +596,11 @@ function exportManifest_(folder, done, moved) {
       ? missingTabs.length + ' declared tab(s) not in the spreadsheet at all: ' +
         missingTabs.join(', ') + '\n\n'
       : '') +
-    'Next: download the folder, then\n' +
-    '  node migration/import.js <the folder> --verify\n' +
-    'which checks every digest and every field before it writes anything.';
+    'Next: download THIS folder — it is a new one, and any earlier export is still in Drive\n' +
+    'under its own name. Then, in the repo:\n' +
+    '  node migration/import.js "<the folder>"\n' +
+    'which checks every digest, every column and every timestamp and writes nothing. Add\n' +
+    '--write once it says the checks passed.';
 
   return { manifest: manifest, text: text };
 }
