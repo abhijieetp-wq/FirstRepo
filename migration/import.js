@@ -144,13 +144,44 @@ function tabDigest(rowDigests) {
 
 // ------------------------------------------------------------------ reading the export
 
-function loadExport(dir) {
-  const manifestPath = path.join(dir, '_manifest.json');
-  if (!fs.existsSync(manifestPath)) {
-    throw new Error('No _manifest.json in ' + dir + '. Either the export did not finish — ' +
-      'run exportForMigration() again in the Apps Script editor until it says complete — or ' +
-      'this is the wrong folder.');
+/**
+ * The folder holding _manifest.json, which is not always the one that was handed over.
+ *
+ * Drive zips a folder with itself inside it, so unzipping gives
+ * pie-export\PIE ERP migration export 2026-10-16\_manifest.json and the obvious thing to
+ * type is the outer one. Looking one level down for a single subfolder that has the manifest
+ * costs nothing and saves the twenty minutes of wondering which folder was meant.
+ *
+ * Only when there is exactly one candidate. Two would mean two exports unzipped together,
+ * and picking one of those is a guess rather than a convenience.
+ */
+function findExportDir(dir) {
+  if (fs.existsSync(path.join(dir, '_manifest.json'))) return dir;
+  let inner = [];
+  try {
+    inner = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(dir, e.name))
+      .filter((d) => fs.existsSync(path.join(d, '_manifest.json')));
+  } catch (err) {
+    throw new Error('Cannot read ' + dir + ' — ' + err.message);
   }
+  if (inner.length === 1) {
+    console.log('(using ' + inner[0] + ', which is where the manifest is)\n');
+    return inner[0];
+  }
+  if (inner.length > 1) {
+    throw new Error('There are ' + inner.length + ' exports inside ' + dir +
+      '. Point at one of them:\n  ' + inner.join('\n  '));
+  }
+  throw new Error('No _manifest.json in ' + dir + ', nor in any folder directly inside it.\n' +
+    'Either this is the wrong folder, or the export did not finish — run ' +
+    'exportForMigration()\nin the Apps Script editor until it says "Export complete".');
+}
+
+function loadExport(wanted) {
+  const dir = findExportDir(wanted);
+  const manifestPath = path.join(dir, '_manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const files = {};
 
@@ -739,6 +770,7 @@ async function main() {
 }
 
 module.exports = { rowDigest, tabDigest, cellText, checkDigests, checkColumns, checkTimestamps,
+  findExportDir,
   loadTab, verify, loadExport, summarise, timestampIn, zoneOffsetMs, SEP };
 
 if (require.main === module) {
