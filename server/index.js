@@ -162,6 +162,20 @@ function statusFor(message) {
         return send(res, 200, 'text/html; charset=utf-8', page.html);
       }
 
+      // ---- the icon every browser asks for without being told to
+      //
+      // Not a nicety: a browser requests /favicon.ico on its own, and without this every
+      // page load logs a 404 that looks exactly like a real missing resource. Inline SVG,
+      // so there is no file to deploy and nothing to go missing.
+      if (req.method === 'GET' && /^\/favicon\.(ico|svg)$/.test(url.pathname)) {
+        const icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+          '<rect width="64" height="64" rx="12" fill="#12233D"/>' +
+          '<text x="32" y="43" font-family="Inter,Segoe UI,sans-serif" font-size="30" ' +
+          'font-weight="700" fill="#E8871E" text-anchor="middle">P</text></svg>';
+        return send(res, 200, 'image/svg+xml', icon,
+          { 'Cache-Control': 'public, max-age=86400' });
+      }
+
       // ---- is it up, and can it reach the database
       if (req.method === 'GET' && url.pathname === '/health') {
         const t = Date.now();
@@ -191,6 +205,39 @@ function statusFor(message) {
           return json(res, 200, { ok: out === undefined ? null : out });
         } catch (err) {
           return failed(res, err, 'call ' + fn);
+        }
+      }
+
+      // ---- the two other doors the browser needs, and why they are not /api/call
+      //
+      // `logout` is on CALL_DENY_ — a token must not be usable to mint or revoke another —
+      // and `googleGateSignInLink` is asked for BEFORE anybody has signed in, when `call`
+      // has no session to resolve. Both are deliberate holes in that door rather than
+      // oversights, so they get their own.
+      if (req.method === 'POST' && url.pathname === '/api/logout') {
+        let payload = {};
+        try { payload = JSON.parse(await body(req)); } catch (err) { /* a logout with no
+          readable body still means "forget my session", and refusing it would leave the
+          session alive because the browser sent something odd */ }
+        const portal = loadPortal(db, 'anonymous', { properties, quiet: true });
+        try {
+          await portal.logout(payload.token || null);
+          return json(res, 200, { ok: true });
+        } catch (err) {
+          // A logout that fails must still look like a logout: the browser has already
+          // forgotten the token and sending the person back to a working screen would be
+          // worse than letting a dead session expire on its own.
+          console.log('logout: ' + (err && err.message));
+          return json(res, 200, { ok: true });
+        }
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/google-link') {
+        const portal = loadPortal(db, 'anonymous', { properties, quiet: true });
+        try {
+          return json(res, 200, { ok: await portal.googleGateSignInLink() });
+        } catch (err) {
+          return failed(res, err, 'googleGateSignInLink');
         }
       }
 

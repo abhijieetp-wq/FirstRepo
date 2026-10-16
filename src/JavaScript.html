@@ -35,6 +35,86 @@
     } catch (e) { /* the session still works, it just will not outlive the tab */ }
   }
 
+  /**
+   * Where a server call actually goes, which is now one of two places.
+   *
+   * During the cutover this same file is served by both Apps Script and the Node server, so
+   * it cannot be written for either. `runner` presents exactly the shape google.script.run
+   * presents — withSuccessHandler, withFailureHandler, then any method name — and sends the
+   * call wherever this page came from. On Apps Script that is google.script.run itself; on
+   * the server it is a fetch.
+   *
+   * Four names reach the server directly rather than through `call`, and each for a reason:
+   * `call` carries every other request; `login` happens before there is a token to carry;
+   * `logout` is on the server's deny list, because a token must not be usable to revoke
+   * another; and `googleGateSignInLink` is asked for before anybody has signed in. They are
+   * listed rather than derived, so adding a fifth is a decision somebody makes on purpose.
+   */
+  var ON_APPS_SCRIPT = typeof google !== "undefined" && google.script && google.script.run;
+
+  var ENDPOINTS = {
+    call: "/api/call",
+    login: "/api/login",
+    logout: "/api/logout",
+    googleGateSignInLink: "/api/google-link"
+  };
+
+  var runner = (function () {
+    if (ON_APPS_SCRIPT) {
+      return function (handlers) {
+        var r = google.script.run;
+        if (handlers.ok) r = r.withSuccessHandler(handlers.ok);
+        if (handlers.fail) r = r.withFailureHandler(handlers.fail);
+        return r;
+      };
+    }
+
+    return function (handlers) {
+      return new Proxy({}, {
+        get: function (_, name) {
+          return function () {
+            var args = Array.prototype.slice.call(arguments);
+            var path = ENDPOINTS[name];
+            if (!path) {
+              (handlers.fail || function () {})(new Error("Unknown action: " + name));
+              return;
+            }
+
+            var payload;
+            if (name === "call") payload = { token: args[0], fn: args[1], args: args[2] || [] };
+            else if (name === "login") {
+              payload = { username: args[0], password: args[1], googlePass: args[2] };
+            } else if (name === "logout") payload = { token: args[0] };
+            else payload = {};
+
+            fetch(path, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            }).then(function (res) {
+              return res.json().then(function (body) { return { res: res, body: body }; });
+            }).then(function (r) {
+              if (!r.res.ok) {
+                // The server sends the portal's own message, which is written for whoever
+                // is reading it. Handed on as an Error so the handlers below — which have
+                // always matched on err.message — do not change.
+                throw new Error((r.body && r.body.error) || ("HTTP " + r.res.status));
+              }
+              (handlers.ok || function () {})(r.body.ok);
+            }).catch(function (err) {
+              // A dropped connection reaches here too, and it is not a session ending. The
+              // message says so rather than sending somebody to a password box that will
+              // not help them.
+              var e = (err && err.message) ? err
+                : new Error("Could not reach the server. Check your connection.");
+              (handlers.fail || function () {})(e);
+            });
+          };
+        }
+      });
+    };
+  })();
+
   var srv = (function () {
     function chain(handlers) {
       return new Proxy({}, {
@@ -47,9 +127,9 @@
           }
           return function () {
             var args = Array.prototype.slice.call(arguments);
-            google.script.run
-              .withSuccessHandler(handlers.ok || function () {})
-              .withFailureHandler(function (err) {
+            runner({
+              ok: handlers.ok || function () {},
+              fail: function (err) {
                 var text = String((err && err.message) || err || "");
                 // One place to catch the session ending, wherever it happened.
                 if (/SESSION_ENDED/.test(text)) {
@@ -65,8 +145,8 @@
                   return;
                 }
                 (handlers.fail || function () {})(err);
-              })
-              .call(sessionToken, String(name), args);
+              }
+            }).call(sessionToken, String(name), args);
           };
         }
       });
@@ -10645,8 +10725,7 @@
     var token = sessionToken;
     rememberSession(null);
     // Told to forget it server-side too, so a token copied from this browser is dead.
-    google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {})
-      .logout(token);
+    runner({ ok: function () {}, fail: function () {} }).logout(token);
     showSignIn("You have signed out.");
   }
 
@@ -10702,8 +10781,8 @@
 
     if (googleLinkAsked) return;
     googleLinkAsked = true;
-    google.script.run
-      .withSuccessHandler(function (link) {
+    runner({
+      ok: function (link) {
         if (!link || !link.offered || googlePass) return;
         wrap.style.display = "";
         var a = $("signin-google-link");
@@ -10712,9 +10791,9 @@
         $("signin-google-note").textContent =
           "Optional here. Sign in with Google as well if this portal is to be restricted to " +
           "the company's own accounts.";
-      })
-      .withFailureHandler(function () { /* not configured, or offline: the password box stands */ })
-      .googleGateSignInLink();
+      },
+      fail: function () { /* not configured, or offline: the password box stands */ }
+    }).googleGateSignInLink();
   }
 
   function attemptSignIn() {
@@ -10728,8 +10807,8 @@
     btn.disabled = true; btn.textContent = "Signing in…";
     var restore = function () { btn.disabled = false; btn.textContent = "Sign in"; };
 
-    google.script.run
-      .withSuccessHandler(function (result) {
+    runner({
+      ok: function (result) {
         restore();
         rememberSession(result.token);
         $("signin-screen").style.display = "none";
@@ -10737,8 +10816,8 @@
         // A password an admin set is a way in, not a password. Change it before anything else.
         pendingPasswordChange = !!result.user.mustChangePassword;
         init();
-      })
-      .withFailureHandler(function (err) {
+      },
+      fail: function (err) {
         restore();
         var text = (err && err.message) ? err.message : String(err);
         if (/GOOGLE_ACCOUNT_BLOCKED/.test(text)) {
@@ -10749,8 +10828,8 @@
             " Reload the page to start again.";
         }
         showSignIn(text);
-      })
-      .login(login, password, googlePass);
+      }
+    }).login(login, password, googlePass);
   }
 
   $("btn-signin").addEventListener("click", attemptSignIn);
