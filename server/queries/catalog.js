@@ -74,3 +74,78 @@ async function countBelowReorder_() {
     [db.tenant, 'Spare']);
   return rows.rows[0].n;
 }
+
+/**
+ * The catalogue as the spare picker sends it, straight out of a SELECT.
+ *
+ * One block read of 13,587 rows becomes one query of the nine columns the screen shows. The
+ * reason the sheet version read the block by column position — not building an object per part
+ * when only nine fields of it are wanted — is what `SELECT` these nine columns does anyway.
+ *
+ * The column ORDER is the contract. The browser receives arrays, not objects, because the
+ * field names repeated 13,587 times were most of the payload, and it reads them positionally
+ * against SPARE_PICKER_COLS. So the SELECT lists them in that order deliberately rather than
+ * incidentally, and sortng by part number is added: the sheet gave them in row order, which is
+ * import order, and a database gives no order at all unless asked.
+ */
+async function sparePickerRows_(prices, onHand, reserved) {
+  var result = await db.q(
+    'SELECT id, part_no, description, product_group, category, uom, hsn_code' +
+    '  FROM spares' +
+    ' WHERE tenant_id = $1 AND active IS NOT FALSE AND id IS NOT NULL AND id <> $2' +
+    ' ORDER BY part_no',
+    [db.tenant, '']);
+
+  var rows = [];
+  for (var i = 0; i < result.rows.length; i++) {
+    var r = result.rows[i];
+    var id = String(r.id);
+    var levels = prices[id] || {};
+    rows.push([
+      id,
+      String(r.part_no || ''),
+      String(r.description || ''),
+      String(r.product_group || ''),
+      String(r.category || ''),
+      String(r.uom || 'Nos'),
+      String(r.hsn_code || ''),
+      levels[SELLING_PRICE_LEVEL] ? levels[SELLING_PRICE_LEVEL].price : null,
+      (onHand[id] || 0) - (reserved[id] || 0)
+    ]);
+  }
+  return rows;
+}
+
+/**
+ * Deletes every spare except the referenced ones, and deactivates those.
+ *
+ * The sheet had to do this as a block rewrite — filter the rows in memory, blank the range,
+ * write the survivors back — because deleting 13,587 rows one at a time does not finish inside
+ * an execution. That rewrite is the dangerous kind: there is a moment when the catalogue is
+ * blank, and a failure in it loses everything.
+ *
+ * Two statements, in a transaction, and no such moment.
+ */
+async function keepOnlyReferencedSpares_(referenced) {
+  var keep = Object.keys(referenced || {});
+
+  return await withTransaction(async function (tx) {
+    // Deactivated rather than deleted: a quotation or an order names these parts, and those
+    // are records of what happened. A part nobody can order again is still a part the document
+    // has to be able to resolve.
+    if (keep.length) {
+      await tx.q('UPDATE spares SET active = FALSE WHERE tenant_id = $1 AND id = ANY($2)',
+        [tx.tenant, keep]);
+    }
+    // `<> ALL` rather than `NOT IN`, which answers nothing at all when the list is empty.
+    var gone = await tx.q(
+      'DELETE FROM spares WHERE tenant_id = $1 AND id <> ALL($2)', [tx.tenant, keep]);
+    void gone;
+    return keep.length;
+  });
+}
+
+/** Empties the catalogue. Only reachable once the documents built on it have gone. */
+async function clearAllSpares_() {
+  await db.q('DELETE FROM spares WHERE tenant_id = $1', [db.tenant]);
+}

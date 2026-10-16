@@ -124,6 +124,65 @@ async function previewCatalogImport(itemType, csvText) {
  * does the whole file in one call, which is what the tests do and what a small file can
  * still afford.
  */
+/**
+ * The two writes an import makes: change what exists, add what does not.
+ *
+ * Separated from commitCatalogImport because everything else in that function — parsing the
+ * file, matching codes, deciding what changed, working out which prices move — is the same
+ * whatever the storage is, and it is the long part. This is the three dozen lines that touch
+ * the grid.
+ */
+async function writeCatalogRows_(spec, analysis, user) {
+  var sheet = getSheet_(spec.tab);
+  var headers = getHeaders_(sheet, spec.tab);
+
+  // One bulk write for changed existing rows.
+  if (analysis.updates.length) {
+    var lastRow = sheetRows_(spec.tab, sheet);
+    var block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var activeCol = headers.indexOf('active');
+    analysis.updates.forEach(function (u) {
+      var target = block[u.rowIndex];
+      spec.masterFields.forEach(function (f) {
+        var col = headers.indexOf(f);
+        if (col === -1) return;
+        if (u.values[f] === undefined || u.values[f] === '') return;
+        target[col] = u.values[f];
+      });
+      // A code present in the imported catalogue is a live item. Without this, a row that
+      // had been deactivated — by the pre-import clear-out, say — was updated with the real
+      // description and price and then stayed invisible, so the part looked missing from a
+      // catalogue that had just loaded it.
+      if (activeCol !== -1) target[activeCol] = 'TRUE';
+    });
+    invalidateTable_(spec.tab);
+    sheet.getRange(2, 1, block.length, headers.length).setValues(block);
+  }
+
+  // One bulk append for new rows.
+  if (analysis.creates.length) {
+    // Hoisted out of both loops. It never depended on the row or the column, and inside
+    // them it was being asked the same question once per new part — thirteen thousand
+    // times on a full catalogue load — for an answer that cannot change during the write.
+    var brand = await defaultBrand_();
+    var newRows = analysis.creates.map(function (c) {
+      return headers.map(function (h) {
+        if (h === 'id') return c.id;
+        if (h === 'brand') return brand;
+        if (h === 'active') return 'TRUE';
+        if (h === 'createdAt') return todayIso_();
+        if (h === 'createdBy') return user.email;
+        if (h === 'defaultWarehouseId') return 'WH-MAIN';
+        return c.values[h] === undefined ? '' : c.values[h];
+      });
+    });
+    invalidateTable_(spec.tab);
+    var at = sheetRows_(spec.tab, sheet) + 1;
+    sheet.getRange(at, 1, newRows.length, headers.length).setValues(newRows);
+    noteRowCount_(spec.tab, newRows.length);
+  }
+}
+
 async function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
   var user = getCurrentUser();
   requireRole_(user, MASTER_EDITORS);
@@ -142,54 +201,7 @@ async function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
   // writes, so the sheet is held for as short a time as the work allows.
   var lock = acquireLock_(LOCK_WAIT_BULK_MS, 'this import');
   try {
-    var sheet = getSheet_(spec.tab);
-    var headers = getHeaders_(sheet, spec.tab);
-
-    // One bulk write for changed existing rows.
-    if (analysis.updates.length) {
-      var lastRow = sheetRows_(spec.tab, sheet);
-      var block = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-      var activeCol = headers.indexOf('active');
-      analysis.updates.forEach(function (u) {
-        var target = block[u.rowIndex];
-        spec.masterFields.forEach(function (f) {
-          var col = headers.indexOf(f);
-          if (col === -1) return;
-          if (u.values[f] === undefined || u.values[f] === '') return;
-          target[col] = u.values[f];
-        });
-        // A code present in the imported catalogue is a live item. Without this, a row that
-        // had been deactivated — by the pre-import clear-out, say — was updated with the real
-        // description and price and then stayed invisible, so the part looked missing from a
-        // catalogue that had just loaded it.
-        if (activeCol !== -1) target[activeCol] = 'TRUE';
-      });
-      invalidateTable_(spec.tab);
-      sheet.getRange(2, 1, block.length, headers.length).setValues(block);
-    }
-
-    // One bulk append for new rows.
-    if (analysis.creates.length) {
-      // Hoisted out of both loops. It never depended on the row or the column, and inside
-      // them it was being asked the same question once per new part — thirteen thousand
-      // times on a full catalogue load — for an answer that cannot change during the write.
-      var brand = await defaultBrand_();
-      var newRows = analysis.creates.map(function (c) {
-        return headers.map(function (h) {
-          if (h === 'id') return c.id;
-          if (h === 'brand') return brand;
-          if (h === 'active') return 'TRUE';
-          if (h === 'createdAt') return todayIso_();
-          if (h === 'createdBy') return user.email;
-          if (h === 'defaultWarehouseId') return 'WH-MAIN';
-          return c.values[h] === undefined ? '' : c.values[h];
-        });
-      });
-      invalidateTable_(spec.tab);
-      var at = sheetRows_(spec.tab, sheet) + 1;
-      sheet.getRange(at, 1, newRows.length, headers.length).setValues(newRows);
-      noteRowCount_(spec.tab, newRows.length);
-    }
+    await writeCatalogRows_(spec, analysis, user);
   } finally {
     lock.releaseLock();
   }

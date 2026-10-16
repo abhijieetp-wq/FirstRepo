@@ -462,33 +462,18 @@ function nextEnquiryNo_() {
 var SPARE_PICKER_COLS = ['id', 'partNo', 'description', 'productGroup', 'category', 'uom',
                          'hsnCode', 'price', 'available'];
 
-function sparePickerData(productModel, customerId) {
-  getCurrentUser();
-
-  var model = String(productModel || '').trim().toLowerCase();
-  // What this customer calls each part, sent with the catalogue so searching by their code
-  // stays as instant as searching by ours. Small: one row per part a customer has ever
-  // ordered, not one per part in the catalogue.
-  var theirCodes = {};
-  var codeMap = customerCodeMap_(customerId);
-  Object.keys(codeMap).forEach(function (key) {
-    if (key.indexOf('Spare|') !== 0) return;
-    theirCodes[key.slice('Spare|'.length)] = codeMap[key].theirCode;
-  });
-  var compat = {};
-  if (model) {
-    readTable_('SpareCompatibility').forEach(function (c) {
-      if (String(c.active).toUpperCase() === 'FALSE') return;
-      if (String(c.productModel).trim().toLowerCase() === model) {
-        compat[String(c.spareId)] = String(c.isServiceKit).toUpperCase() === 'TRUE' ? 2 : 1;
-      }
-    });
-  }
-
-  var prices = priceMapFor_('Spare');
-  var onHand = stockOnHandMap_('Spare');
-  var reserved = stockReservedMap_('Spare');
-
+/**
+ * The catalogue as the picker sends it: one array per part, in SPARE_PICKER_COLS order.
+ *
+ * Arrays rather than objects, because this is the one call that carries the whole catalogue to
+ * the browser and the field names repeated 13,587 times are most of the payload. The header is
+ * sent once, as `cols`.
+ *
+ * Separated from sparePickerData because everything above it — the customer's own part codes,
+ * the compatibility list for a model, the prices and the stock — is the same whatever the
+ * storage is, and only this part reads the grid.
+ */
+function sparePickerRows_(prices, onHand, reserved) {
   // One block read, and no object built for a row that will not be sent.
   var sheet = getSheet_('Spares');
   var headers = getHeaders_(sheet, 'Spares');
@@ -517,6 +502,37 @@ function sparePickerData(productModel, customerId) {
       ]);
     }
   }
+  return rows;
+}
+
+function sparePickerData(productModel, customerId) {
+  getCurrentUser();
+
+  var model = String(productModel || '').trim().toLowerCase();
+  // What this customer calls each part, sent with the catalogue so searching by their code
+  // stays as instant as searching by ours. Small: one row per part a customer has ever
+  // ordered, not one per part in the catalogue.
+  var theirCodes = {};
+  var codeMap = customerCodeMap_(customerId);
+  Object.keys(codeMap).forEach(function (key) {
+    if (key.indexOf('Spare|') !== 0) return;
+    theirCodes[key.slice('Spare|'.length)] = codeMap[key].theirCode;
+  });
+  var compat = {};
+  if (model) {
+    readTable_('SpareCompatibility').forEach(function (c) {
+      if (String(c.active).toUpperCase() === 'FALSE') return;
+      if (String(c.productModel).trim().toLowerCase() === model) {
+        compat[String(c.spareId)] = String(c.isServiceKit).toUpperCase() === 'TRUE' ? 2 : 1;
+      }
+    });
+  }
+
+  var prices = priceMapFor_('Spare');
+  var onHand = stockOnHandMap_('Spare');
+  var reserved = stockReservedMap_('Spare');
+
+  var rows = sparePickerRows_(prices, onHand, reserved);
 
   return { cols: SPARE_PICKER_COLS, rows: rows, compat: compat, count: rows.length,
            theirCodes: theirCodes };

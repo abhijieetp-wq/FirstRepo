@@ -383,6 +383,54 @@ async function applyCatalogPrices_(itemType, itemId, itemCode, input) {
  * lookups here, one of which named a tab ("StockLedger") that does not exist in the schema —
  * so this threw on the missing tab every time it ran and never cleared a catalogue at all.
  */
+/**
+ * The two ways the catalogue gets emptied, separated out from the deciding.
+ *
+ * Both purge functions spend most of their length working out what may go — which parts are
+ * named by a quotation or an order, which dependents go with them, what to tell the person
+ * afterwards. Only the last step touches the grid, and only that step changes when the storage
+ * does, so it is a function of its own. The deciding above is identical either way and should
+ * not be duplicated into a query file to get at three lines of it.
+ */
+
+/**
+ * Deletes every spare except the referenced ones, and deactivates those.
+ *
+ * Rewritten as one block rather than deleted row by row: on a catalogue this size a per-row
+ * delete does not finish inside an execution. Returns how many survived.
+ */
+async function keepOnlyReferencedSpares_(referenced) {
+  var sheet = getSheet_('Spares');
+  var headers = getHeaders_(sheet, 'Spares');
+  var idCol = headers.indexOf('id');
+  var activeCol = headers.indexOf('active');
+  var lastRow = sheetRows_('Spares', sheet);
+  var block = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
+
+  var survivors = block.filter(function (row) {
+    var id = String(row[idCol]);
+    if (!referenced.hasOwnProperty(id)) return false;
+    if (activeCol !== -1) row[activeCol] = 'FALSE';
+    return true;
+  });
+
+  invalidateTable_('Spares');
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  if (survivors.length) {
+    sheet.getRange(2, 1, survivors.length, headers.length).setValues(survivors);
+  }
+  return survivors.length;
+}
+
+/** Empties the catalogue. Only reachable once the documents built on it have gone. */
+async function clearAllSpares_() {
+  var sheet = getSheet_('Spares');
+  var headers = getHeaders_(sheet, 'Spares');
+  var lastRow = sheetRows_('Spares', sheet);
+  invalidateTable_('Spares');
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+}
+
 async function purgeSpares(confirmText) {
   var user = getCurrentUser();
   requireRole_(user, [ROLES.ERP_ADMIN]);
@@ -414,27 +462,7 @@ async function purgeSpares(confirmText) {
 
   var removed = await removeSpareDependents_(removable);
 
-  // Rewritten as one block rather than deleted row by row: on a catalogue this size, a
-  // per-row delete does not finish inside an execution.
-  var sheet = getSheet_('Spares');
-  var headers = getHeaders_(sheet, 'Spares');
-  var idCol = headers.indexOf('id');
-  var activeCol = headers.indexOf('active');
-  var lastRow = sheetRows_('Spares', sheet);
-  var block = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
-
-  var survivors = block.filter(function (row) {
-    var id = String(row[idCol]);
-    if (!referenced.hasOwnProperty(id)) return false;
-    if (activeCol !== -1) row[activeCol] = 'FALSE';
-    return true;
-  });
-
-  invalidateTable_('Spares');
-  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
-  if (survivors.length) {
-    sheet.getRange(2, 1, survivors.length, headers.length).setValues(survivors);
-  }
+  await keepOnlyReferencedSpares_(referenced);
 
   var deleted = spares.length - kept.length;
   await audit_('Delete', 'Spares', '(bulk)', '', spares.length + ' spares', kept.length + ' kept',
@@ -599,11 +627,7 @@ async function purgeSparesWithDocuments(confirmText) {
 
   var removed = await removeSpareDependents_(ids);
 
-  var sheet = getSheet_('Spares');
-  var headers = getHeaders_(sheet, 'Spares');
-  var lastRow = sheetRows_('Spares', sheet);
-  invalidateTable_('Spares');
-  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  await clearAllSpares_();
 
   var count = Object.keys(ids).length;
   await audit_('Delete', 'Spares', '(all)', '', count + ' spares', '',
