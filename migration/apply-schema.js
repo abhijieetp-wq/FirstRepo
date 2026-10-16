@@ -19,7 +19,7 @@ const { Client } = require('../server/node_modules/pg');
 const { build } = require('./schema.js');
 // The same TLS decision db.js makes, rather than a second one that could differ. Two files
 // disagreeing about whether to check a certificate is the kind of difference nobody notices.
-const { sslFor } = require('../server/db.js');
+const { sslFor, withoutSslMode } = require('../server/db.js');
 
 async function main() {
   const args = process.argv.slice(2);
@@ -39,7 +39,7 @@ async function main() {
     process.exit(1);
   }
 
-  const client = new Client({ connectionString: url, ssl: sslFor(url) });
+  const client = new Client({ connectionString: withoutSslMode(url), ssl: sslFor(url) });
   await client.connect();
 
   try {

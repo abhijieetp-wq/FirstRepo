@@ -410,15 +410,37 @@ function sslFor(url) {
   return { rejectUnauthorized: true };
 }
 
+/**
+ * The connection string with `sslmode` taken out, because we decide that above.
+ *
+ * Neon hands out `...?sslmode=require`, and pg prints ten lines of deprecation warning about
+ * it on every single run: today it treats `require` as `verify-full`, and in pg v9 it will
+ * adopt libpq's weaker meaning instead. Neither matters here — sslFor() sets `ssl` explicitly
+ * and that is what pg uses — but ten lines of SECURITY WARNING at the top of every import is
+ * ten lines somebody has to look past to find the output they are checking, which is how a
+ * real message gets missed.
+ *
+ * Removing the parameter rather than silencing the warning: the TLS decision is then
+ * unambiguously ours, in one function, instead of half in a connection string somebody
+ * pasted.
+ */
+function withoutSslMode(url) {
+  if (!url) return url;
+  return String(url)
+    .replace(/([?&])sslmode=[^&]*&/i, '$1')
+    .replace(/[?&]sslmode=[^&]*$/i, '');
+}
+
 function connect(options) {
   const opts = options || {};
   const url = opts.connectionString || process.env.DATABASE_URL;
   const pool = new Pool({
-    connectionString: url,
+    connectionString: withoutSslMode(url),
     ssl: sslFor(url),
     max: opts.max || 10
   });
   return new Db(pool, opts.tenant || process.env.TENANT_ID);
 }
 
-module.exports = { connect, Db, generateId, mapFor, toRecord, coerce, sslFor, SCHEMA };
+module.exports = { connect, Db, generateId, mapFor, toRecord, coerce, sslFor,
+  withoutSslMode, SCHEMA };
