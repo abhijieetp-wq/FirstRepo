@@ -212,6 +212,56 @@ function drainDrive(sb, into) {
   ok('and leaves everything else alone', sb.normalizeCell_('2026-01-15') === '2026-01-15' &&
     sb.normalizeCell_(18) === 18 && sb.normalizeCell_('') === '');
 
+  console.log('\nAND A DRIVE FAULT IS RETRIED, THEN NAMED WITH ITS TAB');
+  // The first real run against PIE's sheet died two minutes in with nothing but
+  // "Exception: Service error: Drive" and two line numbers — no tab, no size, no clue
+  // whether running it again was worth doing. Drive's service errors are overwhelmingly
+  // transient, so they are now retried; and when they are not transient the message says
+  // which of the 52 tabs it was.
+  // Deliberately no reset() here. The harness keeps ONE set of tabs at module level, so
+  // resetting a second sandbox empties the sheet the checks above and below are still using —
+  // which is exactly what happened, and showed up as the tripwire reporting nothing moved.
+  // Nothing in this section needs a sheet.
+  const flaky = load(['Auth.gs', 'Settings.gs', 'Schema.gs', 'SheetService.gs', 'Sha256.gs',
+    'Code.gs', 'Export.gs']);
+  let refusals = 2;
+  const realFolder = flaky.DriveApp.createFolder('retry-probe');
+  const failTwice = Object.assign({}, realFolder, {
+    createFile: (blob) => {
+      if (refusals-- > 0) throw new Error('Service error: Drive');
+      return realFolder.createFile(blob);
+    }
+  });
+  let attempts = null;
+  // Utilities.sleep is a no-op in the harness, so this does not actually wait 6 seconds.
+  attempts = flaky.exportWriteFile_(failTwice, 'Spares.json', '{"x":1}', 'Spares', 5);
+  ok('it keeps trying through a transient fault', attempts === 3, attempts);
+  ok('and the file really did land',
+    realFolder._files.filter((f) => !f.trashed && f.getName() === 'Spares.json').length === 1);
+
+  refusals = 99;
+  let gaveUp = null;
+  try { flaky.exportWriteFile_(failTwice, 'PriceList.json', '{"x":1}', 'PriceList', 27363); }
+  catch (e) { gaveUp = e.message; }
+  ok('it gives up after three', /after 3 attempts/.test(String(gaveUp)), gaveUp);
+  ok('and names the tab', /PriceList/.test(String(gaveUp)));
+  ok('and how big it was, so a size problem is visible', /27363 row/.test(String(gaveUp)));
+  ok('and repeats what Google actually said',
+    /Service error: Drive/.test(String(gaveUp)));
+  ok('and says running it again carries on from there',
+    /again and it starts at this tab/.test(String(gaveUp)));
+
+  console.log('\nAND THE STATUS IS ASKABLE WITHOUT DIGGING THROUGH DRIVE');
+  const status = sb.migrationExportStatus();
+  ok('it reports every tab done', /52 of 52 tabs done/.test(status), status.split('\n')[0]);
+  ok('and the row count', /9 rows/.test(status), status.split('\n')[0]);
+  // Same again: a sandbox of its own gives it empty Script Properties, which is all this
+  // needs. reset() would take the sheet with it.
+  const fresh = load(['Auth.gs', 'Settings.gs', 'Schema.gs', 'SheetService.gs', 'Sha256.gs',
+    'Code.gs', 'Export.gs']);
+  ok('and says so plainly when nothing has been exported',
+    /Nothing exported yet/.test(fresh.migrationExportStatus()), fresh.migrationExportStatus());
+
   console.log('\nAND IT NOTICES IF SOMEBODY USED THE PORTAL MID-EXPORT');
   // The 52 tabs are read one after another, and name order puts a document's lines before its
   // header — QuotationItems before Quotations. A quotation saved between those two reads

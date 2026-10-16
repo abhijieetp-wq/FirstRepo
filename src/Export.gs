@@ -139,6 +139,51 @@ function noteExported_(tab, summary) {
 }
 
 /**
+ * Writes one file to Drive, retrying the failures that are worth retrying.
+ *
+ * "Exception: Service error: Drive" is Google's generic "something went wrong at our end", and
+ * it is overwhelmingly transient — the documented response is to wait and try again. Without
+ * that, one hiccup two minutes into a fifty-two tab run ends the whole run, which is what
+ * happened on the first real attempt.
+ *
+ * The write is safe to repeat: any earlier file of this name is trashed first, so a retry
+ * after a failure that actually succeeded at Drive's end leaves one file, not two.
+ *
+ * Three attempts, backing off 2s, 4s, 8s. If all three fail the error names the tab, its size
+ * and how many attempts were made, because "Service error: Drive" on its own tells whoever is
+ * standing in front of it nothing at all — not which of the 52 tabs, not whether it is the
+ * big one, not whether running it again is worth doing.
+ */
+function exportWriteFile_(folder, name, text, tab, rowCount) {
+  var attempts = 3;
+  var waitMs = 2000;
+  var last = null;
+
+  for (var i = 1; i <= attempts; i++) {
+    try {
+      var existing = folder.getFilesByName(name);
+      while (existing.hasNext()) existing.next().setTrashed(true);
+      folder.createFile(Utilities.newBlob(text, 'application/json', name));
+      return i;
+    } catch (err) {
+      last = err;
+      if (i < attempts) {
+        Utilities.sleep(waitMs);
+        waitMs = waitMs * 2;
+      }
+    }
+  }
+
+  throw new Error('Could not write ' + name + ' to Drive after ' + attempts + ' attempts. ' +
+    'The tab was read fine — ' + rowCount + ' row(s), ' +
+    Math.round(text.length / 1024) + ' KB — and Drive would not take the file. ' +
+    'Google\u2019s message was: ' + (last && last.message ? last.message : String(last)) +
+    '\n\nEverything exported before ' + tab + ' is written and recorded. Run ' +
+    'exportForMigration() again and it starts at this tab. If it fails here every time, the ' +
+    'problem is this tab rather than a passing Drive fault.');
+}
+
+/**
  * Reads one tab whole and writes it to the folder.
  *
  * Deliberately not readTable_. That one caches, counts telemetry, drops the `_row` it adds
@@ -194,13 +239,11 @@ function exportTab_(tab, folder) {
 
   // Replaced rather than added to, so re-running a tab after fixing something in it does not
   // leave two files and an ambiguous import.
-  var name = tab + '.json';
-  var existing = folder.getFilesByName(name);
-  while (existing.hasNext()) existing.next().setTrashed(true);
-  folder.createFile(Utilities.newBlob(JSON.stringify(payload), 'application/json', name));
+  var text = JSON.stringify(payload);
+  var attempts = exportWriteFile_(folder, tab + '.json', text, tab, rows.length);
 
   return { rows: rows.length, columns: headers, digest: digest, blankRowsSkipped: blankRows,
-           sheetLastRow: lastRow };
+           sheetLastRow: lastRow, bytes: text.length, driveAttempts: attempts };
 }
 
 /**
@@ -265,7 +308,19 @@ function exportForMigration() {
       break;
     }
 
-    var summary = exportTab_(tab, folder);
+    var summary;
+    try {
+      summary = exportTab_(tab, folder);
+    } catch (err) {
+      // Whatever went wrong, say which tab it was and what had already been done. The first
+      // real run failed with nothing but "Service error: Drive" and two line numbers, which
+      // left no way to tell whether it had got as far as the big tabs or fallen over on the
+      // second one.
+      throw new Error('Stopped on the ' + tab + ' tab, after writing ' + wrote.length +
+        ' tab(s) this run.\n\n' + (err && err.message ? err.message : String(err)) +
+        '\n\nNothing already written is lost. Run exportForMigration() again to carry on ' +
+        'from ' + tab + '.');
+    }
     noteExported_(tab, summary);
     done[tab] = summary;
     wrote.push(tab + ' (' + summary.rows + ')');
@@ -400,6 +455,53 @@ function exportManifest_(folder, done, moved) {
     'which checks every digest and every field before it writes anything.';
 
   return { manifest: manifest, text: text };
+}
+
+/**
+ * What the export has done so far, and what is left. Run it any time; it changes nothing.
+ *
+ * Needed because a run that stops part-way leaves the answer in two places nobody wants to
+ * dig through: a Script Property holding JSON and a Drive folder holding files. The first
+ * real attempt stopped on a Drive fault two minutes in, and there was no way to ask how far
+ * it had got short of counting files in Drive and comparing them to Schema.gs by eye.
+ */
+function migrationExportStatus() {
+  var done = exportDone_();
+  var tabs = Object.keys(SCHEMA).sort();
+  var finished = [];
+  var left = [];
+  var rows = 0;
+  var bytes = 0;
+
+  for (var i = 0; i < tabs.length; i++) {
+    if (done.hasOwnProperty(tabs[i])) {
+      var d = done[tabs[i]];
+      rows += Number(d.rows) || 0;
+      bytes += Number(d.bytes) || 0;
+      finished.push(tabs[i] + ' (' + (Number(d.rows) || 0) + ')');
+    } else {
+      left.push(tabs[i]);
+    }
+  }
+
+  var props = PropertiesService.getScriptProperties();
+  var folderId = props.getProperty(EXPORT_FOLDER_PROP_);
+  var where = '';
+  if (folderId) {
+    try { where = DriveApp.getFolderById(folderId).getUrl(); } catch (err) { where = '(gone)'; }
+  }
+
+  if (!finished.length) {
+    return 'Nothing exported yet. Run exportForMigration() to start.';
+  }
+
+  return finished.length + ' of ' + tabs.length + ' tabs done, ' + rows + ' rows, ' +
+    Math.round(bytes / 1024) + ' KB written.\n' +
+    (where ? 'Folder: ' + where + '\n' : '') +
+    (left.length
+      ? '\n' + left.length + ' still to go, starting with ' + left[0] + ':\n  ' +
+        left.join(', ') + '\n\nRun exportForMigration() to carry on.'
+      : '\nAll tabs are done. Run exportForMigration() once more to write the manifest.');
 }
 
 /**
