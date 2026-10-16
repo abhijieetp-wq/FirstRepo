@@ -163,18 +163,30 @@ const ok = (label, cond, detail) => {
   ok('and the two sign-in attempts went to /api/login', logins === 2, logins);
   ok('and no script errors doing any of it', ours().length === 0, ours().slice(0, 3));
 
-  console.log('\nAND WHAT IT FETCHES FROM ELSEWHERE');
-  // Not a failure — in production fonts.googleapis.com is reachable and this works. But a
-  // self-hosted portal that cannot render its own type without a third party is a
-  // dependency somebody chose, and it should be chosen rather than inherited.
+  console.log('\nAND IT FETCHES NOTHING FROM ANYWHERE ELSE');
+  // It used to fetch three font families from fonts.googleapis.com on every load, which is
+  // a third party on the critical path of a self-hosted business system. They are served
+  // from this origin now. The stylesheet still names Google's copy as a second source for
+  // the Apps Script portal, which cannot serve a file — so this asserts the first source is
+  // the one actually used, which a check of the stylesheet's text could not tell you.
   const hosts = [...new Set(external.map((u) => { try { return new URL(u).host; }
     catch (e) { return u; } }))];
-  if (hosts.length) {
-    console.log('  the page reaches out to: ' + hosts.join(', '));
-    console.log('  (blocked by this container\u2019s proxy; fine in production)');
-  }
-  ok('and nothing it fetches from elsewhere is its own code or data',
-    hosts.every((h) => /fonts\.(googleapis|gstatic)\.com/.test(h)), hosts);
+  if (hosts.length) console.log('  the page reaches out to: ' + hosts.join(', '));
+  ok('the page leaves its own origin for nothing at all', hosts.length === 0, hosts);
+
+  // And the type really arrived, rather than the browser quietly falling back to a system
+  // font that answers to the same name in a font-family list. This is the one check that
+  // ties the file names in the stylesheet to the files on disk; rename one without the
+  // other and everything else still passes.
+  const faces = await page.evaluate(() => ({
+    inter: document.fonts.check('600 14px Inter'),
+    plex: document.fonts.check('400 13px \"IBM Plex Mono\"')
+  }));
+  ok('Inter is loaded, not substituted', faces.inter === true, faces);
+  ok('and so is IBM Plex Mono', faces.plex === true, faces);
+  const served = await page.evaluate(() => performance.getEntriesByType('resource')
+    .filter((r) => /\.woff2$/.test(r.name)).map((r) => r.name.replace(/.*\//, '')));
+  ok('all three faces came from here', served.length === 3, served);
 
   console.log('\nAND MOVING AROUND IT STILL CALLS THE SERVER');
   const before = (await page.evaluate(() => performance.getEntriesByType('resource')

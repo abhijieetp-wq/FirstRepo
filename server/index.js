@@ -26,6 +26,8 @@
 'use strict';
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { connect } = require('./db.js');
 const { loadPortal } = require('./load.js');
 const { render, escapeHtml } = require('./page.js');
@@ -160,6 +162,40 @@ function statusFor(message) {
             page.warnings.join(' '));
         }
         return send(res, 200, 'text/html; charset=utf-8', page.html);
+      }
+
+      // ---- the typefaces, from this origin
+      //
+      // The stylesheet used to @import three families from fonts.googleapis.com, which is
+      // four serial round trips to a third party before a heading can be drawn. These are
+      // the same faces, latin only, 77 KB for all three, cached for a year — and nothing
+      // leaves this origin to fetch them. The stylesheet still names Google's copy as a
+      // second source, so the Apps Script portal, which cannot serve a file, is unaffected
+      // while both systems are up.
+      //
+      // The name is matched against a pattern rather than cleaned, because every attempt to
+      // clean a path is a chance to get it wrong: no slashes, no dots, no traversal to think
+      // about.
+      if (req.method === 'GET' && url.pathname.startsWith('/fonts/')) {
+        const name = url.pathname.slice('/fonts/'.length);
+        if (!/^[a-z0-9-]+\.woff2$/.test(name)) {
+          return json(res, 404, { error: 'No such thing here.' });
+        }
+        let font;
+        try {
+          font = fs.readFileSync(path.join(__dirname, '..', 'assets', 'fonts', name));
+        } catch (err) {
+          return json(res, 404, { error: 'No such thing here.' });
+        }
+        res.writeHead(200, {
+          'Content-Type': 'font/woff2',
+          'Content-Length': font.length,
+          // Immutable: the file name changes when the font does, so nothing here ever
+          // needs revalidating.
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Content-Type-Options': 'nosniff'
+        });
+        return res.end(font);
       }
 
       // ---- the icon every browser asks for without being told to

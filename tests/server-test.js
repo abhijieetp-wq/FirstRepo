@@ -91,6 +91,39 @@ const ok = (label, cond, detail) => {
   ok('the health check answers', health.status === 200, health.status);
   ok('and says it reached the database', /"ok":true/.test(health.text), health.text);
 
+  console.log('\nAND IT SERVES ITS OWN TYPEFACES');
+  // The stylesheet used to pull three families from fonts.googleapis.com on every load.
+  // They are served from here now, so this is the check that they are actually reachable —
+  // a 404 would not break the page, it would quietly drop it back to the system font and
+  // nobody would notice until PIE asked why it looks different on their machine.
+  const font = await fetch(base + '/fonts/inter-latin-var.woff2');
+  ok('a font comes back', font.status === 200, font.status);
+  ok('as a font', font.headers.get('content-type') === 'font/woff2',
+    font.headers.get('content-type'));
+  ok('cached for good, because the name changes when the file does',
+    /immutable/.test(font.headers.get('cache-control') || ''),
+    font.headers.get('cache-control'));
+  // The first four bytes of a woff2 file are the signature. Serving the right length of
+  // the wrong thing is exactly the failure a status code will not show.
+  const sig = Buffer.from(await font.arrayBuffer()).subarray(0, 4).toString('latin1');
+  ok('and it is really a woff2', sig === 'wOF2', sig);
+
+  const everyFace = await Promise.all(
+    ['inter-latin-var', 'plexmono-latin-400', 'plexmono-latin-600']
+      .map((n) => fetch(base + '/fonts/' + n + '.woff2').then((r) => r.status)));
+  ok('every face the stylesheet names is there', everyFace.every((x) => x === 200), everyFace);
+
+  // The name is matched against a pattern rather than cleaned, so there is no traversal to
+  // get right — but the pattern is the whole defence, which makes it worth a test.
+  const missing = await get('/fonts/not-a-font.woff2');
+  ok('a font that is not there is a 404', missing.status === 404, missing.status);
+  const escaped = await get('/fonts/%2e%2e%2f%2e%2e%2fserver%2fdb.js');
+  ok('and an escaped path out of the folder is refused', escaped.status === 404, escaped.status);
+  ok('without saying what it looked for',
+    !/db\.js|assets|fonts\//.test(escaped.text), escaped.text);
+  const posted = await post('/fonts/inter-latin-var.woff2', {});
+  ok('and a POST to it is not a thing', posted.status === 404, posted.status);
+
   console.log('\nAND SIGNING IN WORKS');
   const login = await post('/api/login', { username: 'boss', password });
   ok('a correct password is accepted', login.status === 200, login.status);
