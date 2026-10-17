@@ -20,7 +20,9 @@ fi
 psql -h "$SOCK" -p "$PORT" -U erp -d postgres -tAc "select 1 from pg_database where datname='erp_dev'" \
   | grep -q 1 || createdb -h "$SOCK" -p "$PORT" -U erp erp_dev
 
-# The schema is generated, so reapplying it is how you pick up a column added to Schema.gs.
+# Safe to reapply: it creates whatever tables and indexes are missing and leaves the rest.
+# It does NOT add a column to a table that already exists — for that, start clean:
+#   dropdb -h /var/tmp -p 5433 -U erp erp_dev && bash migration/dev-db.sh
 node "$(dirname "$0")/schema.js" | psql -h "$SOCK" -p "$PORT" -U erp -d erp_dev -q 2>/dev/null
 
 echo 'export DATABASE_URL="postgres://erp@/erp_dev?host=/var/tmp&port=5433"'

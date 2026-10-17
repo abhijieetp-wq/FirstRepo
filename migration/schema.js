@@ -186,7 +186,7 @@ function build() {
 
     lines.push('  PRIMARY KEY (tenant_id, id)');
 
-    ddl.push('CREATE TABLE ' + snake(tab) + ' (');
+    ddl.push('CREATE TABLE IF NOT EXISTS ' + snake(tab) + ' (');
     ddl.push(lines.join(',\n'));
     ddl.push(');');
 
@@ -195,8 +195,23 @@ function build() {
     const indexable = cols.filter((c) =>
       /Id$/.test(c) || ['itemType', 'status', 'partNo', 'productCode', 'productGroup',
         'businessStream', 'active', 'priceLevel', 'email', 'username'].indexOf(c) !== -1);
+    //
+    // Named, and IF NOT EXISTS, so that applying this twice is harmless. Unnamed, every run of
+    // migration/dev-db.sh added another full set: the CREATE TABLEs failed on tables that were
+    // already there, the CREATE INDEXes did not, and a local database reached 2,773 indexes
+    // where there should be 212, with every insert maintaining seventeen copies of each.
+    //
+    // The name is the one Postgres chooses for itself when none is given, so the indexes
+    // already on Neon — created unnamed, once, by apply-schema.js — are the same indexes and
+    // a re-apply there recognises them rather than adding a second set.
     indexable.forEach((c) => {
-      ddl.push('CREATE INDEX ON ' + snake(tab) + ' (tenant_id, ' + snake(c) + ');');
+      const name = snake(tab) + '_tenant_id_' + snake(c) + '_idx';
+      // Postgres cuts identifiers at 63 bytes without complaint. Two long names that agree in
+      // their first 63 would then be one name, and IF NOT EXISTS would quietly skip the second
+      // index. Every name today is 60 or under; this keeps it that way.
+      if (name.length > 63) throw new Error('index name too long for Postgres: ' + name);
+      ddl.push('CREATE INDEX IF NOT EXISTS ' + name + ' ON ' + snake(tab) +
+        ' (tenant_id, ' + snake(c) + ');');
     });
     ddl.push('');
   });
