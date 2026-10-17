@@ -31,8 +31,16 @@ the variables below are identical, only the buttons differ.
 
 1. Railway → **New Project** → **Deploy from GitHub repo** → `abhijieetp-wq/FirstRepo`.
 2. Settings → **Branch**: `claude/elgi-spares-erp-phase-1-854czo`.
-3. Settings → **Region**: Singapore.
-4. It will find the `Dockerfile` at the repository root on its own. Do not set a build or
+3. Settings → **Deploy** → **Region**: Singapore (`asia-southeast1`). **Check this; it
+   matters more than it looks.** Railway defaults to US East (`iad`), and with Neon in
+   Singapore every single query would cross the Pacific — roughly 230ms each, on a portal
+   that makes several per screen. That one setting is the difference between the speed
+   this was rebuilt for and something slower than the spreadsheet was. If the region is
+   locked on your plan, move the Neon database to a US region instead; what matters is
+   that the two are near each other.
+4. Settings → **Deploy** → **Healthcheck Path**: `/health`. Railway then waits for the
+   server to answer before sending it traffic, and rolls back a deployment that never does.
+5. It will find the `Dockerfile` at the repository root on its own. Do not set a build or
    start command — the Dockerfile has both.
 
 The first build takes five to ten minutes, mostly installing Chromium. Later builds are
@@ -43,6 +51,11 @@ quicker.
 ## 3. Add a volume — before the first deploy finishes
 
 Railway → your service → **Variables / Volumes** → **New Volume**, mount path `/data/files`.
+
+The Dockerfile deliberately contains no `VOLUME` instruction — Railway rejects a Dockerfile
+that has one (*"docker VOLUME at Line 60 is not supported, use Railway Volumes"*), which
+cost one failed build before it was taken out. Storage is attached here, in the dashboard,
+and nowhere else.
 
 This is where purchase orders, delivery photographs and generated PDFs go. **It is not in
 the database, so a Neon backup does not contain it.** Without a volume, every attachment
@@ -108,7 +121,7 @@ Read every line before moving on:
 | `attachments: dir` is not under `/data` | The volume is not mounted. Attachments are going into the container and will vanish. |
 | `pdfs: unavailable` | Chromium is missing from the image. The build probably failed partway — check the build log. |
 | `email: unconfigured` | Expected until you set the three SMTP variables. |
-| `database` over ~200ms | The service and Neon are in different regions. Move the service. |
+| `database` over ~200ms | The service and Neon are in different regions — almost always Railway defaulting to `iad` while Neon is in Singapore. Fix the region; do not accept it. |
 
 Then sign in and try, in this order: open a quotation → **PDF** (proves Chromium), attach
 a file to a sales order and reopen it (proves the volume), and if e-mail is configured,

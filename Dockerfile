@@ -53,11 +53,16 @@ COPY assets/ ./assets/
 # the portal uses. The rest of migration/ is tooling and stays out.
 COPY migration/schema.js ./migration/
 
-# Attachments. A named volume or a host mount goes here; without one they are written
-# into the container's own filesystem and are gone with it, which is why the deployment
-# notes make the volume the first thing to set up.
+# Where attachments go. The directory is created and given to the user the server runs as,
+# but there is deliberately no VOLUME instruction: Railway refuses a Dockerfile containing
+# one outright — "docker VOLUME at Line 60 is not supported, use Railway Volumes" — and
+# every other host that matters here has its own way of attaching storage too. Declaring it
+# bought nothing and cost a failed build.
+#
+# So the volume is attached by the host, mounted at /data/files. Without one, attachments
+# are written into the container and vanish with it, which is why the deployment notes make
+# it the first thing to set up and why /health reports whether the directory is writable.
 RUN mkdir -p /data/files && chown -R node:node /data/files
-VOLUME ["/data/files"]
 
 # Not root. Chromium is given --no-sandbox because the content it renders is the portal's
 # own template rather than anything from the internet, and the sandbox needs privileges
@@ -66,9 +71,10 @@ USER node
 
 EXPOSE 3000
 
-# The health endpoint reports each capability, so a failing check here means the database
-# is unreachable rather than that a mailbox is unconfigured.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:${PORT}/health > /dev/null || exit 1
+# No HEALTHCHECK instruction either. Every host this is going to has its own health check
+# and will use it in preference; point it at /health, which answers in one request whether
+# the database, the files directory, Chromium and the mailbox are all actually working.
+# Docker's own runs as an exec inside the container, which is reported to misbehave on
+# Railway, and a health check that fails spuriously restarts a working server for ever.
 
 CMD ["node", "server/index.js"]
