@@ -1,0 +1,33 @@
+# Everything the image does not need, and two things it must never contain.
+#
+# imports/ holds ELGi's price list and secrets/ and .env hold live credentials. They are
+# already gitignored; they are named again here because `docker build` reads the working
+# directory, not git, and would happily bake an untracked .env into a layer.
+.git
+.gitignore
+node_modules
+**/node_modules
+imports/
+secrets/
+.env
+.env.*
+*.env
+var/
+hello-deploy/
+hello-deploy.tar.gz
+
+# Not needed to serve the portal.
+tests/
+migration/
+# ...except the one file db.js requires at runtime for its column mapping.
+!migration/schema.js
+testdata/
+docs/
+*.md
+!server/README.md
+.clasp.json
+.clasp.json.example
+.claspignore
+*.png
+Dockerfile
+.dockerignore

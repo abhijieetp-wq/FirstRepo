@@ -31,7 +31,6 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const CANDIDATES = [
-  process.env.ERP_CHROMIUM,
   process.env.PLAYWRIGHT_BROWSERS_PATH && path.join(process.env.PLAYWRIGHT_BROWSERS_PATH, 'chromium'),
   '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome',
   '/usr/bin/google-chrome-stable', '/opt/pw-browsers/chromium',
@@ -42,12 +41,31 @@ const CANDIDATES = [
 
 let found;
 
-/** The browser's path, or null. Looked up once: it does not move while the process runs. */
+const there = (p) => { try { return !!p && fs.existsSync(p); } catch (e) { return false; } };
+
+/**
+ * The browser's path, or null. Looked up once: it does not move while the process runs.
+ *
+ * ERP_CHROMIUM is not one candidate among several — set, it is the only one. The first
+ * version put it at the head of the list and fell through to the others when the path did
+ * not exist, so a deployment that named the wrong path quietly rendered with a different
+ * browser and reported itself healthy. An operator who names a path has said which browser
+ * to use, and a typo in it is worth hearing about.
+ */
 function chromium() {
   if (found !== undefined) return found;
-  found = CANDIDATES.find((p) => { try { return fs.existsSync(p); } catch (e) { return false; } })
-    || null;
+  const asked = process.env.ERP_CHROMIUM;
+  if (asked) found = there(asked) ? asked : null;
+  else found = CANDIDATES.find(there) || null;
   return found;
+}
+
+/** Said in the health check and in the refusal, so a typo names itself. */
+function chromiumProblem() {
+  if (chromium()) return null;
+  return process.env.ERP_CHROMIUM
+    ? 'ERP_CHROMIUM is set to ' + process.env.ERP_CHROMIUM + ', and there is nothing there'
+    : 'no Chromium was found; set ERP_CHROMIUM to its path';
 }
 
 /**
@@ -59,8 +77,8 @@ function htmlToPdf(html, options) {
   const o = options || {};
   const exe = chromium();
   if (!exe) {
-    throw new Error('This server cannot make PDFs: no Chromium was found. Install one, or ' +
-      'set ERP_CHROMIUM to its path. Looked in: ' + CANDIDATES.slice(1).join(', '));
+    throw new Error('This server cannot make PDFs: ' + chromiumProblem() + '.' +
+      (process.env.ERP_CHROMIUM ? '' : ' Looked in: ' + CANDIDATES.join(', ')));
   }
 
   // Its own directory, so two requests at once cannot read each other's output, and so the
@@ -109,4 +127,4 @@ function htmlToPdf(html, options) {
   }
 }
 
-module.exports = { htmlToPdf, chromium };
+module.exports = { htmlToPdf, chromium, chromiumProblem };

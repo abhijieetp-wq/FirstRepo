@@ -7,6 +7,11 @@
 node_modules/
 package-lock.json
 
+# ...except the server's, which is a deployed service: `npm ci` needs it, and a build
+# without one resolves its dependency afresh every time and is not the build that was
+# tested.
+!server/package-lock.json
+
 # Price lists and other client data prepared for import. Commercially sensitive and not
 # source: the repository holds what clasp pushes, not what ELGi charge for a separator.
 imports/

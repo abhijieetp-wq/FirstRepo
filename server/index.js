@@ -36,6 +36,19 @@ const { fileStore } = require('./files.js');
 const { mailer, settings: mailSettings } = require('./mail.js');
 const { urlFetchApp } = require('./fetch.js');
 const { settingsStore } = require('./settings.js');
+const { chromium, chromiumProblem } = require('./pdf.js');
+
+/**
+ * Which build this is, taken from src/Code.gs — the same line the portal's own footer
+ * shows. Read once at start-up rather than restated here, because a version number kept
+ * in two places is a version number that disagrees with itself.
+ */
+const BUILD = (() => {
+  try {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
+    return (/APP_BUILD\s*=\s*'([^']+)'/.exec(src) || [])[1] || 'unknown';
+  } catch (err) { return 'unknown'; }
+})();
 
 /**
  * Built rather than started on require, so a test can run one on a port of its own and stop
@@ -359,11 +372,61 @@ function statusFor(message) {
           { 'Cache-Control': 'public, max-age=86400' });
       }
 
-      // ---- is it up, and can it reach the database
+      /**
+       * Is it up, and which of its parts are actually working.
+       *
+       * Not just a pulse. Four of this portal's capabilities depend on something outside
+       * the database — a writable directory, a browser, a mailbox, a Tally — and each one
+       * fails only at the moment somebody tries to use it. On a host, that moment is a
+       * coordinator discovering on a Tuesday that quotations cannot be printed. So this
+       * says what is live, and one request after a deployment answers it.
+       *
+       * `ok` stays true when a capability is missing: the portal genuinely works without
+       * any of them, and a health check that fails for an unconfigured mailbox would have
+       * the host restart a perfectly good server for ever.
+       */
       if (req.method === 'GET' && url.pathname === '/health') {
         const t = Date.now();
         await db.q('SELECT 1');
-        return json(res, 200, { ok: true, database: Date.now() - t + 'ms', tenant });
+        const database = Date.now() - t + 'ms';
+
+        // Written to, not just looked at: a mounted volume the process cannot write to
+        // looks exactly like one it can until the first attachment.
+        let filesState = 'ok';
+        try {
+          fs.mkdirSync(files.dir, { recursive: true });
+          const probe = path.join(files.dir, '.writable');
+          fs.writeFileSync(probe, String(Date.now()));
+          fs.unlinkSync(probe);
+        } catch (err) {
+          filesState = 'NOT WRITABLE: ' + (err && err.code ? err.code : err.message);
+        }
+        const held = filesState === 'ok' ? files.stat() : null;
+
+        const browser = chromium();
+        const tally = !!(properties.TALLY_ENDPOINT || '').trim();
+
+        return json(res, 200, {
+          ok: true,
+          build: BUILD,
+          tenant,
+          look: ui,
+          database,
+          settings: durable
+            ? (durable.isLoaded() ? Object.keys(properties).length + ' held' : 'NOT READ')
+            : 'in memory only — will not survive a restart',
+          attachments: filesState === 'ok'
+            ? { state: 'ok', dir: files.dir, held: held.files, bytes: held.bytes }
+            : { state: filesState, dir: files.dir },
+          pdfs: browser ? { state: 'ok', chromium: browser }
+            : { state: 'unavailable — ' + chromiumProblem() },
+          email: smtpReady ? { state: 'ok' }
+            : { state: 'unconfigured — set SMTP_URL, SMTP_USER, SMTP_PASSWORD' },
+          tally: tally ? { state: 'ok', endpoint: properties.TALLY_ENDPOINT }
+            : { state: 'unconfigured — set it in Settings \u2192 Tally Connection' },
+          googleGate: String(properties.GOOGLE_GATE || '').toLowerCase() === 'on'
+            ? 'demanded' : 'off'
+        });
       }
 
       // ---- the one door

@@ -134,6 +134,34 @@ ok('of a plausible size', bytes.length > 1000, bytes.length);
 const saved = store.DriveApp.createFolder('ERP Quotations').createFile(pdf);
 ok('and it stores as a PDF', store.read(saved.getId()).bytes.equals(bytes));
 
+console.log('\nAND IT USES THE BROWSER IT WAS TOLD TO');
+// Found by staging the container's contents and running them: ERP_CHROMIUM used to be the
+// first of several candidates, so a deployment that named the wrong path fell through to
+// whatever else was installed, rendered with it, and reported itself healthy. An operator
+// who names a path has said which browser to use.
+{
+  const pdfPath = require.resolve(path.join(__dirname, '..', 'server', 'pdf.js'));
+  const fresh = (env) => {
+    const had = process.env.ERP_CHROMIUM;
+    if (env === null) delete process.env.ERP_CHROMIUM; else process.env.ERP_CHROMIUM = env;
+    delete require.cache[pdfPath];
+    const mod = require(pdfPath);
+    const out = { found: mod.chromium(), problem: mod.chromiumProblem() };
+    if (had === undefined) delete process.env.ERP_CHROMIUM; else process.env.ERP_CHROMIUM = had;
+    delete require.cache[pdfPath];
+    return out;
+  };
+  const bad = fresh('/nowhere/chromium');
+  ok('a path that is not there is not quietly replaced', bad.found === null, bad.found);
+  ok('and the complaint names the path that was set',
+    /ERP_CHROMIUM is set to \/nowhere\/chromium/.test(bad.problem || ''), bad.problem);
+  const auto = fresh(null);
+  ok('unset, it looks in the usual places', typeof auto.found === 'string', auto);
+  const told = fresh(auto.found);
+  ok('and an ERP_CHROMIUM that does exist is used', told.found === auto.found, told);
+  ok('with nothing to complain about', told.problem === null);
+}
+
 fs.rmSync(DIR, { recursive: true, force: true });
 console.log('\n' + (failures.length
   ? 'FAILED ' + failures.length + '  (' + pass + '/' + (pass + failures.length) + ')'

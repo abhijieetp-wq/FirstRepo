@@ -96,6 +96,21 @@ const ok = (label, cond, detail) => {
   const health = await get('/health');
   ok('the health check answers', health.status === 200, health.status);
   ok('and says it reached the database', /"ok":true/.test(health.text), health.text);
+  // One request has to answer "did that deployment work", because four of this portal's
+  // capabilities live outside the database and each one otherwise fails at the moment
+  // somebody tries to use it.
+  const h = JSON.parse(health.text);
+  ok('it names the build', /^\d{4}-\d{2}-\d{2}\./.test(h.build || ''), h.build);
+  ok('and which face it is serving', h.look === 'web' || h.look === 'classic', h.look);
+  ok('it reports the attachments directory', h.attachments && h.attachments.state === 'ok',
+    h.attachments);
+  ok('whether it can make PDFs', !!h.pdfs && typeof h.pdfs.state === 'string', h.pdfs);
+  ok('whether it can send e-mail', /unconfigured|ok/.test((h.email || {}).state || ''), h.email);
+  ok('whether Tally is set up', /unconfigured|ok/.test((h.tally || {}).state || ''), h.tally);
+  ok('and whether a Google account is demanded', h.googleGate === 'off' || h.googleGate === 'demanded',
+    h.googleGate);
+  // A missing mailbox must not fail the check: a host would restart a working server for ever.
+  ok('an unconfigured capability does not make it unhealthy', h.ok === true, h);
 
   console.log('\nAND IT SERVES ITS OWN TYPEFACES');
   // The stylesheet used to pull three families from fonts.googleapis.com on every load.
