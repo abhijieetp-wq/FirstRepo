@@ -206,10 +206,10 @@ async function time(label, fn) {
   console.log('  catalogue and the whole 78,486-row price list on every keystroke.');
   console.log('  There is no cold start here. Add ~60ms per query for Singapore from Pune.');
   console.log('');
-  console.log('  The one worth watching is getAvailability: it reads the whole movements');
-  console.log('  ledger twice, for one part, because stockOnHandMap_ and stockReservedMap_');
-  console.log('  still sum every row in JavaScript. That is the next thing to make a query,');
-  console.log('  and it is the only one on this list still reading a table whole.');
+  console.log('  getAvailability used to read the whole movements ledger twice, for one');
+  console.log('  part, and sum it in JavaScript. server/queries/stock.js makes it two');
+  console.log('  indexed lookups, so its cost no longer grows with the ledger. Nothing on');
+  console.log('  this list reads a table whole now except the picker, which is meant to.');
 
   for (const t of tables) await db.q('DELETE FROM ' + t + ' WHERE tenant_id = $1', [TENANT]);
   await db.pool.end();
