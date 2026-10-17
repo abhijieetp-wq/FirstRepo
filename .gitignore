@@ -23,3 +23,6 @@ hello-deploy.tar.gz
 .env.*
 *.env
 secrets/
+
+# Attachments the server stores. PIE's own paperwork — never in the repository.
+var/

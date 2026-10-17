@@ -28,9 +28,14 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { connect } = require('./db.js');
 const { loadPortal } = require('./load.js');
 const { render, escapeHtml } = require('./page.js');
+const { fileStore } = require('./files.js');
+const { mailer, settings: mailSettings } = require('./mail.js');
+const { urlFetchApp } = require('./fetch.js');
+const { settingsStore } = require('./settings.js');
 
 /**
  * Built rather than started on require, so a test can run one on a port of its own and stop
@@ -57,8 +62,21 @@ function build(options) {
    * still to make with PIE — a settings table is the obvious answer — and pretending
    * otherwise by writing them to a file nobody backs up would be worse than the plain truth.
    */
-  const properties = Object.assign({}, process.env.ERP_PROPERTIES
+  /**
+   * Settings, read from the database once and kept in memory because the portal reads them
+   * synchronously. ERP_PROPERTIES seeds anything the database does not have; what PIE sets
+   * in Settings wins from then on. A test passes `properties` to skip the table entirely.
+   */
+  const seeded = Object.assign({}, process.env.ERP_PROPERTIES
     ? JSON.parse(process.env.ERP_PROPERTIES) : {}, o.properties || {});
+  const durable = o.properties ? null : settingsStore(db, seeded);
+  const properties = durable ? durable.props : seeded;
+  // Awaited by every request before the portal is loaded, so nothing is ever answered from
+  // an empty settings table — which for the Google gate would mean answering "off".
+  const ready = durable ? durable.load().catch((err) => {
+    console.error('[settings] could not be read: ' + err.message +
+      ' — the portal will run on defaults until this is fixed.');
+  }) : Promise.resolve();
 
   /**
    * Which face of the portal to serve. The new design by default; ERP_UI=classic serves
@@ -67,6 +85,75 @@ function build(options) {
    * minute if it ever has to be, without a deployment and without losing anything.
    */
   const ui = (o.ui || process.env.ERP_UI) === 'classic' ? 'classic' : 'web';
+
+  /**
+   * Attachments and e-mail.
+   *
+   * Both are made once and handed to every request. The file store is a directory; the
+   * mailer is a set of environment variables. Either one unconfigured is not an error here —
+   * the portal refuses at the call, naming what is missing, so a server started for a look
+   * around still works for everything that does not need them.
+   */
+  const files = fileStore({ dir: o.filesDir, tenant });
+  const mail = mailer({ settings: o.smtp });
+  const http_ = urlFetchApp({});
+  const smtpReady = (() => { const c = o.smtp || mailSettings();
+    return !!(c.url && c.user && c.password); })();
+
+  /**
+   * What makes /files/<id> openable in a new tab.
+   *
+   * The portal stores a plain /files/<id> in its own rows, because a link it stored with a
+   * signature in it would be a stored thing that expires. The signature is added to every
+   * such URL on its way out of /api/call instead, so a link is good for a day from the
+   * moment the screen that shows it was drawn.
+   *
+   * The key is ERP_FILE_SECRET, or derived from the database URL when that is not set —
+   * stable across restarts, so a page left open over lunch still works, and never sent
+   * anywhere. A link is as good as a password for that one file until it expires, which is
+   * the same bargain as a Drive "anyone with the link" share and is why it is short.
+   */
+  const fileKey = crypto.createHash('sha256')
+    .update(process.env.ERP_FILE_SECRET || ('erp-files:' + url + ':' + tenant)).digest();
+  const FILE_URL = /"\/files\/([0-9a-f]{32})(\?download=1)?"/g;
+  const LINK_SECONDS = 24 * 60 * 60;
+
+  function signFile(id, expiry) {
+    return crypto.createHmac('sha256', fileKey).update(id + '.' + expiry)
+      .digest('base64url').slice(0, 32);
+  }
+  /** Adds the signature to every /files/<id> in a reply, leaving everything else alone. */
+  function signFileUrls(text) {
+    if (text.indexOf('/files/') === -1) return text;
+    const expiry = Math.floor(Date.now() / 1000) + LINK_SECONDS;
+    return text.replace(FILE_URL, (_, id, download) =>
+      '"/files/' + id + '?t=' + expiry + '.' + signFile(id, expiry) +
+      (download ? '&download=1' : '') + '"');
+  }
+  /**
+   * What this server calls itself, which Google has to be told and has to match exactly.
+   *
+   * ERP_BASE_URL when set, because behind a proxy the Host header can be anything and the
+   * redirect URI registered with Google is one specific string. Derived from the request
+   * otherwise, honouring x-forwarded-proto so a TLS-terminating proxy does not produce an
+   * http:// redirect that Google rejects.
+   */
+  function baseUrlFor(req) {
+    if (process.env.ERP_BASE_URL) return String(process.env.ERP_BASE_URL).replace(/\/+$/, '');
+    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+    const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() ||
+      (req.socket && req.socket.encrypted ? 'https' : 'http');
+    return proto + '://' + host;
+  }
+
+  function fileAllowed(id, token) {
+    const [expiry, sig] = String(token || '').split('.');
+    if (!/^[0-9]+$/.test(expiry || '') || !sig) return false;
+    if (Number(expiry) * 1000 < Date.now()) return false;
+    const want = Buffer.from(signFile(id, expiry));
+    const got = Buffer.from(sig);
+    return want.length === got.length && crypto.timingSafeEqual(want, got);
+  }
 
 function body(req, limit) {
   return new Promise((resolve, reject) => {
@@ -152,19 +239,43 @@ function statusFor(message) {
     const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
 
     try {
+      await ready;
       // ---- the page
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-        // Through the portal's own COMPANY_ROW_ID rather than an id guessed here. The first
-        // version of this looked up 'COMPANY' and the real one is 'CO-1', so the tab was named
-        // from the row while bootstrap named the header from the default — the same page
-        // calling itself two things depending on which half you read.
+        /**
+         * The Google gate, which doGet used to run before serving anything.
+         *
+         * It was missing here, and with its setting unable to survive a restart the effect
+         * was invisible: the gate read as off, and a portal that demands a Google account
+         * on Apps Script did not on the server. Now the setting persists, so this has to
+         * run or switching it on would lock everybody out.
+         *
+         * Three answers: carry on; carry on with a pass Google just issued; or serve the
+         * gate's own page instead of the portal.
+         */
+        let googlePass = '';
         let title = 'ERP';
         try {
-          const names = loadPortal(db, 'anonymous', { properties, quiet: true });
-          const row = await db.findRowById('CompanyProfile', names.COMPANY_ROW_ID);
+          const portal = loadPortal(db, 'anonymous', {
+            properties, propertyStore: durable && durable.store(''), quiet: true,
+            drive: files.DriveApp, mail, fetch: http_, baseUrl: baseUrlFor(req) });
+          const gate = portal.googleGateForRequest_({
+            parameter: Object.fromEntries(url.searchParams) });
+          if (!gate.serve) {
+            return send(res, 200, 'text/html; charset=utf-8', gate.html.getContent());
+          }
+          googlePass = gate.pass || '';
+          // Through the portal's own COMPANY_ROW_ID rather than an id guessed here. The
+          // first version looked up 'COMPANY' and the real one is 'CO-1', so the tab was
+          // named from the row while bootstrap named the header from the default.
+          const row = await db.findRowById('CompanyProfile', portal.COMPANY_ROW_ID);
           if (row && row.appName) title = row.appName;
-        } catch (err) { /* pre-setup, or the profile row is not there yet */ }
-        const page = render({ title, googlePass: '' }, { ui });
+        } catch (err) {
+          // Pre-setup, or no profile row yet. A fault in the gate must not be a blank page:
+          // it is logged and the portal is served, which leaves the password in front of it.
+          console.error('[page] ' + (err && err.message));
+        }
+        const page = render({ title, googlePass }, { ui });
         if (page.warnings.length) {
           console.error('Template tags the renderer does not understand: ' +
             page.warnings.join(' '));
@@ -206,6 +317,34 @@ function statusFor(message) {
         return res.end(font);
       }
 
+      // ---- an attachment, or a generated PDF
+      //
+      // Opened from a plain link in a new tab, so there is no header to carry a session
+      // token and the signature in the query string is what stands in for one. It is
+      // checked in constant time and against the clock; anything wrong is the same 404 a
+      // missing file gets, because telling a stranger which ids exist is itself an answer.
+      if (req.method === 'GET' && url.pathname.startsWith('/files/')) {
+        const id = url.pathname.slice('/files/'.length);
+        if (!fileAllowed(id, url.searchParams.get('t'))) {
+          return json(res, 404, { error: 'That link is not valid, or has expired.' });
+        }
+        const file = files.read(id);
+        if (!file) return json(res, 404, { error: 'That file is no longer here.' });
+        res.writeHead(200, {
+          'Content-Type': file.mimeType,
+          'Content-Length': file.bytes.length,
+          // Named, so a download is not called by its id; inline where a browser can show
+          // it, because most of these are a PDF or a photograph somebody wants to glance at.
+          'Content-Disposition': (url.searchParams.get('download') ? 'attachment' : 'inline') +
+            '; filename="' + String(file.name).replace(/[^\x20-\x7E]/g, '_')
+              .replace(/["\\]/g, '') + '"',
+          'X-Content-Type-Options': 'nosniff',
+          // Private: a shared cache must not keep somebody's purchase order.
+          'Cache-Control': 'private, max-age=300'
+        });
+        return res.end(file.bytes);
+      }
+
       // ---- the icon every browser asks for without being told to
       //
       // Not a nicety: a browser requests /favicon.ico on its own, and without this every
@@ -240,13 +379,16 @@ function statusFor(message) {
         const args = Array.isArray(payload.args) ? payload.args : [];
         const token = payload.token || null;
 
-        const portal = loadPortal(db, 'anonymous', { properties, quiet: true });
+        const portal = loadPortal(db, 'anonymous', { properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
         try {
           // `call` is the portal's own door: it resolves the token to a user, refuses the
           // names on CALL_DENY_, and sets CURRENT_USER_ for everything downstream. The web
           // app has always gone through it and this changes nothing about that.
           const out = await portal.call(token, fn, args);
-          return json(res, 200, { ok: out === undefined ? null : out });
+          // Signed here rather than where the row is written, so the link is a day old at
+          // most when the browser gets it. See signFileUrls.
+          return send(res, 200, 'application/json; charset=utf-8',
+            signFileUrls(JSON.stringify({ ok: out === undefined ? null : out })));
         } catch (err) {
           return failed(res, err, 'call ' + fn);
         }
@@ -263,7 +405,7 @@ function statusFor(message) {
         try { payload = JSON.parse(await body(req)); } catch (err) { /* a logout with no
           readable body still means "forget my session", and refusing it would leave the
           session alive because the browser sent something odd */ }
-        const portal = loadPortal(db, 'anonymous', { properties, quiet: true });
+        const portal = loadPortal(db, 'anonymous', { properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
         try {
           await portal.logout(payload.token || null);
           return json(res, 200, { ok: true });
@@ -277,7 +419,9 @@ function statusFor(message) {
       }
 
       if (req.method === 'POST' && url.pathname === '/api/google-link') {
-        const portal = loadPortal(db, 'anonymous', { properties, quiet: true });
+        const portal = loadPortal(db, 'anonymous', { properties,
+          propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp,
+          mail, fetch: http_, baseUrl: baseUrlFor(req) });
         try {
           return json(res, 200, { ok: await portal.googleGateSignInLink() });
         } catch (err) {
@@ -294,7 +438,7 @@ function statusFor(message) {
           return json(res, 400, { error: 'Could not read the request.' });
         }
 
-        const portal = loadPortal(db, 'anonymous', { properties, quiet: true });
+        const portal = loadPortal(db, 'anonymous', { properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
         try {
           const out = await portal.login(payload.username, payload.password, payload.googlePass);
           return json(res, 200, { ok: out });
@@ -312,6 +456,10 @@ function statusFor(message) {
   server.db = db;
   server.tenant = tenant;
   server.ui = ui;
+  server.files = files;
+  server.ready = ready;
+  server.settings = durable;
+  server.smtpReady = smtpReady;
   return server;
 }
 
@@ -325,6 +473,13 @@ if (require.main === module) {
   server.listen(port, () => {
     console.log('The portal is on http://localhost:' + port);
     console.log('  tenant:   ' + server.tenant);
+    server.ready.then(() => console.log('  settings: ' +
+      (server.settings ? Object.keys(server.settings.props).length + ' held in the database'
+        : 'in memory only')));
+    console.log('  files:    ' + server.files.dir +
+      ' (' + server.files.stat().files + ' held)');
+    console.log('  e-mail:   ' + (server.smtpReady ? 'configured' :
+      'not configured — set SMTP_URL, SMTP_USER, SMTP_PASSWORD to send quotations'));
     console.log('  look:     ' + (server.ui === 'classic'
       ? 'classic (ERP_UI=classic) — the Apps Script design' : 'the new design'));
     console.log('  database: ' +

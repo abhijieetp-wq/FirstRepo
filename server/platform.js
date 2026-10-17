@@ -28,6 +28,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { htmlToPdf } = require('./pdf.js');
 
 /** The timezone the sheet's dates were written in. Everything date-shaped depends on it. */
 const TZ = process.env.ERP_TIMEZONE || 'Asia/Kolkata';
@@ -146,6 +147,55 @@ class Cache {
   removeAll(keys) { (keys || []).forEach((k) => this.remove(k)); }
 }
 
+// ------------------------------------------------------------------ blobs
+
+/**
+ * Apps Script's Blob, as much of it as this portal uses.
+ *
+ * Written as a named factory rather than an object literal because the literal had a real
+ * bug in it: `setName` was an arrow function returning `this`, and in an object literal
+ * `this` is the enclosing scope, not the object. So it returned undefined, and
+ *
+ *     Utilities.newBlob(html, 'text/html', name).getAs('application/pdf').setName(name)
+ *
+ * — the one line in QuotationDocument.gs that makes a quotation PDF — would have evaluated
+ * to undefined and thrown on the next call. Nothing caught it because nothing had yet asked
+ * this blob for a PDF.
+ *
+ * getAs('application/pdf') is Apps Script's HTML-to-PDF conversion. Here it is Chromium,
+ * which renders the same template better; see server/pdf.js for why it is synchronous.
+ */
+function makeBlob(data, contentType, name) {
+  const buf = Buffer.isBuffer(data) ? data
+    : typeof data === 'string' ? Buffer.from(data, 'utf8')
+    : Buffer.from(signedToBytes(data));
+  let type = contentType || 'application/octet-stream';
+  let label = name || 'blob';
+
+  const blob = {
+    getBytes: () => Array.from(buf),
+    getDataAsString: () => buf.toString('utf8'),
+    getContentType: () => type,
+    getName: () => label,
+    setName: (n) => { label = n; return blob; },
+    setContentType: (t) => { type = t; return blob; },
+    copyBlob: () => makeBlob(buf, type, label),
+    getAs: (want) => {
+      if (want === type) return blob;
+      if (want !== 'application/pdf') {
+        throw new Error('A blob cannot be converted from ' + type + ' to ' + want +
+          ' on this server. Only HTML to PDF is supported.');
+      }
+      if (type !== 'text/html') {
+        throw new Error('Only HTML can be converted to PDF here, not ' + type + '.');
+      }
+      return makeBlob(htmlToPdf(buf.toString('utf8')), 'application/pdf',
+        label.replace(/\.html?$/i, '') + (/\.pdf$/i.test(label) ? '' : '.pdf'));
+    }
+  };
+  return blob;
+}
+
 // ------------------------------------------------------------------ refusals
 
 /**
@@ -180,7 +230,9 @@ function platformFor(opts) {
   const scriptCache = o.cache || new Cache();
   const userCaches = new Map();
 
-  const propertyStore = {
+  // The host supplies one that survives a restart; without it, settings live and die with
+  // the process, which is what a portal started from a laptop for a look around should do.
+  const propertyStore = o.propertyStore || {
     getProperty: (k) => (props.hasOwnProperty(k) ? String(props[k]) : null),
     setProperty: (k, v) => { props[k] = String(v); return propertyStore; },
     deleteProperty: (k) => { delete props[k]; return propertyStore; },
@@ -215,16 +267,7 @@ function platformFor(opts) {
       computeHmacSha256Signature: (value, key) => toSigned(
         crypto.createHmac('sha256', Buffer.from(signedToBytes(key)))
           .update(Buffer.from(signedToBytes(value))).digest()),
-      newBlob: (data, contentType, name) => {
-        const buf = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
-        return {
-          getBytes: () => Array.from(buf),
-          getDataAsString: () => buf.toString('utf8'),
-          getContentType: () => contentType || 'application/octet-stream',
-          getName: () => name || 'blob',
-          setName: (n) => { name = n; return this; }
-        };
-      },
+      newBlob: (data, contentType, name) => makeBlob(data, contentType, name),
       sleep: (ms) => {
         // Synchronous on Apps Script, and the two callers use it to back off a retry. A busy
         // wait would block the event loop for the whole process, so it is refused rather than
@@ -287,23 +330,46 @@ function platformFor(opts) {
       deleteTrigger: () => {}
     },
 
-    UrlFetchApp: {
-      // Deliberately not shimmed with node-fetch here: the four callers post to Tally and to
-      // Google's token endpoint, and each needs its timeouts and its error handling looked at
-      // rather than inherited.
-      fetch: () => notMigrated('UrlFetchApp',
-        'Outbound HTTP needs its own review per caller — Tally and the OAuth token endpoint.')
-        .fetch()
-    },
+    // Tally and the Google token endpoint. Synchronous, like the two above and for the same
+    // reason — see server/fetch.js.
+    UrlFetchApp: o.fetch || notMigrated('UrlFetchApp',
+      'This server cannot make outbound HTTP requests.'),
 
-    DriveApp: notMigrated('DriveApp',
-      'Quotation PDFs and service reports need a file store chosen with PIE.'),
-    MailApp: notMigrated('MailApp',
-      'Sending mail needs a provider chosen with PIE — it ran on the owner\'s Gmail quota.'),
-    GmailApp: notMigrated('GmailApp',
-      'Sending mail needs a provider chosen with PIE — it ran on the owner\'s Gmail quota.'),
-    HtmlService: notMigrated('HtmlService',
-      'The browser is served by the web framework now, not by the script.'),
+    // Supplied by the host when it has somewhere to put files and something to send with.
+    // Absent, each still refuses by name and says what is missing, which is what a portal
+    // run from a laptop for a look around should do.
+    DriveApp: o.drive || notMigrated('DriveApp',
+      'This server has nowhere to keep attachments. Set ERP_FILES_DIR to a directory on a ' +
+      'disk that survives a restart.'),
+    MailApp: o.mail || notMigrated('MailApp',
+      'This server cannot send e-mail. Set SMTP_URL, SMTP_USER and SMTP_PASSWORD.'),
+    GmailApp: o.mail || notMigrated('GmailApp',
+      'This server cannot send e-mail. Set SMTP_URL, SMTP_USER and SMTP_PASSWORD.'),
+    /**
+     * Only createHtmlOutput, and only because the Google gate's two pages use it to wrap a
+     * string they have already built. Everything else — createTemplateFromFile above all,
+     * which is how doGet used to assemble the portal — is still the web framework's job and
+     * still refuses.
+     */
+    HtmlService: {
+      createHtmlOutput: (html) => {
+        const out = {
+          getContent: () => String(html === undefined || html === null ? '' : html),
+          setTitle: () => out,
+          setXFrameOptionsMode: () => out,
+          addMetaTag: () => out,
+          setContent: (h) => { html = h; return out; }
+        };
+        return out;
+      },
+      XFrameOptionsMode: { ALLOWALL: 'ALLOWALL', DEFAULT: 'DEFAULT', DENY: 'DENY' },
+      createTemplateFromFile: () => notMigrated('HtmlService',
+        'The portal\'s own page is assembled by server/page.js, not by the script.')
+        .createTemplateFromFile(),
+      createHtmlOutputFromFile: () => notMigrated('HtmlService',
+        'The portal\'s own page is assembled by server/page.js, not by the script.')
+        .createHtmlOutputFromFile()
+    },
     SpreadsheetApp: notMigrated('SpreadsheetApp',
       'There is no spreadsheet. A module reaching for one has not been migrated — ' +
       'run `node migration/missing.js --sheet` for the list.'),

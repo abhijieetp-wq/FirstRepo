@@ -15,6 +15,7 @@
  *   DATABASE_URL=postgres://... node tests/server-test.js
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const URL_ = process.env.DATABASE_URL;
@@ -38,7 +39,8 @@ const ok = (label, cond, detail) => {
 
 (async () => {
   const db = connect({ connectionString: URL_, tenant: TENANT });
-  for (const t of ['users', 'sessions', 'company_profile', 'spares', 'audit_log', 'price_list']) {
+  for (const t of ['users', 'sessions', 'company_profile', 'spares', 'audit_log',
+    'price_list', 'sales_orders', 'documents']) {
     await db.q('DELETE FROM ' + t + ' WHERE tenant_id = $1', [TENANT]);
   }
   await db.appendRow('CompanyProfile', { id: 'CO-1', appName: 'Premier India Enterprise ERP' });
@@ -46,6 +48,8 @@ const ok = (label, cond, detail) => {
     description: 'Separator element', productGroup: 'Separators', uom: 'Nos', active: 'TRUE' });
   await db.appendRow('Users', { id: 'USR-1', username: 'boss', email: 'boss@pie.in',
     name: 'Boss', role: 'ERP Admin', businessStream: 'All', active: 'TRUE' });
+  await db.appendRow('SalesOrders', { id: 'SO-1', orderNo: 'SO2610-0001',
+    businessStream: 'Spare Sales', customerId: 'CU-1', orderStatus: 'Material Pending' });
 
   // A real password, derived the way the portal derives them.
   const setup = loadPortal(db, 'setup', { quiet: true });
@@ -54,7 +58,8 @@ const ok = (label, cond, detail) => {
   const password = (/boss\s+(\S+)/.exec(String(said)) || [])[1];
   ok('a user exists with a password', !!password);
 
-  const server = build({ db, tenant: TENANT });
+  const FILES = fs.mkdtempSync(path.join(os.tmpdir(), 'erp-server-test-'));
+  const server = build({ db, tenant: TENANT, filesDir: FILES });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = 'http://127.0.0.1:' + server.address().port;
 
@@ -232,6 +237,59 @@ const ok = (label, cond, detail) => {
     ranSetup.status === 200 && /Nothing to do/.test(JSON.stringify(ranSetup.body)),
     [ranSetup.status, JSON.stringify(ranSetup.body).slice(0, 120)]);
 
+  console.log('\nAND IT HOLDS THE PAPERWORK');
+  // Apps Script put these on Drive. There is no Drive, so saveDocument writes to the
+  // server's files directory and the row points at /files/<id>. Nothing above this line
+  // knows that changed, which is the point.
+  const PDF = Buffer.from('%PDF-1.4\n' + 'x'.repeat(2000));
+  const saved = await post('/api/call', { token, fn: 'saveDocument', args: [{
+    recordType: 'SalesOrder', recordId: 'SO-1', docType: 'Purchase Order',
+    name: 'Bhima PO 2210.pdf', dataUrl: 'data:application/pdf;base64,' + PDF.toString('base64') }] });
+  ok('a purchase order can be attached', saved.status === 200, saved.body);
+  ok('and is recorded with its size', saved.body.ok && saved.body.ok.sizeBytes === PDF.length,
+    saved.body.ok);
+
+  const listed = await post('/api/call', { token, fn: 'listDocuments', args: ['SalesOrder', 'SO-1'] });
+  const doc = listed.body.ok && listed.body.ok[0];
+  ok('it comes back on the record', !!doc, listed.body);
+  // The row holds a plain /files/<id>; the signature is added on the way out, so a link is
+  // a day old at most when the browser receives it.
+  ok('with a signed link', doc && /^\/files\/[0-9a-f]{32}\?t=\d+\.[A-Za-z0-9_-]{32}$/.test(doc.fileUrl),
+    doc && doc.fileUrl);
+  const stored = await db.q("SELECT file_url FROM documents WHERE tenant_id = $1", [TENANT]);
+  ok('and nothing expiring stored in the database',
+    /^\/files\/[0-9a-f]{32}$/.test(stored.rows[0].file_url), stored.rows[0]);
+
+  const fetched = await fetch(base + doc.fileUrl);
+  const bytes = Buffer.from(await fetched.arrayBuffer());
+  ok('the file itself comes back', fetched.status === 200, fetched.status);
+  ok('byte for byte', bytes.equals(PDF));
+  ok('as a PDF', fetched.headers.get('content-type') === 'application/pdf');
+  ok('named, not by its id',
+    /filename="Purchase Order SO2610-0001 .*Bhima PO 2210\.pdf"/.test(
+      fetched.headers.get('content-disposition') || ''), fetched.headers.get('content-disposition'));
+  ok('and never kept by a shared cache',
+    /private/.test(fetched.headers.get('cache-control') || ''), fetched.headers.get('cache-control'));
+
+  const bare = await get(doc.fileUrl.split('?')[0]);
+  ok('without a signature it is not served', bare.status === 404, bare.status);
+  const forged = await get(doc.fileUrl.replace(/\.[A-Za-z0-9_-]{32}$/, '.' + 'A'.repeat(32)));
+  ok('nor with a forged one', forged.status === 404, forged.status);
+  const stale = await get(doc.fileUrl.split('?')[0] + '?t=1.' + 'A'.repeat(32));
+  ok('nor with an expired one', stale.status === 404, stale.status);
+  const wandering = await get('/files/..%2f..%2fserver%2fdb.js');
+  ok('and a path out of the directory is refused', wandering.status === 404, wandering.status);
+  ok('with nothing said about what exists',
+    !/db\.js|No such file|\.bin/.test(bare.text + forged.text + wandering.text));
+
+  const removed = await post('/api/call', { token, fn: 'deleteDocument', args: [doc.id] });
+  ok('it can be removed', removed.status === 200, removed.body);
+  ok('and the link stops working', (await get(doc.fileUrl)).status === 404);
+  // Documents.gs calls it a bin, not a delete. The bytes stay until something sweeps them.
+  ok('though the bytes are still there to recover',
+    fs.readdirSync(path.join(FILES, TENANT)).some((f) => f.endsWith('.bin')),
+    fs.readdirSync(path.join(FILES, TENANT)));
+
   console.log('\nAND DOES NOT LEAK WHAT IT KNOWS');
   const boom = await post('/api/call', { token, fn: 'getQuotation', args: ['no-such-id'] });
   ok('an error message reaches the person', boom.body && !!boom.body.error, boom.body);
@@ -254,7 +312,9 @@ const ok = (label, cond, detail) => {
   ok('and the server is still up', after.status === 200, after.status);
 
   await new Promise((r) => server.close(r));
-  for (const t of ['users', 'sessions', 'company_profile', 'spares', 'audit_log', 'price_list']) {
+  fs.rmSync(FILES, { recursive: true, force: true });
+  for (const t of ['users', 'sessions', 'company_profile', 'spares', 'audit_log', 'price_list',
+    'sales_orders', 'documents']) {
     await db.q('DELETE FROM ' + t + ' WHERE tenant_id = $1', [TENANT]);
   }
   await db.pool.end();

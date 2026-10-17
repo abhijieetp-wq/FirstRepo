@@ -148,7 +148,11 @@ console.log('\nWHAT WAS NOT MIGRATED FAILS LOUDLY');
 [
   ['DriveApp', () => P.DriveApp.createFolder('x')],
   ['MailApp', () => P.MailApp.sendEmail({})],
-  ['HtmlService', () => P.HtmlService.createHtmlOutput('x')],
+  // createHtmlOutput is no longer among these: the Google gate builds its two pages as
+  // strings and wraps them with it, so it works now. Assembling the portal's own page from
+  // a file is still the web framework's job and still refuses, which is what is checked
+  // here instead.
+  ['HtmlService', () => P.HtmlService.createTemplateFromFile('Index')],
   ['SpreadsheetApp', () => P.SpreadsheetApp.getActiveSpreadsheet()],
   ['UrlFetchApp', () => P.UrlFetchApp.fetch('https://x')]
 ].forEach(([name, call]) => {
@@ -157,6 +161,17 @@ console.log('\nWHAT WAS NOT MIGRATED FAILS LOUDLY');
   ok(name + ' throws and names itself', msg !== null && msg.indexOf(name) === 0, msg);
   ok('  and says what is needed instead', msg !== null && msg.length > name.length + 40);
 });
+
+// And the one piece of HtmlService that does work, because the Google gate needs it: a
+// string wrapped in something with getContent(). The gate builds its own HTML and only
+// uses HtmlService to hand it back, so this is the whole of what it asks for.
+{
+  const out = P.HtmlService.createHtmlOutput('<p>gate</p>');
+  ok('HtmlService can still wrap a string the gate built',
+    out.getContent() === '<p>gate</p>');
+  ok('and its setters chain, as the gate expects',
+    out.setTitle('x').setXFrameOptionsMode('ALLOWALL').getContent() === '<p>gate</p>');
+}
 ok('SpreadsheetApp points at the list of what is left',
   (() => { try { P.SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { return /missing\.js/.test(e.message); } })());
 ok('sleep is refused rather than blocking the process', (() => {
