@@ -526,10 +526,79 @@ function statusFor(message) {
   return server;
 }
 
-module.exports = { build };
+module.exports = { build, dropPrivileges };
+
+/**
+ * Fixes the attachments directory and then stops being root.
+ *
+ * A host mounts its volume as root, over the directory the image prepared, so a container
+ * that starts as the `node` user cannot write to the one place it needs to. Railway's own
+ * answer is a variable that runs everything as root for ever; this does the same job for
+ * the two syscalls that need it and then gives the privilege back.
+ *
+ * Runs only when this process really is root. Started as anybody else — a laptop, a host
+ * that already drops privileges — it does nothing and the directory is whatever it is,
+ * which /health reports either way.
+ *
+ * ERP_RUN_AS names the user to become; `node` is what the image provides. Set it to `root`
+ * to stay root deliberately, which is at least then a decision somebody made.
+ */
+function dropPrivileges(dir) {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return null;
+
+  const want = process.env.ERP_RUN_AS || 'node';
+  if (want === 'root' || want === '0') return 'staying root (ERP_RUN_AS=' + want + ')';
+
+  let uid, gid;
+  try {
+    // The image's own passwd file is the authority on which id `node` is; guessing 1000
+    // is right until the day it is not.
+    const line = fs.readFileSync('/etc/passwd', 'utf8').split('\n')
+      .find((l) => l.split(':')[0] === want);
+    if (!line) throw new Error('there is no user called ' + want + ' in this image');
+    uid = Number(line.split(':')[2]);
+    gid = Number(line.split(':')[3]);
+  } catch (err) {
+    console.error('[startup] cannot drop privileges: ' + err.message +
+      ' — continuing as root. Set ERP_RUN_AS to a user that exists, or to `root` to mean it.');
+    return null;
+  }
+
+  // Everything already in there too, or a file written during an earlier root-only run
+  // becomes one this process can no longer replace.
+  let fixed = 0;
+  const chownTree = (p, depth) => {
+    try {
+      fs.chownSync(p, uid, gid);
+      fixed++;
+      if (depth > 0 && fs.statSync(p).isDirectory()) {
+        for (const e of fs.readdirSync(p)) chownTree(path.join(p, e), depth - 1);
+      }
+    } catch (err) { /* reported by the health check, which tries an actual write */ }
+  };
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (err) { /* chown will report it */ }
+  chownTree(dir, 3);
+
+  try {
+    // Groups first: after setuid there is no privilege left to change them with.
+    if (typeof process.setgroups === 'function') process.setgroups([gid]);
+    process.setgid(gid);
+    process.setuid(uid);
+  } catch (err) {
+    console.error('[startup] could not become ' + want + ': ' + err.message +
+      ' — continuing as root.');
+    return null;
+  }
+  return 'running as ' + want + ' (' + uid + ':' + gid + '), ' + fixed +
+    ' path(s) in ' + dir + ' handed over';
+}
 
 if (require.main === module) {
   const port = Number(process.env.PORT) || 3000;
+  // Before the server is built, because build() opens a connection pool and the point is
+  // to be unprivileged by the time anything outside can reach this process.
+  const dropped = dropPrivileges(process.env.ERP_FILES_DIR ||
+    path.join(__dirname, '..', 'var', 'files'));
   let server;
   try { server = build(); } catch (err) { console.error(err.message); process.exit(1); }
 
@@ -539,6 +608,7 @@ if (require.main === module) {
     server.ready.then(() => console.log('  settings: ' +
       (server.settings ? Object.keys(server.settings.props).length + ' held in the database'
         : 'in memory only')));
+    if (dropped) console.log('  user:     ' + dropped);
     console.log('  files:    ' + server.files.dir +
       ' (' + server.files.stat().files + ' held)');
     console.log('  e-mail:   ' + (server.smtpReady ? 'configured' :

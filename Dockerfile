@@ -64,10 +64,21 @@ COPY migration/schema.js ./migration/
 # it the first thing to set up and why /health reports whether the directory is writable.
 RUN mkdir -p /data/files && chown -R node:node /data/files
 
-# Not root. Chromium is given --no-sandbox because the content it renders is the portal's
-# own template rather than anything from the internet, and the sandbox needs privileges
-# this container deliberately does not have.
-USER node
+# No USER here, and that is not carelessness.
+#
+# A host mounts its volume as root, on top of whatever the image prepared, so a container
+# that starts as `node` cannot write to the one directory it needs — which is exactly what
+# the first deploy reported: "NOT WRITABLE: EACCES" on /data/files. Railway's own answer is
+# a variable that runs the whole service as root for ever.
+#
+# Instead the server starts as root, hands the attachments directory to `node`, and drops
+# to `node` itself before it opens a socket — so nothing reachable from outside is ever
+# running as root. See dropPrivileges in server/index.js. ERP_RUN_AS changes the user, or
+# set it to `root` to stay there on purpose.
+#
+# Chromium is given --no-sandbox because the content it renders is the portal's own
+# template rather than anything from the internet, and its sandbox needs privileges this
+# container deliberately does not have.
 
 EXPOSE 3000
 

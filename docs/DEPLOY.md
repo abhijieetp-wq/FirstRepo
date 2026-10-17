@@ -117,7 +117,7 @@ Read every line before moving on:
 
 | What it says | What to do |
 |---|---|
-| `attachments: NOT WRITABLE: EACCES` | The volume is there but the container cannot write to it. Railway → Volume → remount, or redeploy. This is the most common first-deploy problem. |
+| `attachments: NOT WRITABLE: EACCES` | Should not happen any more — the server fixes this itself at start-up (it hands the mounted volume to its own user, then drops out of root before opening a socket). If it does appear, the start-up log says why; as a last resort set `ERP_RUN_AS=root`, which at least makes it a decision rather than an accident. |
 | `attachments: dir` is not under `/data` | The volume is not mounted. Attachments are going into the container and will vanish. |
 | `pdfs: unavailable` | Chromium is missing from the image. The build probably failed partway — check the build log. |
 | `email: unconfigured` | Expected until you set the three SMTP variables. |

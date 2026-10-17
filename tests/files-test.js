@@ -12,6 +12,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { fileStore, slug } = require(path.join(__dirname, '..', 'server', 'files.js'));
 const { platformFor } = require(path.join(__dirname, '..', 'server', 'platform.js'));
 
@@ -160,6 +161,50 @@ console.log('\nAND IT USES THE BROWSER IT WAS TOLD TO');
   const told = fresh(auto.found);
   ok('and an ERP_CHROMIUM that does exist is used', told.found === auto.found, told);
   ok('with nothing to complain about', told.problem === null);
+}
+
+console.log('\nAND IT STOPS BEING ROOT ONCE THE VOLUME IS ITS OWN');
+// The first real deployment reported NOT WRITABLE: EACCES on its attachments directory.
+// A host mounts a volume as root over whatever the image prepared, so a container running
+// as an ordinary user cannot write to the one place it must. The server now starts as
+// root, hands that directory over, and drops — before it opens a socket, so nothing
+// reachable from outside is ever running as root.
+{
+  const { dropPrivileges } = require(path.join(__dirname, '..', 'server', 'index.js'));
+  const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+
+  const had = process.env.ERP_RUN_AS;
+  process.env.ERP_RUN_AS = 'root';
+  ok('asked to stay root, it says so rather than doing it silently',
+    asRoot ? /staying root/.test(dropPrivileges(DIR) || '') : dropPrivileges(DIR) === null);
+  process.env.ERP_RUN_AS = 'nobody-such-user-exists';
+  ok('a user that is not in the image is refused, not guessed at',
+    dropPrivileges(DIR) === null);
+  if (had === undefined) delete process.env.ERP_RUN_AS; else process.env.ERP_RUN_AS = had;
+
+  if (!asRoot) {
+    console.log('  (not root here, so the drop itself is not exercised)');
+    ok('and started unprivileged it does nothing at all', dropPrivileges(DIR) === null);
+  } else {
+    // A child, because dropping privileges is one-way and this process has tests left.
+    const vol = fs.mkdtempSync(path.join(os.tmpdir(), 'erp-vol-'));
+    fs.mkdirSync(path.join(vol, 'files'));
+    fs.chownSync(path.join(vol, 'files'), 0, 0);
+    const out = execFileSync(process.execPath, ['-e',
+      'const {dropPrivileges}=require(' + JSON.stringify(
+        path.join(__dirname, '..', 'server', 'index.js')) + ');' +
+      'const said=dropPrivileges(process.env.D);' +
+      'console.log(JSON.stringify({said,uid:process.getuid(),gid:process.getgid()}));'
+    ], { env: Object.assign({}, process.env, { ERP_RUN_AS: 'nobody', D: path.join(vol, 'files') }),
+         encoding: 'utf8' });
+    const got = JSON.parse(out);
+    ok('it really becomes the other user', got.uid === 65534 && got.gid === 65534, got);
+    ok('and says which, and how much it handed over', /running as nobody/.test(got.said || ''),
+      got.said);
+    const owner = fs.statSync(path.join(vol, 'files'));
+    ok('the mount is handed over too', owner.uid === 65534, owner.uid);
+    fs.rmSync(vol, { recursive: true, force: true });
+  }
 }
 
 fs.rmSync(DIR, { recursive: true, force: true });
