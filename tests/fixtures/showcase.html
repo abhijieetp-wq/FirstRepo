@@ -1,0 +1,262 @@
+<script>
+/**
+ * A populated portal, for judging the design rather than testing behaviour.
+ *
+ * base.html is the behaviour fixture: two customers, one enquiry, a dashboard with nothing on
+ * it. That is right for a test and wrong for a screenshot, because an empty screen flatters
+ * nothing and every design looks the same with no data in it — which is exactly how the first
+ * restyle came to be judged on a page that said "Loading…".
+ *
+ * So this one has a working month in it: a dashboard with every card drawn, enquiries in every
+ * state, quotations at every stage, a catalogue with stock. The company names are invented.
+ * The shape of every answer is the shape the real server returns, so a screen that renders
+ * here renders against Postgres.
+ *
+ *   node tests/build-preview.js tests/fixtures/showcase.html /tmp/show.html --ui=web \
+ *        --title="ELGi Sales ERP"
+ */
+(function () {
+  try { window.localStorage.setItem("pie.erp.session", "showcase-token"); } catch (e) { }
+  window.__calls = [];
+  window.__failNext = null;
+
+  function addr(city, state) {
+    return [{ id: "AD-" + city, label: "Works", line1: "Plot 14, MIDC", city: city,
+      state: state || "Maharashtra", pincode: "411019", isDefault: "TRUE" }];
+  }
+  var CUSTOMERS = [
+    { id: "CU-1", customerCode: "C0101", name: "Sahyadri Castings Pvt Ltd", gstin: "27AAKCS4471M1Z2",
+      addresses: addr("Pune"), primaryContact: { name: "R. Joshi", phone: "98220 41187" },
+      assignedSalesperson: "Kiran Patil", creditLimit: 1500000, creditDays: 45, territory: "Pune",
+      active: "TRUE", contacts: [], paymentTerms: "NET45" },
+    { id: "CU-2", customerCode: "C0102", name: "Deccan Polymers", gstin: "27AADFD9921K1ZQ",
+      addresses: addr("Chakan"), primaryContact: { name: "S. Kulkarni", phone: "98903 22014" },
+      assignedSalesperson: "Kiran Patil", creditLimit: 800000, creditDays: 30, territory: "Pune",
+      active: "TRUE", contacts: [], paymentTerms: "NET30" },
+    { id: "CU-3", customerCode: "C0103", name: "Konkan Agro Foods", gstin: "27AAHCK3310R1Z8",
+      addresses: addr("Ratnagiri"), primaryContact: { name: "M. Sawant", phone: "94221 70345" },
+      assignedSalesperson: "Neha Rao", creditLimit: 600000, creditDays: 30, territory: "Konkan",
+      active: "TRUE", contacts: [], paymentTerms: "NET30" },
+    { id: "CU-4", customerCode: "C0104", name: "Vardhman Precision Tools", gstin: "27AAJFV6612C1ZF",
+      addresses: addr("Nashik"), primaryContact: { name: "A. Shah", phone: "98500 88412" },
+      assignedSalesperson: "Neha Rao", creditLimit: 1200000, creditDays: 60, territory: "Nashik",
+      active: "TRUE", contacts: [], paymentTerms: "NET60" },
+    { id: "CU-5", customerCode: "C0105", name: "Godavari Textile Mills", gstin: "27AACCG1180H1Z3",
+      addresses: addr("Aurangabad"), primaryContact: { name: "P. Deshmukh", phone: "90110 23456" },
+      assignedSalesperson: "Kiran Patil", creditLimit: 2000000, creditDays: 45, territory: "Marathwada",
+      active: "TRUE", contacts: [], paymentTerms: "NET45" },
+    { id: "CU-6", customerCode: "C0106", name: "Sinhgad Pharma Packaging", gstin: "27AAPCS7714D1Z6",
+      addresses: addr("Pune"), primaryContact: { name: "V. Gokhale", phone: "98811 65530" },
+      assignedSalesperson: "Neha Rao", creditLimit: 900000, creditDays: 30, territory: "Pune",
+      active: "TRUE", contacts: [], paymentTerms: "NET30" },
+    { id: "CU-7", customerCode: "C0107", name: "Bhima Sugar Industries", gstin: "27AABCB5527L1ZK",
+      addresses: addr("Solapur"), primaryContact: { name: "D. Pawar", phone: "94230 11289" },
+      assignedSalesperson: "Kiran Patil", creditLimit: 2500000, creditDays: 60, territory: "Solapur",
+      active: "TRUE", contacts: [], paymentTerms: "NET60" },
+    { id: "CU-8", customerCode: "C0108", name: "Tapi Engineering Works", gstin: "27AAFFT2290N1Z1",
+      addresses: addr("Jalgaon"), primaryContact: { name: "H. Chaudhari", phone: "97660 40021" },
+      assignedSalesperson: "Neha Rao", creditLimit: 500000, creditDays: 30, territory: "Khandesh",
+      active: "TRUE", contacts: [], paymentTerms: "NET30" }
+  ];
+
+  function enq(n, cust, contact, phone, model, serial, urgency, items, status, due, overdue, date) {
+    return { id: "SE-" + n, enquiryNo: "SE2610-00" + (n < 10 ? "0" + n : n), date: date,
+      customerId: cust.id, customerName: cust.name, contactName: contact, contactPhone: phone,
+      contactEmail: "", productModel: model, serialNo: serial, urgency: urgency, itemCount: items,
+      status: status, expectedDeliveryDate: due, overdue: overdue, source: "Phone",
+      requirementText: "", items: [], ownerEmail: "kiran@pie.in", ownerName: "Kiran Patil",
+      createdAt: date };
+  }
+  var C = CUSTOMERS;
+  var ENQUIRIES = [
+    enq(31, C[0], "R. Joshi", "98220 41187", "EG 37", "EG37-21874", "Urgent", 4, "New", "2026-10-21", false, "2026-10-17"),
+    enq(30, C[4], "P. Deshmukh", "90110 23456", "EN 75", "EN75-11902", "Normal", 6, "Identifying", "2026-10-28", false, "2026-10-16"),
+    enq(29, C[1], "S. Kulkarni", "98903 22014", "EG 22", "", "Normal", 3, "Quoted", "2026-10-24", false, "2026-10-15"),
+    enq(28, C[6], "D. Pawar", "94230 11289", "EG 90", "EG90-30451", "Breakdown", 9, "Quoted", "2026-10-14", true, "2026-10-12"),
+    enq(27, C[3], "A. Shah", "98500 88412", "EN 18", "", "Normal", 2, "Won", "2026-10-20", false, "2026-10-10"),
+    enq(26, C[2], "M. Sawant", "94221 70345", "EG 15", "EG15-09917", "Normal", 5, "Identifying", "2026-10-30", false, "2026-10-09"),
+    enq(25, C[5], "V. Gokhale", "98811 65530", "EN 30", "", "Urgent", 3, "Quoted", "2026-10-19", false, "2026-10-08"),
+    enq(24, C[7], "H. Chaudhari", "97660 40021", "EG 11", "", "Normal", 1, "Lost", "", false, "2026-10-05")
+  ];
+
+  var STAGES = ["Quoted", "PO received", "Order confirmed", "Reserved", "Dispatched", "Delivered"];
+  function journey(i, extra) {
+    return Object.assign({ label: STAGES[i], stages: STAGES, reachedIndex: i,
+      nextLabel: STAGES[i + 1] || "", closed: false, stalled: false, creditHold: false }, extra || {});
+  }
+  function q(n, stream, cust, model, items, grand, status, j, valid, expired, date, time) {
+    return { id: "QT-" + n, quoteNo: "PIE/ELGI/QUOT/26-27/" + n, revision: n % 3 === 0 ? "R1" : "R0",
+      businessStream: stream, date: date, createdAt: date + "T" + time + ":00+05:30",
+      customerId: cust.id, customerName: cust.name, machineModel: model, itemCount: items,
+      grand: grand, status: status, locked: status !== "Draft", journey: j, validUntil: valid,
+      expired: expired };
+  }
+  var QUOTATIONS = [
+    q(418, "Spare Sales", C[0], "EG 37", 4, 186420, "Draft", null, "2026-11-16", false, "2026-10-17", "11:42"),
+    q(417, "Compressor Sales", C[4], "EN 75 · 75 kW", 1, 3845000, "Negotiating", journey(0), "2026-11-12", false, "2026-10-16", "16:05"),
+    q(416, "Spare Sales", C[6], "EG 90", 9, 412880, "Won", journey(3), "2026-11-11", false, "2026-10-15", "10:18"),
+    q(415, "Spare Sales", C[1], "EG 22", 3, 58940, "Submitted", journey(0), "2026-11-14", false, "2026-10-15", "09:51"),
+    q(414, "Compressor Sales", C[3], "EG 45 · 45 kW", 1, 2160000, "Won", journey(2, { creditHold: true }), "2026-11-08", false, "2026-10-13", "15:27"),
+    q(413, "Spare Sales", C[5], "EN 30", 3, 97650, "Approved", journey(0), "2026-10-19", false, "2026-10-12", "12:09"),
+    q(412, "Spare Sales", C[2], "EG 15", 5, 74215, "Won", journey(4), "2026-11-06", false, "2026-10-09", "17:44"),
+    q(411, "Spare Sales", C[7], "EG 11", 1, 12980, "Submitted", journey(0), "2026-10-11", true, "2026-09-26", "14:31")
+  ];
+
+  var SPARES = [
+    ["B010505390017", "Air oil separator", "RCD Spares", "Filter", "Nos", 7130, 12, 4],
+    ["B010505390021", "Air filter element — EG 37/45", "RCD Spares", "Filter", "Nos", 2860, 26, 6],
+    ["959439", "Oil filter element", "OFSAC", "Filter", "Nos", 1540, 41, 10],
+    ["12437260", "Intake valve kit", "RCD Spares", "Kit", "Set", 62330, 3, 1],
+    ["B006400190002", "Minimum pressure valve", "RCD Spares", "Valve", "Nos", 18450, 5, 0],
+    ["B011006110015", "Thermostatic valve element", "RCD Spares", "Valve", "Nos", 9720, 0, 0],
+    ["A11307890", "AB-Lube synthetic, 20 L", "Lubricants", "Oil", "Can", 21400, 18, 5],
+    ["B004600350010", "Drive coupling element", "RCD Spares", "Drive", "Nos", 5610, 9, 2],
+    ["B013504490004", "Solenoid valve 24 V DC", "RCD Spares", "Electrical", "Nos", 11980, 2, 2],
+    ["B010505390033", "Pre-filter mat — EN series", "RCD Spares", "Filter", "Nos", 1180, 64, 0]
+  ].map(function (r, i) {
+    return { id: "SP-" + (i + 1), partNo: r[0], description: r[1], productGroup: r[2],
+      category: r[3], uom: r[4], price: r[5], onHand: r[6], reserved: r[7],
+      available: r[6] - r[7], active: "TRUE", hsnCode: "84149090", alternates: [],
+      compatibility: [] };
+  });
+
+  var ORDERS = [
+    { id: "SO-1", orderNo: "SO2610-0042", date: "2026-10-16", customerName: C[6].name,
+      poNo: "BSI/PUR/2210", poVerified: "TRUE", grand: 412880, orderStatus: "Material Pending",
+      promisedDispatchDate: "2026-10-22", overdueDispatch: false, creditHold: false },
+    { id: "SO-2", orderNo: "SO2610-0041", date: "2026-10-14", customerName: C[3].name,
+      poNo: "VPT/2026/388", poVerified: "TRUE", grand: 2160000, orderStatus: "Credit Hold",
+      promisedDispatchDate: "2026-10-28", overdueDispatch: false, creditHold: true },
+    { id: "SO-3", orderNo: "SO2610-0039", date: "2026-10-10", customerName: C[2].name,
+      poNo: "KAF-PO-1187", poVerified: "TRUE", grand: 74215, orderStatus: "Dispatched",
+      promisedDispatchDate: "2026-10-15", overdueDispatch: false, creditHold: false },
+    { id: "SO-4", orderNo: "SO2610-0037", date: "2026-10-07", customerName: C[4].name,
+      poNo: "GTM/ENG/5521", poVerified: "FALSE", grand: 286400, orderStatus: "Ready for Dispatch",
+      promisedDispatchDate: "2026-10-13", overdueDispatch: true, creditHold: false },
+    { id: "SO-5", orderNo: "SO2610-0035", date: "2026-10-03", customerName: C[0].name,
+      poNo: "SCPL/PO/9934", poVerified: "TRUE", grand: 158300, orderStatus: "Invoiced",
+      promisedDispatchDate: "2026-10-09", overdueDispatch: false, creditHold: false }
+  ];
+
+  window.__data = {
+    bootstrap: { name: "Anil Mehta", email: "anil@pie.in", username: "anil",
+      role: "Management", businessStream: "All", appName: "ELGi Sales ERP",
+      appSubtitle: "Compressor & Spare Sales", appMark: "EL", build: "showcase" },
+
+    getDashboard: {
+      generatedAt: "2026-10-17T09:12:00+05:30", stream: "", role: "Management",
+      headline: { outstanding: 4286500, overduePct: 23, overdueAmount: 985900,
+        openOrderValue: 7835000, openOrderCount: 14, invoicedThisMonth: 2140000,
+        collectedThisMonth: 1618000, openQuotationValue: 12450000, openQuotationCount: 27,
+        weightedPipeline: 6120000 },
+      exceptions: [
+        { severity: "critical", label: "Invoices more than 60 days overdue",
+          detail: "Three customers — chase today", oldestDays: 84, count: 5, value: 612400,
+          view: "collections" },
+        { severity: "serious", label: "Orders waiting on a credit decision",
+          detail: "Material is ready; dispatch is blocked", oldestDays: 6, count: 2,
+          value: 1450000, view: "orders" },
+        { severity: "warning", label: "Quotations expiring this week",
+          detail: "No reply from the customer yet", oldestDays: 0, count: 4, value: 2380000,
+          view: "quotations" },
+        { severity: "warning", label: "Packed, but the dispatch checklist is not done",
+          detail: "Cannot leave until it passes", oldestDays: 2, count: 3, value: 0,
+          view: "dispatch" }
+      ],
+      orderPipeline: [
+        { label: "Approval pending", count: 2, value: 640000 },
+        { label: "Credit hold", count: 2, value: 1450000 },
+        { label: "Material pending", count: 4, value: 2310000 },
+        { label: "Ready for dispatch", count: 3, value: 1290000 },
+        { label: "Dispatched", count: 3, value: 2145000 }
+      ],
+      ageing: [
+        { label: "0–30 days", value: 2150000 }, { label: "31–60 days", value: 1150600 },
+        { label: "61–90 days", value: 612400 }, { label: "90+ days", value: 373500 }
+      ],
+      trend: [
+        { label: "May", invoiced: 1640000, collected: 1420000 },
+        { label: "Jun", invoiced: 1910000, collected: 1580000 },
+        { label: "Jul", invoiced: 1730000, collected: 1890000 },
+        { label: "Aug", invoiced: 2280000, collected: 1760000 },
+        { label: "Sep", invoiced: 2460000, collected: 2210000 },
+        { label: "Oct", invoiced: 2140000, collected: 1618000 }
+      ],
+      funnel: [
+        { label: "Lead", count: 18, value: 0 }, { label: "Qualified", count: 11, value: 0 },
+        { label: "Site visit", count: 7, value: 0 }, { label: "Sized", count: 5, value: 0 },
+        { label: "Quoted", count: 4, value: 8600000 }
+      ],
+      enquiryFunnel: [
+        { label: "New", count: 9 }, { label: "Identifying", count: 6 },
+        { label: "Quoted", count: 14 }, { label: "Won", count: 8 }
+      ],
+      topCustomers: [
+        { customerName: C[6].name, invoiceCount: 4, outstanding: 1180000, overdue: 412000, oldestOverdueDays: 84 },
+        { customerName: C[4].name, invoiceCount: 3, outstanding: 846500, overdue: 286400, oldestOverdueDays: 47 },
+        { customerName: C[0].name, invoiceCount: 5, outstanding: 702300, overdue: 0, oldestOverdueDays: 0 },
+        { customerName: C[3].name, invoiceCount: 2, outstanding: 581000, overdue: 187500, oldestOverdueDays: 33 },
+        { customerName: C[1].name, invoiceCount: 2, outstanding: 214800, overdue: 0, oldestOverdueDays: 0 }
+      ],
+      recent: [], leadCount: 18, streams: []
+    },
+
+    spareSalesScreen: function () {
+      return { enquiries: ENQUIRIES, customers: CUSTOMERS, lostReasons: [], knownModels: [] };
+    },
+    listSpareEnquiries: function () { return ENQUIRIES; },
+    listCustomers: function () { return CUSTOMERS; },
+    listQuotations: function () { return QUOTATIONS; },
+    listSpares: SPARES,
+    listSalesOrders: ORDERS,
+    listPeople: { salesEngineers: [{ email: "kiran@pie.in", name: "Kiran Patil" },
+      { email: "neha@pie.in", name: "Neha Rao" }],
+      coordinators: [{ email: "kiran@pie.in", name: "Kiran Patil" }],
+      serviceCoordinators: [], serviceEngineers: [], management: [] },
+    findDuplicateCustomers: [],
+    getConfigLists: { LeadSource: ["Phone", "WhatsApp", "Email", "Walk-in"],
+      Urgency: ["Normal", "Urgent", "Breakdown"] },
+    listActiveUsers: [{ email: "anil@pie.in", name: "Anil Mehta", role: "Management" }],
+    getSettings: {
+      brands: [
+        { id: "BR-1", name: "ELGi", accentColor: "#E8871E", active: "TRUE" },
+        { id: "BR-2", name: "Cumi", accentColor: "#2A78D6", active: "FALSE" },
+        { id: "BR-3", name: "Champion", accentColor: "#0CA30C", active: "FALSE" }
+      ],
+      users: [
+        { id: "U-1", name: "Anil Mehta", username: "anil", email: "anil@pie.in", role: "Management", businessStream: "All", active: "TRUE", isSelf: true },
+        { id: "U-2", name: "Kiran Patil", username: "kiran", email: "kiran@pie.in", role: "Sales Coordinator", businessStream: "Spare Sales", active: "TRUE" },
+        { id: "U-3", name: "Neha Rao", username: "neha", email: "neha@pie.in", role: "Sales Engineer", businessStream: "Compressor Sales", active: "TRUE" }
+      ],
+      roles: ["Sales Coordinator", "Sales Engineer", "Service Coordinator", "Service Engineer", "Management", "ERP Admin"],
+      configLists: {}, lostReasons: [], warehouses: [], quoteTemplates: [], quoteSections: [],
+      tally: {}, companyProfile: {}, system: { build: "showcase" }
+    }
+  };
+
+  function respond(name, args, ok, fail) {
+    window.__calls.push({ fn: name, args: args });
+    setTimeout(function () {
+      var entry = window.__data[name];
+      if (entry === undefined) {
+        // A screen this fixture does not populate gets the empty answer the real server
+        // gives for a tenant with nothing in it, so it draws its empty state rather than
+        // throwing. The base fixture is strict about this; this one is for looking at.
+        ok(/^list/.test(name) ? [] : null);
+        return;
+      }
+      ok(typeof entry === "function" ? entry.apply(null, args) : entry);
+    }, 0);
+  }
+  function chain(handlers) {
+    return {
+      withSuccessHandler: function (fn) { return chain({ ok: fn, fail: handlers.fail }); },
+      withFailureHandler: function (fn) { return chain({ ok: handlers.ok, fail: fn }); },
+      call: function (token, name, args) {
+        respond(name, args || [], handlers.ok || function () { }, handlers.fail || function () { });
+      }
+    };
+  }
+  window.google = { script: { run: chain({}), host: { close: function () { } } } };
+})();
+</script>

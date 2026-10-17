@@ -14,6 +14,7 @@
  *
  *   DATABASE_URL=postgres://... node tests/server-test.js
  */
+const fs = require('fs');
 const path = require('path');
 
 const URL_ = process.env.DATABASE_URL;
@@ -123,6 +124,26 @@ const ok = (label, cond, detail) => {
     !/db\.js|assets|fonts\//.test(escaped.text), escaped.text);
   const posted = await post('/fonts/inter-latin-var.woff2', {});
   ok('and a POST to it is not a thing', posted.status === 404, posted.status);
+
+  console.log('\nAND IT WEARS THE NEW DESIGN, WITH THE OLD ONE A SWITCH AWAY');
+  // The new design is web/Stylesheet.html and web/Shell.html over the same markup and
+  // behaviour. ERP_UI=classic serves exactly what Apps Script serves, from the same files,
+  // so the new look can be switched off in a minute without a deployment.
+  ok('the page carries the new shell', /function buildPalette/.test(page.text));
+  ok('and the new stylesheet, not the one Apps Script serves',
+    /\.ws-bar\{/.test(page.text) && !/fonts\.googleapis\.com\/css2/.test(page.text));
+  ok('and the heading face it names is here to be fetched',
+    (await fetch(base + '/fonts/jakarta-latin-var.woff2')).status === 200);
+  const classicServer = build({ db, tenant: TENANT, ui: 'classic' });
+  await new Promise((r) => classicServer.listen(0, '127.0.0.1', r));
+  const classic = await (await fetch('http://127.0.0.1:' + classicServer.address().port + '/')).text();
+  await new Promise((r) => classicServer.close(r));
+  ok('switched to classic, the shell is gone', !/function buildPalette/.test(classic));
+  ok('and the stylesheet is the one Apps Script serves, byte for byte',
+    classic.indexOf(fs.readFileSync(path.join(__dirname, '..', 'src', 'Stylesheet.html'), 'utf8')) !== -1);
+  ok('with the same behaviour underneath', classic.indexOf(
+    fs.readFileSync(path.join(__dirname, '..', 'src', 'JavaScript.html'), 'utf8')) !== -1 &&
+    page.text.indexOf(fs.readFileSync(path.join(__dirname, '..', 'src', 'JavaScript.html'), 'utf8')) !== -1);
 
   console.log('\nAND SIGNING IN WORKS');
   const login = await post('/api/login', { username: 'boss', password });

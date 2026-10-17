@@ -1,0 +1,610 @@
+<script>
+/**
+ * The new design's behaviour: the parts of the shell a stylesheet cannot do on its own.
+ *
+ * Loaded after JavaScript.html, on the Node server only (see server/page.js). It changes no
+ * behaviour of the portal. Every screen, every save, every permission is still JavaScript.html
+ * doing exactly what it did; this file only adds things around it:
+ *
+ *   - an icon for every screen, in the sidebar and on the screen's own heading
+ *   - section labels where the menu has runs of screens no group heading names
+ *   - a bar across the top of the workspace: where you are, search, today's date
+ *   - a command palette — Ctrl K — to jump to any screen or start the common jobs
+ *   - the sidebar as a drawer on a phone
+ *   - a sign-in screen that says whose system this is
+ *
+ * It reaches the portal only through the DOM: it never calls a function inside
+ * JavaScript.html, it navigates by pressing the same buttons a person presses, and it watches
+ * for the menu and the dashboard being drawn rather than being told. So it cannot get between
+ * a button and what the button does, and if anything in here throws, the portal underneath is
+ * untouched — every part is wrapped so that a fault costs a decoration, not a screen.
+ *
+ * Icons: Lucide (https://lucide.dev), ISC License, Copyright (c) 2026 Lucide Icons and
+ * Contributors. Path data only, as published in lucide-static 1.58.0.
+ */
+(function () {
+  "use strict";
+
+  var ICONS = {
+    dashboard: "<rect width=\"7\" height=\"9\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"9\" x=\"14\" y=\"12\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\"/>",
+    compressor: "<path d=\"M12.8 19.6A2 2 0 1 0 14 16H2\"/><path d=\"M17.5 8a2.5 2.5 0 1 1 2 4H2\"/><path d=\"M9.8 4.4A2 2 0 1 1 11 8H2\"/>",
+    enquiries: "<path d=\"M11 10.27 7 3.34\"/><path d=\"m11 13.73-4 6.93\"/><path d=\"M12 22v-2\"/><path d=\"M12 2v2\"/><path d=\"M14 12h8\"/><path d=\"m17 20.66-1-1.73\"/><path d=\"m17 3.34-1 1.73\"/><path d=\"M2 12h2\"/><path d=\"m20.66 17-1.73-1\"/><path d=\"m20.66 7-1.73 1\"/><path d=\"m3.34 17 1.73-1\"/><path d=\"m3.34 7 1.73 1\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"8\"/>",
+    quote: "<path d=\"M11.35 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5.35\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M14 19h6\"/><path d=\"M17 16v6\"/>",
+    quotations: "<path d=\"M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8\"/><path d=\"M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z\"/><path d=\"M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1\"/>",
+    progress: "<path d=\"M16 7h6v6\"/><path d=\"m22 7-8.5 8.5-5-5L2 17\"/>",
+    orders: "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/><path d=\"M12 11h4\"/><path d=\"M12 16h4\"/><path d=\"M8 11h.01\"/><path d=\"M8 16h.01\"/>",
+    dispatch: "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>",
+    service: "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z\"/>",
+    collections: "<path d=\"M6 3h12\"/><path d=\"M6 8h12\"/><path d=\"m6 13 8.5 8\"/><path d=\"M6 13h3\"/><path d=\"M9 13c6.667 0 6.667-10 0-10\"/>",
+    inventory: "<path d=\"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z\"/><path d=\"m7 16.5-4.74-2.85\"/><path d=\"m7 16.5 5-3\"/><path d=\"M7 16.5v5.17\"/><path d=\"M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z\"/><path d=\"m17 16.5-5-3\"/><path d=\"m17 16.5 4.74-2.85\"/><path d=\"M17 16.5v5.17\"/><path d=\"M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z\"/><path d=\"M12 8 7.26 5.15\"/><path d=\"m12 8 4.74-2.85\"/><path d=\"M12 13.5V8\"/>",
+    customers: "<path d=\"M10 12h4\"/><path d=\"M10 8h4\"/><path d=\"M14 21v-3a2 2 0 0 0-4 0v3\"/><path d=\"M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2\"/><path d=\"M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16\"/>",
+    catalog: "<path d=\"M12 5v16\"/><path d=\"M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z\"/>",
+    settings: "<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
+    search: "<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>",
+    menu: "<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>",
+    x: "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>",
+    chevron: "<path d=\"m9 18 6-6-6-6\"/>",
+    plus: "<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>",
+    logout: "<path d=\"m16 17 5-5-5-5\"/><path d=\"M21 12H9\"/><path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4\"/>",
+    calendar: "<path d=\"M8 2v3\"/><path d=\"M16 2v3\"/><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M3 9h18\"/>",
+    enter: "<path d=\"M20 4v7a4 4 0 0 1-4 4H4\"/><path d=\"m9 10-5 5 5 5\"/>",
+    up: "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>",
+    down: "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>",
+    key: "<path d=\"M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z\"/><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>",
+    check: "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m16 9-5.5 5.5L8 12\"/>",
+    shield: "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/><path d=\"m9 12 2 2 4-4\"/>",
+    zap: "<path d=\"M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z\"/>",
+    layers: "<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\"/><path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\"/><path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\"/>",
+    activity: "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>",
+    coins: "<path d=\"M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17\"/><path d=\"m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9\"/><path d=\"m2 16 6 6\"/><circle cx=\"16\" cy=\"9\" r=\"2.9\"/><circle cx=\"6\" cy=\"5\" r=\"3\"/>",
+    timer: "<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\"/><line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\"/><circle cx=\"12\" cy=\"14\" r=\"8\"/>",
+    file: "<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>",
+    arrow: "<path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/>",
+    sparkles: "<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>",
+    gauge: "<path d=\"m12 14 4-4\"/><path d=\"M3.34 19a10 10 0 1 1 17.32 0\"/>",
+    package: "<path d=\"M12 22V12\"/><path d=\"m16 17 2 2 4-4\"/><path d=\"M21 11.127V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l1.32-.753\"/><path d=\"M3.29 7 12 12l8.71-5\"/><path d=\"m7.5 4.27 8.997 5.148\"/>",
+    lock: "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>",
+    clock: "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6l4 2\"/>",
+    users: "<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\"/><circle cx=\"12\" cy=\"7\" r=\"4\"/>",
+    inbox: "<polyline points=\"22 12 16 12 14 15 10 15 8 12 2 12\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/>"
+  };
+
+  /** Which part of the business each screen belongs to — the breadcrumb, and the menu's labels. */
+  var SECTION = {
+    dashboard: "Overview", compressor: "Sales", enquiries: "Sales",
+    quote: "Quotations", quotations: "Quotations", progress: "Quotations",
+    orders: "Orders", dispatch: "Orders", service: "Orders", collections: "Orders",
+    inventory: "Stock", customers: "Masters", catalog: "Masters", settings: "Admin"
+  };
+
+  /** The jobs worth starting from anywhere. Each is a button that already exists on its screen. */
+  var ACTIONS = [
+    { view: "enquiries", button: "btn-new-enquiry", label: "Log a spare enquiry" },
+    { view: "compressor", button: "btn-new-lead", label: "Log a compressor lead" },
+    { view: "customers", button: "btn-new-customer", label: "Add a customer" },
+    { view: "orders", button: "btn-new-order", label: "Create an order from a quotation" },
+    { view: "service", button: "btn-new-breakdown", label: "Log a breakdown call" },
+    { view: "catalog", button: "btn-new-catalog-item", label: "Add to the catalogue" }
+  ];
+
+  /** The four headline figures on the dashboard, in the order it draws them. */
+  var KPI_ICONS = ["coins", "orders", "file", "progress"];
+
+  /** Dashboard cards, by the title they are drawn with. */
+  var CARD_ICONS = {
+    "needs attention": "zap", "exceptions": "zap", "order pipeline": "layers",
+    "receivables ageing": "timer", "invoiced vs collected": "activity",
+    "compressor funnel": "compressor", "spare enquiries": "enquiries",
+    "who holds our money": "coins"
+  };
+
+  var IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || "");
+  var SHORTCUT = IS_MAC ? "⌘K" : "Ctrl K";
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function svg(name, cls) {
+    var body = ICONS[name];
+    if (!body) return "";
+    return '<svg class="' + (cls || "ico") + '" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.75" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true" focusable="false">' + body + "</svg>";
+  }
+  function labelOf(el) { return (el.textContent || "").replace(/\s+/g, " ").trim(); }
+
+  /** A fault in here costs a decoration, never a screen. */
+  function safely(what, fn) {
+    try { return fn(); }
+    catch (err) { if (window.console && console.warn) console.warn("[shell] " + what + ": " + (err && err.message)); }
+  }
+
+  /** Coalesces a burst of DOM changes — goToTab flips a class on every menu button. */
+  function soon(fn) {
+    var queued = false;
+    return function () {
+      if (queued) return;
+      queued = true;
+      setTimeout(function () { queued = false; safely("update", fn); }, 0);
+    };
+  }
+
+  // ------------------------------------------------------------------ the sidebar
+
+  var tabsWatch = null;
+
+  function decorateNav() {
+    var tabs = $("tabs");
+    if (!tabs) return;
+    // Labels are inserted into the same list being watched; without this the watcher would
+    // see its own insertions and go round for ever.
+    if (tabsWatch) tabsWatch.disconnect();
+    safely("nav", function () {
+      tabs.querySelectorAll(".nav-label").forEach(function (n) { n.parentNode.removeChild(n); });
+
+      tabs.querySelectorAll("[data-view]").forEach(function (b) {
+        var v = b.dataset.view;
+        if (!b.querySelector(".nav-ico")) {
+          b.insertAdjacentHTML("afterbegin", svg(ICONS[v] ? v : "dashboard", "nav-ico"));
+        }
+        // The narrow sidebar shows icons alone; this is what names them on hover.
+        if (!b.title) b.title = labelOf(b);
+      });
+
+      // A group heading names Quotations, Orders and Masters. The screens between them have
+      // no heading, so a run of them would read as part of the group above. Each run gets
+      // the name of the part of the business it belongs to, and only when it changes.
+      var current = "";
+      Array.prototype.slice.call(tabs.children).forEach(function (el) {
+        if (el.classList.contains("nav-group")) {
+          var head = el.querySelector("[data-group]");
+          // The heading's own words, without the dropdown caret JavaScript.html puts after them.
+          if (head) { head.tabIndex = -1; current = (head.firstChild && head.firstChild.nodeValue || "").trim(); }
+          return;
+        }
+        var v = el.dataset ? el.dataset.view : null;
+        if (!v) return;
+        var section = SECTION[v] || "";
+        if (section === "Overview" || section === "Admin") { current = section; return; }
+        if (section && section !== current) {
+          var label = document.createElement("div");
+          label.className = "nav-label";
+          label.textContent = section;
+          tabs.insertBefore(label, el);
+          current = section;
+        }
+      });
+    });
+    if (tabsWatch) tabsWatch.observe(tabs, { childList: true });
+    syncPlace();
+  }
+
+  // ------------------------------------------------------------------ where you are
+
+  var lastView = null;
+  var visited = {};
+
+  function syncPlace() {
+    var leaf = document.querySelector("#tabs [data-view].active");
+    if (!leaf) return;
+    var v = leaf.dataset.view;
+    var name = labelOf(leaf);
+    var section = SECTION[v] || "";
+    var sec = $("ws-crumb-section");
+    var page = $("ws-crumb-page");
+    if (sec && page) {
+      sec.textContent = section;
+      page.textContent = name;
+      sec.parentNode.classList.toggle("is-top", !section || section === name);
+    }
+    visited[v] = true;
+    if (v !== lastView) {
+      // A new screen starts at its top. In a sidebar layout the old position carries over
+      // from screen to screen, so you could press Customers and land half way down it.
+      if (lastView !== null) window.scrollTo(0, 0);
+      closeNav();
+      lastView = v;
+    }
+  }
+
+  // ------------------------------------------------------------------ the bar across the top
+
+  function buildBar() {
+    var app = $("app");
+    var topbar = app && app.querySelector(".topbar");
+    if (!topbar || $("ws-bar")) return;
+    var today = new Date().toLocaleDateString("en-IN",
+      { weekday: "short", day: "numeric", month: "short" });
+
+    var bar = document.createElement("header");
+    bar.className = "ws-bar";
+    bar.id = "ws-bar";
+    bar.innerHTML =
+      '<button class="ws-menu" type="button" aria-label="Open the menu">' + svg("menu") + "</button>" +
+      '<nav class="ws-crumbs" aria-label="You are here">' +
+        '<span class="ws-crumb-section" id="ws-crumb-section"></span>' +
+        '<span class="ws-crumb-sep" aria-hidden="true">' + svg("chevron") + "</span>" +
+        '<span class="ws-crumb-page" id="ws-crumb-page"></span>' +
+      "</nav>" +
+      '<div class="ws-tools">' +
+        '<button class="ws-search" id="ws-search" type="button" ' +
+          'aria-label="Search or jump to (' + SHORTCUT + ')">' + svg("search") +
+          "<span>Search or jump to…</span><kbd>" + SHORTCUT + "</kbd></button>" +
+        '<span class="ws-date">' + svg("calendar") + esc(today) + "</span>" +
+      "</div>";
+    topbar.parentNode.insertBefore(bar, topbar.nextSibling);
+
+    var scrim = document.createElement("div");
+    scrim.className = "nav-scrim";
+    app.appendChild(scrim);
+
+    bar.querySelector(".ws-menu").addEventListener("click", function () {
+      document.documentElement.classList.toggle("nav-open");
+    });
+    scrim.addEventListener("click", closeNav);
+    $("ws-search").addEventListener("click", openPalette);
+  }
+
+  function closeNav() { document.documentElement.classList.remove("nav-open"); }
+
+  /** Folds the sidebar to its icons on a wide screen. Remembered per browser. */
+  function buildCollapse() {
+    var topbar = document.querySelector("#app .topbar");
+    if (!topbar || $("nav-collapse")) return;
+    var KEY = "pie.erp.sidebar";
+    var b = document.createElement("button");
+    b.id = "nav-collapse";
+    b.type = "button";
+    b.className = "nav-collapse";
+    b.innerHTML = svg("chevron");
+    topbar.appendChild(b);
+    function apply(folded) {
+      document.documentElement.classList.toggle("sidebar-collapsed", folded);
+      var say = folded ? "Expand the menu" : "Collapse the menu";
+      b.setAttribute("aria-label", say);
+      b.title = say;
+      b.setAttribute("aria-expanded", folded ? "false" : "true");
+    }
+    var saved = false;
+    try { saved = window.localStorage.getItem(KEY) === "1"; } catch (e) { /* private window */ }
+    apply(saved);
+    b.addEventListener("click", function () {
+      var folded = !document.documentElement.classList.contains("sidebar-collapsed");
+      apply(folded);
+      try { window.localStorage.setItem(KEY, folded ? "1" : "0"); } catch (e) { /* not kept */ }
+    });
+  }
+
+  // ------------------------------------------------------------------ headings and buttons
+
+  function decoratePageHeads() {
+    document.querySelectorAll(".view").forEach(function (view) {
+      var key = view.id.replace(/^view-/, "");
+      var head = view.querySelector(":scope > .page-head");
+      if (!head || !ICONS[key] || head.querySelector(".page-ico")) return;
+      var tile = document.createElement("span");
+      tile.className = "page-ico";
+      tile.setAttribute("aria-hidden", "true");
+      tile.innerHTML = svg(key);
+      head.insertBefore(tile, head.firstChild);
+    });
+  }
+
+  /** "+ Log Enquiry" becomes a plus sign and "Log Enquiry". Static buttons only. */
+  function decorateButtons() {
+    document.querySelectorAll(".btn").forEach(function (b) {
+      var first = b.firstChild;
+      if (!first || first.nodeType !== 3) return;
+      var m = /^\s*\+\s+/.exec(first.nodeValue);
+      if (!m) return;
+      first.nodeValue = first.nodeValue.slice(m[0].length);
+      b.insertAdjacentHTML("afterbegin", svg("plus"));
+    });
+  }
+
+  /**
+   * The button row at the foot of every form.
+   *
+   * Thirty-one of them are a div carrying its layout inline; four use the class modal-actions.
+   * Index.html is shared with Apps Script and stays exactly as it is there, so the class is
+   * given here instead, to every row that is the last thing in a form and holds its buttons.
+   * The stylesheet then pins the row to the bottom of the sheet.
+   */
+  function decorateFooters() {
+    document.querySelectorAll(".modal > div:last-child").forEach(function (row) {
+      if (row.classList.contains("modal-actions")) return;
+      var st = row.getAttribute("style") || "";
+      if (!/display:\s*flex/.test(st) || !/justify-content/.test(st)) return;
+      if (!row.querySelector("button, .btn")) return;
+      row.classList.add("modal-actions");
+    });
+  }
+
+  /** The rows of sub-screen buttons inside a screen — Leads / Pipeline, Users / Lists. */
+  function decorateSubtabs() {
+    document.querySelectorAll('button[id^="subtab-"]').forEach(function (b) {
+      if (b.parentNode && b.parentNode.classList) b.parentNode.classList.add("subtabs");
+    });
+  }
+
+  function decorateUser() {
+    var out = $("btn-signout");
+    // The words stay, for a screen reader; the icon is what is seen.
+    if (out && !out.querySelector("svg")) {
+      out.innerHTML = svg("logout") + '<span class="sr-only">Sign out</span>';
+    }
+    var name = document.querySelector("#whoami .user-meta b");
+    if (name) greet(labelOf(name));
+  }
+
+  function greet(fullName) {
+    var head = document.querySelector("#view-dashboard > .page-head > div");
+    if (!head) return;
+    var line = head.querySelector(".page-eyebrow");
+    if (!line) {
+      line = document.createElement("div");
+      line.className = "page-eyebrow";
+      head.insertBefore(line, head.firstChild);
+    }
+    var h = new Date().getHours();
+    var first = String(fullName || "").trim().split(/\s+/)[0];
+    line.textContent = (h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening") +
+      (first ? ", " + first : "");
+  }
+
+  function decorateDashboard() {
+    var body = $("dash-body");
+    if (!body) return;
+    body.querySelectorAll(".hero-card").forEach(function (card, i) {
+      if (card.querySelector(".kpi-ico")) return;
+      card.insertAdjacentHTML("afterbegin", '<span class="kpi-ico kpi-ico-' + (i % 4 + 1) +
+        '" aria-hidden="true">' + svg(KPI_ICONS[i % KPI_ICONS.length]) + "</span>");
+    });
+    body.querySelectorAll(".card-title").forEach(function (t) {
+      if (t.querySelector(".card-ico")) return;
+      var key = CARD_ICONS[labelOf(t).toLowerCase()];
+      if (key) t.insertAdjacentHTML("afterbegin", '<span class="card-ico" aria-hidden="true">' +
+        svg(key) + "</span>");
+    });
+  }
+
+  // ------------------------------------------------------------------ signing in
+
+  function buildSignIn() {
+    var screen = $("signin-screen");
+    var card = screen && screen.querySelector(":scope > .card");
+    if (!card || screen.classList.contains("signin-split")) return;
+    // The company is not known until somebody signs in, but the server has already put its
+    // name in the page title — the same profile row the header reads afterwards.
+    var name = (document.title || "").trim() || "ERP";
+    var mark = name.replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "ER";
+
+    var aside = document.createElement("aside");
+    aside.className = "signin-aside";
+    aside.innerHTML =
+      '<div class="signin-brand"><span class="brand-mark">' + esc(mark) + "</span>" +
+        "<span>" + esc(name) + "</span></div>" +
+      '<div class="signin-hero">' +
+        "<h1>From the first enquiry to the last rupee, <em>in one place</em></h1>" +
+        "<p>Quotations priced from the live list, stock you can promise before you quote, " +
+          "and every order followed through dispatch and billing to the receipt.</p>" +
+        '<ul class="signin-points">' +
+          "<li>" + svg("enquiries") + "The right part, identified against the customer’s machine</li>" +
+          "<li>" + svg("shield") + "Credit checked before anything leaves the building</li>" +
+          "<li>" + svg("collections") + "Ageing worked out from invoices and receipts, never typed in</li>" +
+        "</ul>" +
+      "</div>" +
+      '<div class="signin-foot">' + svg("lock") + "Access is set up by your ERP Admin</div>";
+
+    // The card moves into a column of its own. Its fields keep their ids and listeners —
+    // moving an element moves everything attached to it.
+    var main = document.createElement("div");
+    main.className = "signin-main";
+    screen.insertBefore(aside, card);
+    screen.insertBefore(main, card);
+    main.appendChild(card);
+    screen.classList.add("signin-split");
+  }
+
+  // ------------------------------------------------------------------ the command palette
+
+  var palette = null, list = null, input = null, items = [], selected = 0, lastFocus = null;
+
+  function buildPalette() {
+    palette = document.createElement("div");
+    palette.className = "cmdk-backdrop";
+    palette.id = "cmdk";
+    palette.hidden = true;
+    palette.innerHTML =
+      '<div class="cmdk" role="dialog" aria-modal="true" aria-label="Search or jump to">' +
+        '<div class="cmdk-input">' + svg("search") +
+          '<input id="cmdk-q" type="text" autocomplete="off" spellcheck="false" ' +
+            'placeholder="Jump to a screen, or start something…" role="combobox" ' +
+            'aria-expanded="true" aria-controls="cmdk-list" aria-autocomplete="list">' +
+          "<kbd>Esc</kbd></div>" +
+        '<div class="cmdk-list" id="cmdk-list" role="listbox"></div>' +
+        '<div class="cmdk-foot"><span><kbd>↑</kbd><kbd>↓</kbd> to move</span>' +
+          "<span><kbd>↵</kbd> to open</span><span><kbd>Esc</kbd> to close</span></div>" +
+      "</div>";
+    document.body.appendChild(palette);
+    list = palette.querySelector(".cmdk-list");
+    input = palette.querySelector("input");
+
+    palette.addEventListener("mousedown", function (e) { if (e.target === palette) closePalette(); });
+    input.addEventListener("input", function () { selected = 0; renderPalette(); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown") { e.preventDefault(); select(selected + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); select(selected - 1); }
+      else if (e.key === "Enter") { e.preventDefault(); run(items[selected]); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePalette(); }
+    });
+    list.addEventListener("mousemove", function (e) {
+      var b = e.target.closest(".cmdk-item");
+      if (b && +b.dataset.i !== selected) select(+b.dataset.i, true);
+    });
+    list.addEventListener("click", function (e) {
+      var b = e.target.closest(".cmdk-item");
+      if (b) run(items[+b.dataset.i]);
+    });
+  }
+
+  /** What can be reached from here: the screens this person's menu offers, and the jobs on them. */
+  function entries() {
+    var out = [];
+    document.querySelectorAll("#tabs [data-view]").forEach(function (b) {
+      var v = b.dataset.view;
+      out.push({ view: v, label: labelOf(b), meta: SECTION[v] || "", icon: ICONS[v] ? v : "dashboard" });
+    });
+    ACTIONS.forEach(function (a) {
+      if (!document.querySelector('#tabs [data-view="' + a.view + '"]')) return;
+      var btn = $(a.button);
+      if (!btn) return;
+      // A screen that has been opened has already said whether this person may use its
+      // button. One that has not is offered, and simply opens if the answer is no.
+      if (visited[a.view] && btn.style.display === "none") return;
+      out.push({ view: a.view, button: a.button, label: a.label, meta: "Action", icon: "plus" });
+    });
+    return out;
+  }
+
+  function score(item, q) {
+    if (!q) return 1;
+    var label = item.label.toLowerCase();
+    var hay = label + " " + item.meta.toLowerCase();
+    if (label.indexOf(q) === 0) return 100;
+    if (label.split(/[\s&\-]+/).some(function (w) { return w.indexOf(q) === 0; })) return 80;
+    if (hay.indexOf(q) !== -1) return 60;
+    // Letters in order, inside the name only: across "name + section" a query finds
+    // its last letters in the section word and matches things it plainly is not.
+    for (var i = 0, j = 0; i < label.length; i++) {
+      if (label.charAt(i) === q.charAt(j)) j++;
+      if (j === q.length) return 20;
+    }
+    return 0;
+  }
+
+  function renderPalette() {
+    var q = input.value.trim().toLowerCase();
+    var all = entries().map(function (it) { it.score = score(it, q); return it; })
+      .filter(function (it) { return it.score > 0; });
+    var go = all.filter(function (it) { return !it.button; });
+    var act = all.filter(function (it) { return it.button; });
+    if (q) {
+      var by = function (a, b) { return b.score - a.score; };
+      go.sort(by); act.sort(by);
+    }
+    items = go.concat(act);
+    if (!items.length) {
+      list.innerHTML = '<div class="cmdk-empty">Nothing matches “' + esc(input.value.trim()) +
+        "”.</div>";
+      return;
+    }
+    var html = "", n = 0;
+    [["Go to", go], ["Start something", act]].forEach(function (group) {
+      if (!group[1].length) return;
+      html += '<div class="cmdk-group" role="presentation">' + group[0] + "</div>";
+      group[1].forEach(function (it) {
+        html += '<button type="button" class="cmdk-item" role="option" id="cmdk-opt-' + n +
+          '" data-i="' + n + '" aria-selected="' + (n === selected) + '">' +
+          '<span class="cmdk-ico">' + svg(it.icon) + "</span>" +
+          '<span class="cmdk-label">' + esc(it.label) + "</span>" +
+          '<span class="cmdk-meta">' + esc(it.meta) + "</span></button>";
+        n++;
+      });
+    });
+    list.innerHTML = html;
+    select(Math.min(selected, items.length - 1), true);
+  }
+
+  function select(i, fromMouse) {
+    if (!items.length) return;
+    selected = (i + items.length) % items.length;
+    list.querySelectorAll(".cmdk-item").forEach(function (b) {
+      var on = +b.dataset.i === selected;
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      if (on && !fromMouse) b.scrollIntoView({ block: "nearest" });
+    });
+    input.setAttribute("aria-activedescendant", "cmdk-opt-" + selected);
+  }
+
+  function openPalette() {
+    var app = $("app");
+    if (!app || app.style.display === "none") return;
+    if (!palette) buildPalette();
+    lastFocus = document.activeElement;
+    input.value = "";
+    selected = 0;
+    renderPalette();
+    palette.hidden = false;
+    input.focus();
+  }
+
+  function closePalette() {
+    if (!palette || palette.hidden) return;
+    palette.hidden = true;
+    if (lastFocus && lastFocus.focus) safely("focus", function () { lastFocus.focus(); });
+  }
+
+  function run(item) {
+    if (!item) return;
+    closePalette();
+    var nav = document.querySelector('#tabs [data-view="' + item.view + '"]');
+    if (nav) nav.click();
+    if (!item.button) return;
+    // Opening the screen is what decides whether its button is shown, so it is pressed
+    // after, and only if it is there to press.
+    setTimeout(function () {
+      var b = $(item.button);
+      if (b && b.style.display !== "none" && !b.disabled) b.click();
+    }, 60);
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "k" || e.key === "K")) {
+      // Not over an open form: a palette that jumps away from half-typed work loses it.
+      if (document.querySelector(".modal-backdrop.show")) return;
+      e.preventDefault();
+      if (palette && !palette.hidden) closePalette(); else openPalette();
+    } else if (e.key === "Escape") {
+      closeNav();
+    }
+  });
+
+  // ------------------------------------------------------------------ start
+
+  safely("bar", buildBar);
+  safely("collapse", buildCollapse);
+  safely("headings", decoratePageHeads);
+  safely("buttons", decorateButtons);
+  safely("subtabs", decorateSubtabs);
+  safely("footers", decorateFooters);
+  safely("sign-in", buildSignIn);
+
+  safely("watch", function () {
+    var tabs = $("tabs");
+    if (tabs) {
+      tabsWatch = new MutationObserver(soon(decorateNav));
+      tabsWatch.observe(tabs, { childList: true });
+      new MutationObserver(soon(syncPlace))
+        .observe(tabs, { subtree: true, attributes: true, attributeFilter: ["class"] });
+      // Capture phase: the menu's own handler stops the click from going any further.
+      tabs.addEventListener("click", function (e) {
+        if (e.target.closest && e.target.closest("[data-view]")) closeNav();
+      }, true);
+      if (tabs.children.length) decorateNav();
+    }
+    var who = $("whoami");
+    if (who) {
+      new MutationObserver(soon(decorateUser)).observe(who, { childList: true });
+      if (who.children.length) decorateUser();
+    }
+    var dash = $("dash-body");
+    if (dash) new MutationObserver(soon(decorateDashboard)).observe(dash, { childList: true });
+  });
+
+  document.documentElement.classList.add("shell-ready");
+})();
+</script>

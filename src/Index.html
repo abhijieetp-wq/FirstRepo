@@ -877,7 +877,7 @@
     </div>
     <p id="pm-stock-summary" class="mono" style="font-size:12px; color:var(--ink-soft); margin:6px 0 0;"></p>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px; flex-wrap:wrap;">
       <div style="display:flex; gap:10px;">
         <button class="btn btn-danger" id="btn-delete-part" style="display:none;">Deactivate</button>
         <button class="btn" id="btn-purge-part" style="display:none;">Delete permanently</button>
@@ -937,7 +937,7 @@
 
     <div class="field" style="margin-top:12px;"><label>Notes</label><input id="um-notes" /></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px; flex-wrap:wrap;">
       <div style="display:flex; gap:10px;">
         <button class="btn btn-danger" id="btn-delete-unit" style="display:none;">Deactivate</button>
         <button class="btn" id="btn-purge-unit" style="display:none;">Delete permanently</button>
@@ -1086,7 +1086,7 @@
     </div>
     <div id="cm-itemcodes"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
       <button class="btn btn-danger" id="btn-deactivate-customer" style="display:none;">Deactivate</button>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-cancel-customer">Close</button>
@@ -1131,7 +1131,7 @@
 
     <div id="qd-result" style="margin-top:12px;"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
       <button class="btn" id="btn-qd-close" type="button">Close</button>
       <button class="btn" id="btn-qd-print" type="button">Print</button>
       <button class="btn" id="btn-qd-pdf" type="button">Save PDF to Drive</button>
@@ -1166,7 +1166,7 @@
       <input type="checkbox" id="qtpl-active" /> Print this section
     </label>
 
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
       <button class="btn" id="btn-cancel-qtpl" type="button">Cancel</button>
       <button class="btn btn-primary" id="btn-save-qtpl" type="button">Save</button>
     </div>
@@ -1221,7 +1221,7 @@
 
     <div id="sj-enquiry-note" style="margin-top:16px;"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; gap:10px; margin-top:22px; flex-wrap:wrap;">
       <div style="display:flex; gap:10px;">
         <button class="btn btn-ghost" id="btn-sj-report">Service Report</button>
         <button class="btn btn-ghost" id="btn-sj-enquiry">Raise Spare Enquiry</button>
@@ -1259,7 +1259,7 @@
       <label>What is wrong? *</label>
       <textarea id="bd-scope" placeholder="Their words — the symptom, when it started, what they have tried"></textarea>
     </div>
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
       <button class="btn" id="btn-bd-cancel">Cancel</button>
       <button class="btn btn-primary" id="btn-bd-save">Log Call</button>
     </div>
@@ -1281,7 +1281,7 @@
       This goes to Spare Sales unassigned. They quote it, the customer approves, and then an
       engineer goes out to fit it.
     </p>
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
       <button class="btn" id="btn-sjenq-cancel">Cancel</button>
       <button class="btn btn-primary" id="btn-sjenq-save">Raise Enquiry</button>
     </div>
@@ -1305,7 +1305,7 @@
       <textarea id="qmail-body" rows="12" style="min-height:220px; font-family:inherit;"></textarea>
     </div>
     <p id="qmail-foot" style="font-size:11.5px; color:var(--ink-soft); margin:12px 0 0;"></p>
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
       <button class="btn" id="btn-qmail-cancel" type="button">Cancel</button>
       <button class="btn btn-primary" id="btn-qmail-send" type="button">Send</button>
     </div>
@@ -1324,7 +1324,7 @@
       <label id="ask-select-label">Choose one</label>
       <select id="ask-select"></select>
     </div>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
       <button class="btn" id="ask-cancel" type="button">Cancel</button>
       <button class="btn btn-primary" id="ask-ok" type="button">Confirm</button>
     </div>
@@ -1411,7 +1411,7 @@
 
     <div id="em-items"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
       <div></div>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-cancel-enquiry">Close</button>
@@ -1507,7 +1507,7 @@
       </div>
     </div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
       <div></div>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-cancel-lead">Close</button>
@@ -1644,7 +1644,7 @@
 
     <div id="om-quotations" style="margin-top:20px;"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
       <div></div>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-cancel-opp">Close</button>
@@ -1680,7 +1680,7 @@
       The PO value is compared against the quoted total. A mismatch does not block the order —
       it is recorded on it and flagged, so nobody can later say it went unseen.
     </p>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-neworder">Cancel</button>
       <button class="btn btn-primary" id="btn-save-neworder">Create Order</button>
     </div>
@@ -1792,7 +1792,7 @@
     <div class="card-title" style="margin-top:20px;">Credit Check History</div>
     <div id="om2-checks"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-order">Close</button>
     </div>
   </div>
@@ -1855,7 +1855,7 @@
 
     <div id="grn-items"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px;">
       <div></div>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-grn-close">Close</button>
@@ -1882,7 +1882,7 @@
       </div>
       <div class="field"><label>Notes</label><input id="sn-notes" /></div>
     </div>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-serial">Cancel</button>
       <button class="btn btn-primary" id="btn-save-serial">Save Serial</button>
     </div>
@@ -1922,7 +1922,7 @@
       <div class="field"><label>Override Reason *</label><input id="nd-override" /></div>
     </div>
 
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-newdispatch">Cancel</button>
       <button class="btn btn-primary" id="btn-save-newdispatch">Open Dispatch</button>
     </div>
@@ -1991,7 +1991,7 @@
 
     <div id="dm-servicejob" style="margin-top:16px;"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px;">
       <button class="btn btn-ghost" id="btn-dm-delivered" style="display:none;">Confirm Delivery</button>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-dm-close">Close</button>
@@ -2016,7 +2016,7 @@
       <div class="field"><label>Warranty Terms</label><input id="ni-warranty" placeholder="e.g. 12 months from despatch" /></div>
     </div>
     <div class="field" style="margin-top:12px;"><label>Notes</label><input id="ni-notes" /></div>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-newinvoice">Cancel</button>
       <button class="btn btn-primary" id="btn-save-newinvoice">Create Draft Invoice</button>
     </div>
@@ -2101,7 +2101,7 @@
       <button class="btn btn-sm btn-ghost" id="btn-im-tallymanual">Mark Entered Manually</button>
     </div>
 
-    <div class="modal-actions">
+    <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px;">
       <button class="btn btn-danger" id="btn-im-cancelinvoice" style="display:none;">Cancel Invoice</button>
       <div style="display:flex; gap:10px; margin-left:auto;">
         <button class="btn" id="btn-im-close">Close</button>
@@ -2133,7 +2133,7 @@
     </div>
     <div class="field" style="margin-top:12px;"><label>Notes</label><input id="rcp-notes" /></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-receipt">Cancel</button>
       <button class="btn btn-primary" id="btn-save-receipt">Record Receipt</button>
     </div>
@@ -2174,7 +2174,7 @@
       </select>
     </div>
 
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-followup">Cancel</button>
       <button class="btn btn-primary" id="btn-save-followup">Save Follow-up</button>
     </div>
@@ -2227,7 +2227,7 @@
 
     <div id="ri-preview"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-rcpimport">Close</button>
       <button class="btn btn-primary" id="btn-ri-commit" style="display:none;">Import Receipts</button>
     </div>
@@ -2246,7 +2246,7 @@
     <div id="st-receipts"></div>
     <div class="card-title" style="margin-top:20px;">Follow-ups</div>
     <div id="st-followups"></div>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-st-close">Close</button>
     </div>
   </div>
@@ -2299,7 +2299,7 @@
     </div>
     <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="usr-active" checked /> Active — can sign in</label>
     <p id="usr-note" style="font-size:11.5px; color:var(--ink-soft); margin:8px 0 0;"></p>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-user">Cancel</button>
       <button class="btn btn-primary" id="btn-save-user">Save User</button>
     </div>
@@ -2321,7 +2321,7 @@
       <div class="field"><label>Sort Order</label><input id="cli-sort" type="number" min="0" /></div>
     </div>
     <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="cli-active" checked /> Active</label>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-listitem">Cancel</button>
       <button class="btn btn-primary" id="btn-save-listitem">Save Item</button>
     </div>
@@ -2340,7 +2340,7 @@
       </select>
     </div>
     <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="lr-active" checked /> Active</label>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-reason">Cancel</button>
       <button class="btn btn-primary" id="btn-save-reason">Save Reason</button>
     </div>
@@ -2364,7 +2364,7 @@
     </div>
     <div class="field" style="margin-top:12px;"><label>Address</label><input id="wh-address" /></div>
     <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="wh-active" checked /> Active</label>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-warehouse">Cancel</button>
       <button class="btn btn-primary" id="btn-save-warehouse">Save Location</button>
     </div>
@@ -2381,7 +2381,7 @@
       <div class="field"><label>Accent Colour</label><input id="br-color" type="color" style="height:38px; padding:2px;" /></div>
     </div>
     <label class="check-line" style="margin-top:12px;"><input type="checkbox" id="br-active" /> Live — usable in the app</label>
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-cancel-brand">Cancel</button>
       <button class="btn btn-primary" id="btn-save-brand">Save Brand</button>
     </div>
@@ -2423,7 +2423,7 @@
 
     <div id="ti-preview"></div>
 
-    <div class="modal-actions">
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:22px;">
       <button class="btn" id="btn-ti-close">Close</button>
       <button class="btn btn-primary" id="btn-ti-commit" style="display:none;">Import</button>
     </div>

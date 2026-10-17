@@ -60,6 +60,14 @@ function build(options) {
   const properties = Object.assign({}, process.env.ERP_PROPERTIES
     ? JSON.parse(process.env.ERP_PROPERTIES) : {}, o.properties || {});
 
+  /**
+   * Which face of the portal to serve. The new design by default; ERP_UI=classic serves
+   * exactly what Apps Script serves, from the same files. Same behaviour either way — only
+   * the stylesheet and the shell differ — so this is a way to switch the new look off in a
+   * minute if it ever has to be, without a deployment and without losing anything.
+   */
+  const ui = (o.ui || process.env.ERP_UI) === 'classic' ? 'classic' : 'web';
+
 function body(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -156,7 +164,7 @@ function statusFor(message) {
           const row = await db.findRowById('CompanyProfile', names.COMPANY_ROW_ID);
           if (row && row.appName) title = row.appName;
         } catch (err) { /* pre-setup, or the profile row is not there yet */ }
-        const page = render({ title, googlePass: '' });
+        const page = render({ title, googlePass: '' }, { ui });
         if (page.warnings.length) {
           console.error('Template tags the renderer does not understand: ' +
             page.warnings.join(' '));
@@ -303,6 +311,7 @@ function statusFor(message) {
 
   server.db = db;
   server.tenant = tenant;
+  server.ui = ui;
   return server;
 }
 
@@ -316,6 +325,8 @@ if (require.main === module) {
   server.listen(port, () => {
     console.log('The portal is on http://localhost:' + port);
     console.log('  tenant:   ' + server.tenant);
+    console.log('  look:     ' + (server.ui === 'classic'
+      ? 'classic (ERP_UI=classic) — the Apps Script design' : 'the new design'));
     console.log('  database: ' +
       String(process.env.DATABASE_URL).replace(/:[^:@/]*@/, ':****@'));
   });

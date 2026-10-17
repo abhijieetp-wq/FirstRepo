@@ -180,13 +180,18 @@ const ok = (label, cond, detail) => {
   // other and everything else still passes.
   const faces = await page.evaluate(() => ({
     inter: document.fonts.check('600 14px Inter'),
+    jakarta: document.fonts.check('700 26px "Plus Jakarta Sans"'),
     plex: document.fonts.check('400 13px \"IBM Plex Mono\"')
   }));
   ok('Inter is loaded, not substituted', faces.inter === true, faces);
+  ok('and so is Plus Jakarta Sans, for the headings', faces.jakarta === true, faces);
   ok('and so is IBM Plex Mono', faces.plex === true, faces);
+  // Not a count: a browser fetches a face only once something on screen uses it, so how many
+  // arrive depends on the screen. What must hold is where every one of them came from.
   const served = await page.evaluate(() => performance.getEntriesByType('resource')
-    .filter((r) => /\.woff2$/.test(r.name)).map((r) => r.name.replace(/.*\//, '')));
-  ok('all three faces came from here', served.length === 3, served);
+    .filter((r) => /\.woff2$/.test(r.name)).map((r) => r.name));
+  ok('every face it fetched came from this server',
+    served.length >= 2 && served.every((u) => u.indexOf(base + '/fonts/') === 0), served);
 
   console.log('\nAND MOVING AROUND IT STILL CALLS THE SERVER');
   const before = (await page.evaluate(() => performance.getEntriesByType('resource')

@@ -1,221 +1,65 @@
 <style>
-  /* ============================================================================
-     The portal's whole appearance, in one file.
-
-     Everything visual lives here. Index.html is 2,440 lines of markup and
-     JavaScript.html is 10,900 lines of behaviour, and neither is touched by a
-     restyle — the look is carried entirely by the class names they already use.
-     That is why this file can be rewritten without a single behavioural test
-     changing, and it is worth keeping true.
-
-     TOKENS FIRST. Nineteen of the custom properties below are read by name from
-     JavaScript.html (chart series, bar fills, severity dots). Grep before
-     renaming one:
-       --amber --amber-dark --border --green --ink-soft --navy --ord-1..5
-       --paper --red --series-1 --series-2 --st-critical --st-good --steel
-       --steel-light
-     Values may change freely. Names may not.
-
-     SERVED BY BOTH SYSTEMS during the cutover: Apps Script inlines this file
-     through include('Stylesheet'), and the Node server renders the same file.
-     Anything here shows up on both, so nothing may depend on one of them.
-     ========================================================================= */
-
-  /* ---- Type -----------------------------------------------------------------
-     Self-hosted, latin only, 77 KB for the lot. It used to be an @import of three
-     families from fonts.googleapis.com, which is the slowest way to load a
-     webfont there is: the browser must fetch the page, parse the style, fetch a
-     stylesheet from Google, and only then fetch the font — three serial round
-     trips to a third party before a heading can be drawn, on a portal whose whole
-     reason for being rebuilt is that it felt slow.
-
-     Each face names the local copy first and Google's second. The Node server
-     serves /fonts/; Apps Script cannot, so there the first URL 404s and the
-     browser falls through to Google exactly as before. The old portal is
-     unaffected for as long as the cutover takes, and the new one never leaves
-     its own origin.
-
-     Both families are SIL Open Font License 1.1, which permits this.
-     Inter: https://github.com/rsms/inter — IBM Plex Mono: https://github.com/IBM/plex
-  */
-  @font-face{
-    font-family:'Inter'; font-style:normal; font-weight:400 700; font-display:swap;
-    src:url('/fonts/inter-latin-var.woff2') format('woff2'),
-        url('https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2') format('woff2');
-    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,
-      U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
-  }
-  @font-face{
-    font-family:'IBM Plex Mono'; font-style:normal; font-weight:400; font-display:swap;
-    src:url('/fonts/plexmono-latin-400.woff2') format('woff2'),
-        url('https://fonts.gstatic.com/s/ibmplexmono/v20/-F63fjptAgt5VM-kVkqdyU8n1i8q1w.woff2') format('woff2');
-    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,
-      U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
-  }
-  @font-face{
-    font-family:'IBM Plex Mono'; font-style:normal; font-weight:600; font-display:swap;
-    src:url('/fonts/plexmono-latin-600.woff2') format('woff2'),
-        url('https://fonts.gstatic.com/s/ibmplexmono/v20/-F6qfjptAgt5VM-kVkqdyU8n3vAOwlBFgg.woff2') format('woff2');
-    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,
-      U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
-  }
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
   :root{
-    /* Structure. The navy is the application's frame: the bar, the primary
-       action, every figure that matters. Three steps, because one navy and a
-       guess at "slightly lighter" is what makes a hover state look accidental. */
-    --navy:#0F1E33; --navy-2:#1B3353; --navy-3:#2A4C78;
-    --steel:#64748B; --steel-light:#EFF3F8;
-
-    /* Surfaces. A cool canvas under white cards, rather than the cream it used
-       to be: cream under white reads as two attempts at the same colour, and the
-       cards stop looking raised. */
-    --paper:#F4F6FA; --surface:#FFFFFF; --surface-2:#F8FAFC; --surface-sunk:#EFF3F8;
-    --border:#E2E8F0; --border-strong:#CBD5E1;
-
-    /* Ink. */
-    --ink:#0F172A; --ink-soft:#546174; --ink-faint:#8A94A6;
-
-    /* One accent, spent carefully. It marks the brand, the live tab, the focus
-       ring and the single most important button on a screen — and nothing else.
-       The old sheet put it on buttons, chips, badges, hovers and outlines at
-       once, which is how an accent stops accenting anything. */
-    --amber:#DF8A24; --amber-dark:#B96D0C; --amberbg:#FDF4E6; --amber-line:#F0D5AC;
-
-    /* State. */
-    --green:#107A4D; --green-bg:#E6F6EE; --green-line:#B9E3CC;
-    --red:#B42318;   --red-bg:#FDECEA;   --red-line:#F3C6C1;
-    --blue:#1D4ED8;  --blue-bg:#EAEFFC;  --blue-line:#C7D5F7;
-
-    /* Shape and depth. Hierarchy by elevation rather than by drawing a heavier
-       line around everything. */
-    --radius:8px; --r-sm:6px; --r-lg:12px; --r-pill:999px;
-    --shadow-xs:0 1px 2px rgba(15,30,51,.05);
-    --shadow-sm:0 1px 2px rgba(15,30,51,.05), 0 1px 3px rgba(15,30,51,.04);
-    --shadow-md:0 4px 12px rgba(15,30,51,.08), 0 1px 3px rgba(15,30,51,.05);
-    --shadow-lg:0 24px 56px -16px rgba(15,30,51,.32), 0 4px 12px rgba(15,30,51,.10);
-    --ring:0 0 0 3px rgba(223,138,36,.26);
-
-    /* Spacing, on a scale, so "a bit more room" stops meaning a new number. */
-    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s7:32px;
-
-    --font-sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,
-      'Helvetica Neue',Arial,sans-serif;
-    --font-mono:'IBM Plex Mono',ui-monospace,'Cascadia Mono','Segoe UI Mono',
-      Consolas,'Liberation Mono',monospace;
-    --speed:.16s;
+    --navy:#12233D; --navy-2:#1B3358; --steel:#5C7290; --steel-light:#EEF1F6;
+    --amber:#E8871E; --amber-dark:#C96C0B; --paper:#FAF9F6; --ink:#1A1F29; --ink-soft:#4A5568;
+    --green:#1E7A4C; --green-bg:#E7F5EC; --red:#B3261E; --red-bg:#FCEAEA;
+    --amberbg:#FDF1E2; --border:#DCE2EB; --radius:5px;
   }
-
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; }
-  body{ background:var(--paper); color:var(--ink); font-family:var(--font-sans);
-    font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
-    -moz-osx-font-smoothing:grayscale; }
-  /* Headings carry weight and tightened tracking rather than a second typeface.
-     A display family is invisible at 14px and a liability at every other size. */
-  h1,h2,h3{ font-family:var(--font-sans); margin:0; color:var(--navy);
-    letter-spacing:-.018em; font-weight:700; }
-  /* Figures line up. In a system whose whole job is prices, quantities and part
-     numbers, proportional digits in a column is a defect. */
-  .mono{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  body{ background:var(--paper); color:var(--ink); font-family:'Inter', sans-serif; font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+  h1,h2,h3{ font-family:'Space Grotesk', sans-serif; margin:0; color:var(--navy); }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
   button{ font-family:inherit; cursor:pointer; }
   input, select, textarea{ font-family:inherit; }
 
-  /* Keyboard focus, everywhere, which the old sheet gave to fields and to
-     nothing else — so tabbing through a screen of buttons showed nothing at all.
-     :where() keeps the specificity at zero, so the components below still win. */
-  :where(a,button,input,select,textarea,[tabindex]):focus-visible{
-    outline:2px solid var(--amber); outline-offset:2px; }
-
-  /* Links that are not buttons. There are only a handful, and every one of them
-     was rendering in the browser's default blue — a colour that appears nowhere
-     else in the application and reads as an unstyled page. */
-  a:not(.btn){ color:var(--amber-dark); text-decoration:underline;
-    text-decoration-color:var(--amber-line); text-underline-offset:2px;
-    text-decoration-thickness:1px; transition:color var(--speed); }
-  a:not(.btn):hover{ color:var(--amber); text-decoration-color:currentColor; }
-
-  /* Scrollbars inside the dense tables, toned down so a price list does not come
-     with a grey slab bolted to its side. */
-  *{ scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent; }
-  ::-webkit-scrollbar{ width:10px; height:10px; }
-  ::-webkit-scrollbar-track{ background:transparent; }
-  ::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:var(--r-pill);
-    border:3px solid transparent; background-clip:content-box; }
-  ::-webkit-scrollbar-thumb:hover{ background:var(--steel); background-clip:content-box;
-    border:3px solid transparent; }
-
-
-  /* ---- The bar --------------------------------------------------------------
-     One row, always. The nav groups related screens behind five headings so the
-     bar does not grow a tab every time a module lands. */
-  .topbar{ background:linear-gradient(180deg,#13253E 0%,var(--navy) 100%); color:#fff;
-    padding:0 var(--s5); display:flex; align-items:center; justify-content:space-between;
-    gap:18px; height:58px; flex-wrap:nowrap; position:relative;
-    box-shadow:0 1px 0 rgba(15,30,51,.10), 0 2px 12px rgba(15,30,51,.08); }
-  /* A hairline of light along the top edge. It is one pixel and it is the
-     difference between a navy rectangle and a bar with a surface. */
-  .topbar::before{ content:""; position:absolute; inset:0 0 auto 0; height:1px;
-    background:rgba(255,255,255,.09); }
+  /* One row, always. The nav groups related screens behind five headings so the bar does not
+     grow a tab every time a module lands. */
+  .topbar{ background:var(--navy); color:#fff; padding:0 20px; display:flex; align-items:center;
+    justify-content:space-between; gap:18px; height:56px; flex-wrap:nowrap; }
   .brand{ display:flex; align-items:center; gap:10px; flex-shrink:0; }
-  .brand-mark{ width:32px; height:32px; border-radius:9px; display:flex;
-    align-items:center; justify-content:center; font-weight:700; font-size:13px;
-    letter-spacing:-.02em; color:#2A1A05; flex-shrink:0;
-    background:linear-gradient(145deg,#F0A33F 0%,var(--amber) 55%,var(--amber-dark) 100%);
-    box-shadow:0 1px 2px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.34); }
-  .brand-text h1{ font-size:14.5px; color:#fff; letter-spacing:-.01em; line-height:1.2;
-    font-weight:650; }
-  .brand-text span{ font-size:9.5px; color:#93A6C2; text-transform:uppercase;
-    letter-spacing:1.1px; font-weight:500; }
+  .brand-mark{ width:30px; height:30px; background:var(--amber); border-radius:4px; display:flex;align-items:center;justify-content:center; font-family:'Space Grotesk', sans-serif; font-weight:700; color:var(--navy); font-size:13.5px; flex-shrink:0; }
+  .brand-text h1{ font-size:14px; color:#fff; letter-spacing:.2px; line-height:1.2; }
+  .brand-text span{ font-size:9.5px; color:#8FA2BC; text-transform:uppercase; letter-spacing:1.1px; }
 
   .tabs{ display:flex; gap:2px; align-self:stretch; align-items:center; flex:1 1 auto;
     justify-content:center; min-width:0; overflow:visible; }
   /* Full-height so the dropdown hangs from the bar's bottom edge, not the button's. */
   .nav-group{ position:relative; align-self:stretch; display:flex; align-items:center; }
-  .tab-btn{ background:transparent; border:none; color:#AFC0D8; padding:7px 12px;
-    font-size:13px; font-weight:500; border-radius:7px; white-space:nowrap;
-    display:inline-flex; align-items:center; gap:5px; position:relative;
-    transition:background var(--speed), color var(--speed); }
+  .tab-btn{ background:transparent; border:none; color:#B9C6DA; padding:7px 11px; font-size:13px;
+    font-weight:500; border-radius:6px; transition:background .15s, color .15s; white-space:nowrap;
+    display:inline-flex; align-items:center; gap:5px; }
   .tab-btn:hover{ color:#fff; background:rgba(255,255,255,.08); }
-  /* The live tab is marked with a rule inside its own pill. Measuring down to the
-     bar's bottom edge instead looked better in a mockup and put the mark a pixel
-     outside the bar on the real page, because the button's height depends on the
-     font that happened to load. A mark the button carries cannot come adrift. */
   .tab-btn.active{ color:#fff; background:rgba(255,255,255,.10); font-weight:600;
-    box-shadow:inset 0 -2.5px 0 var(--amber); }
+    box-shadow:inset 0 -2px 0 var(--amber); }
   .tab-btn.open{ color:#fff; background:rgba(255,255,255,.10); }
-  .tab-caret{ font-size:9px; opacity:.6; transform:translateY(1px); }
+  .tab-caret{ font-size:9px; opacity:.65; transform:translateY(1px); }
 
-  .nav-menu{ position:absolute; top:100%; left:0; margin-top:4px; min-width:216px;
-    background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
-    padding:6px; box-shadow:var(--shadow-lg); z-index:60; display:none; }
+  .nav-menu{ position:absolute; top:100%; left:0; margin-top:-1px; min-width:212px; background:#fff;
+    border:1px solid var(--border); border-radius:8px; padding:5px;
+    box-shadow:0 12px 32px rgba(18,35,61,.20); z-index:60; display:none; }
   .nav-menu.show{ display:block; }
-  .nav-menu button{ display:block; width:100%; text-align:left; background:transparent;
-    border:none; padding:8px 11px; font-size:13px; color:var(--ink);
-    border-radius:var(--r-sm); white-space:nowrap; transition:background var(--speed); }
+  .nav-menu button{ display:block; width:100%; text-align:left; background:transparent; border:none;
+    padding:8px 11px; font-size:13px; color:var(--ink); border-radius:5px; white-space:nowrap; }
   .nav-menu button:hover{ background:var(--steel-light); }
-  .nav-menu button.active{ background:var(--amberbg); color:var(--amber-dark);
-    font-weight:600; }
+  .nav-menu button.active{ background:var(--amberbg); color:var(--navy); font-weight:600; }
 
   .whoami{ display:flex; align-items:center; gap:9px; flex-shrink:0; cursor:pointer; }
-  .whoami-caret{ color:#93A6C2; font-size:10px; margin-left:-3px; }
+  .whoami-caret{ color:#8FA2BC; font-size:10px; margin-left:-3px; }
   /* A visible way out. The corner was a label that happened to respond to a click, so the
      only people who could leave were the ones who had been told it was there. */
-  .btn-signout{ background:rgba(255,255,255,.04); color:#C9D7EA;
-    border:1px solid rgba(255,255,255,.18); border-radius:var(--r-sm); padding:5px 11px;
-    font-size:11.5px; font-weight:600; cursor:pointer; white-space:nowrap;
-    transition:background var(--speed), color var(--speed), border-color var(--speed); }
-  .btn-signout:hover{ background:rgba(255,255,255,.13); color:#fff;
-    border-color:rgba(255,255,255,.30); }
-  .user-avatar{ width:30px; height:30px; border-radius:50%; color:#DCE6F5; font-size:11px;
-    font-weight:650; display:flex; align-items:center; justify-content:center;
-    letter-spacing:.3px; flex-shrink:0;
-    background:linear-gradient(145deg,var(--navy-3),var(--navy-2));
-    box-shadow:inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(0,0,0,.2); }
+  .btn-signout{ background:transparent; color:#C6D4E8; border:1px solid rgba(255,255,255,.22);
+    border-radius:5px; padding:4px 10px; font-size:11.5px; font-weight:600; cursor:pointer;
+    white-space:nowrap; }
+  .btn-signout:hover{ background:rgba(255,255,255,.10); color:#fff; }
+  .user-avatar{ width:29px; height:29px; border-radius:50%; background:var(--navy-2);
+    border:1px solid rgba(255,255,255,.18); color:#DCE6F5; font-size:11px; font-weight:600;
+    display:flex; align-items:center; justify-content:center; letter-spacing:.4px; flex-shrink:0; }
   .user-meta{ display:flex; flex-direction:column; line-height:1.25; }
-  .user-meta b{ font-size:12px; color:#E8EEF7; font-weight:600; }
-  .user-meta span{ font-size:9.5px; color:#93A6C2; text-transform:uppercase;
-    letter-spacing:.7px; }
+  .user-meta b{ font-size:12px; color:#E4EBF5; font-weight:600; }
+  .user-meta span{ font-size:10px; color:#8FA2BC; text-transform:uppercase; letter-spacing:.7px; }
 
   /* Narrow screens shed the labels before they shed the navigation. */
   @media (max-width:1180px){
@@ -230,50 +74,23 @@
     .tabs{ justify-content:flex-start; }
     .tab-btn{ padding:7px 7px; font-size:12px; }
   }
-  /* On a phone the five headings, the avatar and the way out do not fit on one
-     line, and they were not being made to: the nav ran straight under the avatar
-     and the first thing you could not read was the button that signs you out.
 
-     So the bar becomes two rows rather than one. Not a scroll box, for the reason
-     above: a strip with its own overflow clips the dropdowns hanging out of it,
-     which would hide four of the five groups' contents. The tabs wrap instead,
-     and the bar grows by a line when it has to. */
-  @media (max-width:720px){
-    .topbar{ height:auto; min-height:56px; flex-wrap:wrap; padding:8px 12px;
-      row-gap:4px; column-gap:10px; }
-    .brand{ order:1; }
-    .whoami{ order:2; margin-left:auto; }
-    .tabs{ order:3; flex:1 0 100%; justify-content:flex-start; flex-wrap:wrap;
-      row-gap:2px; }
-    .brand-text{ display:block; }
-    .brand-text h1{ font-size:13.5px; }
-  }
-
-
-  /* ---- Page ---------------------------------------------------------------- */
-  .container{ max-width:1260px; margin:0 auto; padding:var(--s6) var(--s5) 64px; }
+  .container{ max-width:1220px; margin:0 auto; padding:26px 22px 60px; }
   .view{ display:none; }
   .view.active{ display:block; }
-  .page-head{ display:flex; justify-content:space-between; align-items:flex-end;
-    margin-bottom:var(--s5); flex-wrap:wrap; gap:var(--s3); }
-  .page-head h2{ font-size:22px; letter-spacing:-.022em; }
-  .page-head p{ color:var(--ink-soft); font-size:13px; margin-top:5px; max-width:68ch; }
+  .page-head{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:18px; flex-wrap:wrap; gap:12px; }
+  .page-head p{ color:var(--ink-soft); font-size:13px; margin-top:4px; }
   /* The way back to the list a record was opened from. Reading it as a link rather than a
      button keeps it out of the row of actions, which is about the record, not about leaving
      it. */
   .back-link{ background:none; border:none; padding:0; margin:0 0 6px; font-size:12px;
-    color:var(--steel); display:inline-flex; align-items:center; gap:5px; cursor:pointer;
-    font-weight:500; transition:color var(--speed); }
-  .back-link:hover{ color:var(--navy); }
+    color:var(--steel); display:inline-flex; align-items:center; gap:5px; cursor:pointer; }
+  .back-link:hover{ color:var(--red); }
 
-  .card{ background:var(--surface); border:1px solid var(--border);
-    border-radius:var(--radius); padding:var(--s5); margin-bottom:var(--s4);
-    box-shadow:var(--shadow-sm); }
-  .card-title{ font-size:11.5px; text-transform:uppercase; letter-spacing:.9px;
-    color:var(--steel); font-weight:650; margin-bottom:var(--s4); display:flex;
-    align-items:center; justify-content:space-between; gap:var(--s3); }
+  .card{ background:#fff; border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+  .card-title{ font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--steel); font-weight:600; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; }
 
-  .grid{ display:grid; gap:var(--s4); }
+  .grid{ display:grid; gap:14px; }
   .grid-4{ grid-template-columns:repeat(4,1fr); }
   .grid-5{ grid-template-columns:repeat(5,1fr); }
   .grid-3{ grid-template-columns:repeat(3,1fr); }
@@ -282,145 +99,74 @@
   @media (max-width:800px){ .grid-5,.grid-4,.grid-3,.grid-2{ grid-template-columns:1fr 1fr; } }
   @media (max-width:520px){ .grid-5,.grid-4,.grid-3,.grid-2{ grid-template-columns:1fr; } }
 
+  .field label{ display:block; font-size:11.5px; font-weight:600; color:var(--ink-soft); margin-bottom:5px; text-transform:uppercase; letter-spacing:.4px; }
+  .field input, .field select, .field textarea{ width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:4px; font-size:13.5px; color:var(--ink); background:#fff; }
+  .field textarea{ resize:vertical; min-height:60px; }
+  .field input:focus, .field select:focus, .field textarea:focus{ outline:2px solid var(--amber); outline-offset:0; border-color:var(--amber); }
 
-  /* ---- Fields ---------------------------------------------------------------
-     Labels in sentence case. Fourteen uppercase letter-spaced labels on one form
-     is the single loudest thing the old sheet did: every label shouted, so the
-     form had no quiet parts and therefore no emphasis anywhere. The markup
-     already writes them in title case; only the CSS was shouting. */
-  .field label{ display:block; font-size:12px; font-weight:600; color:var(--ink-soft);
-    margin-bottom:5px; letter-spacing:0; }
-  .field input, .field select, .field textarea{ width:100%; padding:9px 11px;
-    border:1px solid var(--border-strong); border-radius:var(--r-sm); font-size:13.5px;
-    color:var(--ink); background:var(--surface); box-shadow:var(--shadow-xs);
-    transition:border-color var(--speed), box-shadow var(--speed); }
-  .field input::placeholder, .field textarea::placeholder,
-  .search-bar input::placeholder{ color:var(--ink-faint); }
-  .field textarea{ resize:vertical; min-height:62px; }
-  .field input:focus, .field select:focus, .field textarea:focus{ outline:none;
-    border-color:var(--amber); box-shadow:var(--ring); }
+  .btn{ border:1px solid var(--border); background:#fff; color:var(--navy); padding:9px 16px; border-radius:4px; font-size:13px; font-weight:600; display:inline-flex; align-items:center; gap:6px; }
+  .btn:hover{ border-color:var(--steel); }
+  .btn-primary{ background:var(--navy); border-color:var(--navy); color:#fff; }
+  .btn-primary:hover{ background:var(--navy-2); }
+  .btn-amber{ background:var(--amber); border-color:var(--amber); color:var(--navy); }
+  .btn-amber:hover{ background:var(--amber-dark); color:#fff; }
+  .btn-danger{ background:#fff; border-color:var(--red); color:var(--red); }
+  .btn-danger:hover{ background:var(--red-bg); }
+  .btn-ghost{ background:transparent; border-color:transparent; color:var(--steel); padding:6px 8px; }
+  .btn-ghost:hover{ color:var(--red); }
+  .btn-sm{ padding:6px 11px; font-size:12px; }
+  .btn:disabled{ opacity:.45; cursor:not-allowed; }
 
-  /* ---- Buttons --------------------------------------------------------------
-     One hierarchy, honestly ranked: navy is the action that commits, amber is
-     the one action on a screen worth pulling the eye, white is everything else.
-     Three equally loud buttons in a row is a form that cannot say what it wants. */
-  .btn{ border:1px solid var(--border-strong); background:var(--surface);
-    color:var(--navy); padding:8px 15px; border-radius:var(--r-sm); font-size:13px;
-    font-weight:600; display:inline-flex; align-items:center; justify-content:center;
-    gap:6px; min-height:36px; box-shadow:var(--shadow-xs);
-    transition:background var(--speed), border-color var(--speed),
-      box-shadow var(--speed), transform var(--speed); }
-  .btn:hover{ border-color:var(--steel); background:var(--surface-2); }
-  .btn:active{ transform:translateY(1px); box-shadow:none; }
-  .btn-primary{ background:var(--navy); border-color:var(--navy); color:#fff;
-    box-shadow:var(--shadow-sm); }
-  .btn-primary:hover{ background:var(--navy-2); border-color:var(--navy-2); }
-  .btn-amber{ background:var(--amber); border-color:var(--amber-dark); color:#2A1A05;
-    box-shadow:var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,.26); }
-  .btn-amber:hover{ background:var(--amber-dark); border-color:var(--amber-dark);
-    color:#fff; }
-  .btn-danger{ background:var(--surface); border-color:var(--red-line); color:var(--red); }
-  .btn-danger:hover{ background:var(--red-bg); border-color:var(--red); }
-  .btn-ghost{ background:transparent; border-color:transparent; color:var(--steel);
-    padding:6px 9px; min-height:0; box-shadow:none; }
-  .btn-ghost:hover{ color:var(--navy); background:var(--steel-light);
-    border-color:transparent; }
-  .btn-sm{ padding:5px 11px; font-size:12px; min-height:30px; }
-  .btn:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
-
-
-  /* ---- Tables ---------------------------------------------------------------
-     Where the work actually happens. Most screens in this application are a
-     table, so the defaults here matter more than anything else in the file. */
   table{ width:100%; border-collapse:collapse; font-size:13px; }
-  /* The header sticks, and its rule is drawn with an inset shadow rather than a
-     border — a border on a sticky cell scrolls away from the cell it belongs to. */
-  thead th{ text-align:left; font-size:10.5px; text-transform:uppercase;
-    letter-spacing:.6px; color:var(--steel); padding:9px 10px; font-weight:650;
-    white-space:nowrap; background:var(--surface); position:sticky; top:0; z-index:2;
-    box-shadow:inset 0 -1px 0 var(--border); }
-  tbody td{ padding:10px; border-bottom:1px solid #F1F4F8; vertical-align:middle; }
-  tbody tr:last-child td{ border-bottom:none; }
-  tbody tr{ transition:background var(--speed); }
-  tbody tr:hover{ background:var(--surface-2); }
-  .num{ text-align:right; font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-    font-size:12.5px; }
-  thead th.num{ text-align:right; }
+  thead th{ text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--steel); border-bottom:1px solid var(--border); padding:8px 9px; font-weight:600; white-space:nowrap; }
+  tbody td{ padding:9px; border-bottom:1px solid #EFF2F6; vertical-align:middle; }
+  tbody tr:hover{ background:#FBFAF7; }
+  .num{ text-align:right; font-family:'IBM Plex Mono', monospace; }
   .center{ text-align:center; }
-  .cell-input{ width:100%; border:1px solid transparent; background:transparent;
-    padding:5px 7px; border-radius:var(--r-sm); font-size:12.5px; color:var(--ink);
-    transition:border-color var(--speed), background var(--speed), box-shadow var(--speed); }
-  .cell-input:hover{ border-color:var(--border-strong); background:var(--surface); }
-  .cell-input:focus{ border-color:var(--amber); outline:none; background:var(--surface);
-    box-shadow:var(--ring); }
+  .cell-input{ width:100%; border:1px solid transparent; background:transparent; padding:5px 6px; border-radius:3px; font-size:12.5px; }
+  .cell-input:hover{ border-color:var(--border); }
+  .cell-input:focus{ border-color:var(--amber); outline:none; background:#fff; }
   select.cell-input{ cursor:pointer; }
 
-  /* Status, as a pill with a hairline so it keeps its shape on white and on the
-     tinted row behind it. */
-  .badge{ display:inline-block; padding:3px 10px; border-radius:var(--r-pill);
-    font-size:11px; font-weight:650; white-space:nowrap; letter-spacing:.01em;
-    border:1px solid transparent; }
-  .badge-draft, .badge-new, .badge-pending{ background:var(--steel-light);
-    color:var(--steel); border-color:#DCE4EE; }
-  .badge-sent, .badge-quoted, .badge-partial, .badge-dispatched{ background:var(--amberbg);
-    color:var(--amber-dark); border-color:var(--amber-line); }
-  .badge-won, .badge-paid, .badge-active, .badge-delivered{ background:var(--green-bg);
-    color:var(--green); border-color:var(--green-line); }
-  .badge-lost, .badge-overdue, .badge-dormant{ background:var(--red-bg); color:var(--red);
-    border-color:var(--red-line); }
-  .badge-followup{ background:var(--blue-bg); color:var(--blue); border-color:var(--blue-line); }
+  .badge{ display:inline-block; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .badge-draft, .badge-new, .badge-pending{ background:#EEF1F6; color:var(--steel); }
+  .badge-sent, .badge-quoted, .badge-partial, .badge-dispatched{ background:var(--amberbg); color:var(--amber-dark); }
+  .badge-won, .badge-paid, .badge-active, .badge-delivered{ background:var(--green-bg); color:var(--green); }
+  .badge-lost, .badge-overdue, .badge-dormant{ background:var(--red-bg); color:var(--red); }
+  .badge-followup{ background:#E9EEFB; color:#3355AA; }
   /* Deactivated master rows: visible when asked for, but never mistaken for live ones. */
-  tr.row-inactive td{ color:var(--ink-soft); background:var(--surface-2); }
+  tr.row-inactive td{ color:var(--ink-soft); background:#FAFAFB; }
   tr.row-inactive td.center{ white-space:nowrap; }
-  tr.row-inactive td:not(.checkbox-cell):not(.center){ text-decoration:line-through;
-    text-decoration-color:var(--border-strong); }
+  tr.row-inactive td:not(.checkbox-cell):not(.center){ text-decoration:line-through; text-decoration-color:var(--border); }
 
-  .empty{ text-align:center; color:var(--steel); padding:44px 20px; font-size:13.5px; }
+  .empty{ text-align:center; color:var(--steel); padding:34px 20px; font-size:13.5px; }
 
-
-  /* ---- Pricing --------------------------------------------------------------- */
-  .rate-picker{ display:flex; gap:var(--s2); flex-wrap:wrap; margin-top:10px; }
-  .rate-chip{ border:1.5px solid var(--border); border-radius:var(--radius);
-    padding:9px 13px; cursor:pointer; background:var(--surface); text-align:left;
-    min-width:132px; box-shadow:var(--shadow-xs);
-    transition:border-color var(--speed), background var(--speed), box-shadow var(--speed); }
-  .rate-chip:hover{ border-color:var(--border-strong); box-shadow:var(--shadow-sm); }
-  .rate-chip.selected{ border-color:var(--amber); background:var(--amberbg);
-    box-shadow:var(--ring); }
-  .rate-chip .rc-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.5px;
-    color:var(--steel); font-weight:650; }
-  .rate-chip .rc-price{ font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-    font-size:15px; font-weight:600; color:var(--navy); margin-top:3px; }
+  .rate-picker{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .rate-chip{ border:1.5px solid var(--border); border-radius:4px; padding:8px 12px; cursor:pointer; background:#fff; text-align:left; min-width:130px; }
+  .rate-chip:hover{ border-color:var(--steel); }
+  .rate-chip.selected{ border-color:var(--amber); background:#FFF8EE; }
+  .rate-chip .rc-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--steel); font-weight:600; }
+  .rate-chip .rc-price{ font-family:'IBM Plex Mono', monospace; font-size:15px; font-weight:600; color:var(--navy); margin-top:2px; }
   .rate-chip .rc-save{ font-size:11px; color:var(--green); margin-top:2px; font-weight:600; }
   .rate-chip .rc-sub{ font-size:10.5px; color:var(--ink-soft); margin-top:1px; }
 
-  .totals-box{ margin-left:auto; width:304px; background:var(--surface-sunk);
-    border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; }
-  .totals-row{ display:flex; justify-content:space-between; font-size:13px; padding:5px 0;
-    color:var(--ink-soft); font-variant-numeric:tabular-nums; }
-  .totals-row.grand{ border-top:2px solid var(--navy); margin-top:7px; padding-top:11px;
-    font-size:17px; font-weight:700; color:var(--navy); font-family:var(--font-mono);
-    font-variant-numeric:tabular-nums; }
+  .totals-box{ margin-left:auto; width:300px; background:var(--steel-light); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; }
+  .totals-row{ display:flex; justify-content:space-between; font-size:13px; padding:5px 0; color:var(--ink-soft); }
+  .totals-row.grand{ border-top:2px solid var(--navy); margin-top:6px; padding-top:10px; font-size:17px; font-weight:700; color:var(--navy); font-family:'IBM Plex Mono', monospace; }
 
-
-  /* ---- Messages ------------------------------------------------------------- */
-  .msg{ padding:11px 15px; border-radius:var(--r-sm); font-size:13px;
-    margin-bottom:var(--s4); display:none; box-shadow:var(--shadow-xs); }
+  .msg{ padding:10px 14px; border-radius:4px; font-size:13px; margin-bottom:14px; display:none; }
   .msg.show{ display:flex; align-items:flex-start; gap:12px; }
   .msg-text{ flex:1; }
-  .msg-close{ background:transparent; border:none; color:inherit; font-size:20px;
-    line-height:1; padding:0 2px; opacity:.55; flex-shrink:0; }
+  .msg-close{ background:transparent; border:none; color:inherit; font-size:20px; line-height:1;
+    padding:0 2px; opacity:.6; flex-shrink:0; }
   .msg-close:hover{ opacity:1; }
-  .msg-error{ background:var(--red-bg); color:var(--red); border:1px solid var(--red-line); }
-  .msg-success{ background:var(--green-bg); color:var(--green);
-    border:1px solid var(--green-line); }
+  .msg-error{ background:var(--red-bg); color:var(--red); border:1px solid #F3C6C3; }
+  .msg-success{ background:var(--green-bg); color:var(--green); border:1px solid #BEE3CC; }
 
-
-  /* ---- The order-to-cash strip on a quotation -------------------------------
-     A row of steps rather than a bar, because the useful part is which step and
-     when, not a percentage. */
-  .journey{ padding:16px 18px 6px; }
-  .jhead{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  /* The order-to-cash strip on a quotation. A row of steps rather than a bar, because the
+     useful part is which step and when, not a percentage. */
+  .journey{ padding:14px 18px 6px; }
+  .jhead{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
   .jhead-note{ font-size:12px; color:var(--ink-soft); }
   .jsteps{ list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:0; }
   .jstep{ position:relative; flex:1 1 92px; min-width:92px; padding:0 6px 14px;
@@ -435,76 +181,53 @@
   .jstep.done::before{ background:var(--green); }
   .jstep.done::after{ background:var(--green); }
   .jstep.now::after{ background:var(--border); }
-  .jdot{ position:relative; z-index:1; display:block; width:13px; height:13px;
-    margin:0 auto 7px; border-radius:50%; background:var(--surface);
-    border:2px solid var(--border-strong); }
+  .jdot{ position:relative; z-index:1; display:block; width:13px; height:13px; margin:0 auto 6px;
+    border-radius:50%; background:#fff; border:2px solid var(--border); }
   .jstep.done .jdot{ background:var(--green); border-color:var(--green); }
-  .jstep.now .jdot{ background:var(--surface); border-color:var(--green);
-    box-shadow:0 0 0 4px var(--green-bg); }
+  .jstep.now .jdot{ background:#fff; border-color:var(--green); box-shadow:0 0 0 3px var(--green-bg); }
   .jlabel{ display:block; font-size:11.5px; color:var(--ink-soft); line-height:1.3; }
   .jstep.done .jlabel{ color:var(--ink); }
-  .jstep.now .jlabel{ font-weight:650; color:var(--ink); }
-  .jdate{ display:block; font-size:10.5px; color:var(--ink-faint); margin-top:2px;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-    font-variant-numeric:tabular-nums; }
+  .jstep.now .jlabel{ font-weight:600; }
+  .jdate{ display:block; font-size:10.5px; color:var(--ink-soft); margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   /* A refusal ends the line rather than continuing it: red, square rather than round, and
      with no rule running out of its right side, because nothing follows a no. */
   .jstep.declined::after{ display:none; }
   .jstep.declined::before{ background:var(--red); }
-  .jstep.declined .jdot{ background:var(--red); border-color:var(--red); border-radius:3px; }
-  .jstep.declined .jlabel{ color:var(--red); font-weight:650; }
+  .jstep.declined .jdot{ background:var(--red); border-color:var(--red); border-radius:2px; }
+  .jstep.declined .jlabel{ color:var(--red); font-weight:600; }
   .jstep.declined .jdate{ color:var(--red); }
 
   /* Whose quotation this is, on one line above the offer itself. */
   .owners{ display:flex; flex-wrap:wrap; gap:22px; align-items:baseline;
-    padding:11px 18px; margin-bottom:var(--s4); border:1px solid var(--border);
-    border-radius:var(--radius); background:var(--surface-2); }
-  .owner-k{ font-size:10.5px; letter-spacing:.05em; text-transform:uppercase;
-    color:var(--steel); display:block; margin-bottom:2px; font-weight:650; }
+    padding:10px 18px; margin-bottom:16px; border:1px solid var(--border);
+    border-radius:var(--radius); background:var(--paper); }
+  .owner-k{ font-size:10.5px; letter-spacing:.04em; text-transform:uppercase;
+    color:var(--ink-soft); display:block; margin-bottom:2px; }
   .owner-v{ font-size:12.5px; color:var(--ink); }
-  .owner-v.none{ color:var(--ink-faint); font-style:italic; }
+  .owner-v.none{ color:var(--ink-soft); font-style:italic; }
   .owner-assign{ margin-left:8px; }
 
   .stage-cell{ white-space:nowrap; }
-  .stage-count{ font-size:10.5px; color:var(--ink-faint); margin-left:6px;
-    font-variant-numeric:tabular-nums; }
+  .stage-count{ font-size:10.5px; color:var(--ink-soft); margin-left:6px; }
 
   @media (max-width: 900px){
     .jstep{ flex:1 1 78px; min-width:78px; }
     .jdate{ display:none; }
   }
 
-
-  /* ---- Search --------------------------------------------------------------- */
-  .search-bar{ display:flex; gap:10px; margin-bottom:var(--s4); flex-wrap:wrap;
-    align-items:center; }
-  .search-bar input{ flex:1; min-width:220px; padding:9px 12px;
-    border:1px solid var(--border-strong); border-radius:var(--r-sm); font-size:13.5px;
-    background:var(--surface); box-shadow:var(--shadow-xs);
-    transition:border-color var(--speed), box-shadow var(--speed); }
-  .search-bar input:focus{ outline:none; border-color:var(--amber);
-    box-shadow:var(--ring); }
+  .search-bar{ display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .search-bar input{ flex:1; min-width:200px; padding:9px 10px; border:1px solid var(--border); border-radius:4px; font-size:13.5px; }
   /* The search field's own styling is meant for the text box; a checkbox sharing the bar
      would otherwise inherit flex:1 and stretch across it, stranded from its label. */
   .search-bar input[type="checkbox"]{ flex:0 0 auto; min-width:0; width:auto; padding:0;
-    border:none; margin:0; box-shadow:none; }
-  /* On a phone the box and its two switches do not share a line: the second label
-     ran off the right edge of the screen. The box takes the row. */
-  @media (max-width:560px){
-    .search-bar input:not([type="checkbox"]){ flex:1 1 100%; min-width:0; }
-  }
+    border:none; margin:0; }
 
   .checkbox-cell{ width:28px; }
-  .compare-strip{ background:var(--amberbg); border:1px solid var(--amber-line);
-    border-radius:var(--radius); padding:var(--s4); margin-top:6px; }
+  .compare-strip{ background:#FFF8EE; border:1px solid #F2D9AF; border-radius:var(--radius); padding:16px; margin-top:6px; }
 
-
-  /* ---- Modals --------------------------------------------------------------- */
-  .modal-backdrop{ position:fixed; inset:0; background:rgba(9,18,32,.58);
-    backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px); display:none;
-    align-items:flex-start; justify-content:center; padding:44px 16px; overflow-y:auto;
-    z-index:50; }
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(18,35,61,.55); display:none; align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto; z-index:50; }
   .modal-backdrop.show{ display:flex; }
   /* The confirm dialog is always opened from inside another modal, so it has to outrank
      them all. Every backdrop shares one z-index, which left DOM order deciding — and the
@@ -515,42 +238,28 @@
      opened from. It was visible through the dimming, which made it look available, and every
      click went to the backdrop in front of it. Set when a modal opens over another. */
   .modal-backdrop.modal-stacked{ z-index:70; }
-  .modal{ background:var(--surface); border-radius:var(--r-lg); max-width:640px; width:100%;
-    padding:var(--s6); box-shadow:var(--shadow-lg); border:1px solid rgba(255,255,255,.6); }
-  .modal h3{ font-size:17px; letter-spacing:-.02em; }
-  /* The footer every modal has and none of them styled. Four of these exist in the
-     markup with no rule behind them at all, so the buttons that save a purchase
-     order sat wherever the text flow left them. The negative margins run the rule
-     to the modal's edges; the padding puts the buttons back where they were. */
-  .modal-actions{ display:flex; align-items:center; justify-content:flex-end; gap:var(--s2);
-    flex-wrap:wrap; margin:var(--s6) calc(var(--s6) * -1) calc(var(--s6) * -1);
-    padding:var(--s4) var(--s6); border-top:1px solid var(--border);
-    background:var(--surface-2); border-radius:0 0 var(--r-lg) var(--r-lg); }
+  .modal{ background:#fff; border-radius:6px; max-width:640px; width:100%; padding:24px; box-shadow:0 20px 50px rgba(18,35,61,.3); }
 
   /* The printed quotation, shown exactly as it will be converted. A white page on a grey
      mount reads as paper, and the fixed height keeps the dialog's buttons on screen. */
-  .doc-preview{ border:1px solid var(--border); border-radius:var(--radius);
-    background:var(--surface-sunk); padding:10px; }
-  .doc-preview iframe{ display:block; width:100%; height:58vh; min-height:320px; border:none;
-    background:#fff; border-radius:var(--r-sm); box-shadow:var(--shadow-sm); }
+  .doc-preview{ border:1px solid var(--border); border-radius:4px; background:var(--steel-light); padding:10px; }
+  .doc-preview iframe{ display:block; width:100%; height:58vh; min-height:320px; border:none; background:#fff; }
   .doc-link{ font-size:12.5px; }
 
-
-  /* ---- Images ---------------------------------------------------------------
-     Logo and seal: show the picture, not a path. A chequered ground so a transparent PNG
+  /* A field whose value is picked, with the escape hatch for "it isn't in the list" beside it. */
+  /* Logo and seal: show the picture, not a path. A chequered ground so a transparent PNG
      reads as transparent rather than as a white block that will surprise someone later. */
-  .image-field label{ display:block; font-size:12px; font-weight:600; color:var(--ink-soft);
-    margin-bottom:5px; letter-spacing:0; }
+  .image-field label{ display:block; font-size:11.5px; font-weight:600; color:var(--ink-soft);
+    margin-bottom:5px; text-transform:uppercase; letter-spacing:.4px; }
   .image-field-row{ display:flex; gap:12px; align-items:flex-start; }
   .image-preview{ flex:none; width:150px; height:86px; border:1px solid var(--border);
-    border-radius:var(--r-sm); display:flex; align-items:center; justify-content:center;
-    padding:6px; background-color:#fff;
+    border-radius:4px; display:flex; align-items:center; justify-content:center; padding:6px;
+    background-color:#fff;
     background-image:linear-gradient(45deg,#EEF1F6 25%,transparent 25%,transparent 75%,#EEF1F6 75%),
                      linear-gradient(45deg,#EEF1F6 25%,transparent 25%,transparent 75%,#EEF1F6 75%);
     background-size:12px 12px; background-position:0 0, 6px 6px; }
   .image-preview img{ max-width:100%; max-height:100%; object-fit:contain; }
-  .image-empty{ font-size:11px; color:var(--steel); text-transform:uppercase;
-    letter-spacing:.4px; }
+  .image-empty{ font-size:11px; color:var(--steel); text-transform:uppercase; letter-spacing:.4px; }
   .image-actions{ display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start; }
   .image-hint{ flex-basis:100%; font-size:11.5px; color:var(--ink-soft); line-height:1.35; }
 
@@ -559,9 +268,27 @@
   .field-with-action{ display:flex; gap:6px; align-items:stretch; }
   .field-with-action select, .field-with-action input{ flex:1; min-width:0; }
   .field-with-action .btn{ flex:none; white-space:nowrap; }
-  .field label .btn-ghost{ float:right; font-size:11px; text-transform:none; letter-spacing:0;
-    font-weight:600; color:var(--amber-dark); padding:0; background:transparent; }
-  .field label .btn-ghost:hover{ color:var(--amber); background:transparent; }
+  .field label .btn-ghost{ float:right; font-size:10.5px; text-transform:none; letter-spacing:0;
+    font-weight:600; color:var(--amber-dark); padding:0; }
+
+  .kpi-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
+  @media (max-width:900px){ .kpi-grid{ grid-template-columns:repeat(2,1fr); } }
+  .kpi-card{ background:#fff; border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; }
+  .kpi-card.alert{ border-color:#F0C3C0; background:#FFFAF9; }
+  .kpi-label{ font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--steel); margin-bottom:6px; font-weight:600; }
+  .kpi-value{ font-family:'IBM Plex Mono', monospace; font-size:26px; font-weight:700; color:var(--navy); }
+  .kpi-card.alert .kpi-value{ color:var(--red); }
+  .kpi-sub{ font-size:11.5px; color:var(--ink-soft); margin-top:3px; }
+
+  .two-col{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:900px){ .two-col{ grid-template-columns:1fr; } }
+
+  .inline-form{ background:var(--steel-light); border:1px solid var(--border); border-radius:var(--radius);
+    padding:14px 16px; margin-bottom:12px; }
+  .inline-form-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+  .check-line{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink);
+    text-transform:none; letter-spacing:0; font-weight:400; padding:8px 0; }
+  .check-line input[type=checkbox]{ width:auto; flex:none; min-width:0; margin:0; }
 
 
   /* ---- Dashboard ----------------------------------------------------------
@@ -574,61 +301,25 @@
     --series-1:#2a78d6; --series-2:#eb6834;
     --ord-1:#6da7ec; --ord-2:#3987e5; --ord-3:#256abf; --ord-4:#184f95; --ord-5:#0d366b;
     --st-good:#0ca30c; --st-warning:#fab219; --st-serious:#ec835a; --st-critical:#d03b3b;
-    --chart-grid:#EDF0F5; --chart-ink:#546174;
+    --chart-grid:#EDEFF3; --chart-ink:#4A5568;
   }
 
-  .kpi-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:var(--s4);
-    margin-bottom:var(--s5); }
-  @media (max-width:900px){ .kpi-grid{ grid-template-columns:repeat(2,1fr); } }
-  /* A figure on a card, with a thin rule of colour along the top. It costs three
-     pixels and it is what stops four identical white rectangles reading as one
-     grey band. */
-  .kpi-card{ background:var(--surface); border:1px solid var(--border);
-    border-radius:var(--radius); padding:17px 18px; box-shadow:var(--shadow-sm);
-    position:relative; overflow:hidden; }
-  .kpi-card::before{ content:""; position:absolute; inset:0 0 auto 0; height:3px;
-    background:var(--navy-3); opacity:.85; }
-  .kpi-card.alert{ border-color:var(--red-line); background:#FFFCFB; }
-  .kpi-card.alert::before{ background:var(--red); opacity:1; }
-  .kpi-label{ font-size:11px; text-transform:uppercase; letter-spacing:.6px;
-    color:var(--steel); margin-bottom:7px; font-weight:650; }
-  .kpi-value{ font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-    font-size:26px; font-weight:600; color:var(--navy); letter-spacing:-.02em; }
-  .kpi-card.alert .kpi-value{ color:var(--red); }
-  .kpi-sub{ font-size:11.5px; color:var(--ink-soft); margin-top:4px; }
+  .dash-head{ display:flex; justify-content:space-between; align-items:center; gap:12px;
+    flex-wrap:wrap; margin-bottom:16px; }
+  .stream-switch{ display:flex; gap:2px; background:var(--steel-light); padding:3px;
+    border-radius:7px; }
+  .stream-switch button{ background:transparent; border:none; padding:6px 14px; font-size:12.5px;
+    font-weight:600; color:var(--steel); border-radius:5px; }
+  .stream-switch button.active{ background:#fff; color:var(--navy); box-shadow:0 1px 2px rgba(18,35,61,.12); }
+  .dash-stamp{ font-size:11.5px; color:var(--steel); }
 
-  .two-col{ display:grid; grid-template-columns:1fr 1fr; gap:var(--s4); }
-  @media (max-width:900px){ .two-col{ grid-template-columns:1fr; } }
-
-  .inline-form{ background:var(--surface-2); border:1px solid var(--border);
-    border-radius:var(--radius); padding:var(--s4) var(--s4) var(--s4); margin-bottom:var(--s3); }
-  .inline-form-actions{ display:flex; gap:var(--s2); justify-content:flex-end;
-    margin-top:var(--s3); }
-  .check-line{ display:flex; align-items:center; gap:7px; font-size:13px; color:var(--ink);
-    text-transform:none; letter-spacing:0; font-weight:400; padding:8px 0; cursor:pointer; }
-  .check-line input[type=checkbox]{ width:auto; flex:none; min-width:0; margin:0;
-    accent-color:var(--amber); }
-
-  .dash-head{ display:flex; justify-content:space-between; align-items:center; gap:var(--s3);
-    flex-wrap:wrap; margin-bottom:var(--s4); }
-  .stream-switch{ display:flex; gap:2px; background:var(--surface-sunk); padding:3px;
-    border-radius:var(--radius); border:1px solid var(--border); }
-  .stream-switch button{ background:transparent; border:none; padding:6px 14px;
-    font-size:12.5px; font-weight:600; color:var(--steel); border-radius:var(--r-sm);
-    transition:background var(--speed), color var(--speed); }
-  .stream-switch button:hover{ color:var(--navy); }
-  .stream-switch button.active{ background:var(--surface); color:var(--navy);
-    box-shadow:var(--shadow-xs); }
-  .dash-stamp{ font-size:11.5px; color:var(--steel); font-variant-numeric:tabular-nums; }
-
-  .hero-card{ background:var(--surface); border:1px solid var(--border);
-    border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow-sm); }
-  .hero-figure{ font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-    font-size:30px; font-weight:600; color:var(--navy); line-height:1.15;
-    letter-spacing:-.025em; }
+  .hero-card{ background:#fff; border:1px solid var(--border); border-radius:var(--radius);
+    padding:18px 20px; }
+  .hero-figure{ font-family:'IBM Plex Mono', monospace; font-size:30px; font-weight:700;
+    color:var(--navy); line-height:1.15; }
 
   /* Exceptions: colour never carries the meaning alone - each row has an icon and a label. */
-  .exc-row{ display:flex; align-items:flex-start; gap:12px; padding:12px 4px;
+  .exc-row{ display:flex; align-items:flex-start; gap:12px; padding:11px 4px;
     border-bottom:1px solid var(--chart-grid); }
   .exc-row:last-child{ border-bottom:none; }
   .exc-dot{ width:9px; height:9px; border-radius:50%; margin-top:5px; flex-shrink:0; }
@@ -637,11 +328,9 @@
   .exc-body{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
   .exc-label{ font-size:13.5px; font-weight:600; color:var(--ink); display:block; }
   .exc-detail{ font-size:11.5px; color:var(--ink-soft); display:block; }
-  .exc-count{ font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-    font-weight:600; font-size:16px; color:var(--navy); text-align:right;
-    white-space:nowrap; display:block; min-width:74px; }
-  .exc-value{ font-size:11px; color:var(--ink-soft); text-align:right; white-space:nowrap;
-    font-variant-numeric:tabular-nums; }
+  .exc-count{ font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:16px;
+    color:var(--navy); text-align:right; white-space:nowrap; display:block; min-width:74px; }
+  .exc-value{ font-size:11px; color:var(--ink-soft); text-align:right; white-space:nowrap; }
   .sev-critical{ background:var(--st-critical); }
   .sev-serious{ background:var(--st-serious); }
   .sev-warning{ background:var(--st-warning); }
@@ -651,128 +340,73 @@
     padding:5px 0; }
   .bar-name{ font-size:12px; color:var(--chart-ink); text-align:right; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; }
-  .bar-track{ background:var(--chart-grid); border-radius:4px; height:16px; display:block;
+  .bar-track{ background:var(--chart-grid); border-radius:3px; height:16px; display:block;
     overflow:hidden; }
   /* display:block matters: an inline span ignores width and the bar vanishes. */
-  .bar-fill{ display:block; height:100%; border-radius:0 4px 4px 0; min-width:2px;
-    transition:width .3s ease-out; }
-  .bar-figure{ font-family:var(--font-mono); font-variant-numeric:tabular-nums;
-    font-size:12px; color:var(--ink); text-align:right; white-space:nowrap; }
+  .bar-fill{ display:block; height:100%; border-radius:0 3px 3px 0; min-width:2px;
+    transition:width .25s; }
+  .bar-figure{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink);
+    text-align:right; white-space:nowrap; }
 
   /* Grouped columns for the six-month trend; 2px surface gap between the pair. */
   .trend-wrap{ display:flex; align-items:flex-end; gap:14px; height:190px; padding:8px 0 0; }
-  .trend-month{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px;
-    height:100%; }
+  .trend-month{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; }
   .trend-bars{ flex:1; display:flex; align-items:flex-end; gap:2px; width:100%;
     justify-content:center; }
-  .trend-bar{ width:38%; max-width:26px; border-radius:4px 4px 0 0; min-height:2px;
-    transition:height .3s ease-out; }
+  .trend-bar{ width:38%; max-width:26px; border-radius:3px 3px 0 0; min-height:2px;
+    transition:height .25s; }
   .trend-label{ font-size:11px; color:var(--chart-ink); white-space:nowrap; }
   .legend{ display:flex; gap:16px; margin-top:10px; font-size:12px; color:var(--chart-ink); }
   .legend-key{ display:flex; align-items:center; gap:6px; }
-  .legend-swatch{ width:10px; height:10px; border-radius:3px; }
+  .legend-swatch{ width:10px; height:10px; border-radius:2px; }
 
 
   /* ---- Settings: brand tiles ---- */
-  .brand-tiles{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr));
-    gap:var(--s4); }
-  .brand-tile{ background:var(--surface); border:1px solid var(--border);
-    border-radius:var(--radius); padding:18px; display:flex; flex-direction:column;
-    gap:10px; position:relative; overflow:hidden; box-shadow:var(--shadow-sm);
-    transition:box-shadow var(--speed), transform var(--speed); }
-  .brand-tile:hover{ box-shadow:var(--shadow-md); transform:translateY(-1px); }
+  .brand-tiles{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:14px; }
+  .brand-tile{ background:#fff; border:1px solid var(--border); border-radius:8px; padding:18px;
+    display:flex; flex-direction:column; gap:10px; position:relative; overflow:hidden; }
   .brand-tile::before{ content:""; position:absolute; inset:0 auto 0 0; width:4px;
-    background:var(--tile-accent, var(--border-strong)); }
-  .brand-tile.dim{ background:var(--surface-2); box-shadow:none; }
-  .brand-tile.dim:hover{ box-shadow:var(--shadow-sm); }
+    background:var(--tile-accent, var(--border)); }
+  .brand-tile.dim{ background:var(--paper); }
   .brand-tile.dim .brand-tile-name{ color:var(--steel); }
-  .brand-tile-name{ font-size:19px; font-weight:700; color:var(--navy);
-    letter-spacing:-.02em; }
-  .brand-tile-foot{ display:flex; justify-content:space-between; align-items:center;
-    gap:8px; margin-top:auto; }
+  .brand-tile-name{ font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:700;
+    color:var(--navy); }
+  .brand-tile-foot{ display:flex; justify-content:space-between; align-items:center; gap:8px;
+    margin-top:auto; }
+
 
 
   /* Segmented control for choosing how data is supplied (file or pasted text). */
-  .mode-switch{ display:inline-flex; gap:2px; background:var(--surface-sunk); padding:3px;
-    border-radius:var(--radius); margin-bottom:var(--s3); border:1px solid var(--border); }
-  .mode-switch button{ background:transparent; border:none; padding:6px 14px;
-    font-size:12.5px; font-weight:600; color:var(--steel); border-radius:var(--r-sm);
-    transition:background var(--speed), color var(--speed); }
-  .mode-switch button:hover{ color:var(--navy); }
-  .mode-switch button.active{ background:var(--surface); color:var(--navy);
-    box-shadow:var(--shadow-xs); }
+  .mode-switch{ display:inline-flex; gap:2px; background:var(--steel-light); padding:3px;
+    border-radius:7px; margin-bottom:12px; }
+  .mode-switch button{ background:transparent; border:none; padding:6px 14px; font-size:12.5px;
+    font-weight:600; color:var(--steel); border-radius:5px; }
+  .mode-switch button.active{ background:#fff; color:var(--navy);
+    box-shadow:0 1px 2px rgba(18,35,61,.12); }
 
   /* ---- CSV drop zone ---- */
-  .drop-zone{ border:2px dashed var(--border-strong); border-radius:var(--r-lg);
-    background:var(--surface-2); padding:28px 20px; text-align:center; cursor:pointer;
-    transition:border-color var(--speed), background var(--speed); }
-  .drop-zone:hover{ border-color:var(--amber); background:var(--surface); }
+  .drop-zone{ border:2px dashed var(--border); border-radius:8px; background:var(--paper);
+    padding:26px 20px; text-align:center; cursor:pointer; transition:border-color .15s, background .15s; }
+  .drop-zone:hover{ border-color:var(--amber); background:#fff; }
   .drop-zone.dragging{ border-color:var(--amber); background:var(--amberbg); }
-  .drop-icon{ font-family:var(--font-mono); font-size:11px; font-weight:600;
-    letter-spacing:1px; color:var(--steel); border:1px solid var(--border);
-    border-radius:var(--r-sm); padding:4px 9px; display:inline-block; margin-bottom:10px;
-    background:var(--surface); }
+  .drop-icon{ font-family:'IBM Plex Mono', monospace; font-size:11px; font-weight:600;
+    letter-spacing:1px; color:var(--steel); border:1px solid var(--border); border-radius:4px;
+    padding:4px 8px; display:inline-block; margin-bottom:10px; background:#fff; }
   .drop-hint{ font-size:11.5px; color:var(--ink-soft); margin-top:6px; }
 
   .file-card{ display:flex; align-items:flex-start; gap:12px; border:1px solid var(--border);
-    border-radius:var(--radius); padding:12px 14px; margin-top:12px; background:var(--surface);
-    box-shadow:var(--shadow-xs); }
-  .file-card.bad{ border-color:var(--red-line); background:var(--red-bg); }
+    border-radius:6px; padding:12px 14px; margin-top:12px; background:#fff; }
+  .file-card.bad{ border-color:var(--st-critical); background:var(--red-bg); }
   .file-name{ font-weight:600; font-size:13px; color:var(--ink); }
-  .file-meta{ font-size:11.5px; color:var(--ink-soft); margin-top:3px;
-    font-variant-numeric:tabular-nums; }
-  .col-chip{ display:inline-block; font-family:var(--font-mono); font-size:11px;
-    padding:2px 7px; border-radius:var(--r-sm); margin:2px 3px 0 0; }
+  .file-meta{ font-size:11.5px; color:var(--ink-soft); margin-top:3px; }
+  .col-chip{ display:inline-block; font-family:'IBM Plex Mono', monospace; font-size:11px;
+    padding:2px 6px; border-radius:3px; margin:2px 3px 0 0; }
   .col-ok{ background:var(--green-bg); color:var(--green); }
   .col-missing{ background:var(--red-bg); color:var(--red); }
   .col-extra{ background:var(--steel-light); color:var(--steel); }
 
-  footer.hint{ text-align:center; color:var(--ink-faint); font-size:11.5px;
-    padding:34px 0 10px; }
+  footer.hint{ text-align:center; color:var(--steel); font-size:11.5px; padding:30px 0 10px; }
 
-  /* ---- Signing in, and the moment before anything has loaded ----------------
-     The first thing anybody sees, and it used to be a 380px box with the same
-     16px of padding as a table cell. */
-  .boot-screen{ display:flex; align-items:center; justify-content:center; min-height:100vh;
-    text-align:center; padding:var(--s5); position:relative; }
-  /* Something behind the card. Signing in is the one screen with no navigation, no
-     data and nothing of the company on it, and a white box on flat grey is what a
-     page looks like before its stylesheet arrives. */
-  .boot-screen::before{ content:""; position:absolute; inset:0; pointer-events:none;
-    background:
-      radial-gradient(60% 50% at 50% 12%, rgba(223,138,36,.10) 0%, transparent 70%),
-      radial-gradient(70% 60% at 50% 100%, rgba(26,47,77,.09) 0%, transparent 70%); }
-  .boot-screen .card{ max-width:420px; width:100%; padding:var(--s7) var(--s6);
-    border-radius:var(--r-lg); box-shadow:var(--shadow-lg); text-align:left;
-    position:relative; overflow:hidden; }
-  /* The company's own mark cannot go here: this screen is drawn before anyone has
-     signed in, so the profile that names the application has not been read yet.
-     A band of the brand's two colours says whose software this is without
-     claiming to know whose installation it is. */
-  .boot-screen .card::before{ content:""; position:absolute; inset:0 0 auto 0; height:4px;
-    background:linear-gradient(90deg,#F2A849 0%,var(--amber) 45%,var(--amber-dark) 100%); }
-  .boot-screen .card h2{ font-size:20px; }
-  .boot-screen .card .btn{ min-height:40px; }
-
-
-  /* ---- Courtesies -----------------------------------------------------------
-     Motion is decoration here, never information, so there is nothing to lose by
-     switching it off for somebody who has asked their system to stop moving
-     things. */
-  @media (prefers-reduced-motion: reduce){
-    *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important;
-      transition-duration:.01ms !important; scroll-behavior:auto !important; }
-  }
-
-  /* Quotations and price lists get printed. The bar, the navigation and every
-     shadow are screen furniture and waste a third of the page. */
-  @media print{
-    .topbar, .search-bar, .page-head .btn, .back-link, footer.hint,
-    .modal-backdrop, .stream-switch, .mode-switch{ display:none !important; }
-    body{ background:#fff; }
-    .container{ max-width:none; padding:0; }
-    .card, .kpi-card, .hero-card, .brand-tile{ box-shadow:none; break-inside:avoid; }
-    thead th{ position:static; }
-    a[href]::after{ content:""; }
-  }
+  .boot-screen{ display:flex; align-items:center; justify-content:center; min-height:60vh; text-align:center; padding:20px; }
+  .boot-screen .card{ max-width:420px; }
 </style>
