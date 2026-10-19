@@ -36,6 +36,7 @@ const { fileStore } = require('./files.js');
 const { mailer, settings: mailSettings } = require('./mail.js');
 const { urlFetchApp } = require('./fetch.js');
 const { settingsStore } = require('./settings.js');
+const { syncSchema } = require('./schema-sync.js');
 const { chromium, chromiumProblem } = require('./pdf.js');
 
 /**
@@ -86,10 +87,20 @@ function build(options) {
   const properties = durable ? durable.props : seeded;
   // Awaited by every request before the portal is loaded, so nothing is ever answered from
   // an empty settings table — which for the Google gate would mean answering "off".
-  const ready = durable ? durable.load().catch((err) => {
+  //
+  // The schema top-up goes first, and also before anything answers: a column a release added
+  // has to exist before the first record carrying it is written. A failure is said loudly and
+  // does not stop the server — everything that does not touch the new column still works,
+  // and a portal that will not start is worse than one with one broken button.
+  const schemaReady = o.syncSchema === false ? Promise.resolve() :
+    syncSchema(db).catch((err) => {
+      console.error('[schema] could not be brought up to date: ' + err.message +
+        ' — anything that writes a newly added column will fail until it is.');
+    });
+  const ready = schemaReady.then(() => (durable ? durable.load().catch((err) => {
     console.error('[settings] could not be read: ' + err.message +
       ' — the portal will run on defaults until this is fixed.');
-  }) : Promise.resolve();
+  }) : undefined));
 
   /**
    * Which face of the portal to serve. The new design by default; ERP_UI=classic serves
