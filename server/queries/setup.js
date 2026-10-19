@@ -119,17 +119,39 @@ async function setupSheet() {
  * it carries the password, and a settings panel is exactly the kind of screen somebody
  * screenshots.
  */
-async function systemInfo_() {
-  var where = { host: '', database: '' };
-  try {
-    var row = (await db.q('SELECT current_database() AS d, inet_server_addr() AS a')).rows[0];
-    where.database = row.d;
-    where.host = row.a || 'local';
-  } catch (err) { /* a panel must not be what stops the screen opening */ }
+var SYSTEM_INFO_KEY_ = 'sys:info';
+var SYSTEM_INFO_SECONDS_ = 600;
 
-  return {
+async function systemInfo_() {
+  // Kept for ten minutes. Which database this is, and whether its shape matches the code,
+  // only changes when the server starts — and the server brings the schema up to date as it
+  // does. Asking afresh cost two round trips on every visit to Settings, one of them a read
+  // of the catalogue of every column in the database.
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (err) { cache = null; }
+  if (cache) {
+    var hit = cache.get(SYSTEM_INFO_KEY_);
+    if (hit) {
+      try { return JSON.parse(hit); } catch (err) { /* rebuilt below */ }
+    }
+  }
+
+  var where = { host: '', database: '' };
+  // Side by side rather than one after the other: neither needs the other's answer.
+  var both = await Promise.all([
+    db.q('SELECT current_database() AS d, inet_server_addr() AS a').then(function (res) {
+      return res.rows[0];
+    }, function () { return null; /* a panel must not be what stops the screen opening */ }),
+    schemaDrift_()
+  ]);
+  if (both[0]) {
+    where.database = both[0].d;
+    where.host = both[0].a || 'local';
+  }
+
+  var info = {
     build: typeof APP_BUILD === 'string' ? APP_BUILD : 'unknown',
-    drift: await schemaDrift_(),
+    drift: both[1],
     storage: 'PostgreSQL',
     databaseName: where.database,
     databaseHost: where.host,
@@ -137,4 +159,10 @@ async function systemInfo_() {
     declaredTabs: Object.keys(SCHEMA).length,
     timeZone: Session.getScriptTimeZone()
   };
+  if (cache) {
+    try { cache.put(SYSTEM_INFO_KEY_, JSON.stringify(info), SYSTEM_INFO_SECONDS_); } catch (err) {
+      /* too large to keep: still correct, just asked again next time */
+    }
+  }
+  return info;
 }

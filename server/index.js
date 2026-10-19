@@ -37,6 +37,8 @@ const { mailer, settings: mailSettings } = require('./mail.js');
 const { urlFetchApp } = require('./fetch.js');
 const { settingsStore } = require('./settings.js');
 const { syncSchema } = require('./schema-sync.js');
+const { Cache } = require('./platform.js');
+const zlib = require('zlib');
 const { chromium, chromiumProblem } = require('./pdf.js');
 
 /**
@@ -67,6 +69,22 @@ function build(options) {
   // One pool for the process. Every request borrows a connection and gives it back; opening
   // one per request against Neon would spend more time on handshakes than on queries.
   const db = o.db || connect({ connectionString: url, tenant, max: o.max || 10 });
+  // The small tables nearly every screen reads — who the users are, the dropdowns, the
+  // letterhead — kept in memory between requests, and dropped the moment anything writes to
+  // them. See Db.enableTableCache.
+  if (o.tableCache !== false && db.enableTableCache) db.enableTableCache();
+
+  /**
+   * The portal's CacheService, one for the whole process.
+   *
+   * Apps Script's cache was shared by every execution, and the portal is written for that: a
+   * signed-in session is remembered for six hours instead of being looked up on every click,
+   * the dashboard for two minutes, the Google gate's sign-in state between the link it hands
+   * out and Google's callback. Each request used to get a fresh one, so none of it worked —
+   * two extra queries on every call, and a Google gate that could never complete a sign-in.
+   */
+  const cache = o.cache || new Cache();
+  const userCaches = new Map();
 
   /**
    * Script Properties, which Apps Script had and a Node process does not.
@@ -217,6 +235,39 @@ const json = (res, status, obj) =>
   send(res, status, 'application/json; charset=utf-8', JSON.stringify(obj));
 
 /**
+ * send, gzipped when the browser says it can take it — which every browser does.
+ *
+ * Nothing was compressed. The spare catalogue is 6.9 MB of JSON, 13,587 rows each repeating
+ * the same forty keys, and it went across the internet to Pune at that size: six seconds on
+ * an ordinary office line before the browser had a single row. Gzipped it is about 250 KB.
+ * The page itself shrinks by much the same factor. Small answers are sent as they are —
+ * under a packet, compressing costs more than it saves.
+ *
+ * zlib.gzip rather than gzipSync: the work happens off the event loop, so one big catalogue
+ * being squeezed does not hold up everybody else's clicks.
+ */
+const COMPRESS_FROM_BYTES = 1400;
+function sendCompressed(req, res, status, type, text, headers) {
+  const raw = Buffer.from(text, 'utf8');
+  const accepts = String((req.headers && req.headers['accept-encoding']) || '');
+  const extra = Object.assign({ Vary: 'Accept-Encoding' }, headers || {});
+  if (raw.length < COMPRESS_FROM_BYTES || !/\bgzip\b/i.test(accepts)) {
+    return send(res, status, type, text, extra);
+  }
+  zlib.gzip(raw, { level: 6 }, (err, gz) => {
+    if (err) return send(res, status, type, text, extra);
+    res.writeHead(status, Object.assign({
+      'Content-Type': type,
+      'Content-Length': gz.length,
+      'Content-Encoding': 'gzip',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'same-origin'
+    }, extra));
+    res.end(gz);
+  });
+}
+
+/**
  * What a failure tells the browser.
  *
  * The message goes through, because the portal's errors are written for the person reading
@@ -280,7 +331,7 @@ function statusFor(message) {
         let googlePass = '';
         let title = 'ERP';
         try {
-          const portal = loadPortal(db, 'anonymous', {
+          const portal = loadPortal(db, 'anonymous', { cache, userCaches,
             properties, propertyStore: durable && durable.store(''), quiet: true,
             drive: files.DriveApp, mail, fetch: http_, baseUrl: baseUrlFor(req) });
           const gate = portal.googleGateForRequest_({
@@ -304,7 +355,7 @@ function statusFor(message) {
           console.error('Template tags the renderer does not understand: ' +
             page.warnings.join(' '));
         }
-        return send(res, 200, 'text/html; charset=utf-8', page.html);
+        return sendCompressed(req, res, 200, 'text/html; charset=utf-8', page.html);
       }
 
       // ---- the typefaces, from this origin
@@ -453,7 +504,7 @@ function statusFor(message) {
         const args = Array.isArray(payload.args) ? payload.args : [];
         const token = payload.token || null;
 
-        const portal = loadPortal(db, 'anonymous', { properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
+        const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
         try {
           // `call` is the portal's own door: it resolves the token to a user, refuses the
           // names on CALL_DENY_, and sets CURRENT_USER_ for everything downstream. The web
@@ -461,7 +512,7 @@ function statusFor(message) {
           const out = await portal.call(token, fn, args);
           // Signed here rather than where the row is written, so the link is a day old at
           // most when the browser gets it. See signFileUrls.
-          return send(res, 200, 'application/json; charset=utf-8',
+          return sendCompressed(req, res, 200, 'application/json; charset=utf-8',
             signFileUrls(JSON.stringify({ ok: out === undefined ? null : out })));
         } catch (err) {
           return failed(res, err, 'call ' + fn);
@@ -479,7 +530,7 @@ function statusFor(message) {
         try { payload = JSON.parse(await body(req)); } catch (err) { /* a logout with no
           readable body still means "forget my session", and refusing it would leave the
           session alive because the browser sent something odd */ }
-        const portal = loadPortal(db, 'anonymous', { properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
+        const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
         try {
           await portal.logout(payload.token || null);
           return json(res, 200, { ok: true });
@@ -493,7 +544,7 @@ function statusFor(message) {
       }
 
       if (req.method === 'POST' && url.pathname === '/api/google-link') {
-        const portal = loadPortal(db, 'anonymous', { properties,
+        const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties,
           propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp,
           mail, fetch: http_, baseUrl: baseUrlFor(req) });
         try {
@@ -512,7 +563,7 @@ function statusFor(message) {
           return json(res, 400, { error: 'Could not read the request.' });
         }
 
-        const portal = loadPortal(db, 'anonymous', { properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
+        const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
         try {
           const out = await portal.login(payload.username, payload.password, payload.googlePass);
           return json(res, 200, { ok: out });

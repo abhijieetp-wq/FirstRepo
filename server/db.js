@@ -137,6 +137,25 @@ function coerce(type, v) {
 
 // ------------------------------------------------------------------ the twelve
 
+/**
+ * The tables Db.enableTableCache keeps in memory: small, read on most screens, rarely written.
+ * Sessions are not here — the portal's own session cache sits in front of them.
+ */
+const CACHED_TABLES = new Set(['users', 'brands', 'business_streams', 'config_lists',
+  'lost_reasons', 'warehouses', 'company_profile', 'quote_templates']);
+
+/**
+ * Every table a statement writes to. Generous on purpose: a false match only means a table is
+ * read again, while a missed one would mean a stale answer.
+ */
+function writtenTables(text) {
+  const out = [];
+  const re = /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?|ALTER\s+TABLE|DROP\s+TABLE(?:\s+IF\s+EXISTS)?)\s+"?([a-z_][a-z0-9_]*)"?/gi;
+  let m;
+  while ((m = re.exec(String(text || '')))) out.push(m[1].toLowerCase());
+  return out;
+}
+
 class Db {
   /**
    * @param pool    a pg Pool
@@ -153,7 +172,47 @@ class Db {
   }
 
   /** Runs on the transaction's client when inside one, the pool otherwise. */
-  q(text, params) { return (this.client || this.pool).query(text, params); }
+  q(text, params) {
+    const run = (this.client || this.pool).query(text, params);
+    if (!this.tableCache) return run;
+    // A write to a remembered table forgets it — before the statement, so nobody reads the
+    // old copy while it runs, and again after, so a read that overlapped it cannot put the
+    // old rows back. Inside a transaction the table is forgotten once more when it ends.
+    const touched = writtenTables(text).filter((t) => CACHED_TABLES.has(t));
+    if (!touched.length) return run;
+    touched.forEach((t) => this.forgetTable(t));
+    if (this.txWritten) touched.forEach((t) => this.txWritten.add(t));
+    const after = () => touched.forEach((t) => this.forgetTable(t));
+    return run.then((res) => { after(); return res; }, (err) => { after(); throw err; });
+  }
+
+  /**
+   * Keeps the small, rarely changed tables in memory between requests.
+   *
+   * Users, the dropdown lists, brands, warehouses, the letterhead, the quotation templates:
+   * read on nearly every screen, changed a few times a month. Each read was a round trip to
+   * Neon — about 30 ms from Railway — and Settings alone made ten of them in a row.
+   *
+   * Correct by construction rather than by expiry. Every write in the portal goes through q(),
+   * and q() forgets a table the moment a statement writes to it. A read inside a transaction
+   * never uses or fills the memory, so nothing uncommitted is ever remembered. A generation
+   * number stops a read that overlapped a write from storing what it saw. The five minutes
+   * are only for changes made from outside this process — a script, or SQL typed at Neon.
+   *
+   * Switched on by the web server. Off by default, because a test or a script that writes
+   * through a second connection would otherwise read its own stale copy.
+   */
+  enableTableCache(ms) {
+    this.tableCache = new Map();
+    this.tableGen = new Map();
+    this.tableCacheMs = ms || 5 * 60 * 1000;
+  }
+
+  forgetTable(table) {
+    if (!this.tableCache) return;
+    this.tableCache.delete(table);
+    this.tableGen.set(table, (this.tableGen.get(table) || 0) + 1);
+  }
 
   /** The same object, bound to one connection and one transaction. */
   async withTransaction(fn) {
@@ -161,6 +220,7 @@ class Db {
     const client = await this.pool.connect();
     const scoped = Object.create(this);
     scoped.client = client;
+    scoped.txWritten = new Set();
     try {
       await client.query('BEGIN');
       const out = await fn(scoped);
@@ -170,6 +230,9 @@ class Db {
       try { await client.query('ROLLBACK'); } catch (e) { /* the error below is the real one */ }
       throw err;
     } finally {
+      // Committed or rolled back, what it wrote is forgotten again: a read elsewhere during
+      // the transaction saw the old rows, and may have stored them.
+      scoped.txWritten.forEach((t) => this.forgetTable(t));
       client.release();
     }
   }
@@ -185,9 +248,22 @@ class Db {
    */
   async readTable(tab) {
     const m = mapFor(tab);
+    const remember = this.tableCache && !this.client && CACHED_TABLES.has(m.table);
+    if (remember) {
+      const hit = this.tableCache.get(m.table);
+      // Copies, because callers decorate the rows they are given and the next caller must
+      // not see the decorations.
+      if (hit && hit.until > Date.now()) return hit.rows.map((r) => Object.assign({}, r));
+    }
+    const gen = remember ? (this.tableGen.get(m.table) || 0) : 0;
     const { rows } = await this.q(
       'SELECT * FROM ' + m.table + ' WHERE tenant_id = $1', [this.tenant]);
-    return rows.map((r) => toRecord(tab, r));
+    const records = rows.map((r) => toRecord(tab, r));
+    if (remember && (this.tableGen.get(m.table) || 0) === gen) {
+      this.tableCache.set(m.table, { rows: records, until: Date.now() + this.tableCacheMs });
+      return records.map((r) => Object.assign({}, r));
+    }
+    return records;
   }
 
   /** One row by id, or null. */

@@ -711,9 +711,24 @@
     return s;
   }
 
+  /**
+   * How many matching rows the table draws at once.
+   *
+   * It drew every one: 13,587 spares, rebuilt from scratch on every keystroke in the search box,
+   * with two click handlers attached to each row. Opening the catalogue took seconds and typing
+   * a letter took one or two more. Nobody reads past the first screenful — they search — so the
+   * table shows the first hundred matches and says how many there are, with a button for more.
+   * The count, the search, Compare and Delete all still work across the whole catalogue.
+   */
+  var CATALOG_PAGE = 100;
+  var catalogShown = CATALOG_PAGE;
+  var catalogLastQuery = "";
+
   function renderCatalogTable() {
     var rows = currentCatalogRows();
     var q = ($("catalog-search").value || "").toLowerCase();
+    // A new search starts from the top of its own results.
+    if (q !== catalogLastQuery) { catalogShown = CATALOG_PAGE; catalogLastQuery = q; }
     var cols = catalogColumns();
     var keys = catalogSearchKeys();
     var filtered = rows.filter(function (r) {
@@ -748,7 +763,9 @@
     }
 
     var isManager = canEditCatalog();
-    $("catalog-tbody").innerHTML = filtered.map(function (r) {
+    var visible = filtered.length > catalogShown ? filtered.slice(0, catalogShown) : filtered;
+    var more = filtered.length - visible.length;
+    $("catalog-tbody").innerHTML = visible.map(function (r) {
       var cells = cols.map(function (c) {
         var v = r[c.key];
         var display = c.money ? (v ? fmt(v) : "—") : (v === undefined || v === null || v === "" ? "—" : escapeHtml(v));
@@ -763,21 +780,43 @@
           (isManager ? '<button class="btn-ghost" data-edit="' + r.id + '" title="Edit">✎</button>' : "") +
         "</td>" +
         "</tr>";
-    }).join("");
-
-    $("catalog-tbody").querySelectorAll("[data-compare]").forEach(function (cb) {
-      cb.addEventListener("change", function () {
-        if (cb.checked) compareSelection.add(cb.dataset.compare); else compareSelection.delete(cb.dataset.compare);
-        syncDeleteSelected();
-      });
-    });
+    }).join("") +
+      (more > 0
+        ? '<tr class="catalog-more"><td colspan="' + (cols.length + 2) + '">' +
+          '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; ' +
+          'flex-wrap:wrap; padding:6px 2px; font-size:12.5px; color:var(--ink-soft);">' +
+          "<span>Showing the first " + fmtInt(visible.length) + " of " + fmtInt(filtered.length) +
+          ". Type in the search box to narrow it down.</span>" +
+          '<button class="btn btn-sm" type="button" data-catalog-more>Show ' +
+          fmtInt(Math.min(500, more)) + " more</button></div></td></tr>"
+        : "");
     syncDeleteSelected();
-    $("catalog-tbody").querySelectorAll("[data-edit]").forEach(function (btn) {
-      btn.addEventListener("click", function () { openCatalogModal(btn.dataset.edit); });
-    });
   }
 
-  $("catalog-search").addEventListener("input", renderCatalogTable);
+  // One listener for the whole table, set once, instead of two attached to every row on every
+  // draw. Rows come and go as the search changes; the table does not.
+  $("catalog-tbody").addEventListener("change", function (ev) {
+    var cb = ev.target.closest("[data-compare]");
+    if (!cb) return;
+    if (cb.checked) compareSelection.add(cb.dataset.compare); else compareSelection.delete(cb.dataset.compare);
+    syncDeleteSelected();
+  });
+  $("catalog-tbody").addEventListener("click", function (ev) {
+    var edit = ev.target.closest("[data-edit]");
+    if (edit) { openCatalogModal(edit.dataset.edit); return; }
+    if (ev.target.closest("[data-catalog-more]")) {
+      catalogShown += 500;
+      renderCatalogTable();
+    }
+  });
+
+  // Waits for a pause in the typing. Each letter used to redraw the table, so typing a part
+  // number queued a dozen redraws behind each other.
+  var catalogSearchTimer = null;
+  $("catalog-search").addEventListener("input", function () {
+    if (catalogSearchTimer) clearTimeout(catalogSearchTimer);
+    catalogSearchTimer = setTimeout(function () { catalogSearchTimer = null; renderCatalogTable(); }, 150);
+  });
   $("catalog-show-inactive").addEventListener("change", loadCatalog);
   $("subtab-parts").addEventListener("click", function () { switchCatalogMode("spares"); });
   $("subtab-units").addEventListener("click", function () { switchCatalogMode("products"); });

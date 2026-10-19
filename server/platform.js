@@ -227,8 +227,12 @@ function notMigrated(name, why) {
 function platformFor(opts) {
   const o = opts || {};
   const props = o.properties || {};
+  // Both handed in by the server, which holds one of each for the life of the process. Made
+  // here they lived for one request — every request built a fresh portal and so a fresh, empty
+  // cache — and nothing the portal cached was ever found again: not a signed-in session, not
+  // the dashboard, not the Google gate's sign-in state between the link and the callback.
   const scriptCache = o.cache || new Cache();
-  const userCaches = new Map();
+  const userCaches = o.userCaches || new Map();
 
   // The host supplies one that survives a restart; without it, settings live and die with
   // the process, which is what a portal started from a laptop for a look around should do.
