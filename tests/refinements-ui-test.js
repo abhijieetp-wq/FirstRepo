@@ -9,6 +9,7 @@
  *   4. a quotation cannot be revised without saying why
  *   5. emailing the offer says plainly whether it went, and why not when it did not
  *   6. saving something does not throw away your place on the page
+ *   7. a compressor can be found by the flow and pressure the customer needs
  *
  *   node tests/build-preview.js tests/fixtures/base.html /tmp/preview.html [--ui=web]
  *   node tests/refinements-ui-test.js /tmp/preview.html
@@ -422,6 +423,116 @@ const ok = (label, cond, detail) => {
   }));
   ok('without moving the page either',
     Math.abs((await page.evaluate(() => Math.round(window.scrollY))) - yAfter) < 60);
+
+  // ------------------------------------------------------------- 7. the compressor picker
+  console.log('\nFROM AN OPPORTUNITY, THE PICKER STARTS FROM THE REQUIREMENT');
+  await page.evaluate(() => {
+    const D = window.__data;
+    const opp = { id: 'OP-1', opportunityNo: 'OP-0001', customerId: 'CU-1', customerName: 'Topworth Urja',
+      title: 'Plant air', stage: 'Technical Discussion', expectedValue: 900000, probability: 25,
+      weightedValue: 225000, expectedCloseDate: '', competitor: '', nextActionDate: '', ownerEmail: '',
+      lostReasonId: '', hasTechnicalRequirement: true,
+      technicalRequirement: { application: 'Plant air', requiredFad: '4.25 m3/min', workingPressure: '7 bar' },
+      selections: [], siteVisits: [], activities: [], quotations: [] };
+    D.listOpportunities = [opp];
+    D.getOpportunity = opp;
+    D.listProducts = [{ id: 'PR-1', productCode: 'TX37-7.5', model: 'TX 37-7.5 DM', price: 1200000 },
+      { id: 'PR-2', productCode: 'TX45-7.5', model: 'TX 45-7.5 DM' }];
+    D.findCompressors = function (q) {
+      if (q && q.fad === '400') {
+        return { requirement: { fadCfm: 400, pressureBar: 7, series: '', from: 'entered' }, matches: [],
+          considered: 10, unreadable: [], seriesAvailable: ['TX', 'TY'],
+          largestAtPressure: { productCode: 'TX45-7.5', model: 'TX 45-7.5 DM', fadCfm: 296 } };
+      }
+      return {
+        requirement: { fadCfm: 150.1, pressureBar: 7, series: '', from: q && q.opportunityId ? 'requirement' : 'entered',
+          requirementText: { fad: '4.25 m3/min', pressure: '7 bar' } },
+        matches: [
+          { id: 'PR-1', productCode: 'TX37-7.5', model: 'TX 37-7.5 DM', series: 'TX', fadCfm: 242,
+            fadM3min: 6.85, workingBar: 7, motorKw: '37 kW, 50 hp', spc: 18.67, inputKw: 45.18,
+            sparePct: 61.2, price: 1200000, closest: true },
+          { id: 'PR-2', productCode: 'TX45-7.5', model: 'TX 45-7.5 DM', series: 'TX', fadCfm: 296,
+            fadM3min: 8.38, workingBar: 7, motorKw: '45 kW, 60 hp', spc: 18.38, inputKw: 54.4,
+            sparePct: 97.2, price: null, bestSpc: true }],
+        considered: 10, unreadable: ['OLD-1'], seriesAvailable: ['TX', 'TY'], largestAtPressure: null };
+    };
+  });
+  await go('compressor');
+  await page.evaluate(() => document.querySelector('#subtab-pipeline').click());
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.querySelector('[data-open-opp]').click());
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.querySelector('#btn-selection-form').click());
+  await page.waitForTimeout(400);
+  ok('the selection form offers the picker', await shown('#btn-sel-find'));
+  await page.evaluate(() => document.querySelector('#btn-sel-find').click());
+  await page.waitForTimeout(500);
+  ok('the picker opens in front of the opportunity', await shown('#picker-modal-backdrop') &&
+    await inFront('#picker-modal-backdrop'));
+  ok('asking the server with the opportunity, not with guesses',
+    JSON.stringify(await lastArgs('findCompressors')) === JSON.stringify([{ opportunityId: 'OP-1' }]),
+    await lastArgs('findCompressors'));
+  ok('the boxes show what the requirement was taken to mean',
+    (await value('#pk-fad')) === '150.1' && (await value('#pk-pressure')) === '7' &&
+    (await value('#pk-unit')) === 'cfm');
+  ok('and say where it came from', /4\.25 m3\/min/.test(await text('#pk-from')), await text('#pk-from'));
+  const pk = await text('#pk-result');
+  ok('the closest fit and the lowest energy use are both named',
+    /Closest fit/.test(pk) && /Lowest energy use/.test(pk), pk.slice(0, 200));
+  ok('with spare flow and input power', /\+61\.2%/.test(pk) && /45\.18 kW/.test(pk), pk.slice(0, 300));
+  ok('a model that could not be read is named', /OLD-1/.test(pk));
+  ok('the series filter offers what the catalogue has',
+    (await page.$$eval('#pk-series option', (o) => o.map((x) => x.value))).join() === ',TX,TY');
+
+  await page.evaluate(() => document.querySelector('[data-pk-choose="PR-1"]').click());
+  await page.waitForTimeout(300);
+  ok('Choose closes the picker', !(await shown('#picker-modal-backdrop')));
+  ok('and puts the model into the selection', (await value('#sel-product')) === 'PR-1');
+  ok('which is still open to add accessories', await shown('#om-selection-form') &&
+    await shown('#opp-modal-backdrop'));
+
+  console.log('\nA SEARCH BY HAND SENDS WHAT WAS TYPED');
+  await page.evaluate(() => document.querySelector('#btn-sel-find').click());
+  await page.waitForTimeout(400);
+  await page.fill('#pk-fad', '3.5');
+  await page.selectOption('#pk-unit', 'm3min');
+  await page.fill('#pk-pressure', '8');
+  await page.selectOption('#pk-series', 'TX');
+  await page.evaluate(() => document.querySelector('#btn-pk-find').click());
+  await page.waitForTimeout(400);
+  ok('flow, unit, pressure and series go to the server as typed',
+    JSON.stringify((await lastArgs('findCompressors'))[0]) ===
+      JSON.stringify({ fad: '3.5', fadUnit: 'm3min', pressure: '8', series: 'TX' }),
+    await lastArgs('findCompressors'));
+  await page.fill('#pk-fad', '400');
+  await page.selectOption('#pk-unit', 'cfm');
+  await page.evaluate(() => document.querySelector('#btn-pk-find').click());
+  await page.waitForTimeout(400);
+  ok('nothing big enough says what the biggest is', /No model in the catalogue delivers 400 cfm/.test(
+    await text('#pk-result')) && /TX 45-7\.5 DM/.test(await text('#pk-result')), await text('#pk-result'));
+  await page.evaluate(() => document.querySelector('#btn-pk-close').click());
+  await page.evaluate(() => document.querySelector('#btn-cancel-opp').click());
+  await page.waitForTimeout(200);
+
+  console.log('\nAND FROM THE CATALOGUE, FOR LOOKING');
+  await go('catalog');
+  await page.evaluate(() => document.querySelector('#subtab-parts').click());
+  await page.waitForTimeout(300);
+  ok('not offered among the spares', !(await shown('#btn-find-compressor')));
+  await page.evaluate(() => document.querySelector('#subtab-units').click());
+  await page.waitForTimeout(400);
+  ok('offered among the compressors', await shown('#btn-find-compressor'));
+  await page.evaluate(() => document.querySelector('#btn-find-compressor').click());
+  await page.waitForTimeout(300);
+  ok('it opens empty, asking for the requirement', await shown('#picker-modal-backdrop') &&
+    (await value('#pk-fad')) === '');
+  await page.fill('#pk-fad', '150');
+  await page.fill('#pk-pressure', '7');
+  await page.evaluate(() => document.querySelector('#btn-pk-find').click());
+  await page.waitForTimeout(400);
+  ok('it lists the models', /Closest fit/.test(await text('#pk-result')));
+  ok('with nothing to choose into', (await page.$$('[data-pk-choose]')).length === 0);
+  await page.evaluate(() => document.querySelector('#btn-pk-close').click());
 
   ok('no page errors anywhere', errors.length === 0, errors);
   await browser.close();

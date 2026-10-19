@@ -68,13 +68,15 @@ var IMPORT_SPECS = {
     // them into, so the table never appeared for any machine.
     columns: ['productCode', 'hsnCode', 'model', 'family', 'series', 'description', 'category',
       'hpRating', 'fad', 'workingPressure', 'capacityCfm', 'maxPressure', 'motorKw',
-      'starterType', 'dimensionsMm', 'weightKg', 'gstPct', 'piePrice', 'elgiPrice',
-      'warrantyMonths', 'leadTimeDays', 'uom', 'notes'],
+      'starterType', 'dimensionsMm', 'weightKg', 'spcKw100Cfm', 'gstPct', 'piePrice',
+      'elgiPrice', 'warrantyMonths', 'leadTimeDays', 'uom', 'notes'],
     masterFields: ['productCode', 'hsnCode', 'model', 'family', 'series', 'description',
       'category', 'hpRating', 'fad', 'workingPressure', 'capacityCfm', 'maxPressure',
-      'motorKw', 'starterType', 'dimensionsMm', 'weightKg', 'gstPct', 'warrantyMonths',
-      'leadTimeDays', 'uom', 'notes'],
-    numeric: ['gstPct', 'piePrice', 'elgiPrice', 'warrantyMonths', 'leadTimeDays']
+      'motorKw', 'starterType', 'dimensionsMm', 'weightKg', 'spcKw100Cfm', 'gstPct',
+      'warrantyMonths', 'leadTimeDays', 'uom', 'notes'],
+    // spcKw100Cfm is checked as a number so "18.4 kW" is refused on the preview, with its line
+    // number, rather than quietly stored as nothing.
+    numeric: ['gstPct', 'piePrice', 'elgiPrice', 'warrantyMonths', 'leadTimeDays', 'spcKw100Cfm']
   }
 };
 
@@ -416,7 +418,7 @@ function exampleValue_(itemType, column) {
     hpRating: '25', fad: '113 cfm', workingPressure: '7 bar.g',
     capacityCfm: '113 cfm', maxPressure: '7.5 bar.g', motorKw: '18 kW, 25 hp',
     starterType: 'Variable Frequency Drive', dimensionsMm: '1500 x 821 x 1220',
-    weightKg: '680 kg',
+    weightKg: '680 kg', spcKw100Cfm: '18.39',
     warrantyMonths: '12', leadTimeDays: '42'
   };
   return examples[column] === undefined ? '' : examples[column];

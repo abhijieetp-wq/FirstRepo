@@ -234,6 +234,9 @@
 
   .modal-backdrop{ position:fixed; inset:0; background:rgba(18,35,61,.55); display:none; align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto; z-index:50; }
   .modal-backdrop.show{ display:flex; }
+  /* A window's buttons, right-aligned like every other window's. Without this the few windows
+     using the class (decline, password, sent, the compressor picker) put theirs on the left. */
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
   /* The confirm dialog is always opened from inside another modal, so it has to outrank
      them all. Every backdrop shares one z-index, which left DOM order deciding — and the
      dialog is declared early, so it landed underneath and its buttons could not be clicked. */

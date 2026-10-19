@@ -177,6 +177,9 @@ var SCHEMA = {
       'standardAccessories', 'leadTimeDays', 'uom', 'notes',
       // The specification table printed on a compressor offer (ISO 1217 Annex C figures)
       'capacityCfm', 'maxPressure', 'motorKw', 'starterType', 'dimensionsMm', 'weightKg',
+      // Specific power at full load, kW per 100 cfm (ISO 1217 Annex C) — what the model picker
+      // ranks energy use by. A number, unlike the printed fields above.
+      'spcKw100Cfm',
       'active', 'createdAt', 'createdBy']
   },
   Spares: {

@@ -316,6 +316,7 @@
                font-size:12.5px; color:var(--ink-soft); white-space:nowrap;">
           <input type="checkbox" id="catalog-show-inactive" /> Show deactivated
         </label>
+        <button class="btn btn-sm" id="btn-find-compressor" style="display:none;">Find by flow &amp; pressure</button>
         <button class="btn btn-sm" id="btn-compare-selected">Compare Selected</button>
         <button class="btn btn-sm btn-danger" id="btn-delete-selected"
                 style="display:none;">Delete Selected</button>
@@ -925,6 +926,8 @@
       <div class="field"><label>Starter</label><input id="um-starter" placeholder="Variable Frequency Drive" /></div>
       <div class="field"><label>Dimensions</label><input id="um-dimensions" placeholder="1500 x 821 x 1220" /></div>
       <div class="field"><label>Weight</label><input id="um-weight" placeholder="680 kg" /></div>
+      <div class="field"><label>Specific Power (kW/100 cfm)</label>
+        <input id="um-spc" type="number" min="0" step="0.01" placeholder="18.39" /></div>
     </div>
     <div class="grid grid-3" style="margin-top:12px;">
       <div class="field"><label>GST %</label><input id="um-gst" type="number" min="0" step="0.5" /></div>
@@ -1339,6 +1342,37 @@
   </div>
 </div>
 
+<!-- Which compressor, from the flow and pressure the customer needs. PIE's own rule: a model
+     qualifies when it delivers at least that flow at a working pressure at least that high. -->
+<div class="modal-backdrop" id="picker-modal-backdrop">
+  <div class="modal" style="max-width:1040px;">
+    <h3 style="margin-bottom:4px;">Find a compressor by flow and pressure</h3>
+    <p id="pk-sub" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;">
+      A model qualifies when it delivers at least the air asked for, at a working pressure at
+      least as high. The closest fit comes first.
+    </p>
+    <div class="grid grid-4" style="align-items:end;">
+      <div class="field"><label>Air required (FAD) *</label>
+        <div style="display:flex; gap:8px;">
+          <input id="pk-fad" type="number" min="0" step="0.1" style="flex:1; min-width:0;" />
+          <select id="pk-unit" style="width:112px;">
+            <option value="cfm">cfm</option><option value="m3min">m³/min</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Working pressure (bar) *</label>
+        <input id="pk-pressure" type="number" min="0" step="0.1" /></div>
+      <div class="field"><label>Series</label><select id="pk-series"><option value="">Any</option></select></div>
+      <div class="field"><button class="btn btn-primary" id="btn-pk-find" type="button" style="width:100%;">Find models</button></div>
+    </div>
+    <p id="pk-from" style="font-size:11.5px; color:var(--ink-soft); margin:8px 0 0;"></p>
+    <div id="pk-result" style="margin-top:14px;"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btn-pk-close" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="ask-modal-backdrop">
   <div class="modal" style="max-width:480px;">
     <h3 id="ask-title" style="margin-bottom:10px;"></h3>
@@ -1617,7 +1651,11 @@
     <div id="om-selection-form" class="inline-form" style="display:none;">
       <div class="grid grid-2">
         <div class="field"><label>Compressor *</label>
-          <select id="sel-product"></select>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="sel-product" style="flex:1; min-width:0;"></select>
+            <button class="btn btn-sm" id="btn-sel-find" type="button"
+              title="Suggest models from the flow and pressure the customer needs">Find by flow &amp; pressure</button>
+          </div>
         </div>
         <div class="field"><label>Dryer</label><input id="sel-dryer" /></div>
       </div>

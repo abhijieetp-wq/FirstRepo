@@ -75,6 +75,7 @@ const OVERRIDES = {
   weightKg: ['TEXT', 'printed on the offer with its unit: "700 kg (dry)"'],
   motorKw: ['TEXT', 'printed on the offer with its unit: "22 kW, 30 hp"'],
   quantity: ['NUMERIC(14,3)', 'a quantity, which can be fractional'],
+  spcKw100Cfm: ['NUMERIC(14,2)', 'specific power, kW per 100 cfm — compared, never printed bare'],
   sizeBytes: ['BIGINT', 'a file size'],
   lineNo: ['INTEGER', 'a position on the document'],
 

@@ -618,6 +618,7 @@
     $("catalog-search").value = "";
     $("subtab-parts").className = "btn btn-sm" + (mode === "spares" ? " btn-primary" : "");
     $("subtab-units").className = "btn btn-sm" + (mode === "products" ? " btn-primary" : "");
+    $("btn-find-compressor").style.display = mode === "products" ? "" : "none";
     loadCatalog();
   }
 
@@ -1325,6 +1326,8 @@
     $("um-starter").value = p ? (p.starterType || "") : "";
     $("um-dimensions").value = p ? (p.dimensionsMm || "") : "";
     $("um-weight").value = p ? (p.weightKg || "") : "";
+    $("um-spc").value = p && p.spcKw100Cfm !== "" && p.spcKw100Cfm !== null &&
+      p.spcKw100Cfm !== undefined ? p.spcKw100Cfm : "";
     $("um-hsn").value = p ? (p.hsnCode || "") : "";
     $("um-pieprice").value = p && p.piePrice ? p.piePrice : "";
     $("um-elgiprice").value = p && p.price ? p.price : "";
@@ -1351,6 +1354,7 @@
       starterType: $("um-starter").value.trim(),
       dimensionsMm: $("um-dimensions").value.trim(),
       weightKg: $("um-weight").value.trim(),
+      spcKw100Cfm: $("um-spc").value,
       gstPct: $("um-gst").value,
       warrantyMonths: $("um-warranty").value,
       leadTimeDays: $("um-leadtime").value,
@@ -5771,6 +5775,163 @@
       receiver: $("sel-receiver").value.trim(),
       filters: $("sel-filters").value.trim(),
       accessories: $("sel-accessories").value.trim()
+    });
+  });
+
+  // ---- Finding a compressor by flow and pressure ----
+  //
+  // The server decides what qualifies and which to recommend (findCompressors); this draws it.
+  // Opened from an opportunity, it starts from the requirement captured there and each row can
+  // be chosen straight into the selection form. Opened from the catalogue, it is for looking.
+
+  var pickerChoose = null;     // set when a row's Choose should fill something in
+
+  function openCompressorPicker(opts) {
+    var o = opts || {};
+    pickerChoose = o.onChoose || null;
+    $("pk-result").innerHTML = "";
+    $("pk-from").textContent = "";
+    if (!o.opportunityId) {
+      $("pk-fad").value = "";
+      $("pk-pressure").value = "";
+    }
+    stackModal("picker-modal-backdrop");
+    if (o.opportunityId) runCompressorPicker({ opportunityId: o.opportunityId });
+    else setTimeout(function () { $("pk-fad").focus(); }, 50);
+  }
+
+  function runCompressorPicker(query) {
+    var q = query || {
+      fad: $("pk-fad").value, fadUnit: $("pk-unit").value,
+      pressure: $("pk-pressure").value, series: $("pk-series").value
+    };
+    if (!query && (!(Number(q.fad) > 0) || !(Number(q.pressure) > 0))) {
+      $("pk-result").innerHTML = '<div class="empty" style="padding:14px;">Enter the air ' +
+        "required and the working pressure.</div>";
+      return;
+    }
+    var done = busyButton("btn-pk-find", "Finding\u2026");
+    srv.withSuccessHandler(function (r) {
+      done();
+      renderCompressorPicker(r);
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).findCompressors(q);
+  }
+
+  function renderCompressorPicker(r) {
+    var req = r.requirement || {};
+    // Whatever the server read, back into the boxes, so a requirement typed as "3.7 m3/min" or
+    // "100 psi" shows what it was taken to mean.
+    if (req.fadCfm) { $("pk-fad").value = req.fadCfm; $("pk-unit").value = "cfm"; }
+    if (req.pressureBar) $("pk-pressure").value = req.pressureBar;
+    var seriesSel = $("pk-series");
+    var keep = req.series || seriesSel.value;
+    if (r.seriesAvailable && r.seriesAvailable.length) {
+      seriesSel.innerHTML = '<option value="">Any</option>' + r.seriesAvailable.map(function (s) {
+        return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + "</option>";
+      }).join("");
+      seriesSel.value = keep || "";
+    }
+    $("pk-from").textContent = req.from === "requirement"
+      ? (req.fadCfm && req.pressureBar
+          ? "Taken from this opportunity's requirement: \u201c" + (req.requirementText.fad || "") +
+            "\u201d at \u201c" + (req.requirementText.pressure || "") + "\u201d. Change it and press Find models."
+          : "This opportunity's requirement does not give a flow and a pressure that can be read. " +
+            "Enter them above.")
+      : "";
+
+    var box = $("pk-result");
+    if (!(req.fadCfm > 0) || !(req.pressureBar > 0)) {
+      box.innerHTML = '<div class="empty" style="padding:14px;">Enter the air required and the ' +
+        "working pressure.</div>";
+      return;
+    }
+    var foot = '<p style="font-size:11.5px; color:var(--ink-soft); margin:10px 0 0;">' +
+      r.considered + (r.considered === 1 ? " model" : " models") + " considered." +
+      (r.unreadable && r.unreadable.length
+        ? " " + r.unreadable.length + " could not be: no flow or working pressure on file (" +
+          escapeHtml(r.unreadable.slice(0, 6).join(", ")) + (r.unreadable.length > 6 ? ", \u2026" : "") +
+          "). Fill them in under Catalog to include them."
+        : "") + "</p>";
+
+    if (!r.matches.length) {
+      var big = r.largestAtPressure;
+      box.innerHTML = '<div class="compare-strip">No model in the catalogue delivers ' +
+        escapeHtml(req.fadCfm) + " cfm at " + escapeHtml(req.pressureBar) + " bar." +
+        (big ? " The largest at that pressure is <b>" + escapeHtml(big.model || big.productCode) +
+          "</b> with " + escapeHtml(big.fadCfm) + " cfm \u2014 consider two machines, or a larger series."
+             : " None is rated for that pressure.") + "</div>" + foot;
+      return;
+    }
+
+    box.innerHTML = '<div class="card" style="padding:0; overflow-x:auto;"><table><thead><tr>' +
+      "<th>Model</th><th class=\"num\">FAD</th><th class=\"num\">Working pressure</th>" +
+      "<th>Motor</th><th class=\"num\">SPC (kW/100 cfm)</th><th class=\"num\">Input power</th>" +
+      "<th class=\"num\">Spare flow</th><th class=\"num\">Price</th><th></th></tr></thead><tbody>" +
+      r.matches.map(function (m) {
+        var tags = (m.closest ? ' <span class="badge badge-won">Closest fit</span>' : "") +
+          (m.bestSpc ? ' <span class="badge badge-followup">Lowest energy use</span>' : "");
+        return "<tr>" +
+          "<td><b>" + escapeHtml(m.model || m.productCode) + "</b>" + tags +
+            '<div class="mono" style="font-size:11.5px; color:var(--ink-soft);">' + escapeHtml(m.productCode) + "</div></td>" +
+          '<td class="num" style="white-space:nowrap;">' + escapeHtml(m.fadCfm) + " cfm" +
+            '<div style="font-size:11.5px; color:var(--ink-soft);">' + escapeHtml(m.fadM3min) + " m\u00b3/min</div></td>" +
+          '<td class="num" style="white-space:nowrap;">' + escapeHtml(m.workingBar) + " bar</td>" +
+          "<td>" + escapeHtml(m.motorKw || (m.hpRating ? m.hpRating + " hp" : "\u2014")) + "</td>" +
+          '<td class="num">' + (m.spc !== null ? escapeHtml(m.spc) : "\u2014") + "</td>" +
+          '<td class="num" style="white-space:nowrap;">' + (m.inputKw !== null ? escapeHtml(m.inputKw) + " kW" : "\u2014") + "</td>" +
+          '<td class="num">' + (m.sparePct === 0 ? "exact" : "+" + escapeHtml(m.sparePct) + "%") + "</td>" +
+          '<td class="num mono">' + (m.price !== null ? fmt(m.price) : "\u2014") + "</td>" +
+          '<td class="center">' + (pickerChoose
+            ? '<button class="btn btn-sm btn-primary" data-pk-choose="' + escapeHtml(m.id) + '">Choose</button>'
+            : "") + "</td>" +
+          "</tr>";
+      }).join("") + "</tbody></table></div>" +
+      '<p style="font-size:11.5px; color:var(--ink-soft); margin:10px 0 0;">Closest fit is built ' +
+      "for the nearest pressure, and the smallest of those that gives enough air. Lowest energy " +
+      "use is the best specific power, which on its own favours a bigger machine than the job " +
+      "needs \u2014 one that spends its day unloaded.</p>" + foot;
+
+    box.querySelectorAll("[data-pk-choose]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var m = r.matches.filter(function (x) { return x.id === btn.dataset.pkChoose; })[0];
+        var cb = pickerChoose;
+        pickerChoose = null;
+        $("picker-modal-backdrop").classList.remove("show");
+        if (cb && m) cb(m);
+      });
+    });
+  }
+
+  $("btn-pk-find").addEventListener("click", function () { runCompressorPicker(); });
+  ["pk-fad", "pk-pressure"].forEach(function (id) {
+    $(id).addEventListener("keydown", function (e) { if (e.key === "Enter") runCompressorPicker(); });
+  });
+  $("btn-pk-close").addEventListener("click", function () {
+    pickerChoose = null;
+    $("picker-modal-backdrop").classList.remove("show");
+  });
+  $("btn-find-compressor").addEventListener("click", function () { openCompressorPicker({}); });
+
+  // From the opportunity: start from its requirement, and a choice goes into the selection.
+  $("btn-sel-find").addEventListener("click", function () {
+    if (!openOpportunity) return;
+    openCompressorPicker({
+      opportunityId: openOpportunity.id,
+      onChoose: function (m) {
+        var sel = $("sel-product");
+        if (!sel.querySelector('option[value="' + m.id + '"]')) {
+          var opt = document.createElement("option");
+          opt.value = m.id;
+          opt.textContent = m.productCode + " \u2014 " + (m.model || "");
+          sel.appendChild(opt);
+        }
+        sel.value = m.id;
+        showMsg((m.model || m.productCode) + " chosen. Add any accessories and press Save Selection.",
+          "success");
+      }
     });
   });
 
