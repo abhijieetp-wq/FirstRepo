@@ -88,11 +88,24 @@ For e-mail, when you have a mailbox:
 
 ## 5. Point the domain
 
-Railway → Settings → **Networking** → **Custom Domain** → enter the name. It gives you a
-CNAME. Add that record wherever the domain's DNS lives. TLS is issued automatically once
-the record resolves, which is usually minutes but can be an hour.
+The portal goes on a **subdomain of IMC Global's domain** — for example
+`pie.erp.<imc-domain>` — never on the bare domain, which carries IMC's own website and
+mail. A subdomain also gives each later client a name of its own on the same pattern.
 
-Then make sure `ERP_BASE_URL` matches the final address exactly — scheme and all.
+1. Railway → the service → Settings → **Networking** → **Custom Domain** → type the full
+   name (`pie.erp.<imc-domain>`). Railway shows a **CNAME** target, something like
+   `xxxx.up.railway.app`, and may show a **TXT** record to prove the domain is yours.
+2. Wherever IMC's DNS is managed (GoDaddy, Cloudflare, the registrar's panel): add a
+   **CNAME** record. Name: `pie.erp` (the part before the domain). Value: the target from
+   step 1. If Railway showed a TXT record, add that too, exactly as shown.
+3. Back in Railway, wait for the domain to show a green tick. TLS is issued automatically
+   once the record resolves — usually minutes, occasionally an hour.
+4. Railway → Variables → set `ERP_BASE_URL` to the final address, scheme and all:
+   `https://pie.erp.<imc-domain>`. No trailing slash. Railway redeploys on save.
+5. Open `https://pie.erp.<imc-domain>/health` and check it says `"ok": true`.
+
+The old `…up.railway.app` address keeps working. Once the new one is confirmed, stop
+using the old one so links in e-mails all carry the same name.
 
 ---
 
@@ -136,7 +149,7 @@ before this is done, or nobody can get in**, including you.
 
 1. Google Cloud Console → the project that owns the OAuth client → **Credentials** → your
    OAuth 2.0 Client ID.
-2. Under **Authorised redirect URIs**, add your address exactly: `https://erp.premierindia.in`.
+2. Under **Authorised redirect URIs**, add your address exactly: `https://pie.erp.<imc-domain>`.
    No trailing slash, no path. It must match `ERP_BASE_URL` character for character.
 3. In the portal: Settings → the Google gate → paste the client id and secret, list the
    accounts that may enter, and only then switch it on.
@@ -153,14 +166,27 @@ back, and it is worth knowing before you need it.
 Railway keeps every deployment. Pick the previous one → **Redeploy**. It takes a minute and
 does not touch the database.
 
+A release that adds a column or a table brings the database up to date by itself when it
+starts — the log says `[schema] added …` — and only ever adds. Rolling the code back
+afterwards leaves the new column in place, unused and harmless; nothing has to be undone by
+hand.
+
 If something is wrong with the *data* rather than the code, that is the cutover procedure,
 not this one.
 
 ## What is still manual
 
-- **Tally.** Set the endpoint in Settings → Tally Connection. Tally normally sits on the
-  office LAN, and a server in a Singapore data centre cannot reach a machine in Pune
-  without a tunnel. Expect this one to need a network answer, not a code change.
+- **Tally.** PIE's IT have confirmed the server can reach their Tally. In the portal:
+  Settings → Tally Connection → enter the address they give you (it looks like
+  `http://<their address>:9000`) → **Test Connection**. It should say *Tally answered* and
+  how many companies it can see. Then open one issued invoice → **Send to Tally** and check
+  it appears in Tally before relying on it.
+
+  **Ask IT one question first:** is Tally's port open to the whole internet, or only to
+  this server? Tally's XML port has no password — anybody who can reach it can read and
+  post into PIE's books. It must accept connections from this server's address only (a
+  fixed outgoing IP from Railway, or a VPN/tunnel between the two). An open port is not a
+  setting to leave "for now".
 - **Backups.** Neon handles the database. The volume at `/data/files` is yours to back up —
   it holds every purchase order and delivery photograph.
 - **Keeping it warm.** Not needed: unlike Apps Script, the process stays up.
