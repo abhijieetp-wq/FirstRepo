@@ -224,8 +224,12 @@ function quotationJourney_(quote, idx) {
   // An offer the customer turned down did not travel any further along this line, so it gets
   // a stop at the point it stopped rather than a stage of its own. Drawing "Declined" in the
   // run of stages would put a refusal on the road to delivery, which is not where it belongs.
+  // A caller listing many offers can hand the reasons in, read once, rather than this
+  // looking each one up — on a database that is a query per declined offer.
   var declined = quote.status === 'Lost'
-    ? { after: reached, reason: lostReasonText_(quote.lostReasonId), date: '' }
+    ? { after: reached, date: '',
+        reason: idx.lostReasons ? (idx.lostReasons[String(quote.lostReasonId)] || '')
+                                : lostReasonText_(quote.lostReasonId) }
     : null;
 
   return {

@@ -1169,10 +1169,32 @@ function setQuotationStatus(id, status, lostReasonId, lostDetails) {
 /**
  * Forks a locked quotation into the next revision (FR-019). The original keeps its number
  * and content and is marked Revised; the copy becomes R1, R2 … and is editable.
+ *
+ * A revision needs a reason, and the reason is refused here rather than only asked for on
+ * screen. A revision is the company changing an offer it already made — a price, a quantity,
+ * a delivery promise — and "why did R2 exist" is the first question anyone asks when the
+ * customer quotes R1 back at them. The screen asks; this is what makes asking compulsory,
+ * for every way a revision can be made now or later.
  */
-function reviseQuotation(id) {
+var REVISION_REASON_MIN_ = 5;
+
+function revisionReason_(reason) {
+  var text = String(reason === undefined || reason === null ? '' : reason)
+    .replace(/\s+/g, ' ').trim();
+  if (!text) throw new Error('Say why this quotation is being revised before revising it.');
+  // Long enough to be a reason, and made of words: "." or "xx" satisfies a required field and
+  // tells the next person nothing.
+  if (text.length < REVISION_REASON_MIN_ || !/[A-Za-z0-9]{2,}/.test(text)) {
+    throw new Error('Give a real reason for the revision — for example "Customer asked for ' +
+      'a lower price" or "Quantity changed to 4".');
+  }
+  return text.slice(0, 500);
+}
+
+function reviseQuotation(id, reason) {
   var user = getCurrentUser();
   requireRole_(user, QUOTE_EDITORS);
+  var why = revisionReason_(reason);
 
   var source = readTable_('Quotations').filter(function (q) { return String(q.id) === String(id); })[0];
   if (!source) throw new Error('Quotation not found.');
@@ -1199,7 +1221,17 @@ function reviseQuotation(id) {
   copy.preparedBy = user.email;
   copy.createdAt = nowIso_();
   copy.createdBy = user.email;
-  appendRow_('Quotations', copy, 'Revision ' + nextRevision + ' of ' + source.quoteNo);
+  // On the new revision, because it is the reason that revision exists. The one it replaces
+  // keeps whatever reason it was itself created for.
+  copy.revisionReason = why;
+  // A lost offer can be revised to try again; the copy is a fresh attempt, not a loss.
+  copy.lostDate = '';
+  copy.lostNotes = '';
+  copy.lostToCompetitor = '';
+  copy.lostAtPrice = '';
+  copy.wonDate = '';
+  appendRow_('Quotations', copy, 'Revision ' + nextRevision + ' of ' + source.quoteNo +
+    ' — ' + why);
 
   for (var src of quotationLines_(id)) {
     var copied = stripRow_(src);
@@ -1209,7 +1241,7 @@ function reviseQuotation(id) {
   }
 
   updateRowById_('Quotations', 'id', id, { status: 'Revised' },
-    'Superseded by revision ' + nextRevision);
+    'Superseded by revision ' + nextRevision + ' — ' + why);
   recalcQuotation_(copy.id);
   return getQuotation(copy.id);
 }
@@ -1257,6 +1289,7 @@ function listQuotationVersions(id) {
       approvedBy: approverName_(q.approvedBy),
       approvalDate: String(q.approvalDate || ''),
       submittedDate: String(q.submittedDate || ''),
+      revisionReason: String(q.revisionReason || ''),
       // Which one is the live offer: the newest that was not superseded by another.
       superseded: String(q.status) === 'Revised',
       isCurrent: String(q.id) === String(id),

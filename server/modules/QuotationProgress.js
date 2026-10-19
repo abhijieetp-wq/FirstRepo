@@ -152,6 +152,7 @@ async function getQuotationProgress(quotationId) {
         status: String(q.status || ''),
         grand: payableTotal_(q),
         preparedBy: personLine_(q.preparedBy, names),
+        revisionReason: String(q.revisionReason || ''),
         approvedBy: personLine_(q.approvedBy, names),
         approvalDate: String(q.approvalDate || ''),
         superseded: String(q.id) !== String(current.id),
@@ -211,7 +212,7 @@ async function getQuotationProgress(quotationId) {
       var paid = receipts.filter(function (r) {
         return String(r.invoiceId) === String(i.id);
       }).reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
-      var grand = Number(i.grand) || 0;
+      var grand = billedAmount_(i);
       return { id: String(i.id), invoiceNo: String(i.invoiceNo || ''),
                date: String(i.invoiceDate || ''), status: String(i.status || ''),
                grand: grand, received: roundMoney_(paid),
@@ -282,30 +283,173 @@ async function documentsFor_(recordType, recordId) {
  * Only the live revision of each family: opening the progress of a superseded revision would
  * show the same chain under an older number, which is the confusion All Quotations was just
  * cleared of.
+ *
+ * Each row also says who created the offer and where it has got to, so the list answers the
+ * two questions people opened it for without opening every trail. "Created by" is the person
+ * who raised the original offer; when somebody else made the live revision they are named
+ * too, because both are answers to "whose quotation is this".
  */
 async function listProgressCandidates() {
   var user = getCurrentUser();
   requireCommercial_(user, 'Quotation progress');
+  return (await progressRows_(user)).map(function (r) {
+    return {
+      id: r.id, quoteNo: r.quoteNo, revision: r.revision, date: r.date, status: r.status,
+      businessStream: r.businessStream, customerName: r.customerName, grand: r.grand,
+      createdBy: r.createdBy, revisedBy: r.revisedBy, stage: r.stage,
+      lostReason: r.lostReason
+    };
+  });
+}
 
-  var rows = (await readTable_('Quotations')).map(stripRow_);
-  rows = rows.filter(supersededFilter_(rows));
-  rows = forStream_(user, rows);
+/**
+ * Every live offer, as a table to download: where each one stands and why.
+ *
+ * The same rows as the list, with everything the trail would say about each — the approval,
+ * the dates it moved, the reason and the competitor when it was declined, the order and the
+ * money. Built here rather than by opening every trail, which would be one call per offer.
+ * The browser turns it into the file, so nothing is written anywhere on the way.
+ */
+var PROGRESS_EXPORT_COLUMNS_ = [
+  ['quoteNo', 'Quote No.'], ['revision', 'Revision'], ['businessStream', 'Stream'],
+  ['date', 'Quote date'], ['validUntil', 'Valid until'], ['customerName', 'Customer'],
+  ['grand', 'Quoted value (Rs)'], ['statusLabel', 'Status'], ['stage', 'Progress'],
+  ['nextStep', 'Next step'], ['createdBy', 'Created by'], ['revisedBy', 'Live revision by'],
+  ['revisionCount', 'Times revised'], ['revisionReason', 'Latest revision reason'],
+  ['approvedBy', 'Approved by'], ['approvalDate', 'Approved on'], ['sentDate', 'Sent on'],
+  ['wonDate', 'Accepted on'], ['lostDate', 'Declined on'], ['lostReason', 'Reason for decline'],
+  ['lostNotes', 'What the customer said'], ['lostToCompetitor', 'Lost to'],
+  ['lostAtPrice', 'Their price (Rs)'], ['orderNo', 'Sales order'], ['poNo', 'Customer PO'],
+  ['orderStatus', 'Order status'], ['invoiced', 'Invoiced (Rs)'], ['received', 'Received (Rs)'],
+  ['balance', 'Balance due (Rs)']
+];
 
+async function exportQuotationProgress() {
+  var user = getCurrentUser();
+  requireCommercial_(user, 'Quotation progress');
+  var rows = await progressRows_(user);
+  return {
+    generatedAt: nowIso_(),
+    headers: PROGRESS_EXPORT_COLUMNS_.map(function (c) { return c[1]; }),
+    // Arrays rather than objects, in the header's order, so the file and the header cannot
+    // drift apart and the browser has nothing to decide.
+    rows: rows.map(function (r) {
+      return PROGRESS_EXPORT_COLUMNS_.map(function (c) {
+        var v = r[c[0]];
+        return v === undefined || v === null ? '' : v;
+      });
+    })
+  };
+}
+
+var PROGRESS_STATUS_LABEL_ = {
+  'Submitted': 'Sent', 'Negotiating': 'Sent', 'Won': 'Accepted', 'Lost': 'Declined'
+};
+
+/** The shared reading behind the list and the download. */
+async function progressRows_(user) {
+  var all = (await readTable_('Quotations')).map(stripRow_);
+  var rows = forStream_(user, all.filter(supersededFilter_(all)));
+
+  var byId = {};
+  var familySize = {};
+  all.forEach(function (q) {
+    byId[String(q.id)] = q;
+    var root = String(q.parentQuotationId || q.id);
+    familySize[root] = (familySize[root] || 0) + 1;
+  });
+
+  var names = await userNameMap_();
   var customerNames = {};
   (await readTable_('Customers')).forEach(function (c) { customerNames[String(c.id)] = c.name; });
 
-  return rows.map(function (q) {
-    return {
+  // Read once rather than once per declined offer, which on a database is a query each.
+  var reasons = {};
+  try {
+    (await readTable_('LostReasons')).forEach(function (r) { reasons[String(r.id)] = String(r.reasonText || ''); });
+  } catch (err) {
+    // A sheet set up before LostReasons existed: the reason column is blank, not an error.
+  }
+
+  var ids = rows.map(function (q) { return String(q.id); });
+  var idx = await journeyIndex_(ids);
+  idx.lostReasons = reasons;
+
+  // The money, per order: every invoice and what has been received against each. The journey
+  // index keeps only the first invoice, which says when billing started, not how much.
+  var orderIds = [];
+  Object.keys(idx.orderByQuote).forEach(function (k) { orderIds.push(String(idx.orderByQuote[k].id)); });
+  var invoices = orderIds.length ? await journeyRows_('Invoices', 'salesOrderId', orderIds) : [];
+  // Issued only: a draft is a bill not yet sent and a cancelled one was never owed. The money
+  // columns have to agree with Collections, which counts the same way.
+  invoices = invoices.filter(function (i) { return String(i.status) === 'Issued'; });
+  var invoiceIds = invoices.map(function (i) { return String(i.id); });
+  var receipts = invoiceIds.length ? await journeyRows_('Receipts', 'invoiceId', invoiceIds) : [];
+  var receivedByInvoice = {};
+  receipts.forEach(function (r) {
+    var k = String(r.invoiceId);
+    receivedByInvoice[k] = (receivedByInvoice[k] || 0) + (Number(r.amount) || 0);
+  });
+  var moneyByOrder = {};
+  invoices.forEach(function (i) {
+    var k = String(i.salesOrderId);
+    var m = moneyByOrder[k] = moneyByOrder[k] || { invoiced: 0, received: 0 };
+    m.invoiced += billedAmount_(i);
+    m.received += receivedByInvoice[String(i.id)] || 0;
+  });
+
+  // A loop rather than map: quotationJourney_ reads the database on the server, and an
+  // asynchronous call inside a map callback would hand back promises instead of rows.
+  var out = [];
+  for (var q of rows) {
+    var rootId = String(q.parentQuotationId || q.id);
+    var root = byId[rootId] || q;
+    var journey = await quotationJourney_(q, idx);
+    var order = idx.orderByQuote[String(q.id)] || null;
+    var money = order ? moneyByOrder[String(order.id)] : null;
+    var lost = String(q.status) === 'Lost';
+    var creator = personLine_(root.preparedBy || root.createdBy, names);
+    var reviser = String(root.id) === String(q.id) ? ''
+      : personLine_(q.preparedBy || q.createdBy, names);
+    out.push({
       id: String(q.id),
       quoteNo: String(q.quoteNo || ''),
       revision: String(q.revision || 'R0'),
       date: String(q.date || ''),
+      validUntil: String(q.validUntil || ''),
       status: String(q.status || ''),
+      // The words the screens use, not the ones the sheet stores: nobody at PIE says
+      // "Submitted" or "Lost" — they say Sent and Declined.
+      statusLabel: PROGRESS_STATUS_LABEL_[String(q.status)] || String(q.status || ''),
       businessStream: String(q.businessStream || ''),
       customerName: customerNames[String(q.customerId)] || String(q.customerName || ''),
-      grand: payableTotal_(q)
-    };
-  }).sort(function (a, b) {
+      grand: payableTotal_(q),
+      createdBy: creator,
+      // Only when it is somebody else: the same name twice reads as a mistake.
+      revisedBy: reviser && reviser !== creator ? reviser : '',
+      stage: journey.label,
+      nextStep: journey.nextLabel || '',
+      revisionCount: Math.max(0, (familySize[rootId] || 1) - 1),
+      revisionReason: String(q.revisionReason || ''),
+      approvedBy: personLine_(q.approvedBy, names),
+      approvalDate: String(q.approvalDate || ''),
+      sentDate: String(q.submittedDate || q.emailSentDate || ''),
+      wonDate: String(q.wonDate || ''),
+      lostDate: lost ? String(q.lostDate || '') : '',
+      lostReason: lost ? (reasons[String(q.lostReasonId)] || '') : '',
+      lostNotes: lost ? String(q.lostNotes || '') : '',
+      lostToCompetitor: lost ? String(q.lostToCompetitor || '') : '',
+      lostAtPrice: lost && q.lostAtPrice !== '' && q.lostAtPrice !== null &&
+        q.lostAtPrice !== undefined ? Number(q.lostAtPrice) : '',
+      orderNo: order ? String(order.orderNo || '') : '',
+      poNo: order ? String(order.poNo || '') : '',
+      orderStatus: order ? String(order.orderStatus || '') : '',
+      invoiced: money ? roundMoney_(money.invoiced) : '',
+      received: money ? roundMoney_(money.received) : '',
+      balance: money ? roundMoney_(money.invoiced - money.received) : ''
+    });
+  }
+  return out.sort(function (a, b) {
     return String(b.date + b.quoteNo).localeCompare(String(a.date + a.quoteNo));
   });
 }

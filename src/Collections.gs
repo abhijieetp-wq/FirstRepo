@@ -367,7 +367,10 @@ function syncInvoiceReceipts_(invoiceId) {
   updateRowById_('Invoices', 'id', invoiceId, { amountReceived: roundMoney_(total) },
     'Receipts total recalculated');
 
-  var settled = roundMoney_((Number(invoice.grand) || 0) - total) <= 0.5;
+  // Settled against what the customer was billed. Against the computed figure, an invoice
+  // Tally billed higher closed the order with money still owed, and one Tally billed lower
+  // never closed at all.
+  var settled = roundMoney_(billedAmount_(invoice) - total) <= 0.5;
   if (!settled) return;
 
   // Fully paid and nothing left to ship — the order's work is done.
@@ -381,7 +384,7 @@ function syncInvoiceReceipts_(invoiceId) {
     if (String(other.salesOrderId) !== String(order.id)) return false;
     if (other.status !== 'Issued') return false;
     if (String(other.id) === String(invoiceId)) return false;
-    return roundMoney_((Number(other.grand) || 0) - (Number(other.amountReceived) || 0)) > 0.5;
+    return roundMoney_(billedAmount_(other) - (Number(other.amountReceived) || 0)) > 0.5;
   });
   if (unpaid) return;
 
@@ -458,7 +461,10 @@ function listFollowups(options) {
   readTable_('Customers').forEach(function (c) { customerNames[String(c.id)] = c.name; });
   var invoices = {};
   readTable_('Invoices').forEach(function (i) {
-    invoices[String(i.id)] = { invoiceNo: i.invoiceNo, grand: i.grand, amountReceived: i.amountReceived };
+    // invoiceValue too: billedAmount_ reads it, and without it every follow-up showed the
+    // balance on the computed figure while the invoice it was about showed Tally's.
+    invoices[String(i.id)] = { invoiceNo: i.invoiceNo, grand: i.grand,
+      invoiceValue: i.invoiceValue, amountReceived: i.amountReceived };
   });
 
   return readTable_('CollectionFollowups')

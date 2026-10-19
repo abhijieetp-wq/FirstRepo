@@ -296,10 +296,15 @@ async function calculateCreditExposure(customerId, excludeOrderId) {
   })[0];
   if (!customer) throw new Error('Customer not found.');
 
+  // Issued invoices only, at what was billed. A cancelled invoice is owed by nobody, and
+  // counting it put customers on credit hold over a bill that no longer exists. A draft is not
+  // owed yet either — and its order is still open, so it is already counted below; counting
+  // the draft as well counted the same goods twice.
   var outstanding = 0;
   (await readTable_('Invoices')).forEach(function (inv) {
     if (String(inv.customerId) !== String(customerId)) return;
-    var balance = (Number(inv.grand) || 0) - (Number(inv.amountReceived) || 0);
+    if (String(inv.status) !== 'Issued') return;
+    var balance = billedAmount_(inv) - (Number(inv.amountReceived) || 0);
     if (balance > 0) outstanding += balance;
   });
 

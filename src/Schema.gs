@@ -327,6 +327,9 @@ var SCHEMA = {
       // A package discount off the total, the way their own offers are priced, plus whether
       // GST is added into the total or quoted as extra — their two documents differ on this.
       'packageDiscountPct', 'pfAmount', 'taxMode',
+      // Why this revision was made, asked before it can be (reviseQuotation). Blank on R0
+      // and on revisions made before the question was compulsory.
+      'revisionReason',
       'createdAt', 'createdBy']
   },
   QuotationItems: {

@@ -83,7 +83,7 @@ async function listInvoices(options) {
       if (opts.businessStream && inv.businessStream !== opts.businessStream) return false;
       if (opts.customerId && String(inv.customerId) !== String(opts.customerId)) return false;
       if (opts.unpaidOnly) {
-        var bal = (Number(inv.grand) || 0) - (Number(inv.amountReceived) || 0);
+        var bal = billedAmount_(inv) - (Number(inv.amountReceived) || 0);
         if (bal <= 0.5) return false;
       }
       return true;
@@ -95,8 +95,16 @@ async function listInvoices(options) {
       row.dispatchNo = dispatchNos[String(row.dispatchId)] || '';
       // Receipts are the ledger; amountReceived on the invoice is a cached total.
       row.receivedAmt = roundMoney_(receiptsByInvoice[String(row.id)] || Number(row.amountReceived) || 0);
-      row.balanceAmt = roundMoney_((Number(row.grand) || 0) - row.receivedAmt);
-      row.overdueDays = row.dueDate && row.balanceAmt > 0.5 ? daysBetween_(row.dueDate, today) : 0;
+      // What the customer was billed — Tally's figure where it has been entered — and not what
+      // the dispatch computed to. The invoice window, the receivables and the ageing all owe
+      // off this figure; the list used the computed one, so a customer could show one balance
+      // here and another when the same invoice was opened.
+      row.billedAmt = billedAmount_(row);
+      row.balanceAmt = row.status === 'Cancelled' ? 0 : roundMoney_(row.billedAmt - row.receivedAmt);
+      // Only an issued invoice is owed. A draft is a bill not yet sent, and has no due date
+      // that anyone can be late against.
+      row.owed = row.status === 'Issued' && row.balanceAmt > 0.5;
+      row.overdueDays = row.dueDate && row.owed ? daysBetween_(row.dueDate, today) : 0;
       return row;
     })
     .sort(function (a, b) { return String(b.invoiceDate).localeCompare(String(a.invoiceDate)); });

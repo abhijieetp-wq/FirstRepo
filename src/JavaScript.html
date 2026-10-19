@@ -344,8 +344,13 @@
       callback: callback,
       requiresInput: !!opts.input,
       usesSelect: usesSelect,
-      required: opts.required !== false
+      required: opts.required !== false,
+      // Optional: returns what is wrong with the answer, or "" when it will do. Said under
+      // the box and the dialog stays open, rather than closing and letting the server refuse.
+      validate: typeof opts.validate === "function" ? opts.validate : null
     };
+    $("ask-error").textContent = "";
+    $("ask-input").placeholder = opts.placeholder || "";
 
     $("ask-title").textContent = opts.title || "Are you sure?";
     $("ask-message").textContent = opts.message || "";
@@ -383,6 +388,12 @@
     if (!askState) return;
     var value = askState.usesSelect ? $("ask-select").value : $("ask-input").value.trim();
     if (askState.required && !value && (askState.requiresInput || askState.usesSelect)) {
+      (askState.usesSelect ? $("ask-select") : $("ask-input")).focus();
+      return;
+    }
+    var wrong = askState.validate ? askState.validate(value) : "";
+    if (wrong) {
+      $("ask-error").textContent = wrong;
       (askState.usesSelect ? $("ask-select") : $("ask-input")).focus();
       return;
     }
@@ -2276,30 +2287,66 @@
   }
 
   /**
-   * Adding the customer from the enquiry, because this is often where they first exist.
+   * Adds a customer from inside another form, with what that form already knows filled in.
    *
-   * The same hand-off the compressor quote starter uses. It matters more here: a spares offer
-   * can only begin as an enquiry, so a customer who is not yet on the books had no way in at
-   * all — the form simply refused and named a tab somewhere else.
+   * A spares enquiry or a compressor lead is very often the first time a company exists in
+   * the system at all — somebody rings about a filter, or a salesperson meets a plant
+   * manager — and making the coordinator leave the form, go to Customers, type the same
+   * name, phone and email again and come back lost the call. So the customer window opens on
+   * top of the form, already holding the name and the person typed so far; saving it adds
+   * the customer with that contact, closes, and hands the new record back to the form.
    */
-  $("em-new-customer").addEventListener("click", function (ev) {
-    ev.preventDefault();
+  function addCustomerFrom(prefill, onAdded) {
     if (!canEditCustomers()) {
       showMsg("Only Sales and Management can add a customer.", "error");
       return;
     }
+    var p = prefill || {};
     onCustomerSaved = function (saved, isNew) {
       if (!isNew) return;
       onCustomerSaved = null;
-      customersLoaded = false;
-      srv.withSuccessHandler(function (rows) {
-        customersCache = rows; customersLoaded = true;
-        fillDatalist("customers-list", rows.map(function (c) { return c.name; }));
-        $("em-customer").value = saved.name;
-        showMsg(saved.name + " added and selected on this enquiry.", "success");
-      }).withFailureHandler(onServerError).listCustomers();
+      // commitCustomer has already refreshed the cache before handing over, so the new
+      // record — contacts and all — is in it. No second fetch.
+      fillCustomerDatalist();
+      var fresh = customersCache.find(function (c) { return c.id === saved.id; }) || saved;
+      onAdded(fresh);
     };
     openCustomerModal(null);
+    // After opening, because opening a new customer clears these forms.
+    if (p.name) $("cm-name").value = p.name;
+    if (p.industry) $("cm-industry").value = p.industry;
+    if (p.contactName) $("cf-name").value = p.contactName;
+    if (p.phone) $("cf-phone").value = p.phone;
+    if (p.email) $("cf-email").value = p.email;
+    if (p.city) $("af-city").value = p.city;
+    $("cm-name").focus();
+  }
+
+  $("em-new-customer").addEventListener("click", function (ev) {
+    ev.preventDefault();
+    var typed = $("em-customer").value.trim();
+    var known = customersCache.some(function (c) {
+      return c.name.toLowerCase() === typed.toLowerCase();
+    });
+    addCustomerFrom({
+      name: known ? "" : typed,
+      contactName: $("em-contact").value.trim(),
+      phone: $("em-contactphone").value.trim(),
+      email: $("em-contactemail").value.trim()
+    }, function (cust) {
+      $("em-customer").value = cust.name;
+      fillEnquiryContacts(cust);
+      // The person on the enquiry went in as the customer's contact, so tie the two now
+      // rather than letting the save add them a second time.
+      var contacts = cust.contacts || [];
+      var typedContact = $("em-contact").value.trim().toLowerCase();
+      var match = contacts.filter(function (c) {
+        return String(c.name).trim().toLowerCase() === typedContact;
+      })[0];
+      $("em-contactid").value = match ? match.id : "";
+      noteEnquiryContact(contacts);
+      showMsg(cust.name + " added and selected on this enquiry.", "success");
+    });
   });
 
   $("enquiry-search").addEventListener("input", renderEnquiries);
@@ -3531,18 +3578,31 @@
     }
     if ($("btn-qb-revise")) {
       $("btn-qb-revise").addEventListener("click", function () {
+        // The reason is asked before anything happens, and the server refuses a revision
+        // without one, so this is not a box that can be skipped by pressing Enter.
         askDialog({
-          title: "Create the next revision?",
+          title: "Why is this quotation being revised?",
           message: "The current version is kept exactly as it is and marked Revised. " +
-            "A copy opens for editing as the next revision.",
+            "A copy opens for editing as the next revision, and the reason is recorded " +
+            "against it for anyone who later asks why it changed.",
+          input: true,
+          inputLabel: "Reason for revision *",
+          placeholder: "e.g. Customer asked for a lower price",
+          // The same rule reviseQuotation enforces, said here first so the dialog stays open.
+          validate: function (v) {
+            var t = String(v || "").replace(/\s+/g, " ").trim();
+            return (t.length < 5 || !/[A-Za-z0-9]{2,}/.test(t))
+              ? "Give a real reason \u2014 for example \u201cCustomer asked for a lower price\u201d."
+              : "";
+          },
           okLabel: "Revise"
-        }, function (ok) {
-          if (ok === null) return;
+        }, function (reason) {
+          if (reason === null) return;
           srv.withSuccessHandler(function (nq) {
             openQuote = nq;
             renderQuoteBuilder();
             showMsg("Now editing " + nq.quoteNo + " " + nq.revision + ".", "success");
-          }).withFailureHandler(onServerError).reviseQuotation(openQuote.id);
+          }).withFailureHandler(onServerError).reviseQuotation(openQuote.id, reason);
         });
       });
     }
@@ -3694,6 +3754,13 @@
             (v.superseded ? ' <span class="badge badge-draft">replaced</span>' : "") + "</td>" +
           "<td>" + escapeHtml(v.date || "—") + "</td>" +
           "<td>" + escapeHtml(v.preparedBy || "—") + "</td>" +
+          // R0 is the original offer and has nothing to explain. A later version without a
+          // reason was revised before the question was compulsory, and says so.
+          '<td style="max-width:240px; font-size:12.5px;">' + (v.revisionReason
+            ? escapeHtml(v.revisionReason)
+            : '<span style="color:var(--ink-soft);">' +
+              (String(v.revision) === "R0" ? "original offer" : "not recorded") + "</span>") +
+          "</td>" +
           "<td>" + (v.approvalDate
             ? escapeHtml(v.approvalDate) + '<br><span style="font-size:11px; color:var(--ink-soft);">' +
               escapeHtml(v.approvedBy || "") + "</span>"
@@ -5223,6 +5290,7 @@
 
     $("lm-prospect").value = l ? (l.customerName || "") : "";
     fillLeadCustomerSelect(l ? l.customerId : "");
+    $("lm-new-customer").style.display = canEditCustomers() ? "" : "none";
 
     $("lm-contact").value = l ? (l.contactName || "") : "";
     $("lm-phone").value = l ? (l.contactPhone || "") : "";
@@ -5370,6 +5438,23 @@
     $("lm-req-qty").value = 1;
     $("lm-req-capacity").value = "";
     renderLeadReqs();
+  });
+
+  // The prospect, as a customer, now — for the salesperson who already has the GSTIN and the
+  // address and would rather not wait for the lead to convert to write them down.
+  $("lm-new-customer").addEventListener("click", function () {
+    addCustomerFrom({
+      name: $("lm-prospect").value.trim(),
+      industry: $("lm-industry").value.trim(),
+      contactName: $("lm-contact").value.trim(),
+      phone: $("lm-phone").value.trim(),
+      email: $("lm-email").value.trim(),
+      city: $("lm-city").value.trim()
+    }, function (cust) {
+      fillLeadCustomerSelect(cust.id);
+      $("lm-prospect").value = cust.name;
+      showMsg(cust.name + " added as a customer and linked to this lead.", "success");
+    });
   });
 
   // Linking an existing customer fills the name, so the two can never disagree.
@@ -5797,12 +5882,12 @@
   function renderProgressPicker() {
     var q = ($("progress-search").value || "").toLowerCase();
     var rows = progressCandidates.filter(function (r) {
-      return [r.quoteNo, r.customerName, r.businessStream].join(" ").toLowerCase()
-        .indexOf(q) !== -1;
+      return [r.quoteNo, r.customerName, r.businessStream, r.createdBy, r.revisedBy, r.stage]
+        .join(" ").toLowerCase().indexOf(q) !== -1;
     });
     var tbody = $("progress-tbody");
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty">' +
+      tbody.innerHTML = '<tr><td colspan="10"><div class="empty">' +
         (progressCandidates.length ? "No offer matches that."
                                    : "No quotations yet.") + "</div></td></tr>";
       return;
@@ -5812,11 +5897,18 @@
         '<td class="mono">' + escapeHtml(r.quoteNo) + "</td>" +
         "<td>" + escapeHtml(r.revision) + "</td>" +
         "<td>" + streamBadge(r.businessStream) + "</td>" +
-        "<td>" + escapeHtml(r.date) + "</td>" +
+        '<td style="white-space:nowrap;">' + escapeHtml(r.date) + "</td>" +
         "<td>" + escapeHtml(r.customerName || "—") + "</td>" +
+        // Who raised the offer, and who made the live revision when that was somebody else.
+        "<td>" + escapeHtml(r.createdBy || "—") +
+          (r.revisedBy ? '<div style="font-size:11px; color:var(--ink-soft);">' +
+            escapeHtml(r.revision) + " by " + escapeHtml(r.revisedBy) + "</div>" : "") + "</td>" +
         '<td class="num mono">' + fmt(r.grand) + "</td>" +
         '<td><span class="badge ' + (QUOTE_BADGE[r.status] || "badge-draft") + '">' +
-          escapeHtml(r.status) + "</span></td>" +
+          escapeHtml(quoteStatusLabel(r.status)) + "</span></td>" +
+        "<td>" + escapeHtml(r.stage || "—") +
+          (r.lostReason ? '<div style="font-size:11px; color:var(--ink-soft);">' +
+            escapeHtml(r.lostReason) + "</div>" : "") + "</td>" +
         '<td class="center"><button class="btn btn-sm" data-progress="' + escapeHtml(r.id) +
           '">Open trail</button></td>' +
         "</tr>";
@@ -5827,6 +5919,66 @@
   }
 
   $("progress-search").addEventListener("input", renderProgressPicker);
+
+  /**
+   * Every live offer as a file Excel opens: status, progress, who created it, why it was
+   * declined.
+   *
+   * CSV rather than .xlsx because Apps Script has no spreadsheet writer and both installations
+   * must produce the same file; Excel opens it directly. Three things make it open cleanly:
+   * a byte-order mark, without which Excel reads the file as Latin-1 and the ₹ sign or an
+   * accented name turns to garbage; quotes around every text cell, so a comma in "Pune, MH" stays
+   * in its column; and an apostrophe in front of any text that starts like a formula, so a
+   * customer typed as "=HYPERLINK(...)" is shown as text instead of being run when somebody
+   * opens the file.
+   */
+  function csvCell(v) {
+    if (typeof v === "number") return isFinite(v) ? String(v) : "";
+    var t = String(v === null || v === undefined ? "" : v);
+    if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+    return '"' + t.replace(/"/g, '""') + '"';
+  }
+
+  function downloadText(name, text, mimeType) {
+    try {
+      var url = URL.createObjectURL(new Blob([text], { type: mimeType }));
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  $("btn-progress-download").addEventListener("click", function () {
+    var done = busyButton("btn-progress-download", "Preparing\u2026");
+    srv.withSuccessHandler(function (t) {
+      done();
+      if (!t || !t.rows || !t.rows.length) {
+        showMsg("There are no quotations to download yet.", "error");
+        return;
+      }
+      var lines = [t.headers.map(csvCell).join(",")].concat(t.rows.map(function (row) {
+        return row.map(csvCell).join(",");
+      }));
+      var stamp = String(t.generatedAt || "").slice(0, 10) || "today";
+      var ok = downloadText("Quotation progress " + stamp + ".csv",
+        "\ufeff" + lines.join("\r\n") + "\r\n", "text/csv;charset=utf-8");
+      showMsg(ok
+        ? t.rows.length + (t.rows.length === 1 ? " quotation" : " quotations") +
+          " downloaded \u2014 open the file in Excel."
+        : "This browser would not save the file. Try again from Chrome or Edge.",
+        ok ? "success" : "error");
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).exportQuotationProgress();
+  });
 
   function openProgressTrail(id) {
     goToTab("progress");
@@ -5907,7 +6059,8 @@
       p.revisionCount === 0 ? "Never revised"
         : "Revised " + p.revisionCount + (p.revisionCount === 1 ? " time" : " times"),
       '<table><thead><tr><th>Rev</th><th>Date</th><th class="num">Total</th>' +
-        "<th>Prepared by</th><th>Approved by</th><th>Status</th></tr></thead><tbody>" +
+        "<th>Prepared by</th><th>Why revised</th><th>Approved by</th><th>Status</th>" +
+        "</tr></thead><tbody>" +
       p.revisions.map(function (r) {
         return '<tr style="' + (r.isCurrent ? "" : "color:var(--ink-soft);") + '">' +
           "<td><b>" + escapeHtml(r.revision) + "</b>" +
@@ -5916,6 +6069,10 @@
           "<td>" + escapeHtml(r.date) + "</td>" +
           '<td class="num mono">' + fmt(r.grand) + "</td>" +
           "<td>" + escapeHtml(r.preparedBy || "—") + "</td>" +
+          '<td style="max-width:260px;">' + (r.revisionReason
+            ? escapeHtml(r.revisionReason)
+            : '<span style="color:var(--steel);">' +
+              (r.revision === "R0" ? "original offer" : "not recorded") + "</span>") + "</td>" +
           "<td>" + escapeHtml(r.approvedBy || "—") +
             (r.approvalDate ? ' <span style="color:var(--steel);">· ' +
               escapeHtml(r.approvalDate) + "</span>" : "") + "</td>" +
@@ -7031,8 +7188,11 @@
   }
 
   function renderInvoicesTable(rows) {
-    var outstanding = dspCache.reduce(function (s, i) { return s + (i.balanceAmt > 0 ? i.balanceAmt : 0); }, 0);
-    var overdue = dspCache.filter(function (i) { return i.overdueDays > 0 && i.balanceAmt > 0.5; });
+    // Owed means issued and unpaid, at what was billed — the same rule Collections uses, so
+    // the two screens give one figure. Drafts used to count here, which made this tab say a
+    // customer owed money for a bill they had not been sent.
+    var outstanding = dspCache.reduce(function (s, i) { return s + (i.owed ? i.balanceAmt : 0); }, 0);
+    var overdue = dspCache.filter(function (i) { return i.owed && i.overdueDays > 0; });
     var drafts = dspCache.filter(function (i) { return i.status === "Draft"; });
     $("dsp-summary").innerHTML = '<div class="grid grid-4" style="margin-bottom:14px;">' +
       '<div class="kpi-card"><div class="kpi-label">Invoices</div><div class="kpi-value">' + dspCache.length + "</div></div>" +
@@ -7051,14 +7211,21 @@
 
     $("dsp-tbody").innerHTML = rows.map(function (i) {
       return "<tr>" +
-        '<td class="mono">' + escapeHtml(i.invoiceNo) + "</td>" +
-        "<td>" + escapeHtml(i.invoiceDate) + "</td>" +
+        // A draft has no number until the Tally one is typed in. A blank cell read as a
+        // missing row; this says what it is, in ordinary type rather than the number font.
+        (i.invoiceNo ? '<td class="mono">' + escapeHtml(i.invoiceNo)
+          : '<td style="color:var(--ink-soft); font-size:12.5px; white-space:nowrap;">Awaiting Tally no.') +
+        "</td>" +
+        '<td style="white-space:nowrap;">' + escapeHtml(i.invoiceDate) + "</td>" +
         "<td>" + escapeHtml(i.customerName || "—") + "</td>" +
         '<td class="mono">' + escapeHtml(i.orderNo || "—") + "</td>" +
-        '<td class="num mono">' + fmt(i.grand) + "</td>" +
-        '<td class="num mono">' + fmt(i.balanceAmt) + "</td>" +
+        // Tally's figure where it has been entered; the dispatch's computed one until then.
+        '<td class="num mono">' + fmt(i.billedAmt !== undefined ? i.billedAmt : i.grand) + "</td>" +
+        '<td class="num mono">' + (i.status === "Issued" ? fmt(i.balanceAmt)
+          : '<span style="color:var(--ink-soft);">' + (i.status === "Draft" ? "not issued" : "—") +
+            "</span>") + "</td>" +
         "<td>" + (i.dueDate
-          ? (i.overdueDays > 0 && i.balanceAmt > 0.5
+          ? (i.owed && i.overdueDays > 0
               ? '<span class="badge badge-overdue">' + escapeHtml(i.dueDate) + " · " + i.overdueDays + "d</span>"
               : escapeHtml(i.dueDate))
           : "—") + "</td>" +
@@ -7720,9 +7887,12 @@
     if (!inv) return;
     var editable = canDispatch() && inv.status === "Draft";
 
-    $("invoice-modal-title").textContent = inv.invoiceNo + " — " + (inv.customerName || "");
-    $("im-sub").textContent = inv.status + " · " + fmt(inv.grand) +
-      " · balance " + fmt(inv.balanceAmt);
+    // A draft has no number until the Tally one is typed in — the portal does not invent
+    // invoice numbers — so the title says that rather than starting with a dash.
+    $("invoice-modal-title").textContent = (inv.invoiceNo || "Draft invoice, no Tally number yet") +
+      " — " + (inv.customerName || "");
+    $("im-sub").textContent = inv.status + " · billed " + fmt(inv.billedAmt) +
+      (inv.status === "Issued" ? " · balance " + fmt(inv.balanceAmt) : "");
     $("im-id").value = inv.id;
 
     $("im-banner").innerHTML = inv.status === "Cancelled"
@@ -7797,14 +7967,25 @@
           '<td class="num mono">' + fmt(l.lineTotal) + "</td></tr>";
       }).join("") + "</tbody></table></div>";
 
+    // The balance is owed off what Tally billed. When that differs from what the lines add up
+    // to, both are shown, so Total − Received = Balance can be checked by eye; showing only
+    // the computed total made the arithmetic on this box wrong by the difference.
+    var differs = inv.valueMatches === false;
     $("im-totals").innerHTML = '<div class="totals-box">' +
       '<div class="totals-row"><span>Subtotal</span><span class="mono">' + fmt(inv.subtotal) + "</span></div>" +
       '<div class="totals-row"><span>Discount</span><span class="mono">-' + fmt(inv.discountAmt) + "</span></div>" +
       '<div class="totals-row"><span>GST</span><span class="mono">' + fmt(inv.taxAmt) + "</span></div>" +
       '<div class="totals-row"><span>Freight</span><span class="mono">' + fmt(inv.freight) + "</span></div>" +
-      '<div class="totals-row grand"><span>Invoice Total</span><span class="mono">' + fmt(inv.grand) + "</span></div>" +
+      '<div class="totals-row' + (differs ? "" : " grand") + '"><span>' +
+        (differs ? "Lines come to" : "Invoice Total") + '</span><span class="mono">' +
+        fmt(inv.grand) + "</span></div>" +
+      (differs
+        ? '<div class="totals-row grand"><span>Billed in Tally</span><span class="mono">' +
+          fmt(inv.billedAmt) + "</span></div>"
+        : "") +
       '<div class="totals-row"><span>Received</span><span class="mono">' + fmt(inv.receivedAmt) + "</span></div>" +
-      '<div class="totals-row grand"><span>Balance</span><span class="mono">' + fmt(inv.balanceAmt) + "</span></div>" +
+      '<div class="totals-row grand"><span>' + (inv.status === "Issued" ? "Balance" : "Balance once issued") +
+        '</span><span class="mono">' + fmt(inv.balanceAmt) + "</span></div>" +
       "</div>";
 
     $("im-receipts").innerHTML = inv.receipts.length
@@ -7819,7 +8000,11 @@
             "<td>" + escapeHtml(r.reference || "—") + "</td>" +
             '<td class="num mono">' + fmt(r.amount) + "</td></tr>";
         }).join("") + "</tbody></table></div>"
-      : '<div class="empty">No payments recorded yet. Receipts arrive with the collections module.</div>';
+      : '<div class="empty">No payments recorded yet.' +
+        (inv.status === "Issued" ? " Press <b>+ Record Payment</b> when the money comes in." : "") +
+        "</div>";
+    $("btn-im-receipt").style.display =
+      inv.status === "Issued" && inv.balanceAmt > 0.5 && canCollect() ? "" : "none";
 
     $("im-tally-state").innerHTML = "Status: <b>" + escapeHtml(inv.tallySyncStatus || "Pending") + "</b>" +
       (inv.tallySyncDate ? " · last attempt " + escapeHtml(inv.tallySyncDate) : "") +
@@ -7837,6 +8022,15 @@
   $("btn-im-close").addEventListener("click", function () {
     $("invoice-modal-backdrop").classList.remove("show");
     loadDispatchData();
+  });
+
+  // The payment form is the one Collections uses, opened on this invoice. When it saves, the
+  // invoice window is refreshed so the new receipt and the lower balance show where the
+  // person is looking.
+  $("btn-im-receipt").addEventListener("click", function () {
+    if (!openInvoice) return;
+    receiptFromInvoice = openInvoice.id;
+    startReceipt(openInvoice.id);
   });
 
   $("btn-im-saveirn").addEventListener("click", function () {
@@ -8186,6 +8380,8 @@
 
   // ---- Record a receipt ----
   var receivablesForPicker = [];
+  // The invoice the form was opened from, when it was — so saving can refresh that window.
+  var receiptFromInvoice = null;
 
   function startReceipt(invoiceId) {
     srv.withSuccessHandler(function (rows) {
@@ -8225,13 +8421,22 @@
   $("rcp-invoice").addEventListener("change", onReceiptInvoiceChange);
 
   $("btn-cancel-receipt").addEventListener("click", function () {
+    receiptFromInvoice = null;
     $("receipt-modal-backdrop").classList.remove("show");
   });
 
   $("btn-save-receipt").addEventListener("click", function () {
     srv.withSuccessHandler(function () {
       $("receipt-modal-backdrop").classList.remove("show");
-      loadCollections();
+      var from = receiptFromInvoice;
+      receiptFromInvoice = null;
+      if (from && $("invoice-modal-backdrop").classList.contains("show")) {
+        srv.withSuccessHandler(function (inv) {
+          openInvoice = inv; renderInvoiceModal();
+        }).withFailureHandler(onServerError).getInvoice(from);
+      } else {
+        loadCollections();
+      }
       showMsg("Receipt recorded.", "success");
     }).withFailureHandler(onServerError).saveReceipt({
       invoiceId: $("rcp-invoice").value,

@@ -79,6 +79,10 @@
     listProducts: [],
     listProductGroups: [],
     listLostReasons: [],
+    // Empty rather than absent: a null here throws inside the screen's success handler.
+    listLeads: [],
+    listOpportunities: [],
+    listDispatches: [],
     listKnownModels: [],
     getConfigLists: { LeadSource: [], Urgency: [] },
     listActiveUsers: [{ email: "p@pie.in", name: "Priya", role: "Sales Coordinator" }],
@@ -86,9 +90,10 @@
     // Saving a customer mints one and files it, so the hand-off back to the enquiry has
     // something real to select.
     saveCustomer: function (obj) {
-      var saved = Object.assign({ id: "CU-" + (CUSTOMERS.length + 1),
-        customerCode: "C000" + (CUSTOMERS.length + 1), addresses: [], contacts: [],
-        active: "TRUE" }, obj);
+      // The id after the spread: a new customer arrives as { id: null }, and spreading that
+      // over the minted id handed back a customer nobody could select.
+      var saved = Object.assign({ customerCode: "C000" + (CUSTOMERS.length + 1), addresses: [],
+        contacts: [], active: "TRUE" }, obj, { id: obj.id || "CU-" + (CUSTOMERS.length + 1) });
       CUSTOMERS.push(saved);
       return saved;
     },

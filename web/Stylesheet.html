@@ -346,6 +346,25 @@
     border-color:var(--brand-400); box-shadow:var(--ring), var(--sh-xs); }
   .field input:disabled, .field select:disabled, .field textarea:disabled{
     background-color:var(--gray-50); color:var(--gray-500); }
+  /* The attach row under an invoice's or an order's documents sits outside any .field, so it
+     was the one place the browser's own grey controls showed through — a dropdown, a "Choose
+     File" button and a hairline box in the middle of a finished-looking window. */
+  select[id$="-doctype"], input[id$="-doccaption"]{ height:38px; padding:0 12px;
+    border:1px solid var(--gray-300); border-radius:var(--r); background-color:var(--gray-0);
+    color:var(--gray-900); font-size:13.5px; box-shadow:var(--sh-xs); }
+  select[id$="-doctype"]{ appearance:none; -webkit-appearance:none; padding-right:34px;
+    background:var(--gray-0) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23667085' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center / 15px; }
+  input[id$="-doccaption"]:focus, select[id$="-doctype"]:focus{ outline:none;
+    border-color:var(--brand-400); box-shadow:var(--ring), var(--sh-xs); }
+  input[type="file"][id$="-docfile"]{ font-size:13px; color:var(--gray-600); }
+  input[type="file"][id$="-docfile"]::file-selector-button{ height:38px; margin-right:10px;
+    padding:0 14px; border:1px solid var(--gray-300); border-radius:var(--r);
+    background:var(--gray-0); color:var(--gray-700); font:600 13px/1 var(--font-sans);
+    box-shadow:var(--sh-xs); cursor:pointer; }
+  input[type="file"][id$="-docfile"]::file-selector-button:hover{ background:var(--gray-50); }
+  /* An empty document list is a line, not a page-height hole. */
+  [id$="-docs"] .empty{ padding:14px 16px; text-align:left; font-size:13px;
+    border:1px dashed var(--gray-200); border-radius:var(--r); }
   .field-note{ font-size:12.5px; color:var(--brand-700); margin-top:6px; line-height:1.4; }
   .field-note:empty{ display:none; }
   .field-with-action{ display:flex; gap:8px; align-items:stretch; }
@@ -450,6 +469,17 @@
   .num{ text-align:right; font-variant-numeric:tabular-nums; font-family:var(--font-sans); }
   .num.mono{ font-family:var(--font-sans); font-weight:600; font-size:13.5px; color:var(--gray-900); }
   .center{ text-align:center; }
+  /* A wide table at laptop width. With the sidebar open the Invoices list ran past the right
+     edge and its Open button went out of sight — reachable only by scrolling the table
+     sideways, which nobody thinks to do. The row's buttons stay pinned to the edge instead,
+     and the denser tables give up a little padding before they give up a column. */
+  .card[style*="overflow-x"] tbody td:last-child:has(.btn, .btn-ghost),
+  .card[style*="overflow-x"] thead th:last-child:empty{ position:sticky; right:0; z-index:1;
+    background:var(--gray-0); box-shadow:-10px 0 10px -10px rgba(16,24,40,.18); }
+  .card[style*="overflow-x"] thead th:last-child:empty{ background:var(--gray-50); }
+  .card[style*="overflow-x"] tbody tr:hover td:last-child:has(.btn, .btn-ghost){ background:#FAFBFC; }
+  table:has(thead th:nth-child(9)) thead th,
+  table:has(thead th:nth-child(9)) tbody td{ padding-left:12px; padding-right:12px; }
   .checkbox-cell{ width:32px; }
   .cell-input{ width:100%; height:34px; padding:0 9px; border:1px solid transparent;
     border-radius:var(--r-sm); background:transparent; font-size:13px; color:var(--gray-900);

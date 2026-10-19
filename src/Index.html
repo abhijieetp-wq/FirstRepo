@@ -100,13 +100,13 @@
      that what the customer received survives untouched, which scattered the versions of a
      single offer through All Quotations among everybody else's. -->
 <div class="modal-backdrop" id="versions-modal-backdrop">
-  <div class="modal" style="max-width:820px;">
+  <div class="modal" style="max-width:960px;">
     <h3 style="margin-bottom:4px;">Versions of this quotation</h3>
     <p id="ver-sub" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 16px;"></p>
     <div class="card" style="padding:0; overflow-x:auto;">
       <table>
         <thead><tr>
-          <th>Version</th><th>Raised</th><th>Prepared by</th><th>Approved</th>
+          <th>Version</th><th>Raised</th><th>Prepared by</th><th>Why revised</th><th>Approved</th>
           <th class="num">Value</th><th>Where it got to</th><th></th>
         </tr></thead>
         <tbody id="ver-tbody"></tbody>
@@ -661,15 +661,18 @@
     <div class="view" id="view-progress">
       <div class="page-head">
         <div><h2>Quotation Progress</h2><p>The whole trail behind one offer — who prepared and approved it, every revision, the customer's purchase order and the paperwork that came with it, and what has been dispatched, invoiced and paid.</p></div>
+        <!-- Every live offer as a spreadsheet: status, progress, who created it, and why it
+             was declined where it was. Opens in Excel. -->
+        <button class="btn" id="btn-progress-download" type="button">Download (Excel)</button>
       </div>
       <div class="search-bar">
-        <input id="progress-search" placeholder="Search by quote no. or customer…" />
+        <input id="progress-search" placeholder="Search by quote no., customer or who created it…" />
       </div>
       <div class="card" style="padding:0; overflow-x:auto;" id="progress-picker-card">
         <table>
           <thead><tr>
             <th>Quote No.</th><th>Rev</th><th>Stream</th><th>Date</th><th>Customer</th>
-            <th class="num">Total</th><th>Status</th><th></th>
+            <th>Created by</th><th class="num">Total</th><th>Status</th><th>Progress</th><th></th>
           </tr></thead>
           <tbody id="progress-tbody"></tbody>
         </table>
@@ -1319,6 +1322,7 @@
     <div class="field" id="ask-input-wrap" style="display:none;">
       <label id="ask-input-label">Reason</label>
       <input id="ask-input" />
+      <p id="ask-error" style="font-size:11.5px; color:var(--red); margin:6px 0 0;"></p>
     </div>
     <div class="field" id="ask-select-wrap" style="display:none;">
       <label id="ask-select-label">Choose one</label>
@@ -1340,11 +1344,16 @@
 
     <div class="grid grid-2">
       <div class="field"><label>Customer *</label>
-        <input id="em-customer" list="customers-list" placeholder="Type to search" />
         <!-- A spares enquiry is often the first time a customer exists at all: somebody rings
              about a filter and is not on the books. Sending the coordinator to Masters and
-             back lost the call. -->
-        <div class="field-note"><a href="#" id="em-new-customer">Not on the list? Add them</a></div>
+             back lost the call. A button beside the box rather than a link under it: the
+             link was there and people did not see it. -->
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input id="em-customer" list="customers-list" placeholder="Type to search" style="flex:1; min-width:0;" />
+          <button class="btn btn-sm" id="em-new-customer" type="button"
+            title="Add a customer who is not on the list yet, with their contact and address">+ New customer</button>
+        </div>
+        <div class="field-note">Not on the list? Add them here — the name and the person below carry across.</div>
       </div>
       <div class="field"><label>Source</label><input id="em-source" list="leadsource-list" placeholder="Phone / WhatsApp / Email" /></div>
     </div>
@@ -1440,13 +1449,17 @@
       </div>
       <div class="field">
         <label>Already a customer?</label>
-        <select id="lm-linkcustomer"></select>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="lm-linkcustomer" style="flex:1; min-width:0;"></select>
+          <button class="btn btn-sm" id="lm-new-customer" type="button"
+            title="Make this prospect a customer now, with their contact and address">+ New customer</button>
+        </div>
       </div>
     </div>
     <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">
       A lead is a prospect — they have bought nothing yet, so no customer record is needed.
-      One is created automatically when the lead converts. Link an existing customer only if
-      this is repeat business.
+      One is created automatically when the lead converts. Link an existing customer if this
+      is repeat business, or press <b>+ New customer</b> to add their full details now.
     </p>
 
     <div class="grid grid-4" style="margin-top:12px;">
@@ -2047,15 +2060,14 @@
         <div class="field-note" id="im-value-note"></div>
       </div>
     </div>
+    <!-- Three to a row with nothing left over: this row used to end in an empty placeholder,
+         a hole in the middle of the form. -->
     <div class="grid grid-3" style="margin-top:12px;">
       <div class="field"><label>Payment Terms</label><input id="im-terms" /></div>
       <div class="field"><label>Due Date</label><input id="im-due" type="date" /></div>
-      <div class="field"></div>
-    </div>
-    <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Warranty Terms</label><input id="im-warranty" /></div>
-      <div class="field"><label>Notes</label><input id="im-notes" /></div>
     </div>
+    <div class="field" style="margin-top:12px;"><label>Notes</label><input id="im-notes" /></div>
     <div style="display:flex; justify-content:flex-end; margin-top:12px;">
       <button class="btn btn-sm" id="btn-im-save">Save Details</button>
     </div>
@@ -2091,7 +2103,11 @@
       <button class="btn btn-sm" id="btn-im-adddoc" type="button">Attach</button>
     </div>
 
-    <div class="card-title" style="margin-top:20px;">Receipts</div>
+    <div class="card-title" style="margin-top:20px;">Receipts
+      <!-- From the invoice itself: the person looking at what is owed is usually the one who
+           has just been told it was paid. -->
+      <button class="btn btn-sm" id="btn-im-receipt" type="button" style="display:none;">+ Record Payment</button>
+    </div>
     <div id="im-receipts"></div>
 
     <div class="card-title" style="margin-top:20px;">Tally</div>
