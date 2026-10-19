@@ -138,6 +138,12 @@ When it comes back, open `/health`:
 
 Then open the portal and check the Control Tower shows the same figures you just verified.
 
+Then upload the compressor specifications once more: Catalog → Products (Compressors) → Bulk
+Upload → `ELGi-compressor-specs-upload.csv` (kept in `imports/`, never in git). Everything in it
+came across with the Sheet except the specific power (SPC) column, which the Apps Script upload
+does not know and skipped; the model picker ranks energy use by it. The preview should say
+**0 new, 32 updated, 0 price changes** — anything else, stop and look before confirming.
+
 ### 7. Hand over
 
 - Send PIE the new address.
