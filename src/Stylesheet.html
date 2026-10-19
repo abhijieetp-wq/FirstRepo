@@ -156,6 +156,11 @@
 
   .msg{ padding:10px 14px; border-radius:4px; font-size:13px; margin-bottom:14px; display:none; }
   .msg.show{ display:flex; align-items:flex-start; gap:12px; }
+  /* The page's own banner floats where the person is instead of the page being scrolled up
+     to it — every save half way down a list used to jump back to the top to say "saved".
+     Above the windows as well, so an error raised from inside one is not hidden behind it. */
+  #msg-box.msg.show{ position:fixed; top:68px; left:50%; transform:translateX(-50%); z-index:100;
+    width:min(640px, calc(100vw - 32px)); margin:0; box-shadow:0 8px 24px rgba(18,35,61,.18); }
   .msg-text{ flex:1; }
   .msg-close{ background:transparent; border:none; color:inherit; font-size:20px; line-height:1;
     padding:0 2px; opacity:.6; flex-shrink:0; }

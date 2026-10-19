@@ -290,7 +290,8 @@
         ? '<button class="msg-close" type="button" title="Dismiss">&times;</button>' : "");
     box.querySelector(".msg-text").textContent = text;
     box.className = "msg show " + (isError ? "msg-error" : "msg-success");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // No scrolling. The banner floats over the page where the person already is; this used to
+    // scroll to the top so it could be seen, which threw away their place on every save.
 
     if (isError || sticky) {
       box.querySelector(".msg-close").addEventListener("click", function () {
@@ -4161,6 +4162,7 @@
           "it to the customer record so the next offer finds it.</span></div>";
       $("qmail-foot").textContent = "The PDF is built fresh and attached. It goes from your " +
         "own account, so the reply comes back to you.";
+      $("qmail-error").innerHTML = "";
       $("qmail-modal-backdrop").classList.add("show");
     }).withFailureHandler(function (err) {
       btn.disabled = false;
@@ -4172,26 +4174,73 @@
     $("qmail-modal-backdrop").classList.remove("show");
   });
 
+  /**
+   * Whether the offer reached the mail server, said so nobody has to wonder.
+   *
+   * Success opens a window that stays until OK — what went, to whom, with which file, and
+   * where the offer stands now. A failure is said inside the email window, which stays open
+   * with everything typed in it, so trying again is one press.
+   */
+  function showQuotationSent(res) {
+    var label = { Submitted: "Sent to customer", Negotiating: "Sent to customer",
+      Won: "Accepted by customer" }[res.statusNow] || res.statusNow || "";
+    $("qsent-title").textContent = "Quotation sent";
+    $("qsent-lead").textContent = (res.quoteNo || "The quotation") +
+      " has been emailed" + (res.customerName ? " to " + res.customerName : "") + ".";
+    var rows = [
+      ["To", res.sentTo],
+      ["Copy to", res.cc],
+      ["Attached", res.attachment],
+      ["Status now", label],
+      ["Sent at", new Date().toLocaleString("en-IN", { day: "numeric", month: "short",
+        year: "numeric", hour: "numeric", minute: "2-digit" })]
+    ].filter(function (r) { return r[1]; });
+    $("qsent-facts").innerHTML = '<table style="width:100%;"><tbody>' +
+      rows.map(function (r) {
+        return '<tr><td style="width:110px; color:var(--ink-soft); padding:6px 0;">' +
+          escapeHtml(r[0]) + '</td><td style="padding:6px 0; word-break:break-word;"><b>' +
+          escapeHtml(r[1]) + "</b></td></tr>";
+      }).join("") + "</tbody></table>" +
+      '<p style="font-size:12px; color:var(--ink-soft); margin:12px 0 0;">The reply comes ' +
+      "back to your own inbox.</p>";
+    // This window is the confirmation; an earlier notice still fading over its title is noise.
+    clearMsg();
+    stackModal("qsent-modal-backdrop");
+    setTimeout(function () { $("btn-qsent-ok").focus(); }, 50);
+  }
+
+  $("btn-qsent-ok").addEventListener("click", function () {
+    $("qsent-modal-backdrop").classList.remove("show");
+  });
+
   $("btn-qmail-send").addEventListener("click", function () {
     var btn = $("btn-qmail-send");
     btn.disabled = true;
     btn.textContent = "Sending\u2026";
+    // Not closable mid-send: closing would leave nobody knowing whether it went.
+    $("btn-qmail-cancel").disabled = true;
+    $("qmail-error").innerHTML = "";
+    var sentFor = openQuote;
     srv.withSuccessHandler(function (res) {
       btn.disabled = false;
       btn.textContent = "Send";
+      $("btn-qmail-cancel").disabled = false;
       $("qmail-modal-backdrop").classList.remove("show");
       $("quotedoc-modal-backdrop").classList.remove("show");
       // Sending moves it to Submitted, so the screen behind has to catch up.
       srv.withSuccessHandler(function (q) {
         openQuote = q;
         renderQuoteBuilder();
-      }).withFailureHandler(onServerError).getQuotation(openQuote.id);
-      showMsg(res.quoteNo + " sent to " + res.sentTo + " with " + res.attachment +
-        " attached. It is now " + res.statusNow + ".", "success");
+      }).withFailureHandler(onServerError).getQuotation(sentFor.id);
+      showQuotationSent(Object.assign({ customerName: sentFor.customerName }, res));
     }).withFailureHandler(function (err) {
       btn.disabled = false;
       btn.textContent = "Send";
-      onServerError(err);
+      $("btn-qmail-cancel").disabled = false;
+      $("qmail-error").innerHTML = '<div class="msg msg-error show" style="margin-bottom:14px;">' +
+        '<span class="msg-text"><b>Not sent.</b> ' +
+        escapeHtml((err && err.message) || String(err)) + "</span></div>";
+      $("qmail-error").scrollIntoView({ block: "nearest" });
     }).sendQuotationEmail({
       quotationId: openQuote.id,
       to: $("qmail-to").value,

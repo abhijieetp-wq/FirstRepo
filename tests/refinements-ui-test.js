@@ -7,6 +7,8 @@
  *      Excel opens — with the reason for every decline
  *   3. the invoice screens agree with each other about what is owed, and say what a draft is
  *   4. a quotation cannot be revised without saying why
+ *   5. emailing the offer says plainly whether it went, and why not when it did not
+ *   6. saving something does not throw away your place on the page
  *
  *   node tests/build-preview.js tests/fixtures/base.html /tmp/preview.html [--ui=web]
  *   node tests/refinements-ui-test.js /tmp/preview.html
@@ -200,6 +202,57 @@ const ok = (label, cond, detail) => {
     ok('cancel sends nothing', true);
   }
 
+  // ------------------------------------------------------------- 5. emailing the offer
+  console.log('\nEMAILING THE OFFER SAYS WHETHER IT WENT');
+  await page.evaluate(() => {
+    const D = window.__data;
+    D.buildQuotationHtml = '<html><body>The offer</body></html>';
+    D.prepareQuotationEmail = { quoteNo: 'PIE/ELGI/QUOT/26-27/401', revision: 'R1',
+      customerName: 'Topworth Urja', grand: 12500, to: 'purchase@topworth.in', cc: '',
+      subject: 'Quotation PIE/ELGI/QUOT/26-27/401 R1', body: 'Dear Sir, please find attached.' };
+    D.sendQuotationEmail = { sentTo: 'purchase@topworth.in', cc: 'accounts@topworth.in',
+      quoteNo: 'PIE/ELGI/QUOT/26-27/401', attachment: 'PIE-ELGI-QUOT-26-27-401 R1.pdf',
+      statusNow: 'Submitted' };
+  });
+  await page.evaluate(() => document.querySelector('#btn-qb-print').click());
+  await page.waitForTimeout(400);
+  await page.evaluate(() => document.querySelector('#btn-qd-email').click());
+  await page.waitForTimeout(400);
+  ok('the email window opens', await shown('#qmail-modal-backdrop'));
+
+  // A failure first: it used to be said behind this window, where nobody could see it.
+  await page.evaluate(() => { window.__failNext = 'sendQuotationEmail'; });
+  await page.evaluate(() => document.querySelector('#btn-qmail-send').click());
+  await page.waitForTimeout(400);
+  ok('a failed send keeps the window open, with what was typed', await shown('#qmail-modal-backdrop') &&
+    (await value('#qmail-to')) === 'purchase@topworth.in');
+  ok('and says so inside it', /Not sent\./.test(await text('#qmail-error')) &&
+    /deliberate failure/.test(await text('#qmail-error')), await text('#qmail-error'));
+  ok('where it can be seen', await page.$eval('#qmail-error', (e) => {
+    const r = e.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + 20, r.top + r.height / 2);
+    return !!(hit && e.contains(hit));
+  }));
+  ok('and Send can be pressed again', !(await page.$eval('#btn-qmail-send', (e) => e.disabled)) &&
+    (await text('#btn-qmail-send')) === 'Send');
+  ok('no success window for a send that failed', !(await shown('#qsent-modal-backdrop')));
+
+  await page.evaluate(() => document.querySelector('#btn-qmail-send').click());
+  await page.waitForTimeout(600);
+  ok('a good send closes the email window', !(await shown('#qmail-modal-backdrop')));
+  ok('and opens a window saying it was sent', await shown('#qsent-modal-backdrop') &&
+    /Quotation sent/.test(await text('#qsent-title')));
+  ok('in front of everything', await inFront('#qsent-modal-backdrop'));
+  const facts = await text('#qsent-facts');
+  ok('naming who it went to and the copy', /purchase@topworth\.in/.test(facts) &&
+    /accounts@topworth\.in/.test(facts), facts);
+  ok('the file attached', /PIE-ELGI-QUOT-26-27-401 R1\.pdf/.test(facts), facts);
+  ok('and where the offer stands now, in plain words', /Sent to customer/.test(facts), facts);
+  ok('the error from the first try is not left behind', (await text('#qmail-error')) === '');
+  await page.evaluate(() => document.querySelector('#btn-qsent-ok').click());
+  await page.waitForTimeout(200);
+  ok('OK closes it', !(await shown('#qsent-modal-backdrop')));
+
   // ------------------------------------------------------------- 2. progress
   console.log('\nQUOTATION PROGRESS NAMES WHO CREATED EACH OFFER');
   await page.evaluate(() => {
@@ -328,6 +381,47 @@ const ok = (label, cond, detail) => {
   ok('and refreshes the invoice it came from', (await count('getInvoice')) === fetchesBefore + 1,
     await calls());
   ok('which is still open', await shown('#invoice-modal-backdrop'));
+
+  // ------------------------------------------------------------- 6. the page stays put
+  console.log('\nSAVING DOES NOT THROW AWAY YOUR PLACE ON THE PAGE');
+  await page.evaluate(() => {
+    const list = window.__data.listCustomers();
+    for (let i = 0; i < 80; i++) {
+      list.push({ id: 'CX-' + i, customerCode: 'C9' + i, name: 'Filler Customer ' + i,
+        active: 'TRUE', addresses: [], contacts: [] });
+    }
+  });
+  await go('customers');
+  await page.evaluate(() => window.scrollTo(0, 1800));
+  await page.waitForTimeout(200);
+  const yBefore = await page.evaluate(() => Math.round(window.scrollY));
+  ok('the list is long enough to be half way down', yBefore > 1000, yBefore);
+  // Clicked the way a person would, without the test scrolling to the button first.
+  await page.evaluate(() => document.querySelector('[data-edit-cust="CX-40"]').click());
+  await page.waitForTimeout(400);
+  await page.fill('#cm-name', 'Filler Customer 40 renamed');
+  await page.evaluate(() => document.querySelector('#btn-save-customer').click());
+  await page.waitForTimeout(900);
+  const yAfter = await page.evaluate(() => Math.round(window.scrollY));
+  ok('after saving, the page is where it was', Math.abs(yAfter - yBefore) < 60, [yBefore, yAfter]);
+  ok('and the confirmation is on screen anyway', await page.$eval('#msg-box', (e) => {
+    const r = e.getBoundingClientRect();
+    return /show/.test(e.className) && r.top >= 0 && r.bottom <= innerHeight;
+  }));
+
+  console.log('\nAN ERROR FROM INSIDE A WINDOW IS NOT HIDDEN BEHIND IT');
+  await page.evaluate(() => document.querySelector('[data-edit-cust="CX-41"]').click());
+  await page.waitForTimeout(400);
+  await page.evaluate(() => { window.__failNext = 'saveCustomer'; });
+  await page.evaluate(() => document.querySelector('#btn-save-customer').click());
+  await page.waitForTimeout(500);
+  ok('the error shows in front of the open window', await page.$eval('#msg-box', (e) => {
+    const r = e.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return /msg-error/.test(e.className) && !!(hit && e.contains(hit));
+  }));
+  ok('without moving the page either',
+    Math.abs((await page.evaluate(() => Math.round(window.scrollY))) - yAfter) < 60);
 
   ok('no page errors anywhere', errors.length === 0, errors);
   await browser.close();

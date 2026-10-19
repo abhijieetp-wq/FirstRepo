@@ -292,6 +292,11 @@
   .msg{ display:none; padding:12px 16px; border-radius:var(--r); font-size:13.5px;
     margin-bottom:20px; box-shadow:var(--sh-sm); border:1px solid transparent; }
   .msg.show{ display:flex; align-items:flex-start; gap:12px; animation:view-in .25s var(--ease); }
+  /* The page's own banner floats where the person is instead of the page being scrolled up
+     to it — every save half way down a list used to jump back to the top to say "saved".
+     Above the windows as well, so an error raised from inside one is not hidden behind it. */
+  #msg-box.msg.show{ position:fixed; top:calc(var(--bar-h) + 12px); right:24px; z-index:100;
+    width:min(460px, calc(100vw - 32px)); margin:0; box-shadow:var(--sh-lg); }
   .msg-text{ flex:1; }
   .msg-close{ background:transparent; border:0; color:inherit; font-size:20px; line-height:1;
     padding:0 2px; opacity:.55; flex-shrink:0; }
@@ -611,9 +616,9 @@
   .modal > :nth-last-child(2){ margin-bottom:24px; }
   .modal-actions .btn-sm{ height:38px; padding:0 15px; font-size:13.5px; }
   /* Two small dialogs stay dialogs: a yes-or-no, and a new password. */
-  #ask-modal-backdrop, #password-modal-backdrop{ justify-content:center; align-items:center;
+  #ask-modal-backdrop, #password-modal-backdrop, #qsent-modal-backdrop{ justify-content:center; align-items:center;
     padding:24px; }
-  #ask-modal-backdrop .modal, #password-modal-backdrop .modal{ height:auto; max-height:calc(100vh - 48px);
+  #ask-modal-backdrop .modal, #password-modal-backdrop .modal, #qsent-modal-backdrop .modal{ height:auto; max-height:calc(100vh - 48px);
     max-width:460px; animation:pop-in .24s var(--ease); }
   @keyframes pop-in{ from{ opacity:0; transform:scale(.96) translateY(6px); } to{ opacity:1; transform:none; } }
 
@@ -922,6 +927,7 @@
     html.nav-open, html.nav-open body{ overflow:hidden; }
     .nav-collapse{ display:none; }
     .ws-bar{ height:58px; padding:0 14px; gap:10px; }
+    #msg-box.msg.show{ top:68px; right:16px; }
     .ws-menu{ display:grid; }
     .ws-search{ width:40px; padding:0; justify-content:center; }
     .ws-search span, .ws-search kbd, .ws-date{ display:none; }
@@ -937,7 +943,7 @@
     .modal{ max-width:none !important; border-radius:0; padding:0 18px; }
     .modal > h3:first-child{ margin:0 -18px 16px; padding:18px; }
     .modal-actions{ margin:auto -18px 0 !important; padding:12px 18px; }
-    #ask-modal-backdrop .modal, #password-modal-backdrop .modal{ border-radius:var(--r-xl); }
+    #ask-modal-backdrop .modal, #password-modal-backdrop .modal, #qsent-modal-backdrop .modal{ border-radius:var(--r-xl); }
     .bar-row{ grid-template-columns:96px minmax(0,1fr) 84px; gap:10px; }
     .totals-box{ width:100%; }
     #signin-screen.signin-split{ flex-direction:column; }
