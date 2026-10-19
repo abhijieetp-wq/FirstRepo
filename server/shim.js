@@ -112,6 +112,12 @@ function globalsFor(db, actor) {
      * change, and releaseLock is a no-op because the transaction ends with the request.
      */
     acquireLock_: () => ({ releaseLock: () => {} }),
+    // The waits callers pass to it. They live in SheetService.gs, which the server never loads,
+    // so the first caller to name one — the catalogue upload's commit — died with "LOCK_WAIT_
+    // BULK_MS is not defined" after its preview had already said everything was fine. Unused
+    // here; defined so the call can be made at all.
+    LOCK_WAIT_ROW_MS: 10000,
+    LOCK_WAIT_BULK_MS: 240000,
 
     /**
      * Opens a transaction and points everything above at it until the callback finishes.

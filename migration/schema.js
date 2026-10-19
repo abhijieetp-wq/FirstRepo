@@ -67,8 +67,13 @@ const OVERRIDES = {
   openOrderExposure: ['NUMERIC(14,2)', 'money'],
   totalExposure: ['NUMERIC(14,2)', 'money'],
   probability: ['NUMERIC(14,2)', 'a percentage'],
-  weightKg: ['NUMERIC(14,3)', 'a measurement'],
-  motorKw: ['NUMERIC(14,3)', 'a measurement'],
+  // Not measurements: the words printed on a compressor offer's specification table, unit and
+  // all — "22 kW, 30 hp", "700 kg (dry)". The Sheet held them as text, the product form and the
+  // upload template both write text, and as NUMERIC every one of those values was turned into
+  // null on the way in without a word, so the offer printed an empty motor and weight row for
+  // every machine. A third of the same kind as priceLevel and revision above.
+  weightKg: ['TEXT', 'printed on the offer with its unit: "700 kg (dry)"'],
+  motorKw: ['TEXT', 'printed on the offer with its unit: "22 kW, 30 hp"'],
   quantity: ['NUMERIC(14,3)', 'a quantity, which can be fractional'],
   sizeBytes: ['BIGINT', 'a file size'],
   lineNo: ['INTEGER', 'a position on the document'],
