@@ -63,7 +63,7 @@ const ok = (label, cond, detail) => {
   const items = await page.$$eval('#tabs [data-view]', (bs) => bs.map((b) => ({
     view: b.dataset.view, icon: !!b.querySelector('svg.nav-ico'),
     h: Math.round(b.getBoundingClientRect().height), title: b.title })));
-  ok('every screen a manager may open is in it', items.length === 14, items.map((i) => i.view));
+  ok('every screen a manager may open is in it', items.length === 15, items.map((i) => i.view));
   ok('each with its icon', items.every((i) => i.icon), items.filter((i) => !i.icon));
   ok('each named on hover, for when only the icon shows', items.every((i) => i.title), items);
   // A flex column shrinks its children when it runs out of room; the first version did, and
@@ -107,7 +107,7 @@ const ok = (label, cond, detail) => {
 
   console.log('\nEVERY SCREEN HAS ITS ICON, AND THE DASHBOARD SAYS HELLO');
   const heads = await page.$$eval('.view > .page-head', (hs) => hs.map((h) => !!h.querySelector('.page-ico svg')));
-  ok('every screen heading carries its icon', heads.length === 14 && heads.every(Boolean), heads);
+  ok('every screen heading carries its icon', heads.length === 15 && heads.every(Boolean), heads);
   await go(page, 'dashboard');
   await page.waitForTimeout(500);
   const hello = await page.$eval('#view-dashboard .page-eyebrow', (e) => e.textContent);
@@ -140,7 +140,7 @@ const ok = (label, cond, detail) => {
   ok('Ctrl K opens it', await page.isVisible('#cmdk'));
   ok('with the cursor in it', await page.evaluate(() => document.activeElement.id === 'cmdk-q'));
   const all = await page.$$eval('#cmdk .cmdk-item', (xs) => xs.length);
-  ok('offering every screen and the common jobs', all >= 14 + 4, all);
+  ok('offering every screen and the common jobs', all >= 15 + 4, all);
   await page.keyboard.type('cust');
   await page.waitForTimeout(150);
   const first = await page.$eval('#cmdk .cmdk-item[aria-selected="true"] .cmdk-label', (e) => e.textContent);

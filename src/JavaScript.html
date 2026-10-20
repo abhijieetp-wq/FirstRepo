@@ -216,6 +216,11 @@
       { view: "quotations", label: "All Quotations", roles: SALES_SIDE },
       { view: "progress", label: "Quotation Progress", roles: SALES_SIDE }
     ] },
+    // Reports that read across the screens above. One today, so it shows as a plain link;
+    // the next one turns it into a menu.
+    { label: "Reports", children: [
+      { view: "engineers", label: "Leads by Engineer", roles: SALES_SIDE }
+    ] },
     { label: "Orders", children: [
       { view: "orders", label: "Sales Orders", roles: COMMERCIAL_SIDE },
       { view: "dispatch", label: "Dispatch & Billing", roles: COMMERCIAL_SIDE },
@@ -415,6 +420,7 @@
     enquiries: initEnquiriesView,
     quotations: initQuotationsView,
     progress: initProgressView,
+    engineers: initEngineersView,
     service: initServiceView,
     quote: initQuoteView,
     compressor: initCompressorView,
@@ -2250,12 +2256,13 @@
       // The person is worth searching by too: "what did Mohan ask for last week" is a
       // question somebody asks, and their number is how a callback starts.
       return [e.enquiryNo, e.customerName, e.contactName, e.contactPhone, e.productModel,
-        e.serialNo, e.requirementText].join(" ").toLowerCase().indexOf(q) !== -1;
+        e.serialNo, e.requirementText, e.serviceEngineerName].join(" ").toLowerCase()
+        .indexOf(q) !== -1;
     });
 
     var tbody = $("enquiries-tbody");
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="10"><div class="empty">' +
+      tbody.innerHTML = '<tr><td colspan="11"><div class="empty">' +
         (enquiriesCache.length ? "No enquiries match your search." : "No open enquiries — log the first one.") +
         "</div></td></tr>";
       return;
@@ -2268,6 +2275,7 @@
         "<td>" + escapeHtml(e.customerName || "—") + "</td>" +
         "<td>" + enquiryContactCell(e) + "</td>" +
         "<td>" + escapeHtml(e.productModel || "—") + (e.serialNo ? ' <span class="mono" style="color:var(--steel);">· ' + escapeHtml(e.serialNo) + "</span>" : "") + "</td>" +
+        "<td>" + escapeHtml(e.serviceEngineerName || "—") + "</td>" +
         "<td>" + escapeHtml(e.urgency || "Normal") + "</td>" +
         '<td class="num">' + e.itemCount + "</td>" +
         '<td><span class="badge ' + (STATUS_BADGE[e.status] || "badge-draft") + '">' + escapeHtml(e.status) + "</span></td>" +
@@ -2496,6 +2504,8 @@
       fillPeopleSelect("em-owner", p.coordinators,
         e ? (e.ownerEmail || "") : (currentUser.role === "Sales Coordinator"
           ? currentUser.email : ""), "Unassigned");
+      fillServiceEngineerSelect("em-service-engineer", "em-service-engineer-note", p,
+        e ? (e.serviceEngineerEmail || "") : "");
     });
     showEnquiryProgress(e);
 
@@ -2672,7 +2682,8 @@
       urgency: $("em-urgency").value,
       expectedDeliveryDate: $("em-expdelivery").value,
       requirementText: $("em-requirement").value.trim(),
-      ownerEmail: $("em-owner").value.trim()
+      ownerEmail: $("em-owner").value.trim(),
+      serviceEngineerEmail: $("em-service-engineer").value.trim()
     });
   }
 
@@ -2803,7 +2814,8 @@
     };
     srv.withSuccessHandler(settle).withFailureHandler(function () {
       // A dropdown that cannot be filled must not stop the form opening.
-      settle({ salesEngineers: [], coordinators: [], management: [], categories: [] });
+      settle({ salesEngineers: [], coordinators: [], serviceEngineers: [], management: [],
+        categories: [] });
     }).listPeople();
   }
 
@@ -2873,6 +2885,20 @@
     }
     sel.innerHTML = opts.join("");
     sel.value = chosen || "";
+  }
+
+  /**
+   * The service engineer who generated an enquiry or lead. Optional: plenty of business comes
+   * in by phone with no engineer behind it, and that is an answer too.
+   */
+  function fillServiceEngineerSelect(id, noteId, people, chosen) {
+    var list = (people && people.serviceEngineers) || [];
+    fillPeopleSelect(id, list, chosen || "", "None \u2014 not from an engineer");
+    var note = $(noteId);
+    if (note) {
+      note.textContent = list.length ? "" : "No service engineers on the user list yet. " +
+        "Management adds them in Settings \u2192 Users, with the role Service Engineer.";
+    }
   }
 
   var QUOTE_BADGE = {
@@ -5244,14 +5270,16 @@
   function renderLeads() {
     var q = ($("cs-search").value || "").toLowerCase();
     var rows = leadsCache.filter(function (l) {
-      return [l.leadNo, l.customerName, l.requirementSummary, l.contactName].join(" ").toLowerCase().indexOf(q) !== -1;
+      return [l.leadNo, l.customerName, l.requirementSummary, l.contactName,
+        l.serviceEngineerName].join(" ").toLowerCase().indexOf(q) !== -1;
     });
 
     $("cs-thead").innerHTML = "<tr><th>Lead No.</th><th>Date</th><th>Company</th><th>Wants</th>" +
-      "<th>Source</th><th>Owner</th><th>Status</th><th>Next Action</th><th></th></tr>";
+      "<th>Source</th><th>Service Engineer</th><th>Owner</th><th>Status</th><th>Next Action</th>" +
+      "<th></th></tr>";
 
     if (!rows.length) {
-      $("cs-tbody").innerHTML = '<tr><td colspan="9"><div class="empty">' +
+      $("cs-tbody").innerHTML = '<tr><td colspan="10"><div class="empty">' +
         (leadsCache.length ? "No leads match your search." : "No open leads — log the first one.") +
         "</div></td></tr>";
       return;
@@ -5268,6 +5296,7 @@
           ? escapeHtml(l.requirementText)
           : escapeHtml((l.requirementSummary || "—").slice(0, 60))) + "</td>" +
         "<td>" + escapeHtml(l.source || "—") + "</td>" +
+        "<td>" + escapeHtml(l.serviceEngineerName || "—") + "</td>" +
         "<td>" + escapeHtml(l.ownerEmail || "—") + "</td>" +
         '<td><span class="badge ' + (LEAD_BADGE[l.status] || "badge-draft") + '">' + escapeHtml(l.status) + "</span></td>" +
         "<td>" + (l.nextActionDate
@@ -5413,6 +5442,8 @@
       fillPeopleSelect("lm-owner", p.coordinators,
         l ? (l.ownerEmail || "") : (currentUser.role === "Sales Coordinator"
           ? currentUser.email : ""), "Unassigned");
+      fillServiceEngineerSelect("lm-service-engineer", "lm-service-engineer-note", p,
+        l ? (l.serviceEngineerEmail || "") : "");
     });
     $("lm-nextaction").value = l ? (l.nextActionDate || "") : "";
     $("lm-status").value = l ? l.status : "New";
@@ -5589,6 +5620,7 @@
       urgency: $("lm-urgency").value,
       budget: $("lm-budget").value,
       salesEngineerEmail: $("lm-engineer").value.trim(),
+      serviceEngineerEmail: $("lm-service-engineer").value.trim(),
       ownerEmail: $("lm-owner").value.trim(),
       nextActionDate: $("lm-nextaction").value,
       status: $("lm-status").value,
@@ -6227,6 +6259,198 @@
       done();
       onServerError(err);
     }).exportQuotationProgress();
+  });
+
+  // ================= LEADS BY ENGINEER =================
+  // Which service engineer generated each spare enquiry and compressor lead, and what it
+  // became. The engineer is picked on the enquiry and lead forms; this only reads.
+  var engineerReport = null;
+
+  function localDay(d) {
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+
+  /** The From and To boxes for a named period. Indian financial year: April to March. */
+  function engineerPeriodDates(period) {
+    var now = new Date();
+    var today = localDay(now);
+    if (period === "month") {
+      return { from: localDay(new Date(now.getFullYear(), now.getMonth(), 1)), to: today };
+    }
+    if (period === "lastmonth") {
+      return { from: localDay(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+               to: localDay(new Date(now.getFullYear(), now.getMonth(), 0)) };
+    }
+    if (period === "all") return { from: "", to: "" };
+    var startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return { from: startYear + "-04-01", to: today };
+  }
+
+  function initEngineersView() {
+    if (!$("er-from").value && !$("er-to").value && $("er-period").value !== "all") {
+      var d = engineerPeriodDates($("er-period").value);
+      $("er-from").value = d.from;
+      $("er-to").value = d.to;
+    }
+    loadEngineerReport();
+  }
+
+  $("er-period").addEventListener("change", function () {
+    if ($("er-period").value === "custom") { $("er-from").focus(); return; }
+    var d = engineerPeriodDates($("er-period").value);
+    $("er-from").value = d.from;
+    $("er-to").value = d.to;
+    loadEngineerReport();
+  });
+  ["er-from", "er-to"].forEach(function (id) {
+    $(id).addEventListener("change", function () { $("er-period").value = "custom"; });
+  });
+  $("btn-er-run").addEventListener("click", function () { loadEngineerReport(); });
+  $("er-engineer").addEventListener("change", renderEngineerRows);
+
+  function loadEngineerReport(then) {
+    var done = busyButton("btn-er-run", "Loading…");
+    srv.withSuccessHandler(function (r) {
+      done();
+      engineerReport = r;
+      renderEngineerReport();
+      if (then) then(r);
+    }).withFailureHandler(function (err) {
+      done();
+      onServerError(err);
+    }).getEngineerLeadsReport({ from: $("er-from").value, to: $("er-to").value });
+  }
+
+  function engineerSummaryTable(r, bucket) {
+    var units = bucket === "units";
+    var head = "<tr><th>Service Engineer</th>" +
+      '<th class="num">' + (units ? "Leads" : "Enquiries") + "</th>" +
+      (units ? '<th class="num">Converted</th>' : "") +
+      '<th class="num">Quoted</th><th class="num">Quoted value</th>' +
+      '<th class="num">Ordered</th><th class="num">Order value</th>' +
+      '<th class="num">Invoiced</th></tr>';
+    var line = function (name, t, key, strong) {
+      var label = key === null ? escapeHtml(name)
+        : '<button class="btn-ghost" type="button" data-er-pick="' + escapeHtml(key) + '"' +
+          ' title="Show only these below" style="padding:0; font-weight:600;">' +
+          escapeHtml(name) + "</button>";
+      var cell = function (v) { return '<td class="num">' + v + "</td>"; };
+      return "<tr" + (strong ? ' style="font-weight:700;"' : "") + ">" +
+        "<td>" + label + "</td>" + cell(fmtInt(t.logged)) +
+        (units ? cell(fmtInt(t.converted)) : "") +
+        cell(fmtInt(t.quoted)) + cell(fmt(t.quotedValue)) +
+        cell(fmtInt(t.won)) + cell(fmt(t.orderValue)) + cell(fmt(t.invoiced)) + "</tr>";
+    };
+    var body = r.engineers.map(function (e) {
+      return line(e.name, e[bucket], e.email, false);
+    }).join("");
+    body += line(r.none.name, r.none[bucket], "-", false);
+    body += line("Total", r.totals[bucket], null, true);
+    return '<div class="card-title" style="margin-top:14px;">' +
+      (units ? "Compressor Sales — leads" : "Spare Sales — enquiries") + "</div>" +
+      '<div class="card" style="padding:0; overflow-x:auto;"><table><thead>' + head +
+      "</thead><tbody>" + body + "</tbody></table></div>";
+  }
+
+  function renderEngineerReport() {
+    var r = engineerReport;
+    if (!r) return;
+    var html = "";
+    if (!r.engineers.length) {
+      html += '<p class="field-note">No service engineers on the user list yet. Management ' +
+        "adds them in Settings → Users, with the role Service Engineer; then pick the " +
+        "engineer on each enquiry or lead.</p>";
+    }
+    if (r.showSpare) html += engineerSummaryTable(r, "spare");
+    if (r.showUnits) html += engineerSummaryTable(r, "units");
+    $("er-summary").innerHTML = html;
+    $("er-summary").querySelectorAll("[data-er-pick]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        $("er-engineer").value = btn.dataset.erPick;
+        renderEngineerRows();
+      });
+    });
+
+    var chosen = $("er-engineer").value;
+    var opts = ['<option value="">Every engineer</option>'];
+    r.engineers.forEach(function (e) {
+      opts.push('<option value="' + escapeHtml(e.email) + '">' + escapeHtml(e.name) + "</option>");
+    });
+    opts.push('<option value="-">' + escapeHtml(r.none.name) + "</option>");
+    $("er-engineer").innerHTML = opts.join("");
+    $("er-engineer").value = chosen;
+    if ($("er-engineer").value !== chosen) $("er-engineer").value = "";
+    renderEngineerRows();
+  }
+
+  function engineerRowsShown() {
+    var r = engineerReport;
+    if (!r) return [];
+    var want = $("er-engineer").value;
+    return r.rows.filter(function (row) {
+      if (!want) return true;
+      if (want === "-") return !row.engineerEmail;
+      return String(row.engineerEmail).toLowerCase() === want.toLowerCase();
+    });
+  }
+
+  function renderEngineerRows() {
+    var rows = engineerRowsShown();
+    var tbody = $("er-tbody");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="10"><div class="empty">' +
+        (engineerReport && engineerReport.rows.length
+          ? "Nothing for that engineer in these dates."
+          : "No enquiries or leads in these dates.") + "</div></td></tr>";
+      return;
+    }
+    tbody.innerHTML = rows.map(function (row) {
+      return "<tr>" +
+        '<td style="white-space:nowrap;">' + escapeHtml(row.date || "—") + "</td>" +
+        // What kind of record under its number: the number alone does not say it to everybody.
+        '<td><span class="mono" style="white-space:nowrap;">' + escapeHtml(row.ref || "—") +
+          '</span><br><span style="font-size:11.5px; color:var(--steel);">' +
+          escapeHtml(row.kind) + "</span></td>" +
+        "<td>" + escapeHtml(row.engineer || "—") + "</td>" +
+        "<td>" + escapeHtml(row.customer || "—") + "</td>" +
+        "<td>" + escapeHtml(row.progress || "—") + "</td>" +
+        '<td class="mono">' + escapeHtml(row.quotes || "—") + "</td>" +
+        '<td class="num">' + (row.quoteCount ? fmt(row.quotedValue) : "—") + "</td>" +
+        '<td class="mono">' + escapeHtml(row.orders || "—") + "</td>" +
+        '<td class="num">' + (row.orderCount ? fmt(row.orderValue) : "—") + "</td>" +
+        '<td class="num">' + (row.invoiced ? fmt(row.invoiced) : "—") + "</td>" +
+        "</tr>";
+    }).join("");
+  }
+
+  $("btn-er-download").addEventListener("click", function () {
+    var go = function (r) {
+      var rows = engineerRowsShown();
+      if (!rows.length) {
+        showMsg("There is nothing to download for these dates.", "error");
+        return;
+      }
+      var cols = r.columns;
+      var lines = [cols.map(function (c) { return csvCell(c.label); }).join(",")]
+        .concat(rows.map(function (row) {
+          return cols.map(function (c) {
+            var v = row[c.key];
+            if (c.key === "engineer" && !v) v = r.none.name;
+            return csvCell(v);
+          }).join(",");
+        }));
+      var span = (r.from || "start") + " to " + (r.to || String(r.generatedAt || "").slice(0, 10));
+      var ok = downloadText("Leads by engineer " + span + ".csv",
+        "﻿" + lines.join("\r\n") + "\r\n", "text/csv;charset=utf-8");
+      showMsg(ok
+        ? rows.length + (rows.length === 1 ? " row" : " rows") +
+          " downloaded — open the file in Excel."
+        : "This browser would not save the file. Try again from Chrome or Edge.",
+        ok ? "success" : "error");
+    };
+    // What is on the screen is what downloads, so the file always matches the dates shown.
+    if (engineerReport) go(engineerReport); else loadEngineerReport(go);
   });
 
   function openProgressTrail(id) {

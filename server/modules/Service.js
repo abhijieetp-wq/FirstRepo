@@ -365,6 +365,10 @@ async function raiseSpareEnquiryFromServiceJob(serviceJobId, input) {
     urgency: urgency,
     source: 'Service visit ' + String(job.jobNo || ''),
     ownerEmail: '',
+    // The engineer who found the need generated the enquiry: whoever pressed the button if
+    // that was the engineer, otherwise the engineer the job is assigned to.
+    serviceEngineerEmail: String(user.role === ROLES.SERVICE_ENGINEER
+      ? user.email : (job.engineerEmail || '')).trim(),
     serviceJobId: String(job.id),
     status: 'New',
     // Nobody has promised the customer a date yet — the engineer has only said which parts

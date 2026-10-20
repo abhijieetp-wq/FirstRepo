@@ -39,6 +39,8 @@ run_ui "refinements-ui-test.js (classic)" tests/refinements-ui-test.js "$tmp/bas
 run_ui "refinements-ui-test.js (new design)" tests/refinements-ui-test.js "$tmp/base-web.html"
 run_ui "catalog-ui-test.js (classic)" tests/catalog-ui-test.js "$tmp/base.html"
 run_ui "catalog-ui-test.js (new design)" tests/catalog-ui-test.js "$tmp/base-web.html"
+run_ui "engineer-leads-ui-test.js (classic)" tests/engineer-leads-ui-test.js "$tmp/base.html"
+run_ui "engineer-leads-ui-test.js (new design)" tests/engineer-leads-ui-test.js "$tmp/base-web.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

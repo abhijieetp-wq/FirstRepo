@@ -50,9 +50,12 @@ function listLeads(options) {
 
   requireCommercial_(user, 'Compressor leads');
   requireStream_(user, STREAM_COMPRESSOR, 'Compressor leads');
+  var people = userNameMap_();
 
   var rows = readTable_('Leads').map(function (l) {
     var row = stripRow_(l);
+    row.serviceEngineerName = row.serviceEngineerEmail
+      ? personLine_(row.serviceEngineerEmail, people) : '';
     // A linked customer's name wins, because it is the one that gets maintained; an
     // unlinked prospect keeps whatever the salesperson typed.
     row.customerName = customerNames[String(row.customerId)] || row.customerName || '';
@@ -100,6 +103,16 @@ function saveLead(input) {
     throw new Error('Set a next action date — an open lead must always have one.');
   }
 
+  // The service engineer who passed the lead on. Kept as it was when the caller does not say.
+  var engineerWas = '';
+  if (input.id) {
+    var before = findRowById_('Leads', input.id);
+    engineerWas = before ? String(before.serviceEngineerEmail || '') : '';
+  }
+  var serviceEngineer = input.serviceEngineerEmail === undefined
+    ? engineerWas
+    : serviceEngineerFor_(input.serviceEngineerEmail, engineerWas);
+
   var record = {
     date: String(input.date || todayIso_()).slice(0, 10),
     customerId: String(input.customerId || ''),
@@ -120,6 +133,7 @@ function saveLead(input) {
     salesEngineerEmail: String(input.salesEngineerEmail ||
       (user.role === ROLES.SALES_ENGINEER ? user.email : '')).trim(),
     ownerEmail: String(input.ownerEmail || user.email).trim(),
+    serviceEngineerEmail: serviceEngineer,
     status: status,
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
     lostReasonId: String(input.lostReasonId || '').trim(),

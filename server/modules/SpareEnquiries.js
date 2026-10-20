@@ -41,9 +41,13 @@ async function listSpareEnquiries(options) {
 
   var customerNames = {};
   (await readTable_('Customers')).forEach(function (c) { customerNames[String(c.id)] = c.name; });
+  var people = await userNameMap_();
 
   var rows = (await readTable_('SpareEnquiries')).map(function (e) {
     var row = stripRow_(e);
+    // Named, not addressed: the list is read over the desk.
+    row.serviceEngineerName = row.serviceEngineerEmail
+      ? personLine_(row.serviceEngineerEmail, people) : '';
     row.items = (itemsByEnquiry[String(row.id)] || []).sort(function (a, b) {
       return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0);
     });
@@ -101,6 +105,13 @@ async function saveSpareEnquiry(input) {
 
   var who = await resolveEnquiryContact_(input, user);
 
+  // Who generated it, when a service engineer did. Left as it was when the caller does not
+  // say, so a save from somewhere that does not show the field cannot wipe it.
+  var engineerWas = existing ? String(existing.serviceEngineerEmail || '') : '';
+  var serviceEngineer = input.serviceEngineerEmail === undefined
+    ? engineerWas
+    : await serviceEngineerFor_(input.serviceEngineerEmail, engineerWas);
+
   var record = {
     date: String(input.date || todayIso_()).slice(0, 10),
     customerId: String(input.customerId),
@@ -116,6 +127,7 @@ async function saveSpareEnquiry(input) {
     urgency: String(input.urgency || 'Normal').trim(),
     source: String(input.source || '').trim(),
     ownerEmail: String(input.ownerEmail || user.email).trim(),
+    serviceEngineerEmail: serviceEngineer,
     status: status,
     expectedDeliveryDate: String(input.expectedDeliveryDate || '').slice(0, 10),
     lostReasonId: lostReasonId,

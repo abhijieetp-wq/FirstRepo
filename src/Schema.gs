@@ -233,7 +233,11 @@ var SCHEMA = {
       // charge of it. One owner column could not say who did which, so neither could be
       // credited or chased.
       'salesEngineerEmail', 'ownerEmail', 'status', 'nextActionDate', 'lostReasonId',
-      'businessStream', 'brand', 'createdAt', 'createdBy']
+      'businessStream', 'brand', 'createdAt', 'createdBy',
+      // The service engineer who passed the lead on, when one did — they are at the
+      // customer's machines more than anybody in sales. Blank when it came another way.
+      // Read by the Leads by Engineer report (EngineerLeads.gs).
+      'serviceEngineerEmail']
   },
   LeadRequirements: {
     label: 'What the prospect wants, per compressor type — a lead may want both',
@@ -282,10 +286,9 @@ var SCHEMA = {
       // ties the enquiry to the customer's own contact list rather than to a typed string.
       'contactName', 'contactId', 'contactPhone', 'contactEmail', 'productModel',
       'serialNo', 'installedBaseId', 'requirementText', 'urgency', 'source',
-      // No engineer here. PIE's Spare Sales office is a coordinator and nobody else — the
-      // engineers sit under Unit Sales and Service — so a field for one would never be
-      // filled, and an empty box on a form is a question somebody has to keep deciding not
-      // to answer.
+      // No sales engineer here: PIE's Spare Sales office is a coordinator and nobody else.
+      // The service engineer who generated the enquiry is recorded, in serviceEngineerEmail
+      // at the end — they find most spares business at the customer's machine.
       'ownerEmail',
       // Set when the enquiry came out of a service visit rather than a phone call, so the
       // parts can be traced back to the machine that needed them.
@@ -300,7 +303,10 @@ var SCHEMA = {
       // sheet rather than dropped: its values meant something else and are not carried over.
       'expectedDeliveryDate', 'nextActionDate',
       'lostReasonId', 'businessStream', 'brand',
-      'createdAt', 'createdBy']
+      'createdAt', 'createdBy',
+      // Which service engineer the enquiry came from, when it came from one. Set on the form,
+      // or by raising the enquiry from a service job. Read by the Leads by Engineer report.
+      'serviceEngineerEmail']
   },
   SpareEnquiryItems: {
     label: 'Identified parts against an enquiry (FR-023, D011)',

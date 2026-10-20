@@ -400,6 +400,9 @@
   .search-bar input[type="checkbox"]{ flex:0 0 auto; min-width:0; width:16px; height:16px;
     padding:0; border:0; margin:0; box-shadow:none; background:none; }
   .search-bar .check-line{ padding:0 4px; }
+  /* A date in the bar is a date, not a search: no magnifier, and only as wide as a date. */
+  .search-bar input[type="date"]{ flex:0 0 auto; min-width:0; width:170px; padding-left:12px;
+    background-image:none; }
 
 
   /* ================================================================== BUTTONS
