@@ -32,6 +32,7 @@ const crypto = require('crypto');
 const { connect } = require('./db.js');
 const { loadPortal } = require('./load.js');
 const { render, escapeHtml } = require('./page.js');
+const { isPagePath } = require('./routes.js');
 const { fileStore } = require('./files.js');
 const { mailer, settings: mailSettings } = require('./mail.js');
 const { urlFetchApp } = require('./fetch.js');
@@ -316,7 +317,9 @@ function statusFor(message) {
     try {
       await ready;
       // ---- the page
-      if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
+      // Every screen has its own address (server/routes.js); each gets this same page, which
+      // opens the screen the address names.
+      if (req.method === 'GET' && isPagePath(url.pathname)) {
         /**
          * The Google gate, which doGet used to run before serving anything.
          *

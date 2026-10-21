@@ -77,23 +77,49 @@ Do not override them.
 
 For e-mail, when you have a mailbox:
 
+> **Railway sends e-mail only on the Pro plan.** On Trial and Hobby it blocks outgoing mail
+> (ports 465 and 587) to stop spam, so these variables do nothing there and every send fails
+> with a connection error. Upgrade the workspace to Pro first, then redeploy. The other way
+> round — an HTTPS mail service such as Resend or Brevo — works on any plan but needs a code
+> change and a domain of your own to send from; it cannot send as a plain @gmail.com address.
+
+PIE send from `admin.premierindia@gmail.com`. For a Gmail address:
+
+1. Sign in to that Google account → **myaccount.google.com** → **Security** → turn on
+   **2-Step Verification** if it is off. App passwords do not exist without it.
+2. Open **myaccount.google.com/apppasswords** → name it `PIE ERP` → **Create**. Google shows a
+   16-letter password once. Copy it without the spaces.
+3. Type it straight into Railway (below). Never send it over WhatsApp, e-mail or chat. It can
+   only send and read mail — it cannot change the account — and it can be revoked on the same
+   page at any time, which is also the fix if it is ever exposed.
+
 | Variable | Value |
 |---|---|
-| `SMTP_URL` | `smtps://smtp.gmail.com:465` for Google Workspace, `smtps://smtp.zoho.in:465` for Zoho |
-| `SMTP_USER` | the full address, e.g. `office@premierindia.in` |
-| `SMTP_PASSWORD` | an **app password**, not the account password. Google and Zoho both require one when two-factor is on. |
-| `SMTP_FROM` | usually the same as `SMTP_USER` |
+| `SMTP_URL` | `smtps://smtp.gmail.com:465` for Gmail and Google Workspace, `smtps://smtp.zoho.in:465` for Zoho |
+| `SMTP_USER` | the full address: `admin.premierindia@gmail.com` |
+| `SMTP_PASSWORD` | the 16-letter **app password**, not the account password |
+| `SMTP_FROM` | the same address |
+
+Gmail keeps a copy of every quotation sent this way in the account's **Sent** folder. The
+customer's reply goes to the e-mail address in **Settings → Company Profile**, whoever pressed
+send — keep that set to the office address.
 
 ---
 
 ## 5. Point the domain
 
-The portal goes on a **subdomain of IMC Global's domain** — for example
-`pie.erp.<imc-domain>` — never on the bare domain, which carries IMC's own website and
-mail. A subdomain also gives each later client a name of its own on the same pattern.
+The portal goes on a **subdomain of IMC Global's domain** — `pie.erp.imcglobal.in` — never on
+the bare domain, which carries IMC's own website and mail. A subdomain also gives each later
+client a name of its own on the same pattern (`<client>.erp.imcglobal.in`).
+
+`imcglobal.in`'s DNS is at **GoDaddy** (nameservers `ns07`/`ns08.domaincontrol.com`), in IMC's
+company GoDaddy account — the one used for `hello.imcglobal.in`. Adding a record for the new name
+touches nothing else: leave every existing record (the `@` and `www` records, the MX records
+for mail) exactly as it is. When Railway asks which port the domain should reach, it is
+**3000**.
 
 1. Railway → the service → Settings → **Networking** → **Custom Domain** → type the full
-   name (`pie.erp.<imc-domain>`). Railway shows a **CNAME** target, something like
+   name (`pie.erp.imcglobal.in`). Railway shows a **CNAME** target, something like
    `xxxx.up.railway.app`, and may show a **TXT** record to prove the domain is yours.
 2. Wherever IMC's DNS is managed (GoDaddy, Cloudflare, the registrar's panel): add a
    **CNAME** record. Name: `pie.erp` (the part before the domain). Value: the target from
@@ -101,8 +127,8 @@ mail. A subdomain also gives each later client a name of its own on the same pat
 3. Back in Railway, wait for the domain to show a green tick. TLS is issued automatically
    once the record resolves — usually minutes, occasionally an hour.
 4. Railway → Variables → set `ERP_BASE_URL` to the final address, scheme and all:
-   `https://pie.erp.<imc-domain>`. No trailing slash. Railway redeploys on save.
-5. Open `https://pie.erp.<imc-domain>/health` and check it says `"ok": true`.
+   `https://pie.erp.imcglobal.in`. No trailing slash. Railway redeploys on save.
+5. Open `https://pie.erp.imcglobal.in/health` and check it says `"ok": true`.
 
 The old `…up.railway.app` address keeps working. Once the new one is confirmed, stop
 using the old one so links in e-mails all carry the same name.
@@ -149,7 +175,7 @@ before this is done, or nobody can get in**, including you.
 
 1. Google Cloud Console → the project that owns the OAuth client → **Credentials** → your
    OAuth 2.0 Client ID.
-2. Under **Authorised redirect URIs**, add your address exactly: `https://pie.erp.<imc-domain>`.
+2. Under **Authorised redirect URIs**, add your address exactly: `https://pie.erp.imcglobal.in`.
    No trailing slash, no path. It must match `ERP_BASE_URL` character for character.
 3. In the portal: Settings → the Google gate → paste the client id and secret, list the
    accounts that may enter, and only then switch it on.

@@ -257,6 +257,143 @@
     });
   }
 
+  /**
+   * Every screen at its own address, on the server.
+   *
+   * The portal is one page, and moving between screens never reloaded it — so the address
+   * never changed either. Back left the portal altogether, a refresh dropped you on the first
+   * screen, and a screen could not be bookmarked or sent to somebody. Now each screen writes
+   * its address as it opens (/quotations, /sales-orders), Back and Forward walk through them,
+   * and opening an address goes straight to its screen. A quotation and a progress trail carry
+   * which one: /quotation/QT-1a2b3c4d.
+   *
+   * This is what react-router does inside a React app, done with the same browser feature
+   * (history.pushState) directly, because these screens are not React.
+   *
+   * Only on the server. Apps Script serves the page inside Google's frame, where the address
+   * bar belongs to Google and not to this page.
+   *
+   * The server answers the same list (server/routes.js); tests/routing-test.js keeps the two
+   * in step.
+   */
+  var ROUTES = {
+    dashboard: "/dashboard",
+    compressor: "/compressor-sales",
+    enquiries: "/spare-sales",
+    quote: "/quotation",
+    quotations: "/quotations",
+    progress: "/quotation-progress",
+    engineers: "/reports/leads-by-engineer",
+    orders: "/sales-orders",
+    dispatch: "/dispatch-billing",
+    service: "/service-jobs",
+    collections: "/collections",
+    inventory: "/inventory",
+    customers: "/customers",
+    catalog: "/catalog",
+    settings: "/settings"
+  };
+  var URL_ROUTING = !ON_APPS_SCRIPT && /^https?:$/.test(location.protocol) &&
+    !!(window.history && history.pushState);
+  /** The screen on show, whichever way it was reached. */
+  var currentView = null;
+
+  /** { view, id } for an address, or null when it names no screen. */
+  function viewFromPath(path) {
+    var p = String(path || "/").replace(/\/+$/, "") || "/";
+    var views = Object.keys(ROUTES);
+    for (var i = 0; i < views.length; i++) {
+      if (ROUTES[views[i]] === p) return { view: views[i], id: "" };
+    }
+    var m = /^\/(quotation|quotation-progress)\/([A-Za-z0-9_-]{1,64})$/.exec(p);
+    if (m) return { view: m[1] === "quotation" ? "quote" : "progress", id: m[2] };
+    return null;
+  }
+
+  /** The address for what is on screen now. */
+  function addressFor(view) {
+    var base = ROUTES[view] || "/";
+    if (view === "quote" && openQuote && openQuote.id) {
+      return base + "/" + encodeURIComponent(openQuote.id);
+    }
+    return base;
+  }
+
+  /**
+   * Puts an address in the bar. A new screen is a new step for Back (push); the same screen
+   * changing under you — a revision opening in place of the one before — is not (replace).
+   */
+  function showPath(path, push) {
+    if (!URL_ROUTING || location.pathname === path) return;
+    try {
+      if (push) history.pushState({ view: currentView }, "", path);
+      else history.replaceState({ view: currentView }, "", path);
+    } catch (e) { /* the address is a convenience; the screen is already right */ }
+  }
+
+  function showAddress(push) {
+    if (currentView) showPath(addressFor(currentView), push);
+  }
+
+  /** The tab's title names the screen, so a row of tabs and the history list can be read. */
+  function showTitle(view) {
+    if (!URL_ROUTING || !currentUser) return;
+    var name = currentUser.appName || "ERP";
+    var leaf = navLeaves().filter(function (t) { return t.view === view; })[0];
+    var label = view === "quote" && openQuote ? (openQuote.quoteNo || "Quotation")
+      : (leaf ? leaf.label : "");
+    document.title = label ? label + " \u00b7 " + name : name;
+  }
+
+  /** Where the address asks to go, if this person may go there; else their usual first screen. */
+  function startAt(visible) {
+    var asked = URL_ROUTING ? viewFromPath(location.pathname) : null;
+    var may = asked && visible.some(function (t) { return t.view === asked.view; });
+    if (!may) { goToTab(landingView(visible), { replace: true }); return; }
+    if (asked.id) { openFromAddress(asked, true); return; }
+    goToTab(asked.view, { replace: true });
+  }
+
+  /** A quotation or a progress trail named in the address. */
+  function openFromAddress(asked, first) {
+    if (asked.view === "progress") {
+      openProgressTrail(asked.id, first ? { replace: true } : { fromHistory: true });
+      return;
+    }
+    srv.withSuccessHandler(function (q) {
+      openQuote = q;
+      renderQuoteBuilder();
+      goToTab("quote", first ? { replace: true } : { fromHistory: true });
+    }).withFailureHandler(function (err) {
+      // Gone, or not this person's to see. Say so, and leave them somewhere real.
+      openQuote = null;
+      goToTab("quote", { replace: true });
+      onServerError(err);
+    }).getQuotation(asked.id);
+  }
+
+  if (URL_ROUTING) {
+    window.addEventListener("popstate", function () {
+      if (!currentUser || $("app").style.display === "none") return;
+      // A window left open over the screen being left would sit over the wrong one.
+      document.querySelectorAll(".modal-backdrop.show").forEach(function (m) {
+        m.classList.remove("show");
+      });
+      var visible = visibleLeaves();
+      var asked = viewFromPath(location.pathname);
+      if (!asked || !visible.some(function (t) { return t.view === asked.view; })) {
+        goToTab(landingView(visible), { replace: true });
+        return;
+      }
+      if (asked.id && !(asked.view === "quote" && openQuote &&
+          String(openQuote.id) === asked.id)) {
+        openFromAddress(asked, false);
+        return;
+      }
+      goToTab(asked.view, { fromHistory: true });
+    });
+  }
+
   // Master data (Products/Spares/pricing) is Management + ERP Admin only — mirrors
   // MASTER_EDITORS in Auth.gs, which is where the rule is actually enforced.
   /**
@@ -437,7 +574,8 @@
     document.querySelectorAll(".tab-btn.open").forEach(function (b) { b.classList.remove("open"); });
   }
 
-  function goToTab(view) {
+  function goToTab(view, opts) {
+    var how = opts || {};
     closeNavMenus();
     clearMsg();
 
@@ -452,6 +590,12 @@
     document.querySelectorAll(".nav-menu button").forEach(function (b) {
       b.classList.toggle("active", b.dataset.view === view);
     });
+
+    // The address first, then the screen: a screen that changes its own address as it draws
+    // (the quotation builder does) must find the new step already there to replace.
+    currentView = view;
+    if (!how.fromHistory) showAddress(!how.replace);
+    showTitle(view);
 
     if (VIEW_INIT[view]) VIEW_INIT[view]();
   }
@@ -530,7 +674,7 @@
     // A way back to a list this role cannot open would be a dead end.
     $("btn-qb-back").style.display =
       visible.some(function (t) { return t.view === "quotations"; }) ? "" : "none";
-    if (visible.length) goToTab(landingView(visible));
+    if (visible.length) startAt(visible);
   }
 
   // A menu left hanging open over the page is the classic half-finished dropdown.
@@ -3413,11 +3557,15 @@
     $("qb-title").textContent = "New Quotation";
     $("qb-subtitle").textContent = "Raise a quotation for a customer, or open one already in progress.";
     initQuoteStarter();
+    if (currentView === "quote") { showAddress(false); showTitle("quote"); }
   }
 
   function renderQuoteBuilder() {
     var q = openQuote;
     if (!q) { renderQuoteEmpty(); return; }
+    // A revision, or another offer opened from inside this one, is the same screen with a
+    // different quotation on it: the address follows without adding a step to Back.
+    if (currentView === "quote") { showAddress(false); showTitle("quote"); }
 
     $("qb-empty").style.display = "none";
     $("qb-body").style.display = "";
@@ -6453,12 +6601,25 @@
     if (engineerReport) go(engineerReport); else loadEngineerReport(go);
   });
 
-  function openProgressTrail(id) {
-    goToTab("progress");
+  function openProgressTrail(id, opts) {
+    var how = opts || {};
+    // The trail's own address is written once it has loaded, so Back from it goes to where
+    // somebody was before, not to an empty list they never saw.
+    goToTab("progress", { fromHistory: true });
     srv.withSuccessHandler(function (p) {
       openProgress = p;
       renderProgressDetail();
-    }).withFailureHandler(onServerError).getQuotationProgress(id);
+      if (!how.fromHistory) {
+        showPath(ROUTES.progress + "/" + encodeURIComponent(p.quotationId || id), !how.replace);
+      }
+      if (URL_ROUTING && currentUser) {
+        document.title = (p.quoteNo || "Quotation") + " progress \u00b7 " +
+          (currentUser.appName || "ERP");
+      }
+    }).withFailureHandler(function (err) {
+      showPath(ROUTES.progress, !how.fromHistory && !how.replace);
+      onServerError(err);
+    }).getQuotationProgress(id);
   }
 
   /** A labelled pair, for the small facts that make up most of this page. */
@@ -6663,6 +6824,8 @@
       openProgress = null;
       $("progress-detail").style.display = "none";
       $("progress-picker-card").style.display = "";
+      showPath(ROUTES.progress, true);
+      showTitle("progress");
     });
   }
 
@@ -11404,6 +11567,13 @@
     rememberSession(null);
     // Told to forget it server-side too, so a token copied from this browser is dead.
     runner({ ok: function () {}, fail: function () {} }).logout(token);
+    // The next person to sign in on this browser starts on their own first screen, not on
+    // the one the last person left open.
+    if (URL_ROUTING) {
+      currentView = null;
+      showPath("/", false);
+      if (currentUser && currentUser.appName) document.title = currentUser.appName;
+    }
     showSignIn("You have signed out.");
   }
 
