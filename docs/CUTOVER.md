@@ -124,6 +124,24 @@ record.
 > If every figure is zero, the tenant is wrong, not the data. `import.js` and
 > `headline.js` both take `--tenant` and both default to `pie`; they must agree.
 
+### 5b. Bring the website's own settings across
+
+The Google client, the Gmail connection quotations are sent through, whether Google sign-in is
+demanded and for whom, and the Tally address were set on the website, not in the Sheet — they
+are in the **old** database's settings table and nowhere else. Copy them before switching, or
+the website comes up without them and Gmail has to be connected again by PIE's account holder.
+
+```
+set "FROM_DATABASE_URL=<the OLD connection string — the one with neondb>"
+set "DATABASE_URL=<the NEW connection string — the one with erp_live>"
+node migration\copy-settings.js
+node migration\copy-settings.js --write
+```
+
+The first run lists what it would copy and writes nothing. Secrets show only as *(set, N
+characters — not shown)*. The second copies them and ends with *"Switch DATABASE_URL in Railway
+now"*. It must run before the switch: the server reads its settings when it starts.
+
 ### 6. Switch
 
 Railway → Variables → `DATABASE_URL` → change `neondb` to `erp_live` in the string. Save.
@@ -133,8 +151,9 @@ When it comes back, open `/health`:
 
 - `database` should be about 30ms
 - `attachments` should say `ok`
-- `settings` will say `0 held` — the Google gate and Tally settings live in the old
-  database. Set them again in Settings, or copy the `settings` table across.
+- `settings` should say the same number held as before (step 5b copied them), and `email`
+  should say `via: gmail`. If `settings` says `0 held`, step 5b was skipped: run it, then
+  redeploy.
 
 Then open the portal and check the Control Tower shows the same figures you just verified.
 
@@ -173,8 +192,8 @@ as of the cutover, which is what makes a comparison possible.
 - **Attachments uploaded while testing.** Anything you attached to the 16 October snapshot
   is still on the volume but belongs to rows that no longer exist. Harmless. Clear the
   volume if you want it tidy.
-- **Script Properties.** The Google gate's settings and the Tally endpoint live in the
-  `settings` table of whichever database is connected. Re-enter them, or:
-  `INSERT INTO settings SELECT * FROM ...` across the two databases.
+- **The website's own settings** — Google client, Gmail connection, sign-in requirement,
+  Tally address — only if step 5b is skipped. They live in the `settings` table of whichever
+  database is connected; `migration/copy-settings.js` carries them across.
 - **Anything typed into the Sheet after the freeze.** Which is why the freeze is a
   permission change and not an announcement.
