@@ -115,8 +115,10 @@ client a name of its own on the same pattern (`<client>.erp.imcglobal.in`).
 `imcglobal.in`'s DNS is at **GoDaddy** (nameservers `ns07`/`ns08.domaincontrol.com`), in IMC's
 company GoDaddy account — the one used for `hello.imcglobal.in`. Adding a record for the new name
 touches nothing else: leave every existing record (the `@` and `www` records, the MX records
-for mail) exactly as it is. When Railway asks which port the domain should reach, it is
-**3000**.
+for mail) exactly as it is. When Railway asks which port the domain should reach, give
+it **the same port the existing `…up.railway.app` address shows** under Public Networking — on
+PIE's service that is **8080**. Railway sets the port the server listens on (it overrides the
+3000 in the Dockerfile), so 3000 there would give the new address an error page.
 
 1. Railway → the service → Settings → **Networking** → **Custom Domain** → type the full
    name (`pie.erp.imcglobal.in`). Railway shows a **CNAME** target, something like
