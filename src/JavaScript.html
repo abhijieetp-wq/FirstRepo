@@ -11091,9 +11091,12 @@
         '<div class="kpi-card"><div class="kpi-label">Build Running</div>' +
           '<div style="font-size:14px; font-weight:600; color:var(--navy); margin-top:4px;" ' +
           'class="mono">' + escapeHtml(sys.build || "unknown") + "</div></div>" +
-        '<div class="kpi-card"><div class="kpi-label">Spreadsheet</div>' +
+        // On the server the storage is a database, not a spreadsheet, and the tile says which.
+        '<div class="kpi-card"><div class="kpi-label">' +
+          (sys.storage ? "Database" : "Spreadsheet") + "</div>" +
           '<div style="font-size:14px; font-weight:600; color:var(--navy); margin-top:4px;">' +
-          escapeHtml(sys.spreadsheetName) + "</div></div>" +
+          escapeHtml(sys.storage ? (sys.storage + (sys.databaseName ? " \u00b7 " +
+            sys.databaseName : "")) : sys.spreadsheetName) + "</div></div>" +
         '<div class="kpi-card"><div class="kpi-label">Tabs Declared</div>' +
           '<div class="kpi-value">' + sys.declaredTabs + "</div></div>" +
         '<div class="kpi-card"><div class="kpi-label">Time Zone</div>' +
@@ -11134,6 +11137,22 @@
           '<button class="btn btn-sm" id="btn-purge-spares-deep">Clear Spares and Their Documents…</button>' +
           "</div>"
         : "") +
+      // Every record in one file, for moving to another database. Server only: on Apps Script
+      // the Sheet is the database, and leaving it is exportForMigration in the editor.
+      (!ON_APPS_SCRIPT
+        ? '<div class="card-title" style="margin-top:22px;">Export All Data</div>' +
+          '<div class="compare-strip" style="margin-bottom:14px;">' +
+            "One file holding every record in the portal \u2014 customers, quotations, orders, " +
+            "invoices, receipts, stock, the catalogue and the users \u2014 taken at a single " +
+            "moment. It is what you load into a new database when you move to one " +
+            "(<span class=\"mono\">node migration/import.js</span>, the same import the " +
+            "cutover uses), and a copy worth keeping outside. Attachments are not in it: they " +
+            "stay on the server. <b>It holds the whole business, user passwords (scrambled) " +
+            "included \u2014 keep it somewhere safe and delete it when you are done.</b>" +
+          "</div>" +
+          '<button class="btn btn-sm" id="btn-export-all" type="button">' +
+            "Download All Data (.zip)</button>"
+        : "") +
       '<div id="sys-result"></div>' +
       (currentUser.role === "ERP Admin"
         ? '<div id="sys-gate" style="margin-top:22px;"></div>' : ""));
@@ -11146,7 +11165,53 @@
       $("btn-purge-spares-deep").addEventListener("click", purgeSparesDeepNow);
     }
     if ($("sys-gate")) loadGoogleGate();
+    if ($("btn-export-all")) $("btn-export-all").addEventListener("click", exportAllData);
     wireAuditButton();
+  }
+
+  /**
+   * Downloads every record as one .zip, straight from the server.
+   *
+   * Not through `srv`: the answer is a file, not JSON. The server still checks the session
+   * and the role first (authorizeDataExport), and a refusal comes back in words.
+   */
+  function exportAllData() {
+    var done = busyButton("btn-export-all", "Preparing the file\u2026");
+    fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: sessionToken })
+    }).then(function (res) {
+      if (!res.ok) {
+        return res.json().catch(function () { return {}; }).then(function (b) {
+          throw new Error((b && b.error) || ("The server answered " + res.status + "."));
+        });
+      }
+      var named = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+      var rows = Number(res.headers.get("X-Export-Rows")) || 0;
+      var tables = Number(res.headers.get("X-Export-Tables")) || 0;
+      return res.blob().then(function (blob) {
+        return { blob: blob, name: named ? named[1] : "ERP data export.zip", rows: rows,
+                 tables: tables };
+      });
+    }).then(function (r) {
+      done();
+      var url = URL.createObjectURL(r.blob);
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = r.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      var mb = r.blob.size / (1024 * 1024);
+      showMsg("Downloaded " + r.name + " \u2014 " + fmtInt(r.rows) + " records from " +
+        r.tables + " tables, " + (mb < 1 ? Math.max(1, Math.round(r.blob.size / 1024)) + " KB"
+          : mb.toFixed(1) + " MB") + ". Keep it somewhere safe.", "success");
+    }).catch(function (err) {
+      done();
+      showMsg("The export did not download. " + ((err && err.message) || ""), "error");
+    });
   }
 
   /**

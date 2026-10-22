@@ -187,6 +187,42 @@ back, and it is worth knowing before you need it.
 
 ---
 
+## Moving to another database
+
+Another Neon project, another provider, or a fresh database after an accident. About fifteen
+minutes, most of it the import's own checks. The file is the same format the cutover uses, and
+the same import loads it.
+
+1. Ask everyone to stay out of the portal for a few minutes. The file is the database at one
+   moment; anything typed after it is not in it.
+2. **Settings → System → Download All Data (.zip).** Management or the ERP admin only; the
+   download is recorded in the audit log. Unzip it (right-click → Extract All).
+3. Create the new database (Neon → Databases → New, or any PostgreSQL 15+) and copy its
+   connection string — the non-pooled one.
+4. In cmd, in the project folder:
+
+   ```
+   set "DATABASE_URL=<the NEW connection string>"
+   node migration\apply-schema.js
+   node migration\import.js "C:\path\to\the\unzipped folder"
+   node migration\import.js "C:\path\to\the\unzipped folder" --write
+   node migration\headline.js
+   ```
+
+   The first import writes nothing and must end with **Checks passed**. The second ends with
+   *Every row and every field made the trip.* `headline.js` prints the Control Tower figures
+   from the new database — they should match the website's.
+5. Railway → Variables → `DATABASE_URL` → the new string → save. Railway redeploys. People stay
+   signed in: their sign-ins come across in the file.
+6. Settings → enter the **Tally address** and the **Google sign-in** again. They live in the
+   server's settings table, which is not in the file because it holds a client secret.
+7. Keep the old database for a week, then delete it — and delete the zip. It holds the whole
+   business, customers, prices and password hashes included.
+
+Attachments (purchase orders, photographs, PDFs) are not in the file and do not need to be:
+they stay on the Railway volume, and the new database points at them exactly as the old one
+did.
+
 ## Rolling back
 
 Railway keeps every deployment. Pick the previous one → **Redeploy**. It takes a minute and

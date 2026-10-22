@@ -415,3 +415,23 @@ function listAuditLog(options) {
   }
   return rows.reverse().slice(0, limit);
 }
+
+/**
+ * Whether this person may take every record away in one file — and the record that they did.
+ *
+ * The file itself is built by the server (server/export.js), which reads the database directly
+ * in one snapshot; this is the door in front of it, so that who may export is decided by the
+ * same sign-in and the same roles as everything else rather than by a second set of rules in
+ * the server. Management and the ERP admin only: the file is the whole business, customers,
+ * prices, receivables and the users' password hashes included.
+ *
+ * On Apps Script there is no button for it — the Sheet is exported with exportForMigration()
+ * from the editor, which is a different job (leaving the Sheet, not changing database).
+ */
+function authorizeDataExport() {
+  var user = getCurrentUser();
+  requireRole_(user, [ROLES.MANAGEMENT, ROLES.ERP_ADMIN]);
+  audit_('EXPORT', 'All tables', '', '', '', '',
+    'Downloaded a copy of all data (Settings → System → Download All Data)');
+  return { email: user.email, name: user.name || user.email };
+}

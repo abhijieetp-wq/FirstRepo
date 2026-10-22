@@ -27,9 +27,20 @@ const helpers = require('./helpers.js');
  * from the session the request arrived with. Here it is passed in per request, for the same
  * reason — the process runs as nobody in particular.
  */
-function globalsFor(db, actor) {
+function globalsFor(db, actor, whoNow) {
   const bound = Object.create(db);
-  bound.actor = actor || 'system';
+  // Who the audit trail names, worked out when the row is written rather than when the request
+  // began. A request through the browser's door starts as 'anonymous' — the token is only
+  // resolved to a person inside `call`, which sets CURRENT_USER_ — so a fixed value recorded
+  // every change on the website as made by "anonymous": the price, the discount, the credit
+  // release, all with nobody's name on them. Apps Script names the person; so does this now.
+  // A transaction's copy of the connection inherits this getter, so writes inside one are
+  // named too.
+  Object.defineProperty(bound, 'actor', {
+    configurable: true,
+    enumerable: true,
+    get: () => (whoNow && whoNow()) || actor || 'system'
+  });
 
   /**
    * The connection everything below runs on, which is the pool until a transaction opens.

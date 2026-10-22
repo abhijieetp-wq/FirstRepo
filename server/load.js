@@ -89,7 +89,13 @@ function loadPortal(db, actor, opts) {
   // return, which was the pool — so every such query ran outside the transaction it was
   // wrapped in, and a rollback rolled back nothing. Found by a rename test that threw halfway
   // and then found the new addresses still there.
-  Object.defineProperties(sandbox, Object.getOwnPropertyDescriptors(globalsFor(db, actor)));
+  // The signed-in person, once `call` has resolved the token, names the audit rows; until then
+  // the actor this request was opened with does.
+  const whoNow = () => {
+    const u = sandbox.CURRENT_USER_;
+    return u && u.email ? String(u.email) : '';
+  };
+  Object.defineProperties(sandbox, Object.getOwnPropertyDescriptors(globalsFor(db, actor, whoNow)));
 
   // Everything present before a single portal file is loaded: the intrinsics above, the
   // platform shim, the database shim. Whatever is a function after loading and is not in

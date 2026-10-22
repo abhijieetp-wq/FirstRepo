@@ -327,6 +327,11 @@ function login(login, password, googlePass) {
       'Signed in after failed attempts');
   }
 
+  // The person is known from here on, so the audit row for this sign-in names them rather
+  // than nobody. Nothing else in this request runs after it.
+  var user = userFromRow_(row);
+  CURRENT_USER_ = user;
+
   var token = randomToken_();
   appendRow_('Sessions', {
     id: generateId_('SES-'),
@@ -346,7 +351,6 @@ function login(login, password, googlePass) {
   // somebody the trip out to Google and back.
   googleGateConsumePass_(googlePass);
 
-  var user = userFromRow_(row);
   user.googleEmail = googleEmail;
   user.mustChangePassword = String(row.mustChangePassword).toUpperCase() === 'TRUE';
   return { token: token, user: user };

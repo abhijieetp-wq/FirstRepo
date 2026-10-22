@@ -8,6 +8,7 @@
  *
  *   DATABASE_URL=postgres://... node tests/routing-browser-test.js
  */
+const fs = require('fs');
 const path = require('path');
 
 const URL_ = process.env.DATABASE_URL;
@@ -80,7 +81,8 @@ const ok = (label, cond, detail) => {
 
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
-  const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1366, height: 900 },
+    acceptDownloads: true });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
@@ -211,6 +213,30 @@ const ok = (label, cond, detail) => {
   ok('Back leaves the screen and takes the window with it',
     !(await page.isVisible('#customer-modal-backdrop')) && (await onScreen()) === 'progress',
     { screen: await onScreen() });
+
+  console.log('\nSETTINGS \u2192 SYSTEM \u2192 DOWNLOAD ALL DATA');
+  await click('#tabs [data-view="settings"]');
+  await settle('/settings');
+  await page.waitForSelector('#subtab-system', { timeout: 10000 });
+  await click('#subtab-system');
+  await page.waitForSelector('#btn-export-all', { timeout: 10000 });
+  ok('the System panel names the database, not a spreadsheet',
+    /Database/.test(await page.innerText('#set-panel')) &&
+    /PostgreSQL/.test(await page.innerText('#set-panel')));
+  const [dl] = await Promise.all([
+    page.waitForEvent('download', { timeout: 20000 }),
+    click('#btn-export-all')
+  ]);
+  ok('the button downloads a zip named for the company',
+    /^Premier India Enterprise data export \d{4}-\d\d-\d\d \d\d-\d\d\.zip$/.test(dl.suggestedFilename()),
+    dl.suggestedFilename());
+  const zipped = fs.readFileSync(await dl.path());
+  ok('and it is a zip with something in it', zipped.length > 1000 &&
+    zipped.readUInt32LE(0) === 0x04034b50, zipped.length);
+  await page.waitForFunction(() => /Downloaded/.test(
+    (document.getElementById('msg-box') || {}).textContent || ''), null, { timeout: 10000 }).catch(() => {});
+  ok('the screen says what it holds', /records from \d+ tables/.test(await page.innerText('#msg-box')),
+    await page.innerText('#msg-box'));
 
   console.log('\nSIGNING OUT CLEARS THE ADDRESS');
   await page.evaluate(() => document.getElementById('btn-signout').click());

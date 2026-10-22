@@ -33,6 +33,7 @@ const { connect } = require('./db.js');
 const { loadPortal } = require('./load.js');
 const { render, escapeHtml } = require('./page.js');
 const { isPagePath } = require('./routes.js');
+const { buildExport, zip, exportName } = require('./export.js');
 const { fileStore } = require('./files.js');
 const { mailer, settings: mailSettings } = require('./mail.js');
 const { urlFetchApp } = require('./fetch.js');
@@ -543,6 +544,48 @@ function statusFor(message) {
           // worse than letting a dead session expire on its own.
           console.log('logout: ' + (err && err.message));
           return json(res, 200, { ok: true });
+        }
+      }
+
+      // ---- every record, as one file another database can be loaded from
+      //
+      // Not through `call`, because the answer is a zip and not JSON. The permission is still
+      // the portal's: authorizeDataExport resolves the session, checks the role and writes the
+      // audit row, and only then is anything read. See server/export.js for the format.
+      if (req.method === 'POST' && url.pathname === '/api/export') {
+        let payload;
+        try { payload = JSON.parse(await body(req)); }
+        catch (err) { return json(res, 400, { error: 'Could not read the request.' }); }
+        const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties,
+          propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp,
+          mail, fetch: http_ });
+        try {
+          await portal.call(payload.token || null, 'authorizeDataExport', []);
+        } catch (err) {
+          return failed(res, err, 'export');
+        }
+        try {
+          let appName = '';
+          try {
+            const row = await db.findRowById('CompanyProfile', portal.COMPANY_ROW_ID);
+            appName = (row && row.appName) || '';
+          } catch (err) { /* the file is named ERP instead */ }
+          const when = new Date();
+          const name = exportName(appName, when);
+          const out = await buildExport(db, tenant, {
+            build: portal.APP_BUILD, timezone: process.env.ERP_TIMEZONE || 'Asia/Kolkata' });
+          const file = zip(name, out.files, when);
+          res.writeHead(200, {
+            'Content-Type': 'application/zip',
+            'Content-Disposition': 'attachment; filename="' + name + '.zip"',
+            'Content-Length': file.length,
+            'Cache-Control': 'no-store',
+            'X-Export-Rows': String(out.manifest.totalRows),
+            'X-Export-Tables': String(out.manifest.tabCount)
+          });
+          return res.end(file);
+        } catch (err) {
+          return failed(res, err, 'export');
         }
       }
 
