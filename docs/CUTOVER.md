@@ -144,6 +144,11 @@ came across with the Sheet except the specific power (SPC) column, which the App
 does not know and skipped; the model picker ranks energy use by it. The preview should say
 **0 new, 32 updated, 0 price changes** — anything else, stop and look before confirming.
 
+Then the second file the same way: `ELGi-units-modelwise-upload.csv` (67 models — EG 55/55PM/75/75SP,
+EN5, EN11, the EQ VFD range and EQ2–EQ7; also in `imports/`). If it was uploaded to the Sheet before
+the freeze, expect **0 new, 67 updated**; if not, **67 new**. Built from ELGi's model-wise spec
+workbook by `migration/elgi-specs-to-upload.py`, which converts later workbooks in the same layout.
+
 ### 7. Hand over
 
 - Send PIE the new address.
