@@ -112,8 +112,10 @@ let refused = '';
 try { silent.sendEmail({ to: 'a@b.com', subject: 'x', body: 'y' }); }
 catch (e) { refused = e.message; }
 ok('it refuses', !!refused);
-ok('naming what to set', /SMTP_URL/.test(refused) && /SMTP_USER/.test(refused) &&
-  /SMTP_PASSWORD/.test(refused), refused);
+// Railway's Hobby plan blocks SMTP, so the way to fix this from the screen is the Gmail
+// connection, and that is what the message sends somebody to do.
+ok('naming what to do, and where', /Connect Gmail/.test(refused) &&
+  /Settings \u2192 Email/.test(refused), refused);
 // The quotation is saved either way; only sending is unavailable. Somebody reading this on
 // screen needs to know their work is not lost.
 ok('and saying the quotation is safe', /saved/.test(refused), refused);

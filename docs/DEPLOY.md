@@ -75,26 +75,52 @@ is lost on each deployment, and nothing will warn you until somebody looks for a
 `PORT`, `ERP_FILES_DIR` and `ERP_CHROMIUM` are already set correctly by the Dockerfile.
 Do not override them.
 
-For e-mail, when you have a mailbox:
+### E-mail: connect the office Gmail (works on every Railway plan)
 
-> **Railway sends e-mail only on the Pro plan.** On Trial and Hobby it blocks outgoing mail
-> (ports 465 and 587) to stop spam, so these variables do nothing there and every send fails
-> with a connection error. Upgrade the workspace to Pro first, then redeploy. The other way
-> round — an HTTPS mail service such as Resend or Brevo — works on any plan but needs a code
-> change and a domain of your own to send from; it cannot send as a plain @gmail.com address.
+Railway blocks SMTP on its Trial and Hobby plans, so quotations go out through **Google's Gmail
+API** instead — ordinary HTTPS, sent as `admin.premierindia@gmail.com`, with a copy in that
+account's Sent folder. No app password, no Pro plan. The portal is allowed to *send* from the
+account and nothing else: it cannot read, search or delete mail.
 
-PIE send from `admin.premierindia@gmail.com`. For a Gmail address:
+It uses the same Google Cloud project and OAuth client as the Google sign-in. Once, in
+[console.cloud.google.com](https://console.cloud.google.com), in that project:
 
-1. Sign in to that Google account → **myaccount.google.com** → **Security** → turn on
-   **2-Step Verification** if it is off. App passwords do not exist without it.
-2. Open **myaccount.google.com/apppasswords** → name it `PIE ERP` → **Create**. Google shows a
-   16-letter password once. Copy it without the spaces.
-3. Type it straight into Railway (below). Never send it over WhatsApp, e-mail or chat. It can
-   only send and read mail — it cannot change the account — and it can be revoked on the same
-   page at any time, which is also the fix if it is ever exposed.
+1. **APIs & Services → Library** → search **Gmail API** → **Enable**.
+2. **APIs & Services → OAuth consent screen** (Google Auth Platform → Audience on the newer
+   console) → Publishing status → **Publish app / In production**. Left on *Testing*, Google ends
+   the connection every 7 days. Google may show "unverified app" on the sign-in screen; that is
+   expected for an app only PIE uses — click **Advanced → Go to … (unsafe)** once.
+3. **APIs & Services → Credentials** → your OAuth 2.0 Client → **Authorised redirect URIs** → add
+   the address shown in the portal under **Settings → Email** (it is the website address plus
+   `/oauth/gmail`). Add **both** while you are there, so moving to the domain needs nothing new:
 
-| Variable | Value |
-|---|---|
+   ```
+   https://hello-deploy-production.up.railway.app/oauth/gmail
+   https://pie.erp.imcglobal.in/oauth/gmail
+   ```
+
+   Save. Google can take a few minutes to accept a new address.
+
+Then in the portal, as Management or the ERP admin:
+
+4. **Settings → System → Sign-in Restriction**: the client id and secret must be filled in (they
+   already are if the Google sign-in was set up). The requirement itself can stay **off**.
+5. **Settings → Email → Connect Gmail.** Google opens: sign in as **admin.premierindia@gmail.com**
+   (use a private window if the browser is signed in to another Google account), tick
+   **Send email on your behalf**, allow. Google brings you back to a page saying *Gmail is
+   connected*.
+6. **Settings → Email → Send a Test Email.** It arrives in that Gmail inbox within a minute.
+
+`/health` then shows `"email": { "state": "ok", "via": "gmail", "from": "admin.premierindia@gmail.com" }`.
+
+If the password of that Google account is changed, or the app is removed under
+myaccount.google.com → Security → Third-party connections, sending stops with a message saying
+so — press **Connect Gmail** again. **Disconnect** withdraws the permission at Google as well.
+
+On a Pro plan an SMTP mailbox also works, from the environment (`SMTP_URL`, `SMTP_USER`,
+`SMTP_PASSWORD`, `SMTP_FROM`); a connected Gmail is used first when both exist.
+
+---|---|
 | `SMTP_URL` | `smtps://smtp.gmail.com:465` for Gmail and Google Workspace, `smtps://smtp.zoho.in:465` for Zoho |
 | `SMTP_USER` | the full address: `admin.premierindia@gmail.com` |
 | `SMTP_PASSWORD` | the 16-letter **app password**, not the account password |
@@ -161,7 +187,7 @@ Read every line before moving on:
 | `attachments: NOT WRITABLE: EACCES` | Should not happen any more — the server fixes this itself at start-up (it hands the mounted volume to its own user, then drops out of root before opening a socket). If it does appear, the start-up log says why; as a last resort set `ERP_RUN_AS=root`, which at least makes it a decision rather than an accident. |
 | `attachments: dir` is not under `/data` | The volume is not mounted. Attachments are going into the container and will vanish. |
 | `pdfs: unavailable` | Chromium is missing from the image. The build probably failed partway — check the build log. |
-| `email: unconfigured` | Expected until you set the three SMTP variables. |
+| `email: unconfigured` | Expected until Gmail is connected in Settings → Email. |
 | `database` over ~200ms | The service and Neon are in different regions — almost always Railway defaulting to `iad` while Neon is in Singapore. Fix the region; do not accept it. |
 
 Then sign in and try, in this order: open a quotation → **PDF** (proves Chromium), attach

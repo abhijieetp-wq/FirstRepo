@@ -36,6 +36,7 @@ const { isPagePath } = require('./routes.js');
 const { buildExport, zip, exportName } = require('./export.js');
 const { fileStore } = require('./files.js');
 const { mailer, settings: mailSettings } = require('./mail.js');
+const { gmailConnection } = require('./gmail.js');
 const { urlFetchApp } = require('./fetch.js');
 const { settingsStore } = require('./settings.js');
 const { syncSchema } = require('./schema-sync.js');
@@ -139,7 +140,15 @@ function build(options) {
    * around still works for everything that does not need them.
    */
   const files = fileStore({ dir: o.filesDir, tenant });
-  const mail = mailer({ settings: o.smtp });
+  // PIE's Gmail, once connected in Settings → Email, is how quotations leave: Railway's Hobby
+  // plan blocks SMTP. Its permission lives in the settings table beside the Google gate's.
+  const settingsWriter = (who) => (durable ? durable.store(who || '') : {
+    setProperty: (k, v) => { properties[k] = String(v); },
+    deleteProperty: (k) => { delete properties[k]; }
+  });
+  const gmail = o.gmail || gmailConnection({ props: properties, writer: settingsWriter,
+    env: process.env });
+  const mail = mailer({ settings: o.smtp, gmail });
   const http_ = urlFetchApp({});
   const smtpReady = (() => { const c = o.smtp || mailSettings();
     return !!(c.url && c.user && c.password); })();
@@ -486,8 +495,10 @@ function statusFor(message) {
             : { state: filesState, dir: files.dir },
           pdfs: browser ? { state: 'ok', chromium: browser }
             : { state: 'unavailable — ' + chromiumProblem() },
-          email: smtpReady ? { state: 'ok' }
-            : { state: 'unconfigured — set SMTP_URL, SMTP_USER, SMTP_PASSWORD' },
+          email: gmail.status().connected
+            ? { state: 'ok', via: 'gmail', from: gmail.status().sender }
+            : smtpReady ? { state: 'ok', via: 'smtp' }
+              : { state: 'unconfigured — Settings \u2192 Email \u2192 Connect Gmail' },
           tally: tally ? { state: 'ok', endpoint: properties.TALLY_ENDPOINT }
             : { state: 'unconfigured — set it in Settings \u2192 Tally Connection' },
           googleGate: String(properties.GOOGLE_GATE || '').toLowerCase() === 'on'
@@ -589,6 +600,102 @@ function statusFor(message) {
         }
       }
 
+      // ---- the Gmail connection: what it is, connecting, disconnecting, a test message
+      //
+      // Not through `call`: connecting hands back a Google address to send the browser to, and
+      // the permission it ends with is the server's to hold, never the portal's to read. The
+      // door is the portal's: authorizeEmailSettings checks the session and the role.
+      if (req.method === 'POST' && url.pathname === '/api/email') {
+        let payload;
+        try { payload = JSON.parse(await body(req)); }
+        catch (err) { return json(res, 400, { error: 'Could not read the request.' }); }
+        const action = String(payload.action || 'status');
+        const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties,
+          propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp,
+          mail, fetch: http_ });
+        let who;
+        try {
+          who = await portal.call(payload.token || null, 'authorizeEmailSettings', [action]);
+        } catch (err) {
+          return failed(res, err, 'email ' + action);
+        }
+        const redirectUri = baseUrlFor(req) + '/oauth/gmail';
+        const report = () => {
+          const g = gmail.status();
+          return Object.assign(g, { smtp: smtpReady, redirectUri,
+            using: g.connected ? 'gmail' : (smtpReady ? 'smtp' : 'none') });
+        };
+        try {
+          if (action === 'status') return json(res, 200, { ok: report() });
+          if (action === 'connect') {
+            return json(res, 200, { ok: { url: gmail.connectUrl(redirectUri, who.email) } });
+          }
+          if (action === 'disconnect') {
+            const out = gmail.disconnect(who.email);
+            return json(res, 200, { ok: Object.assign(report(), { revoked: out.revoked }) });
+          }
+          if (action === 'test') {
+            const g = gmail.status();
+            const to = g.connected ? g.sender : (mailSettings().from || '');
+            if (!to) throw new Error('Connect Gmail first \u2014 there is no mailbox to send from.');
+            let company = '';
+            try {
+              const row = await db.findRowById('CompanyProfile', portal.COMPANY_ROW_ID);
+              company = (row && row.appName) || '';
+            } catch (err) { /* named ERP instead */ }
+            mail.sendEmail({
+              to,
+              subject: 'Test from the ERP \u2014 quotation emails are working',
+              body: 'This is a test sent from Settings \u2192 Email by ' + (who.name || who.email) +
+                '.\n\nIf you are reading it, the portal can send quotations from this account. ' +
+                'Nothing needs doing.',
+              name: company || 'ERP'
+            });
+            return json(res, 200, { ok: { sentTo: to } });
+          }
+          return json(res, 400, { error: 'Unknown action: ' + action });
+        } catch (err) {
+          return failed(res, err, 'email ' + action);
+        }
+      }
+
+      // ---- where Google sends the browser back to after Connect Gmail
+      //
+      // The state in the address is a one-time value handed out to a signed-in Management or
+      // ERP admin session a few minutes earlier, so nobody can arrive here and connect a mailbox
+      // of their own. Answered with a page rather than JSON: it is a browser landing on it.
+      if (req.method === 'GET' && url.pathname === '/oauth/gmail') {
+        let title;
+        let said;
+        let good = false;
+        try {
+          const done = gmail.finish(Object.fromEntries(url.searchParams));
+          const named = Object.create(db);
+          named.actor = done.by || 'gmail';
+          await named.audit('Update', 'Email', '', 'gmail', '', done.sender,
+            'Gmail connected for quotation emails (Settings \u2192 Email)');
+          title = 'Gmail is connected';
+          said = 'Quotation emails will now go out from <b>' + escapeHtml(done.sender) + '</b>, ' +
+            'and a copy of each will be in that account\u2019s Sent folder.';
+          good = true;
+        } catch (err) {
+          title = 'Gmail was not connected';
+          said = escapeHtml(err && err.message ? err.message : String(err));
+        }
+        return send(res, 200, 'text/html; charset=utf-8', '<!doctype html><html><head>' +
+          '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+          '<title>' + escapeHtml(title) + '</title><style>' +
+          'body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f4f6f9;' +
+          'color:#1b2430;display:flex;min-height:100vh;align-items:center;justify-content:center;' +
+          'margin:0;padding:16px}.card{background:#fff;border:1px solid #dfe4ec;border-radius:14px;' +
+          'padding:28px 30px;max-width:460px;box-shadow:0 8px 24px rgba(16,24,40,.08)}' +
+          'h1{font-size:20px;margin:0 0 10px;color:' + (good ? '#0f7a3d' : '#b42318') + '}' +
+          'p{line-height:1.5;margin:0 0 18px}a{display:inline-block;background:#1b2b4b;color:#fff;' +
+          'text-decoration:none;padding:10px 16px;border-radius:9px;font-weight:600}</style></head>' +
+          '<body><div class="card"><h1>' + escapeHtml(title) + '</h1><p>' + said + '</p>' +
+          '<a href="/settings">Back to Settings</a></div></body></html>');
+      }
+
       if (req.method === 'POST' && url.pathname === '/api/google-link') {
         const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties,
           propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp,
@@ -631,6 +738,8 @@ function statusFor(message) {
   server.ready = ready;
   server.settings = durable;
   server.smtpReady = smtpReady;
+  server.gmail = gmail;
+  server.mail = mail;
   return server;
 }
 
@@ -719,8 +828,11 @@ if (require.main === module) {
     if (dropped) console.log('  user:     ' + dropped);
     console.log('  files:    ' + server.files.dir +
       ' (' + server.files.stat().files + ' held)');
-    console.log('  e-mail:   ' + (server.smtpReady ? 'configured' :
-      'not configured — set SMTP_URL, SMTP_USER, SMTP_PASSWORD to send quotations'));
+    // After the settings are read: the Gmail connection lives in them.
+    server.ready.then(() => console.log('  e-mail:   ' + (server.gmail.status().connected
+      ? 'Gmail, as ' + server.gmail.status().sender
+      : server.smtpReady ? 'SMTP mailbox'
+        : 'not connected — Settings \u2192 Email \u2192 Connect Gmail to send quotations')));
     console.log('  look:     ' + (server.ui === 'classic'
       ? 'classic (ERP_UI=classic) — the Apps Script design' : 'the new design'));
     console.log('  database: ' +

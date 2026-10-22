@@ -144,19 +144,35 @@ function settings(env) {
   };
 }
 
-/** @return a MailApp with the methods QuotationEmail.gs calls. */
+/**
+ * @return a MailApp with the methods QuotationEmail.gs calls.
+ *
+ * Two ways out, tried in this order: PIE's Gmail through Google's API when it has been connected
+ * in Settings → Email (server/gmail.js — the only one that works on Railway's Hobby plan, which
+ * blocks SMTP), then an SMTP mailbox from the environment.
+ */
 function mailer(options) {
   const o = options || {};
   const cfg = o.settings || settings(o.env);
   // A test passes this to capture the message instead of sending it.
   const deliver = o.deliver || curlSend;
+  const gmail = o.gmail || null;
 
   return {
     sendEmail: (m) => {
+      const viaGmail = gmail && gmail.status().connected;
+      if (viaGmail) {
+        // From is the connected account whatever else is set: Gmail sends as the account that
+        // gave the permission, and a different address in the header would be rewritten.
+        const sender = gmail.status().sender;
+        gmail.send(buildMessage(Object.assign({}, m, { from: sender })));
+        return true;
+      }
       if (!cfg.url || !cfg.user || !cfg.password) {
-        throw new Error('This server cannot send e-mail yet: no mailbox is configured. ' +
-          'Set SMTP_URL, SMTP_USER and SMTP_PASSWORD on the server, then try again. ' +
-          'The quotation itself is saved — only sending it is unavailable.');
+        throw new Error('This server cannot send e-mail yet: no mailbox is connected. ' +
+          'In Settings \u2192 Email, press Connect Gmail and sign in to the office Gmail ' +
+          'account, then try again. The quotation itself is saved \u2014 only sending it is ' +
+          'unavailable.');
       }
       const message = buildMessage(Object.assign({ from: cfg.from }, m));
       deliver(cfg, {

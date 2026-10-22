@@ -9692,7 +9692,9 @@
   // ================= SETTINGS =================
   // "tallyconn", not "tally" — the Dispatch screen already owns a subtab-tally element.
   var SET_SUBTABS = ["users", "lists", "reasons", "locations", "company", "quotetext",
-                     "tallyconn", "dataimport", "system", "speed"];
+                     "tallyconn", "email", "dataimport", "system", "speed"];
+  // On Apps Script there is nothing to connect: MailApp sends as the script's owner.
+  if (ON_APPS_SCRIPT && $("subtab-email")) $("subtab-email").style.display = "none";
   var setMode = "users";
   var setData = null;
 
@@ -9785,9 +9787,155 @@
     else if (setMode === "company") renderCompanyPanel();
     else if (setMode === "quotetext") renderQuoteTextPanel();
     else if (setMode === "tallyconn") renderTallyPanel();
+    else if (setMode === "email") renderEmailPanel();
     else if (setMode === "dataimport") renderImportPanel();
     else if (setMode === "speed") renderSpeedPanel();
     else renderSystemPanel();
+  }
+
+  // ---- Email: the office Gmail that quotations go out from (server only) ----
+
+  /** One request to /api/email. Resolves with what it answered, rejects with its words. */
+  function emailApi(action) {
+    return fetch("/api/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: sessionToken, action: action })
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (b) {
+        if (!res.ok) throw new Error((b && b.error) || ("The server answered " + res.status + "."));
+        return b.ok;
+      });
+    });
+  }
+
+  function renderEmailPanel() {
+    $("set-panel").innerHTML = panelCard("Email",
+      "Where quotation emails are sent from.", "", '<div class="hint">Checking\u2026</div>');
+    emailApi("status").then(drawEmailPanel).catch(function (err) {
+      $("set-panel").innerHTML = panelCard("Email", "Where quotation emails are sent from.", "",
+        '<div class="msg msg-error show" style="position:static;"><span class="msg-text">' +
+        escapeHtml(err.message) + "</span></div>");
+    });
+  }
+
+  function drawEmailPanel(st) {
+    var connected = !!st.connected;
+    var tile = function (label, value, tone) {
+      return '<div class="kpi-card"><div class="kpi-label">' + escapeHtml(label) + "</div>" +
+        '<div style="font-size:14px; font-weight:600; margin-top:4px; color:' +
+        (tone || "var(--navy)") + ';">' + value + "</div></div>";
+    };
+    var steps =
+      '<div class="card-title" style="margin-top:4px;">Before the first connection \u2014 once, ' +
+        "in Google Cloud Console</div>" +
+      '<ol style="margin:0 0 14px 18px; padding:0; font-size:13px; line-height:1.7;">' +
+        "<li>Open the project that holds the Google sign-in (APIs &amp; Services). " +
+          "<b>Library</b> \u2192 search <b>Gmail API</b> \u2192 <b>Enable</b>.</li>" +
+        "<li><b>Credentials</b> \u2192 your OAuth client \u2192 <b>Authorised redirect URIs</b> " +
+          "\u2192 add the address below, exactly, and save.</li>" +
+        "<li><b>OAuth consent screen</b> \u2192 Publishing status: <b>In production</b>. " +
+          "Left on Testing, Google ends the connection every 7 days.</li>" +
+      "</ol>" +
+      '<div class="field" style="max-width:640px;">' +
+        "<label>Redirect address to add in Google</label>" +
+        '<div style="display:flex; gap:8px;">' +
+          '<input class="mono" id="em-redirect" readonly value="' +
+            escapeHtml(st.redirectUri || "") + '" style="flex:1; min-width:0;" />' +
+          '<button class="btn btn-sm" id="btn-em-copy" type="button">Copy</button>' +
+        "</div></div>";
+
+    var body =
+      '<div class="grid grid-3" style="margin-bottom:16px;">' +
+        tile("Sending from", connected ? escapeHtml(st.sender)
+          : (st.using === "smtp" ? "SMTP mailbox (server setting)" : "Not connected"),
+          connected || st.using === "smtp" ? "var(--green)" : "var(--red)") +
+        tile("How", connected ? "Gmail, through Google\u2019s API"
+          : (st.using === "smtp" ? "SMTP" : "\u2014")) +
+        tile("Connected", connected ? escapeHtml(nameForEmail(st.connectedBy) || "\u2014") +
+          (st.connectedAt ? '<div style="font-weight:400; font-size:12px; color:var(--steel);">' +
+            escapeHtml(String(st.connectedAt).slice(0, 10)) + "</div>" : "") : "\u2014") +
+      "</div>";
+
+    if (connected) {
+      body +=
+        '<div class="compare-strip" style="margin-bottom:14px;">' +
+          "Quotations go out from this account and a copy of each is in its <b>Sent</b> folder. " +
+          "Customers\u2019 replies go to the email address in <b>Letterhead</b>. The portal can " +
+          "only send from it \u2014 it cannot read, search or delete anything in the mailbox." +
+        "</div>" +
+        '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+          '<button class="btn btn-primary btn-sm" id="btn-em-test" type="button">' +
+            "Send a Test Email</button>" +
+          '<button class="btn btn-sm" id="btn-em-disconnect" type="button">Disconnect</button>' +
+        "</div>";
+    } else {
+      body +=
+        '<div class="compare-strip" style="margin-bottom:14px;">' +
+          "The server sends quotations through the office Gmail account " +
+          "(admin.premierindia@gmail.com) over Google\u2019s own connection \u2014 the one " +
+          "Railway\u2019s plan does not block. Somebody who can sign in to that account presses " +
+          "<b>Connect Gmail</b> once and allows it. Its password is never seen here." +
+        "</div>" +
+        (st.clientConfigured ? "" :
+          '<div class="msg msg-error show" style="position:static; margin-bottom:14px;">' +
+          '<span class="msg-text">Enter the Google client id and secret first, in ' +
+          "<b>System \u2192 Sign-in Restriction</b>. The Gmail connection uses the same Google " +
+          "project; the requirement itself can stay off.</span></div>") +
+        steps +
+        '<button class="btn btn-primary" id="btn-em-connect" type="button" style="margin-top:6px;"' +
+          (st.clientConfigured ? "" : " disabled") + ">Connect Gmail</button>";
+    }
+
+    $("set-panel").innerHTML = panelCard("Email", "Where quotation emails are sent from.", "", body);
+
+    if ($("btn-em-copy")) {
+      $("btn-em-copy").addEventListener("click", function () {
+        var box = $("em-redirect");
+        box.select();
+        try {
+          if (navigator.clipboard) navigator.clipboard.writeText(box.value);
+          else document.execCommand("copy");
+          showMsg("Copied. Paste it into Authorised redirect URIs in Google.", "success");
+        } catch (e) { /* the text is selected; Ctrl+C still works */ }
+      });
+    }
+    if ($("btn-em-connect")) {
+      $("btn-em-connect").addEventListener("click", function () {
+        var done = busyButton("btn-em-connect", "Opening Google\u2026");
+        emailApi("connect").then(function (r) {
+          // Same tab: Google sends the browser back to a page that leads here again.
+          window.location.href = r.url;
+        }).catch(function (err) { done(); showMsg(err.message, "error"); });
+      });
+    }
+    if ($("btn-em-test")) {
+      $("btn-em-test").addEventListener("click", function () {
+        var done = busyButton("btn-em-test", "Sending\u2026");
+        emailApi("test").then(function (r) {
+          done();
+          showMsg("Test email sent to " + r.sentTo + ". Check that inbox \u2014 it should " +
+            "arrive within a minute.", "success");
+        }).catch(function (err) { done(); showMsg(err.message, "error"); });
+      });
+    }
+    if ($("btn-em-disconnect")) {
+      $("btn-em-disconnect").addEventListener("click", function () {
+        askDialog({
+          title: "Disconnect Gmail?",
+          message: "Quotations cannot be emailed from the portal until it is connected again. " +
+            "The permission is withdrawn at Google as well.",
+          okLabel: "Disconnect",
+          danger: true
+        }, function (ok) {
+          if (ok === null) return;
+          emailApi("disconnect").then(function (st2) {
+            drawEmailPanel(st2);
+            showMsg("Gmail disconnected.", "success");
+          }).catch(function (err) { showMsg(err.message, "error"); });
+        });
+      });
+    }
   }
 
   function panelCard(title, blurb, actionHtml, bodyHtml) {

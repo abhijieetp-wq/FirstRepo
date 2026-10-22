@@ -435,3 +435,24 @@ function authorizeDataExport() {
     'Downloaded a copy of all data (Settings → System → Download All Data)');
   return { email: user.email, name: user.name || user.email };
 }
+
+/**
+ * The door in front of Settings → Email, and the audit row for a disconnection.
+ *
+ * The Gmail connection itself is the server's (server/gmail.js): it holds a permission to send
+ * as the office account, which no screen should ever be able to read back. This only decides
+ * who may look at it and change it — Management and the ERP admin, the same as the rest of
+ * Settings. Connecting is audited by the server when Google confirms it, since that is the
+ * moment it is true.
+ *
+ * Apps Script has no such screen: MailApp sends as the script's owner and needs no connecting.
+ */
+function authorizeEmailSettings(action) {
+  var user = getCurrentUser();
+  requireRole_(user, SETTINGS_ROLES);
+  if (String(action) === 'disconnect') {
+    audit_('Update', 'Email', '', 'gmail', 'connected', '',
+      'Gmail disconnected (Settings → Email)');
+  }
+  return { email: user.email, name: user.name || user.email };
+}
