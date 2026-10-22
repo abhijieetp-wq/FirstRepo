@@ -86,8 +86,12 @@ It uses the same Google Cloud project and OAuth client as the Google sign-in. On
 [console.cloud.google.com](https://console.cloud.google.com), in that project:
 
 1. **APIs & Services → Library** → search **Gmail API** → **Enable**.
-2. **APIs & Services → OAuth consent screen** (Google Auth Platform → Audience on the newer
-   console) → Publishing status → **Publish app / In production**. Left on *Testing*, Google ends
+2. **Google Auth Platform → Branding**: Google will not publish until these are filled in —
+   Application home page `https://pie.erp.imcglobal.in`, Application privacy policy link
+   `https://pie.erp.imcglobal.in/privacy` (the portal serves it), and under **Authorised
+   domains** add `imcglobal.in`. Save. Do not upload a logo: that sends the app to Google's
+   review. Then **APIs & Services → OAuth consent screen** (Google Auth Platform → Audience on
+   the newer console) → Publishing status → **Publish app / In production**. Left on *Testing*, Google ends
    the connection every 7 days. Google may show "unverified app" on the sign-in screen; that is
    expected for an app only PIE uses — click **Advanced → Go to … (unsafe)** once.
 3. **APIs & Services → Credentials** → your OAuth 2.0 Client → **Authorised redirect URIs** → add

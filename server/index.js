@@ -659,6 +659,60 @@ function statusFor(message) {
         }
       }
 
+      // ---- the privacy notice Google's consent screen links to
+      //
+      // Google will not publish the app behind Google sign-in and Connect Gmail without a
+      // privacy policy address on its Branding page. This is that page: what the portal takes
+      // from Google, what it does with it, and how to withdraw it. Public, like the sign-in page.
+      if (req.method === 'GET' && (url.pathname === '/privacy' || url.pathname === '/privacy/')) {
+        let appName = 'This ERP';
+        try {
+          const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties,
+            propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp,
+            mail, fetch: http_ });
+          const row = await db.findRowById('CompanyProfile', portal.COMPANY_ROW_ID);
+          if (row && row.appName) appName = String(row.appName);
+        } catch (err) { /* the generic name will do */ }
+        const name = escapeHtml(appName);
+        return send(res, 200, 'text/html; charset=utf-8', '<!doctype html><html lang="en"><head>' +
+          '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+          '<title>Privacy \u00b7 ' + name + '</title><style>' +
+          'body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f4f6f9;' +
+          'color:#1b2430;margin:0;padding:24px 16px;line-height:1.6}' +
+          'main{background:#fff;border:1px solid #dfe4ec;border-radius:14px;max-width:760px;' +
+          'margin:0 auto;padding:28px 30px}h1{font-size:24px;margin:0 0 4px}' +
+          'h2{font-size:17px;margin:26px 0 6px}p,li{font-size:15px}.muted{color:#5b6676;font-size:13px}' +
+          '</style></head><body><main>' +
+          '<h1>Privacy notice</h1>' +
+          '<p class="muted">' + name + ' \u2014 the sales and service system of Premier India ' +
+          'Enterprise, operated for them by IMC Global. Last updated 22 October 2026.</p>' +
+          '<h2>Who uses it</h2><p>Only Premier India Enterprise\u2019s own staff, each with an ' +
+          'account created by their administrator. It is not a public service and nobody can ' +
+          'sign up to it.</p>' +
+          '<h2>What it receives from Google, and why</h2><ul>' +
+          '<li><b>Google sign-in</b> (when the business has switched it on): the email address of ' +
+          'the Google account you sign in with, used only to check that it is on the business\u2019s ' +
+          'list of allowed accounts.</li>' +
+          '<li><b>Gmail, send only</b>: when an administrator connects the office Gmail account, ' +
+          'the system is allowed to send email from it \u2014 the quotations staff send to ' +
+          'customers, each with its PDF. It cannot read, search, change or delete anything in ' +
+          'the mailbox. It keeps the permission Google issues, and the account\u2019s address, ' +
+          'so that it can send; it never sees or stores the account\u2019s password.</li></ul>' +
+          '<h2>What it does not do</h2><p>It does not sell, share or rent any information, ' +
+          'show advertising, or use Google data for anything other than the two purposes ' +
+          'above. Use and transfer of information received from Google APIs adheres to the ' +
+          'Google API Services User Data Policy, including the Limited Use requirements.</p>' +
+          '<h2>Where it is kept</h2><p>On the servers that run this system for Premier India ' +
+          'Enterprise, with the business\u2019s own records. Connections are encrypted.</p>' +
+          '<h2>Withdrawing access</h2><p>An administrator can press <b>Disconnect</b> under ' +
+          'Settings \u2192 Email, which also withdraws the permission at Google. Anyone can ' +
+          'remove it themselves at any time under myaccount.google.com \u2192 Security \u2192 ' +
+          'Third-party connections.</p>' +
+          '<h2>Contact</h2><p>Questions about this notice or about your data: ' +
+          '<a href="mailto:engage@imcglobal.in">engage@imcglobal.in</a>.</p>' +
+          '</main></body></html>');
+      }
+
       // ---- where Google sends the browser back to after Connect Gmail
       //
       // The state in the address is a one-time value handed out to a signed-in Management or

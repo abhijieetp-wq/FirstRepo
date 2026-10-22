@@ -97,8 +97,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     return { status: r.status, ok: b.ok, error: b.error };
   };
 
+  // ------------------------------------------------------------- the privacy page Google links to
+  console.log('THE PRIVACY NOTICE GOOGLE\u2019S CONSENT SCREEN LINKS TO');
+  const priv = await fetch(server.base + '/privacy');
+  const privText = await priv.text();
+  ok('is public', priv.status === 200 && /text\/html/.test(priv.headers.get('content-type') || ''), priv.status);
+  ok('names the company, what is taken from Google, and how to withdraw it',
+    /Premier India Enterprise/.test(privText) && /send only/i.test(privText) &&
+    /Limited Use/.test(privText) && /Disconnect/.test(privText) && /engage@imcglobal\.in/.test(privText));
+
   // ------------------------------------------------------------- the door
-  console.log('ONLY MANAGEMENT AND THE ERP ADMIN MAY TOUCH IT');
+  console.log('\nONLY MANAGEMENT AND THE ERP ADMIN MAY TOUCH IT');
   ok('no session, nothing', (await email('status', null)).status === 401);
   const coord = await email('connect', await tokenFor('priya'));
   ok('a sales coordinator is refused, in words', coord.status === 403 && !!coord.error, coord);
