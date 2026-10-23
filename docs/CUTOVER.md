@@ -176,9 +176,10 @@ parts keep their own descriptions. Anything typed into a part's *Specification t
 website before the switch is in the old database only, and needs typing again or adding to
 this file.
 
-Quotation text written for one series — the EG's scope of supply ships as standard — is
-installed on the first load after the switch, because step 5b leaves the build stamp behind.
-Settings → Quotation Text should list two *Scope of supply* rows, one marked *EG series*.
+Standard quotation text the Sheet never had — the EG's scope of supply, and the wording of
+PIE's compressor price schedule — is installed on the first load after the switch, because
+step 5b leaves the build stamp behind. Settings → Quotation Text should list two *Scope of
+supply* rows, one marked *EG series*, and a *Wording on the document* row for Compressor Sales.
 Wording edited on the website before the switch (not in the Sheet) has to be edited again.
 
 ### 7. Hand over

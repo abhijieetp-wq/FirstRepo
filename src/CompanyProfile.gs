@@ -814,6 +814,32 @@ function defaultQuoteTemplates_() {
         'taxRow = Total Tax {rate}%\n' +
         'termsHeading = Terms & Conditions — Annexure B'
     },
+    // Their compressor price schedule, word for word off the EG 26 offer to Sultania Oil
+    // Industries — PIE asked for the website's to read exactly like it. A row of its own so it
+    // installs on a system already set up (the general row below is there already, and an
+    // installed row is never rewritten), and so the spares offer keeps its own words.
+    {
+      id: 'QTPL-COMP-LABELS', section: 'Labels', brand: 'ELGI',
+      businessStream: STREAM_COMPRESSOR, appliesTo: '',
+      title: 'Wording used on a compressor offer', sortOrder: 8, active: 'TRUE',
+      body: 'itemPrefix = ELGi make\n' +
+        'compressorWord = Compressor\n' +
+        'colDescription = Description\n' +
+        'colBasicPrice = Basic price\n' +
+        'colQty = Qty\n' +
+        'colUnit = UNIT\n' +
+        'colHsn = HSN Code\n' +
+        'colTaxRate = Tax Rate\n' +
+        'packageTotal = Total Package Price\n' +
+        'discountedTotal = Discounted Price\n' +
+        'discountNote = ({pct}% Less)\n' +
+        'pf = P&F @\n' +
+        'pfNil = 0.00\n' +
+        'freight = Freight\n' +
+        'freightNote = Extra from Ex-works Coimbatore\n' +
+        'taxRow = {rate}% GST\n' +
+        'taxExtra = EXTRA'
+    },
     {
       id: 'QTPL-LABELS', section: 'Labels', brand: 'ELGI',
       businessStream: '', appliesTo: '', title: 'Wording used on the document',

@@ -141,8 +141,10 @@ const SPEC_CSV = '﻿' + [
       await db.q('UPDATE quotations SET business_stream = $3 WHERE tenant_id = $1 AND id = $2',
         [TENANT, q.id, stream]);
     }
+    lastQuoteId = q.id;
     return p.buildQuotationHtml(q.id);
   };
+  let lastQuoteId = null;
 
   console.log('\nAN EG OFFER WITH ITS ACCESSORIES');
   let html = await offer([['Product', 'PR-EG'], ['Spare', 'SP-RCV'], ['Spare', 'SP-DRY'],
@@ -208,6 +210,81 @@ const SPEC_CSV = '﻿' + [
   ok('prints no specification table', html.indexOf('TX Air Dryer 300') === -1);
   ok('and no compressor scope of supply', html.indexOf('Neuron IV controller') === -1 &&
     html.indexOf('Neuron XT controller') === -1);
+
+  console.log('\nTHE COMPRESSOR PRICE SCHEDULE READS LIKE PIE’S OWN');
+  const price = (id, itemType, itemId, amount) => db.appendRow('PriceList', { id, itemType, itemId,
+    priceLevel: 'ELGI', price: amount, effectiveFrom: '2026-01-01', active: 'TRUE', currency: 'INR' });
+  await price('PRC-EG', 'Product', 'PR-EG', 1508000);
+  await price('PRC-RCV', 'Spare', 'SP-RCV', 128100);
+  await price('PRC-DRY', 'Spare', 'SP-DRY', 332000);
+  await price('PRC-FLT', 'Spare', 'SP-FLT', 27800);
+  await price('PRC-HOSE', 'Spare', 'SP-HOSE', 500);
+  const schedule = (doc) => {
+    const at = doc.indexOf('<table class="price pie">');
+    return at === -1 ? '' : doc.slice(at, doc.indexOf('</table>', at));
+  };
+  const cells = (row) => (row.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/g) || [])
+    .map((c) => c.replace(/<[^>]+>/g, '').replace(/\u00A0/g, ' ').trim());
+  const rows = (tbl) => (tbl.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || []);
+  const rowWith = (tbl, text) => rows(tbl).find((r) => cells(r)[0] === text);
+  await offer([['Product', 'PR-EG'], ['Spare', 'SP-RCV'], ['Spare', 'SP-DRY'], ['Spare', 'SP-FLT'],
+    ['Spare', 'SP-HOSE']]);
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 40, pfAmount: 0, taxMode: 'Extra' });
+  html = await p.buildQuotationHtml(lastQuoteId);
+  let tbl = schedule(html);
+  ok('it is PIE’s grid', tbl !== '', html.indexOf('table class="price'));
+  ok('columns in their order: Description, Basic price, Qty, UNIT, HSN Code, Tax Rate',
+    JSON.stringify(cells(rows(tbl)[0])) ===
+    JSON.stringify(['Description', 'Basic price', 'Qty', 'UNIT', 'HSN Code', 'Tax Rate']), cells(rows(tbl)[0]));
+  ok('the machine is "ELGi make Compressor" and its model, not the catalogue sentence',
+    JSON.stringify(cells(rowWith(tbl, 'ELGi make Compressor EG 26-7.5 DM') || '')) ===
+    JSON.stringify(['ELGi make Compressor EG 26-7.5 DM', '₹ 15,08,000.00', '1', 'Nos', '84148011', '18.00%']),
+    cells(rows(tbl)[1]));
+  ok('an accessory is named by its table’s heading',
+    !!rowWith(tbl, 'ELGi make Air Receiver 900L') && !!rowWith(tbl, 'ELGi make TX Air Dryer 300') &&
+    !!rowWith(tbl, 'ELGi make TX Pre Filter 0150'), rows(tbl).map((r) => cells(r)[0]));
+  ok('a part without one by its description', !!rowWith(tbl, 'ELGi make Drain hose 1/2&quot;'),
+    rows(tbl).map((r) => cells(r)[0]));
+  ok('Total Package Price, at list', JSON.stringify(cells(rowWith(tbl, 'Total Package Price') || '')) ===
+    JSON.stringify(['Total Package Price', '₹ 19,96,400.00']), cells(rowWith(tbl, 'Total Package Price') || ''));
+  const disc = rowWith(tbl, 'Discounted Price (40% Less)') || '';
+  ok('Discounted Price (40% Less), highlighted', /class="hl"/.test(disc) &&
+    cells(disc)[1] === '₹ 11,97,840.00', disc);
+  ok('the amounts span the columns after Basic price, as on theirs',
+    /colspan="2"[^>]*>Total Package Price/.test(tbl) && /colspan="4">₹\u00A019,96,400\.00/.test(tbl.replace(/ class="num tot-val"/g, '')), tbl.slice(-900));
+  ok('P&F @ 0.00', JSON.stringify(cells(rowWith(tbl, 'P&amp;F @') || '')) === JSON.stringify(['P&amp;F @', '0.00']),
+    rows(tbl).map((r) => cells(r)[0]));
+  ok('Freight — Extra from Ex-works Coimbatore', (cells(rowWith(tbl, 'Freight') || '')[1]) ===
+    'Extra from Ex-works Coimbatore');
+  ok('18% GST — EXTRA', (cells(rowWith(tbl, '18% GST') || '')[1]) === 'EXTRA');
+  ok('and no total after it, as on theirs', !/Total amount/i.test(tbl) && rows(tbl).length === 11,
+    rows(tbl).map((r) => cells(r)[0]));
+
+  console.log('\nWITH GST INCLUDED, THE FIGURES COME BACK');
+  await p.saveQuotationHeader({ id: lastQuoteId, taxMode: 'Included', pfAmount: 2500 });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('no EXTRA', tbl.indexOf('EXTRA') === -1);
+  ok('the total to raise a purchase order against', !!rowWith(tbl, 'Total amount'), rows(tbl).map((r) => cells(r)[0]));
+  ok('and P&F as an amount when there is one', (cells(rowWith(tbl, 'P&amp;F @') || '')[1]) === '₹ 2,500.00');
+
+  console.log('\nTHE DISCOUNT ROW SAYS ONLY WHAT IS TRUE');
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 0, taxMode: 'Extra' });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('no discount, no discounted row', !/Discounted Price/.test(tbl));
+  const line = (await p.getQuotation(lastQuoteId)).items.find((i) => i.itemId === 'SP-HOSE');
+  await p.saveQuotationItem({ id: line.id, quotationId: lastQuoteId, lineNo: line.lineNo, itemType: 'Spare',
+    itemId: 'SP-HOSE', qty: 1, unitPrice: 500, discountPct: 10 });
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 40 });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('a line discount as well: the row, without a percentage that would not add up',
+    !!rowWith(tbl, 'Discounted Price') && !/% Less/.test(tbl), rows(tbl).map((r) => cells(r)[0]));
+
+  console.log('\nA SPARES OFFER KEEPS ITS OWN SCHEDULE');
+  html = await offer([['Spare', 'SP-DRY']], 'Spare Sales');
+  ok('not PIE’s compressor grid', html.indexOf('class="price pie"') === -1 && html.indexOf('class="price"') !== -1);
+  const spareTbl = html.slice(html.indexOf('<table class="price">'));
+  ok('no "ELGi make" names', spareTbl.slice(0, spareTbl.indexOf('</table>')).indexOf('ELGi make') === -1);
+  ok('and still its total amount', /Total amount/i.test(html));
 
   console.log('\nTHE SERIES SURVIVES AN EDIT OF THE TEXT');
   const tpl = (await p.listQuoteTemplates({ includeInactive: true })).find((t) => t.id === 'QTPL-COMP-SCOPE-EG');

@@ -181,6 +181,101 @@ function accessorySpecTable_(spare, item, L) {
   return html + '</table></div>';
 }
 
+/**
+ * What a line is called on a compressor offer's price schedule — PIE's wording: "ELGi make
+ * Compressor EG 26-7.5 DM", "ELGi make Air Dryer AR 0310NS A2".
+ *
+ * Built from the catalogue rather than the line's stored description, which for a machine is
+ * the full catalogue sentence ("lubricated screw air compressor, 22 kW (30 hp), 7.5 bar,
+ * 400V/50Hz, direct drive" — the specification table says all that) and for a part is ELGi's
+ * terse price-list code. An accessory with a specification table is named by its heading, so
+ * the table and the price line agree; any other part falls back to its description. A charge
+ * — installation, carting — is printed as written.
+ */
+function scheduleName_(item, products, spareSpecs, L) {
+  if (item.lineType === 'Charge') return String(item.description || item.itemCode || '');
+  var name = '';
+  if (item.itemType === 'Product') {
+    var p = products[String(item.itemId)];
+    var model = p ? String(p.model || p.productCode || '').trim() : '';
+    if (model) name = L('compressorWord', 'Compressor') + ' ' + model;
+  } else if (item.itemType === 'Spare') {
+    var sp = spareSpecs[String(item.itemId)];
+    name = sp ? String(sp.specTitle || '').trim() : '';
+  }
+  if (!name) name = String(item.description || item.itemCode || '').trim();
+  return L('itemPrefix', 'ELGi make') + ' ' + name;
+}
+
+/**
+ * The totals under a compressor offer's price schedule, the way PIE's own offers set them:
+ *
+ *   Total Package Price            ₹20,23,700.00
+ *   Discounted Price (40% Less)    ₹12,14,220.00   ← highlighted
+ *   P&F @                          0.00
+ *   Freight                        Extra from Ex-works Coimbatore
+ *   18% GST                        EXTRA
+ *
+ * GST quoted as extra prints as the word, with no total after it, as theirs does. An offer
+ * set to "GST included" prints the tax and the total instead, for the customer who needs the
+ * figure on the page.
+ */
+function compressorTotals_(q, co, address, items, gross, netGoods, L) {
+  var rows = [[esc_(L('packageTotal', 'Total Package Price')), inr_(gross), '']];
+  if (gross - netGoods > 0.005) {
+    // "(40% Less)" only when that is the whole story. With line discounts as well, the
+    // percentage would not take the package total to the discounted one.
+    var pkgPct = Number(q.packageDiscountPct) || 0;
+    var lineDiscounts = items.some(function (i) { return (Number(i.discountPct) || 0) > 0; });
+    var note = pkgPct > 0 && !lineDiscounts
+      ? ' ' + L('discountNote', '({pct}% Less)').replace('{pct}', String(pkgPct)) : '';
+    rows.push([esc_(L('discountedTotal', 'Discounted Price') + note), inr_(netGoods), 'hl']);
+  }
+  var pf = Number(q.pfAmount) || 0;
+  rows.push([esc_(L('pf', 'P&F @')), pf > 0 ? inr_(pf) : esc_(L('pfNil', '0.00')), '']);
+  // Freight terms, not the delivery time: standing wording, the same on every offer.
+  rows.push([esc_(L('freight', 'Freight')),
+             esc_(L('freightNote', 'Extra from Ex-works Coimbatore')), '']);
+
+  if (String(q.taxMode || 'Extra') === 'Extra') {
+    var rate = Number(headlineTaxRate_(items)) || 0;
+    rows.push([esc_(L('taxRow', '{rate}% GST').replace('{rate}', String(rate))),
+               esc_(L('taxExtra', 'EXTRA')), '']);
+    return rows;
+  }
+  gstRows_(q, co, address, items).forEach(function (r) { rows.push(r); });
+  rows.push([esc_(L('grandTotal', 'Total amount')), inr_(payableTotal_(q)), 'strong']);
+  return rows;
+}
+
+/**
+ * The totals under a spares offer's parts list: full price, the package discount if any,
+ * P&F only when charged, the GST split for the customer's accounts, and what they will pay.
+ */
+function spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L) {
+  var rows = [];
+  rows.push([esc_(L('packageTotal', 'Total package price')), inr_(gross), pkgPct > 0 ? '' : 'strong']);
+  if (pkgPct > 0) {
+    rows.push([esc_(L('discountedTotal', 'Total discounted price')) +
+      ' (' + pkgPct + '% less)', inr_(netGoods), 'strong']);
+  }
+  // Their spares offer has no P&F row unless there is a charge, and no freight row at all:
+  // carting is a line and term 2 covers the rest.
+  if (Number(q.pfAmount) > 0) {
+    rows.push([esc_(L('pf', 'P&F')), inr_(q.pfAmount), '']);
+  }
+  // GST split the way a tax document has to split it: CGST and SGST between two places in the
+  // same state, IGST across a border. One "Total Tax 18%" line said the right amount and the
+  // wrong thing — the customer's accounts cannot post it, and their purchase order is raised
+  // off this page.
+  gstRows_(q, co, address, items).forEach(function (r) { rows.push(r); });
+  // What the customer will actually pay. This printed q.grand, which excludes the tax when
+  // the offer quotes GST as extra — so the page listed the tax and then a total that ignored
+  // it, and the figure a purchase order would be raised against was short by the GST.
+  rows.push([esc_(L('grandTotal', 'Total amount')), inr_(payableTotal_(q)), 'strong']);
+  return rows;
+}
+
 function ddmmyyyy_(iso) {
   var p = String(iso || '').slice(0, 10).split('-');
   return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : String(iso || '');
@@ -587,27 +682,33 @@ function buildQuotationHtml(quotationId) {
   // goods rather than after the figures — partly for the same reason the HSN does, and partly
   // because the totals below merge into the last column and would land under "Delivery"
   // otherwise.
+  //
+  // The compressor offer is the exception, at PIE's request: it follows their own price
+  // schedule column for column — Description, Basic price, Qty, Unit, HSN code, Tax rate —
+  // because that is the page their customers and their ELGi counterparts are used to reading,
+  // and an offer from the website should not look like it came from somebody else.
   var perLine = anyLeadTime_(items);
-  var priceCols = isCompressor
-    ? [{ t: L('colDescription', 'Description'), c: 'w-desc' },
-       { t: L('colHsn', 'HSN code'), c: '' },
-       { t: L('colUnit', 'Unit'), c: '' }]
-    : [{ t: L('colPartNo', 'Part Number'), c: 'w-part' },
+  var priceCols;
+  if (isCompressor) {
+    priceCols = [{ t: L('colDescription', 'Description'), c: 'w-desc' }];
+    if (perLine) priceCols.push({ t: L('colDelivery', 'Delivery'), c: '' });
+    priceCols.push({ t: L('colBasicPrice', 'Basic price'), c: 'num' },
+                   { t: L('colQty', 'Qty'), c: 'num' },
+                   { t: L('colUnit', 'UNIT'), c: '' },
+                   { t: L('colHsn', 'HSN Code'), c: '' },
+                   { t: L('colTaxRate', 'Tax Rate'), c: 'num' });
+  } else {
+    priceCols = [{ t: L('colPartNo', 'Part Number'), c: 'w-part' },
        { t: L('colDescription', 'Description'), c: 'w-desc' },
        { t: L('colHsn', 'HSN code'), c: '' },
        { t: L('colUom', 'Unit of measurement'), c: '' }];
-  if (perLine) priceCols.push({ t: L('colDelivery', 'Delivery'), c: '' });
-  if (isCompressor) {
-    priceCols.push({ t: L('colBasicPrice', 'Basic price'), c: 'num' },
-                   { t: L('colQty', 'Qty'), c: 'num' },
-                   { t: L('colTaxRate', 'Tax rate'), c: 'num' });
-  } else {
+    if (perLine) priceCols.push({ t: L('colDelivery', 'Delivery'), c: '' });
     priceCols.push({ t: L('colPricePer', 'Price Per'), c: 'num' },
                    { t: L('colQuantity', 'Quantity'), c: 'num' },
                    { t: L('colTotalAmount', 'Total Amount'), c: 'num' });
   }
 
-  push('<table class="price"><thead><tr>' +
+  push('<table class="price' + (isCompressor ? ' pie' : '') + '"><thead><tr>' +
     priceCols.map(function (col) {
       return '<th' + (col.c ? ' class="' + col.c + '"' : '') + '>' + esc_(col.t) + '</th>';
     }).join('') +
@@ -627,12 +728,12 @@ function buildQuotationHtml(quotationId) {
     var hsn = isCharge ? '' : esc_(hsnFor_(i, products, spareHsn));
 
     push('<tr>' + (isCompressor
-      ? '<td>' + esc_(i.description || i.itemCode) + '</td>' +
-        '<td>' + (hsn || '—') + '</td>' +
-        '<td>' + esc_(i.uom || 'No') + '</td>' +
+      ? '<td>' + esc_(scheduleName_(i, products, spareSpecs, L)) + '</td>' +
         (perLine ? '<td>' + (isCharge ? '' : esc_(lineDeliveryText_(i, q))) + '</td>' : '') +
         '<td class="num">' + inr_(unit) + '</td>' +
         '<td class="num">' + esc_(qty) + '</td>' +
+        '<td>' + (isCharge ? '' : esc_(i.uom || 'No')) + '</td>' +
+        '<td>' + (hsn || '—') + '</td>' +
         '<td class="num">' + (isCharge ? '—' : esc_((Number(i.taxPct) || 0).toFixed(2)) + '%') + '</td>'
       // A charge has no part number and no extended rate — it is simply an amount.
       : '<td class="mono">' + (isCharge ? '' : esc_(i.itemCode) +
@@ -659,53 +760,29 @@ function buildQuotationHtml(quotationId) {
   // recalcQuotation_ stores line discounts and the package discount together, so the net of
   // both is what the customer pays for goods.
   var netGoods = gross - (Number(q.discountAmt) || 0);
-  var totals = [];
-  totals.push([esc_(L('packageTotal', 'Total package price')), inr_(gross), pkgPct > 0 ? '' : 'strong']);
-  if (pkgPct > 0) {
-    totals.push([esc_(L('discountedTotal', 'Total discounted price')) +
-      ' (' + pkgPct + '% less)', inr_(netGoods), 'strong']);
-  }
-  // Their compressor offer states P&F and freight even when nil, because those are negotiated
-  // on a machine. Their spares offer omits them entirely and folds carting into a line.
-  if (isCompressor || Number(q.pfAmount) > 0) {
-    totals.push([esc_(L('pf', 'P&F')), Number(q.pfAmount) > 0 ? inr_(q.pfAmount) : 'NIL', '']);
-  }
-  // Freight terms, not the delivery time. This printed q.deliveryTerms, so a compressor offer
-  // read "Freight: 4-6 weeks" where theirs reads "Extra from Ex-works Coimbatore" — a delivery
-  // promise standing in for a freight condition. The wording is standing text, so it lives
-  // with the rest of the document's wording rather than being typed per quotation. Their
-  // spares offer has no freight row at all: carting is a line and term 2 covers the rest.
+  var totals = isCompressor
+    ? compressorTotals_(q, co, address, items, gross, netGoods, L)
+    : spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L);
+
   if (isCompressor) {
-    totals.push([esc_(L('freight', 'Freight')),
-                 esc_(L('freightNote', 'Extra at actuals')), '']);
+    // Their grid: the label across Description and Basic price, the amount across the rest,
+    // and the discounted price picked out in yellow — the figure the customer looks for first.
+    var qtyAt = perLine ? 3 : 2;
+    totals.forEach(function (t) {
+      push('<tr class="' + t[2] + '"><td class="tot-label" colspan="' + qtyAt + '">' + t[0] +
+        '</td><td class="num tot-val" colspan="' + (priceCols.length - qtyAt) + '">' + t[1] + '</td></tr>');
+    });
+  } else {
+    // One table, not two. The items and the totals used to be separate tables, so the money
+    // did not line up under the money and the last row of one sat beside the first row of
+    // the other. The totals are rows of the same grid now: the label runs across every column
+    // but the last, and the amount lands under the amounts.
+    var labelSpan = priceCols.length - 1;
+    totals.forEach(function (t) {
+      push('<tr class="' + t[2] + '"><td class="tot-label" colspan="' + labelSpan + '">' +
+        t[0] + '</td><td class="num">' + t[1] + '</td></tr>');
+    });
   }
-
-  // GST split the way a tax document has to split it: CGST and SGST between two places in the
-  // same state, IGST across a border. One "Total Tax 18%" line said the right amount and the
-  // wrong thing — the customer's accounts cannot post it, and their purchase order is raised
-  // off this page.
-  //
-  // A compressor offer used to print "18% GST — EXTRA" with no figure at all, on the reasoning
-  // that a machine price is negotiated and the rate that applies is the one prevailing on the
-  // date of dispatch. PIE asked for the figures on both documents: a customer raising a
-  // purchase order needs the number, and term 1 already says GST is extra on the basic value
-  // if the rate moves before dispatch.
-  gstRows_(q, co, address, items).forEach(function (r) { totals.push(r); });
-  // What the customer will actually pay. This printed q.grand, which excludes the tax when
-  // the offer quotes GST as extra — so the page listed the tax and then a total that ignored
-  // it, and the figure a purchase order would be raised against was short by the GST. The
-  // stored figure is left alone; this is the arithmetic the page has to show.
-  totals.push([esc_(L('grandTotal', 'Total amount')), inr_(payableTotal_(q)), 'strong']);
-
-  // One table, not two, on both documents. The items and the totals used to be separate
-  // tables, so the money did not line up under the money and the last row of one sat beside
-  // the first row of the other. The totals are rows of the same grid now: the label runs
-  // across every column but the last, and the amount lands under the amounts.
-  var labelSpan = priceCols.length - 1;
-  totals.forEach(function (t) {
-    push('<tr class="' + t[2] + '"><td class="tot-label" colspan="' + labelSpan + '">' +
-      t[0] + '</td><td class="num">' + t[1] + '</td></tr>');
-  });
   push('</tbody></table>');
 
   // ---------------------------------------------------------------- terms
@@ -1057,6 +1134,15 @@ function quotationCss_(co) {
     // not need, and the amount lands under the amounts.
     'table.price td.tot-label{text-align:right;font-weight:bold;}' +
     'table.price tr.strong td{font-weight:bold;background:#f2f2f2;}' +
+    // The compressor schedule is PIE's own grid: plain heading row, darker rules, totals
+    // labelled from the left, and the discounted price highlighted.
+    'table.price.pie th{background:#fff;font-weight:normal;border-color:#555;}' +
+    'table.price.pie td{border-color:#555;}' +
+    'table.price.pie td.tot-label{text-align:left;font-weight:normal;}' +
+    // Their figures sit at the left of the cell on the lines, and the totals at the right.
+    'table.price.pie th.num,table.price.pie td.num{text-align:left;}' +
+    'table.price.pie td.tot-val{text-align:right;}' +
+    'table.price tr.hl td{background:#ffff00;}' +
     'table.machine{border-collapse:collapse;margin-bottom:8px;font-size:10pt;page-break-inside:avoid;}' +
     'table.machine td{border:1px solid #999;padding:4px 10px;}' +
     'table.machine td:first-child{font-weight:bold;background:#eee;}' +
