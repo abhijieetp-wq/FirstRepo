@@ -272,6 +272,16 @@ async function analyseImport_(itemType, csvText, opts) {
   var header = rows[0].map(function (h) { return String(h).trim(); });
   var missingRequired = spec.required.filter(function (r) { return header.indexOf(r) === -1; });
   if (missingRequired.length) {
+    // The usual cause is the right file on the wrong tab: Bulk Upload loads into whichever
+    // catalogue is open. Say so, rather than listing columns the file was never meant to have.
+    var otherType = itemType === 'Spare' ? 'Product' : 'Spare';
+    if (header.indexOf(IMPORT_SPECS[otherType].keyField) !== -1) {
+      throw new Error(otherType === 'Spare'
+        ? 'This is a spares file (it has a partNo column), and the Products (Compressors) tab ' +
+          'is open. Open the Spares tab in Catalog and press Bulk Upload there.'
+        : 'This is a compressor file (it has a productCode column), and the Spares tab is ' +
+          'open. Open the Products (Compressors) tab in Catalog and press Bulk Upload there.');
+    }
     throw new Error('The file is missing required column(s): ' + missingRequired.join(', ') +
       '. Use the template header shown above.');
   }

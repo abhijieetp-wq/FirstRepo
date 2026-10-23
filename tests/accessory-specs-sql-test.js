@@ -95,7 +95,19 @@ const SPEC_CSV = '﻿' + [
   p.CURRENT_USER_ = BOSS;
   await p.installMissingQuoteTemplates_('test');
 
-  console.log('THE SPECIFICATIONS LOAD FROM A FILE THAT CARRIES ONLY THEM');
+  console.log('THE RIGHT FILE ON THE WRONG TAB SAYS WHICH TAB');
+  let wrongTab = '';
+  try { await p.previewCatalogImport('Product', SPEC_CSV); } catch (e) { wrongTab = e.message; }
+  ok('a spares file on the compressor tab is told to use the Spares tab',
+    /spares file/.test(wrongTab) && /Open the Spares tab/.test(wrongTab), wrongTab);
+  wrongTab = '';
+  try {
+    await p.previewCatalogImport('Spare', 'productCode,model,description\nX-1,X 1,Test\n');
+  } catch (e) { wrongTab = e.message; }
+  ok('and the other way round', /compressor file/.test(wrongTab) &&
+    /Products \(Compressors\) tab/.test(wrongTab), wrongTab);
+
+  console.log('\nTHE SPECIFICATIONS LOAD FROM A FILE THAT CARRIES ONLY THEM');
   const pre = await p.previewCatalogImport('Spare', SPEC_CSV);
   ok('three parts updated, none created', pre.updateCount === 3 && pre.newCount === 0, pre);
   ok('the code not in the catalogue is skipped — a new part still needs a description',
