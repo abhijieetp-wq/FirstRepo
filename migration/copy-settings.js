@@ -30,6 +30,15 @@ const { DDL } = require(path.join(__dirname, '..', 'server', 'settings.js'));
 
 const SECRET = /SECRET|TOKEN|PASSWORD|CREDENTIAL|KEY$/i;
 
+/**
+ * Kept in the same table but not a setting: the stamp of the build that last installed the
+ * standard quotation text (CompanyProfile.gs, applyBuildUpdates_). The new database's
+ * quotation text comes from the Sheet, which never had the newer sections — the EG scope of
+ * supply among them. Copied, the stamp would tell the website they were already installed,
+ * and they never would be. Left behind, the first load installs them.
+ */
+const NOT_COPIED = { installedBuild: 'the new database installs this build\u2019s standard text itself' };
+
 /** What may be shown of a value: all of it, unless it is a secret. */
 function shown(key, value) {
   const v = String(value === null || value === undefined ? '' : value);
@@ -74,13 +83,15 @@ async function copySettings(opts) {
     const there = {};
     existing.rows.forEach((r) => { there[r.key] = r.value; });
 
-    const plan = source.rows.map((r) => ({
+    const skipped = source.rows.filter((r) => NOT_COPIED[r.key]);
+    const plan = source.rows.filter((r) => !NOT_COPIED[r.key]).map((r) => ({
       key: r.key, value: r.value, by: r.updated_by,
       action: !Object.prototype.hasOwnProperty.call(there, r.key) ? 'add'
         : there[r.key] === r.value ? 'same' : 'replace'
     }));
-    const width = Math.max.apply(null, plan.map((p) => p.key.length));
+    const width = Math.max.apply(null, source.rows.map((r) => r.key.length));
     plan.forEach((p) => say('  ' + p.action.padEnd(8) + p.key.padEnd(width + 2) + shown(p.key, p.value)));
+    skipped.forEach((r) => say('  ' + 'skip'.padEnd(8) + r.key.padEnd(width + 2) + '(' + NOT_COPIED[r.key] + ')'));
     const toWrite = plan.filter((p) => p.action !== 'same');
     say('');
 
@@ -130,4 +141,4 @@ if (require.main === module) {
   main().catch((err) => { console.log('STOPPED: ' + err.message); process.exit(1); });
 }
 
-module.exports = { copySettings, shown };
+module.exports = { copySettings, shown, NOT_COPIED };

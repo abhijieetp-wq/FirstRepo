@@ -78,19 +78,53 @@ function templateLines_(body) {
 }
 
 /**
+ * The compressor series a template is written for, off its "Applies to" column: "EG",
+ * "EG, EN". None means every series. "All", which is what the lost-reasons list uses for the
+ * same idea, is read as none rather than as a series called ALL.
+ */
+function templateSeries_(tpl) {
+  return String(tpl && tpl.appliesTo || '').toUpperCase().split(/[\s,;\/]+/)
+    .filter(function (s) { return s && s !== 'ALL'; });
+}
+
+/**
+ * A compressor's series — EG, EQ, EN — off its record, or the letters its model starts with
+ * when the series column was left empty ("EG 26-7.5 DM" is an EG).
+ */
+function productSeries_(p) {
+  // The first word only: "EG Series" is the EG.
+  var s = String(p && p.series || '').trim().toUpperCase().split(/\s+/)[0];
+  if (s) return s;
+  var m = String(p && (p.model || p.productCode) || '').trim().toUpperCase().match(/^([A-Z]+)/);
+  return m ? m[1] : '';
+}
+
+/**
  * The active template for a section.
  *
- * A section can have a row for one stream and a general row for both. The specific one wins —
- * otherwise which text printed would depend on the order rows happen to sit in the sheet,
- * which is not a thing anyone should have to know.
+ * A section can have a row for one stream and a general row for both, and a row for one
+ * compressor series and a general row for all of them. The most specific one wins — series
+ * first, then stream — otherwise which text printed would depend on the order rows happen to
+ * sit in the sheet, which is not a thing anyone should have to know.
+ *
+ * The series is why an EG offer and an EQ offer can carry different scopes of supply: the two
+ * are different machines, with different controllers, valves and options. A row written for
+ * one series is never printed on an offer for another, or on a spares offer, which has none.
  */
-async function quoteTemplate_(section, stream) {
-  var rows = (await readTable_('QuoteTemplates')).filter(function (t) {
-    if (t.section !== section) return false;
-    if (String(t.active).toUpperCase() === 'FALSE') return false;
-    return !t.businessStream || t.businessStream === stream;
+async function quoteTemplate_(section, stream, series) {
+  var want = String(series || '').trim().toUpperCase();
+  var best;
+  var bestScore = -1;
+  (await readTable_('QuoteTemplates')).forEach(function (t) {
+    if (t.section !== section) return;
+    if (String(t.active).toUpperCase() === 'FALSE') return;
+    if (t.businessStream && t.businessStream !== stream) return;
+    var applies = templateSeries_(t);
+    if (applies.length && applies.indexOf(want) === -1) return;
+    var score = (applies.length ? 2 : 0) + (t.businessStream === stream ? 1 : 0);
+    if (score > bestScore) { best = t; bestScore = score; }
   });
-  return rows.filter(function (t) { return t.businessStream === stream; })[0] || rows[0];
+  return best;
 }
 
 /**
@@ -121,6 +155,42 @@ async function docLabels_(stream) {
     });
   });
   return out;
+}
+
+/** Whether a part carries any of the specification table a compressor offer prints. */
+function hasAccessorySpec_(spare) {
+  if (!spare) return false;
+  return SPARE_SPEC_FIELDS.some(function (k) { return String(spare[k] || '').trim() !== ''; });
+}
+
+/**
+ * The specification table for an accessory on a compressor offer — PIE's layout: the title,
+ * then Model, Capacity, the two pressures, Dimensions and Weight.
+ *
+ * Only the rows filled in print. A receiver has no maximum pressure and a filter no
+ * dimensions on ELGi's sheets, and PIE's own offers leave those rows out rather than print
+ * them empty. The machine's table keeps its blanks because every compressor has every one of
+ * those figures; an accessory does not.
+ */
+function accessorySpecTable_(spare, item, L) {
+  var title = String(spare.specTitle || '').trim() || String(item.description || '').trim() ||
+    String(spare.description || '').trim() || String(spare.partNo || '');
+  var rows = [
+    ['Model', spare.specModel || spare.description || spare.partNo],
+    [L('specCapacity', 'Capacity'), spare.specCapacity],
+    [L('specMaxPressure', 'Maximum pressure'), spare.specMaxPressure],
+    [L('specWorkPressure', 'Normal working pressure'), spare.specWorkingPressure],
+    [L('specDimensions', 'Dimensions'), spare.specDimensions],
+    [L('specWeight', 'Weight of the package'), spare.specWeight]
+  ];
+  var html = '<div class="spec-block"><div class="spec-title">' + esc_(title) + '</div>' +
+    '<table class="spec"><tr><th>' + esc_(L('colDescription', 'Description')) +
+    '</th><th>' + esc_(L('colSpecification', 'Specifications')) + '</th></tr>';
+  rows.forEach(function (r) {
+    var value = String(r[1] === undefined || r[1] === null ? '' : r[1]).trim();
+    if (value) html += '<tr><td>' + esc_(r[0]) + '</td><td>' + esc_(value) + '</td></tr>';
+  });
+  return html + '</table></div>';
 }
 
 function ddmmyyyy_(iso) {
@@ -189,6 +259,29 @@ async function buildQuotationHtml(quotationId) {
   }
   // A spare line prints one thing off the master: its HSN code.
   var spareHsn = hasType.Spare ? await columnMap_('Spares', 'id', 'hsnCode') : {};
+
+  // On a compressor offer the accessories sold with the machine — dryer, filters, receiver —
+  // print a specification table of their own, the way PIE's offers always have. Only the
+  // parts this offer quotes, read whole; a spares offer prints none and reads none.
+  var spareSpecs = {};
+  if (isCompressor && hasType.Spare) {
+    var quotedSpares = items.filter(function (i) { return i.itemType === 'Spare'; })
+      .map(function (i) { return String(i.itemId); });
+    (await findRowsByColumn_('Spares', 'id', quotedSpares)).forEach(function (s) {
+      spareSpecs[String(s.id)] = s;
+    });
+  }
+
+  // The series of the machines on the offer, in line order — EG, EQ. The first chooses any
+  // text written for one series; the scope of supply is printed for each series quoted,
+  // because an offer for an EG and an EQ describes two different machines.
+  var seriesOnOffer = [];
+  items.forEach(function (i) {
+    if (i.itemType !== 'Product') return;
+    var ps = productSeries_(products[String(i.itemId)]);
+    if (ps && seriesOnOffer.indexOf(ps) === -1) seriesOnOffer.push(ps);
+  });
+  var series = seriesOnOffer[0] || '';
 
   // One row, and only when the offer came from an enquiry at all.
   var enquiryNo = '';
@@ -286,7 +379,7 @@ async function buildQuotationHtml(quotationId) {
   push('<tbody><tr><td>');
 
   // ---------------------------------------------------------------- page 1: the letter
-  var titleTpl = await quoteTemplate_('DocumentTitle', stream);
+  var titleTpl = await quoteTemplate_('DocumentTitle', stream, series);
   if (titleTpl) {
     if (titleTpl.title) push('<div class="doc-title">' + esc_(titleTpl.title) + '</div>');
     if (titleTpl.body) push('<div class="doc-sub">' + esc_(String(titleTpl.body).trim()) + '</div>');
@@ -316,7 +409,7 @@ async function buildQuotationHtml(quotationId) {
     (contact.email ? esc_(L('email', 'Email Id')) + ': ' + esc_(contact.email) : '') +
     '</div>');
 
-  var cover = await quoteTemplate_('CoverLetter', stream);
+  var cover = await quoteTemplate_('CoverLetter', stream, series);
   if (cover) {
     if (cover.title) {
       push('<div class="subject"><b>' + esc_(L('subject', 'Subject')) + ':</b> ' +
@@ -332,11 +425,17 @@ async function buildQuotationHtml(quotationId) {
   // are on file. Printing only the ones that were filled in hid the gap: a missing table is
   // invisible, and nobody goes looking for a page that was never there. A table with empty
   // rows is a to-do that the next person to read the offer will act on.
+  //
+  // An accessory is the other way round: it gets a table only when its specifications are on
+  // file. A dryer or a receiver sold with the machine wants one; a drain valve or a hose on the
+  // same offer does not, and an empty table under it would be noise rather than a to-do.
   var specced = items.filter(function (i) {
-    return i.itemType === 'Product' && products[String(i.itemId)];
+    if (i.itemType === 'Product') return !!products[String(i.itemId)];
+    if (i.itemType === 'Spare') return hasAccessorySpec_(spareSpecs[String(i.itemId)]);
+    return false;
   });
 
-  var why = await quoteTemplate_('WhyBrand', stream);
+  var why = await quoteTemplate_('WhyBrand', stream, series);
   if (why) {
     push('<div class="h2">' + esc_(why.title) + '</div>');
     push(bulletList_(templateLines_(why.body), false));
@@ -345,27 +444,37 @@ async function buildQuotationHtml(quotationId) {
   // What follows, so the reader knows the offer is more than one page. Each entry is listed
   // only if that section will actually be printed — promising an enclosure that is not there
   // is worse than omitting it.
-  var scopeTpl = await quoteTemplate_('ScopeOfSupply', stream);
+  //
+  // One scope of supply per series quoted, each the text written for that series or else the
+  // general one. Two series that come to the same text print it once, naming both.
+  var scopes = [];
+  for (var sr of (seriesOnOffer.length ? seriesOnOffer : [''])) {
+    var scopeTpl = await quoteTemplate_('ScopeOfSupply', stream, sr);
+    if (!scopeTpl) continue;
+    var sameTpl = scopes.filter(function (x) { return String(x.tpl.id) === String(scopeTpl.id); })[0];
+    if (sameTpl) { if (sr) sameTpl.series.push(sr); continue; }
+    scopes.push({ tpl: scopeTpl, series: sr ? [sr] : [] });
+  }
   var enclosures = [];
-  if (specced.length && scopeTpl) {
+  if (specced.length && scopes.length) {
     enclosures.push(L('enclSpecScope', 'Technical specifications and scope of supply'));
   } else if (specced.length) {
     enclosures.push(L('enclSpec', 'Technical specifications'));
-  } else if (scopeTpl) {
+  } else if (scopes.length) {
     enclosures.push(L('scopeHeading', 'Scope of supply'));
   }
   enclosures.push(L('enclPrice', 'Price schedule'));
-  if (await quoteTemplate_('Terms', stream)) enclosures.push(L('enclTerms', 'Commercial terms and conditions'));
-  if (isCompressor && await quoteTemplate_('InstallationNotes', stream)) {
+  if (await quoteTemplate_('Terms', stream, series)) enclosures.push(L('enclTerms', 'Commercial terms and conditions'));
+  if (isCompressor && await quoteTemplate_('InstallationNotes', stream, series)) {
     enclosures.push(L('enclInstall', 'Installation guidelines'));
   }
   // Documents that travel with the offer but are not generated by it — the UPTIME Assurance
   // annexure above all, which is ELGi's own and comes as it is. Listed here so the reader is
   // told what is in the envelope, which is the whole point of this list.
-  if (isCompressor && await quoteTemplate_('UptimeWarranty', stream)) {
+  if (isCompressor && await quoteTemplate_('UptimeWarranty', stream, series)) {
     enclosures.push(L('enclUptime', 'UPTIME Warranty'));
   }
-  var extraEncl = await quoteTemplate_('ExtraEnclosures', stream);
+  var extraEncl = await quoteTemplate_('ExtraEnclosures', stream, series);
   if (extraEncl) {
     templateLines_(extraEncl.body).forEach(function (line) {
       // The annexure prints now, so the standing "attached separately" list must not name it
@@ -378,7 +487,7 @@ async function buildQuotationHtml(quotationId) {
   enclosures.forEach(function (e) { push('<li>' + esc_(e) + '</li>'); });
   push('</ul>');
 
-  var closing = await quoteTemplate_('Closing', stream);
+  var closing = await quoteTemplate_('Closing', stream, series);
   if (closing) {
     String(closing.body).split('\n\n').forEach(function (para) {
       if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
@@ -390,9 +499,13 @@ async function buildQuotationHtml(quotationId) {
   if (specced.length) {
     push('<div class="page-break"></div>');
     push('<div class="h1">' + esc_(L('specHeading', 'Technical specifications')) + '</div>');
-    var specNote = await quoteTemplate_('SpecNote', stream);
+    var specNote = await quoteTemplate_('SpecNote', stream, series);
     if (specNote) push('<div class="note">' + esc_(String(specNote.body).trim()) + '</div>');
     specced.forEach(function (i) {
+      if (i.itemType === 'Spare') {
+        push(accessorySpecTable_(spareSpecs[String(i.itemId)], i, L));
+        return;
+      }
       var p = products[String(i.itemId)];
       // Every row every time, blanks included. An empty cell is the prompt to go and fill it;
       // dropping the row leaves the offer looking complete when it is not.
@@ -407,7 +520,9 @@ async function buildQuotationHtml(quotationId) {
         [L('specWeight', 'Weight of the package'), p.weightKg]
       ];
 
-      push('<div class="spec-title">' + esc_(p.model || p.productCode) + '</div>');
+      // Heading and table kept on one page: a table whose heading is at the foot of one sheet
+      // and whose rows are on the next reads as two half-tables.
+      push('<div class="spec-block"><div class="spec-title">' + esc_(p.model || p.productCode) + '</div>');
       push('<table class="spec"><tr><th>' + esc_(L('colDescription', 'Description')) +
         '</th><th>' + esc_(L('colSpecification', 'Specifications')) + '</th></tr>');
       rows.forEach(function (r) {
@@ -416,18 +531,23 @@ async function buildQuotationHtml(quotationId) {
           (value ? '<td>' + esc_(value) + '</td>'
                  : '<td class="spec-blank">&nbsp;</td>') + '</tr>');
       });
-      push('</table>');
+      push('</table></div>');
     });
   }
 
-  if (scopeTpl) {
-    push('<div class="h1">' + esc_(scopeTpl.title || L('scopeHeading', 'Scope of supply')) + '</div>');
-    templateLines_(scopeTpl.body).forEach(function (l) {
+  scopes.forEach(function (sc) {
+    var heading = sc.tpl.title || L('scopeHeading', 'Scope of supply');
+    // Named by series only when there is more than one to tell apart.
+    if (scopes.length > 1 && sc.series.length) {
+      heading += ' \u2014 ' + sc.series.join(', ') + ' ' + L('seriesWord', 'series');
+    }
+    push('<div class="h1">' + esc_(heading) + '</div>');
+    templateLines_(sc.tpl.body).forEach(function (l) {
       // A line ending in a colon is a heading for the block beneath it.
       push(/:$/.test(l) ? '<div class="scope-head">' + esc_(l) + '</div>'
                         : '<div class="scope-line">' + esc_(l) + '</div>');
     });
-  }
+  });
 
   // ---------------------------------------------------------------- price schedule
   // The schedule starts a page of its own, in both documents.
@@ -601,7 +721,7 @@ async function buildQuotationHtml(quotationId) {
   push('</tbody></table>');
 
   // ---------------------------------------------------------------- terms
-  var terms = await quoteTemplate_('Terms', stream);
+  var terms = await quoteTemplate_('Terms', stream, series);
   if (terms) {
     // The standing terms carry a validity clause in general words; this quotation knows the
     // actual number of days and the actual date. Rather than print both and contradict
@@ -631,7 +751,7 @@ async function buildQuotationHtml(quotationId) {
 
   // They close twice, and differently: the letter ends by inviting questions, the terms end by
   // asking for a meeting. Printing the first one again in the second place loses that.
-  var closingFinal = await quoteTemplate_('ClosingFinal', stream);
+  var closingFinal = await quoteTemplate_('ClosingFinal', stream, series);
   if (closingFinal) {
     String(closingFinal.body).split('\n\n').forEach(function (para) {
       if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
@@ -643,7 +763,7 @@ async function buildQuotationHtml(quotationId) {
   // asked for the two documents to agree.
 
   // ---------------------------------------------------------------- installation
-  var install = await quoteTemplate_('InstallationNotes', stream);
+  var install = await quoteTemplate_('InstallationNotes', stream, series);
   if (install && isCompressor) {
     push('<div class="page-break"></div>');
     push('<div class="h1">' + esc_(install.title) + '</div>');
@@ -654,7 +774,7 @@ async function buildQuotationHtml(quotationId) {
   // ELGi's annexure, printed rather than attached. It is a page that gets filled in by hand
   // and signed by both sides at commissioning, so the fields print as ruled blanks: an
   // attachment nobody can sign is worth nothing, which is why it is here at all.
-  var uptime = await quoteTemplate_('UptimeWarranty', stream);
+  var uptime = await quoteTemplate_('UptimeWarranty', stream, series);
   if (uptime && isCompressor) {
     push('<div class="page-break"></div>');
     push('<div class="h1">' + esc_(uptime.title) + '</div>');
@@ -921,7 +1041,8 @@ function quotationCss_(co) {
     'ul > li.lead{font-weight:bold;}' +
     '.note{font-size:9pt;color:#444;margin:6px 0 8px;font-style:italic;}' +
 
-    '.spec-title{font-weight:bold;margin:10px 0 4px;}' +
+    '.spec-block{page-break-inside:avoid;break-inside:avoid;}' +
+    '.spec-title{font-weight:bold;margin:10px 0 4px;page-break-after:avoid;break-after:avoid;}' +
     'table.spec{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
     'table.spec th{background:#eee;text-align:left;padding:5px 8px;border:1px solid #999;}' +
     'table.spec td{padding:5px 8px;border:1px solid #999;}' +

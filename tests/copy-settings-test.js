@@ -56,6 +56,9 @@ const ok = (label, cond, detail) => {
     await admin.q('INSERT INTO settings (tenant_id, key, value, updated_by) VALUES ($1, $2, $3, $4)',
       [TENANT, k, v, 'boss@pie.in']);
   }
+  // Not a setting: which build last installed the standard quotation text.
+  await admin.q("INSERT INTO settings (tenant_id, key, value) VALUES ($1, 'installedBuild', '2026-10-22.2')",
+    [TENANT]);
   await admin.q("INSERT INTO settings (tenant_id, key, value) VALUES ('someone-else', 'TALLY_ENDPOINT', 'x') " +
     'ON CONFLICT DO NOTHING');
 
@@ -76,6 +79,8 @@ const ok = (label, cond, detail) => {
   ok('lists every setting it would copy', rows.every(([k]) => looked.includes(k)), looked);
   ok('and says nothing was written', /Nothing written/.test(looked), looked.split('\n').slice(-3));
   ok('and nothing was', (await count()) === 0);
+  ok('the build stamp is listed as left behind, with the reason',
+    /skip\s+installedBuild\s+\(the new database installs/.test(looked), looked);
 
   console.log('\nNO SECRET IS EVER PRINTED');
   ok('the client secret is not on the screen', !looked.includes(SECRET_VALUE) && !looked.includes('GOCSPX'));
@@ -95,6 +100,8 @@ const ok = (label, cond, detail) => {
   ok('every one, exactly', rows.every(([k, v]) => map[k] === v), Object.keys(map));
   const other = (await fresh.q("SELECT count(*)::int AS n FROM settings WHERE tenant_id = 'someone-else'")).rows[0].n;
   ok('and only this tenant’s', other === 0, other);
+  ok('but not the build stamp, so the new database installs the standard text it lacks',
+    map.installedBuild === undefined, map.installedBuild);
 
   console.log('\nA SECOND RUN CHANGES NOTHING');
   const again = run(['--write']);

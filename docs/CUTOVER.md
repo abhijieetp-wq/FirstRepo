@@ -168,6 +168,19 @@ EN5, EN11, the EQ VFD range and EQ2–EQ7; also in `imports/`). If it was upload
 the freeze, expect **0 new, 67 updated**; if not, **67 new**. Built from ELGi's model-wise spec
 workbook by `migration/elgi-specs-to-upload.py`, which converts later workbooks in the same layout.
 
+Then the accessories' specification tables: Catalog → Spares → Bulk Upload →
+`ELGi-accessory-specs-upload.csv` (also in `imports/`). The Sheet has no columns for them, so
+nothing came across. Expect **0 new, 6 updated, 0 price changes** — more if PIE has added rows
+to the file since. Its description column is blank on purpose: a blank never overwrites, so the
+parts keep their own descriptions. Anything typed into a part's *Specification table* on the
+website before the switch is in the old database only, and needs typing again or adding to
+this file.
+
+Quotation text written for one series — the EG's scope of supply ships as standard — is
+installed on the first load after the switch, because step 5b leaves the build stamp behind.
+Settings → Quotation Text should list two *Scope of supply* rows, one marked *EG series*.
+Wording edited on the website before the switch (not in the Sheet) has to be edited again.
+
 ### 7. Hand over
 
 - Send PIE the new address.

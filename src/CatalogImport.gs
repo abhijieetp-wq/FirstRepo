@@ -40,9 +40,13 @@ var IMPORT_SPECS = {
     idPrefix: 'SP-',
     required: ['partNo', 'description'],
     columns: ['partNo', 'hsnCode', 'description', 'productGroup', 'category', 'uom', 'gstPct',
-      'piePrice', 'elgiPrice', 'reorderLevel', 'safetyStock', 'defaultBinId', 'notes'],
+      'piePrice', 'elgiPrice', 'reorderLevel', 'safetyStock', 'defaultBinId', 'notes',
+      'specTitle', 'specModel', 'specCapacity', 'specMaxPressure', 'specWorkingPressure',
+      'specDimensions', 'specWeight'],
     masterFields: ['partNo', 'hsnCode', 'description', 'productGroup', 'category', 'uom', 'gstPct',
-      'reorderLevel', 'safetyStock', 'defaultBinId', 'notes'],
+      'reorderLevel', 'safetyStock', 'defaultBinId', 'notes',
+      'specTitle', 'specModel', 'specCapacity', 'specMaxPressure', 'specWorkingPressure',
+      'specDimensions', 'specWeight'],
     numeric: ['gstPct', 'piePrice', 'elgiPrice', 'reorderLevel', 'safetyStock']
   },
   Product: {
@@ -307,7 +311,13 @@ function analyseImport_(itemType, csvText, opts) {
     var key = String(values[spec.keyField] || '').trim();
     if (!key) { skipped.push({ line: lineNo, code: '', reason: 'missing ' + spec.keyField }); continue; }
 
-    var missing = spec.required.filter(function (f) { return !values[f]; });
+    // A part already in the catalogue needs only its code: a file that fills in some columns
+    // for existing parts — the specification tables for the accessories, say — should not have
+    // to repeat every description, which it would then overwrite. A new part still needs all.
+    var exists = !!byKey[key.toLowerCase()];
+    var missing = spec.required.filter(function (f) {
+      return !values[f] && !(exists && f !== spec.keyField);
+    });
     if (missing.length) {
       skipped.push({ line: lineNo, code: key, reason: 'missing ' + missing.join(' and ') });
       continue;
@@ -407,6 +417,8 @@ function exampleValue_(itemType, column) {
     capacityCfm: '113 cfm', maxPressure: '7.5 bar.g', motorKw: '18 kW, 25 hp',
     starterType: 'Variable Frequency Drive', dimensionsMm: '1500 x 821 x 1220',
     weightKg: '680 kg', spcKw100Cfm: '18.39',
+    specTitle: '', specModel: '', specCapacity: '', specMaxPressure: '', specWorkingPressure: '',
+    specDimensions: '', specWeight: '',
     warrantyMonths: '12', leadTimeDays: '42'
   };
   return examples[column] === undefined ? '' : examples[column];

@@ -177,7 +177,13 @@ var SCHEMA = {
     // narrow a search.
     columns: ['id', 'partNo', 'hsnCode', 'description', 'productGroup', 'category', 'brand', 'uom', 'gstPct',
       'purchasePrice', 'reorderLevel', 'safetyStock', 'defaultWarehouseId', 'defaultBinId',
-      'notes', 'active', 'createdAt', 'createdBy']
+      'notes', 'active', 'createdAt', 'createdBy',
+      // The specification table a compressor offer prints for an accessory sold with the
+      // machine — dryer, filter, receiver — the way PIE's own offers do. All text with units
+      // ("309 cfm", "1000 L", "600 x 454 x 1496 mm"), blank for the thousands of parts that
+      // never get a table. Only the rows filled in print: a receiver has no maximum pressure.
+      'specTitle', 'specModel', 'specCapacity', 'specMaxPressure', 'specWorkingPressure',
+      'specDimensions', 'specWeight']
   },
   SpareCompatibility: {
     label: 'Many-to-many spare ↔ compressor model mapping (FR-023)',

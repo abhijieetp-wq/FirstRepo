@@ -25,6 +25,10 @@
  * Write access is Management + ERP Admin (D4).
  */
 
+/** The specification table a compressor offer prints for an accessory (Schema.gs, Spares). */
+var SPARE_SPEC_FIELDS = ['specTitle', 'specModel', 'specCapacity', 'specMaxPressure',
+  'specWorkingPressure', 'specDimensions', 'specWeight'];
+
 async function listSpares(includeInactive) {
   // A blank `active` cell counts as active, so a row typed straight into the Sheet still
   // shows up without the person having to know about the flag.
@@ -33,7 +37,13 @@ async function listSpares(includeInactive) {
 
   var spares = (await readTable_('Spares'))
     .filter(function (s) { return includeInactive || String(s.active).toUpperCase() !== 'FALSE'; })
-    .map(stripRow_);
+    .map(function (row) {
+      var s = stripRow_(row);
+      // Thirteen thousand parts and a few dozen accessories with a table: the empty fields are
+      // left out rather than sent seven times per part to a screen that downloads them all.
+      SPARE_SPEC_FIELDS.forEach(function (k) { if (!s[k]) delete s[k]; });
+      return s;
+    });
   var prices = await priceMapFor_('Spare');
   var onHand = await stockOnHandMap_('Spare');
   var reserved = await stockReservedMap_('Spare');
@@ -145,6 +155,11 @@ async function saveSpare(input) {
     defaultBinId: String(input.defaultBinId || '').trim(),
     notes: String(input.notes || '').trim()
   };
+  // The accessory specification table. Only what the caller sent: a save from somewhere that
+  // does not show these fields must not blank a dryer's specifications.
+  SPARE_SPEC_FIELDS.forEach(function (k) {
+    if (input[k] !== undefined) record[k] = String(input[k] === null ? '' : input[k]).trim();
+  });
   // `active` is set only where the caller means to set it. The edit form does not carry the
   // flag, so defaulting it to TRUE on every save silently brought deactivated parts back the
   // next time anyone corrected a typo on one.

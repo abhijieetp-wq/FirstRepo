@@ -921,6 +921,30 @@
     </div>
     <p id="pm-stock-summary" class="mono" style="font-size:12px; color:var(--ink-soft); margin:6px 0 0;"></p>
 
+    <!-- The table a compressor offer prints for an accessory — dryer, filter, receiver. Folded
+         away because thousands of parts never need one; open when this part has one. -->
+    <details id="pm-spec" style="margin-top:18px;">
+      <summary class="card-title" style="cursor:pointer;">Specification table (compressor quotations)</summary>
+      <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 10px;">
+        For accessories sold with a compressor. When any of these is filled in, a compressor
+        quotation that includes this part prints its table after the machine's. Only the rows
+        filled in are printed. Write the units in: 309 cfm, 16 bar, 1000 L, 110 kg.
+      </p>
+      <div class="field"><label>Table heading</label><input id="pm-spec-title" placeholder="e.g. ARN 0310 AC Air Dryer" /></div>
+      <div class="grid grid-2" style="margin-top:12px;">
+        <div class="field"><label>Model</label><input id="pm-spec-model" placeholder="e.g. AR 0310NS A2_INDIA" /></div>
+        <div class="field"><label>Capacity</label><input id="pm-spec-capacity" placeholder="e.g. 309 cfm" /></div>
+      </div>
+      <div class="grid grid-2" style="margin-top:12px;">
+        <div class="field"><label>Maximum pressure</label><input id="pm-spec-maxpressure" placeholder="e.g. 16 bar" /></div>
+        <div class="field"><label>Normal working pressure</label><input id="pm-spec-workpressure" placeholder="e.g. 7 bar" /></div>
+      </div>
+      <div class="grid grid-2" style="margin-top:12px;">
+        <div class="field"><label>Dimensions</label><input id="pm-spec-dimensions" placeholder="e.g. 600 x 454 x 1496 mm" /></div>
+        <div class="field"><label>Weight of the package</label><input id="pm-spec-weight" placeholder="e.g. 110 kg" /></div>
+      </div>
+    </details>
+
     <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px; flex-wrap:wrap;">
       <div style="display:flex; gap:10px;">
         <button class="btn btn-danger" id="btn-delete-part" style="display:none;">Deactivate</button>
@@ -1200,6 +1224,14 @@
       <div class="field"><label>Section</label><select id="qtpl-section"></select></div>
       <div class="field"><label>Applies To</label><select id="qtpl-stream"></select></div>
       <div class="field"><label>Order</label><input id="qtpl-sort" type="number" min="0" step="1" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Compressor series</label>
+      <input id="qtpl-applies" placeholder="Blank = every series. For one series: EG — for several: EG, EN" />
+      <div class="hint" style="font-size:12px; color:var(--ink-soft); margin-top:4px;">
+        A section written for a series is printed only on offers for that series, in place of
+        the general one. The EG and EQ have different scopes of supply, for example.
+      </div>
     </div>
     <div class="field" style="margin-top:12px;">
       <label>Heading</label><input id="qtpl-title" placeholder="Printed above the text" />

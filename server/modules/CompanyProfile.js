@@ -193,12 +193,16 @@ async function saveQuoteTemplate(input) {
     section: input.section,
     brand: String(input.brand || 'ELGI').trim(),
     businessStream: String(input.businessStream || '').trim(),
-    appliesTo: String(input.appliesTo || '').trim(),
     title: String(input.title || '').trim(),
     body: String(input.body).trim(),
     sortOrder: Number(input.sortOrder) || 0,
     active: input.active === false ? 'FALSE' : 'TRUE'
   };
+  // The compressor series the text is for (quoteTemplate_). Only what the caller sent: a page
+  // still open from before the field existed must not turn the EG scope into everyone's.
+  if (input.appliesTo !== undefined || !input.id) {
+    record.appliesTo = String(input.appliesTo || '').trim().toUpperCase();
+  }
 
   if (input.id) {
     await updateRowById_('QuoteTemplates', 'id', input.id, record, 'Quotation text updated');
@@ -528,6 +532,84 @@ function defaultQuoteTemplates_() {
         'Optional Features:\n' +
         'Integrated dryer, Air Alert (IoT device) and VFD moisture separator with zero loss ' +
         'drain valve'
+    },
+    // The EG series' scope, off PIE's offer to Sultania Oil Industries for an EG 26. The one
+    // above is the EQ's — the offer it was copied from quoted an EQ — and every EG offer had
+    // been going out describing the wrong machine: an XT controller instead of the Neuron IV,
+    // no discharge moisture separator, no Air Alert, options the EG does not have.
+    // Applies to "EG" only; any other series still gets the general text above until PIE
+    // writes one for it in Settings → Quotation Text.
+    {
+      id: 'QTPL-COMP-SCOPE-EG', section: 'ScopeOfSupply', brand: 'ELGI',
+      businessStream: STREAM_COMPRESSOR, appliesTo: 'EG', title: 'Scope of supply',
+      sortOrder: 2, active: 'TRUE',
+      body: 'Base & Enclosure:\n' +
+        'Rigid frame\n' +
+        'Powder-coated panels with two service doors at the front and two at the sides\n' +
+        'Latches on each door\n' +
+        'Ducts for drive motor\n' +
+        'Drive System:\n' +
+        'Main motor – high efficiency IE3 TEFC motor with “class-F” insulation\n' +
+        'Flexible coupling with elastic element\n' +
+        'Rigid connection of motor and the airend flange\n' +
+        'CE certified control panel with wye-delta reduced voltage starter for the main motor\n' +
+        'DOL starter with contactor for cooling motors\n' +
+        'High amp protection electric motors\n' +
+        'Air Inlet System:\n' +
+        'Pre-filter: to ensure clean air is supplied to the inlet system\n' +
+        'Air duct: to get clean and cool air to the air filter\n' +
+        'Air filter housing\n' +
+        'Twin paper element, each of 3 microns with an efficiency of 99%\n' +
+        'Pre-cleaning on the air cleaner to separate heavy particles and avoid clogging of the ' +
+        'paper element\n' +
+        'Service indicator – indicating filter service need\n' +
+        'Rubber coupling connecting air filter to the intake valve\n' +
+        'Normally closed type intake valve with integrated blow down and solenoid control valve\n' +
+        'Load/unload type capacity control for EG 11 to EG 45\n' +
+        'Intake valve modulation with 100 to 60% capacity control and load/unload below 60% ' +
+        'for EG 55 & EG 75\n' +
+        'Compression System:\n' +
+        'Highly efficient axis airend with n-v profile rotors\n' +
+        'ELGi Demand=Match technology:\n' +
+        'This ELGi exclusive technology is a breakthrough system that automatically adjusts ' +
+        'compressor delivery to match plant demand from 100% to 40%. It works by recirculating ' +
+        'air flow within the compressor system, ensuring delivery based on demand — energy ' +
+        'saving and increased reliability.\n' +
+        'The system has 2 valves of operating progressive and on-off type, controlled by the ' +
+        'N IV controller on a special algorithm based on plant demand.\n' +
+        'Air/Oil Separation System:\n' +
+        'Receiver tank incorporating OSBIC principle mounted on the base frame\n' +
+        'Oil filling port\n' +
+        'Oil drain with valve\n' +
+        'Pressure relief valve\n' +
+        'Oil sight glass\n' +
+        'Spin-on air-oil separator element (EG 11 to EG 22) or cartridge type air-oil separator ' +
+        'element (EG 30 to EG 75)\n' +
+        'Minimum pressure valve\n' +
+        'Discharge System:\n' +
+        'Moisture separator with zero loss drain valve\n' +
+        'Cooling System:\n' +
+        'Thermal zones for hot and cool air for maximised cooling\n' +
+        'High ambient oil cooler for low operating temperature\n' +
+        'High efficiency after-cooler for low approach temperature\n' +
+        'Cooler mounted in an insulated compartment for easy cleaning\n' +
+        'Cooling fan with integrated motor\n' +
+        'Lubrication System:\n' +
+        'High-capacity spin-on oil-filter element with 10-micron rating\n' +
+        'Return oil line from separator tank to air-end\n' +
+        'Rigid pipe connections for long life and leak-free operation\n' +
+        'Controls System:\n' +
+        'Neuron IV controller\n' +
+        'Pressure transducer\n' +
+        'Temperature sensor\n' +
+        'Safety Features:\n' +
+        'CE certified package\n' +
+        'In-built Air~Alert (above EG 18):\n' +
+        'Air Alert is an IoT-enabled monitoring and alert system which improves energy ' +
+        'efficiency and operating performance, and improves uptime with on-time service alerts, ' +
+        'predictive failure alerts and 24/7 remote monitoring.\n' +
+        'Optional Features:\n' +
+        'Integrated VFD, heat recovery system'
     },
 
     // ELGi's UPTIME Assurance annexure, off PIE/ELGI/QUOT/26-27/383 word for word.

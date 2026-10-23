@@ -40,6 +40,8 @@ const ok = (label, cond, detail) => {
         elgiPrice: 500 + i, onHand: 0, reserved: 0, available: 0, active: 'TRUE',
         alternates: [], compatibility: [] });
     }
+    // One accessory with a specification table, for the part form below.
+    Object.assign(rows[1], { specTitle: 'TX Air Dryer 300', specCapacity: '300 cfm' });
     window.__data.listSpares = rows;
   }, N);
 
@@ -119,6 +121,35 @@ const ok = (label, cond, detail) => {
   await page.click('#catalog-tbody [data-edit]');
   await page.waitForTimeout(300);
   ok('Edit opens the part', await page.$eval('#part-modal-backdrop', (e) => getComputedStyle(e).display !== 'none'));
+  await page.click('#btn-cancel-part');
+
+  console.log('\nAN ACCESSORY’S SPECIFICATION TABLE, ON THE PART FORM');
+  await page.fill('#catalog-search', 'ELG-100001');
+  await page.waitForTimeout(350);
+  await page.click('#catalog-tbody [data-edit="SP-1"]');
+  await page.waitForTimeout(200);
+  ok('a part with a table opens with the section unfolded and filled in',
+    await page.evaluate(() => document.querySelector('#pm-spec').open &&
+      document.querySelector('#pm-spec-title').value === 'TX Air Dryer 300' &&
+      document.querySelector('#pm-spec-capacity').value === '300 cfm' &&
+      document.querySelector('#pm-spec-maxpressure').value === ''));
+  await page.fill('#pm-spec-weight', ' 110 kg ');
+  await page.evaluate(() => { window.__calls = []; window.__data.saveSpare = (o) => o; });
+  await page.click('#btn-save-part');
+  await page.waitForTimeout(200);
+  const saved = await page.evaluate(() => (window.__calls.filter((c) => c.fn === 'saveSpare')[0] || {}).args);
+  ok('saving sends every field of the table, trimmed', saved && saved[0].specTitle === 'TX Air Dryer 300' &&
+    saved[0].specWeight === '110 kg' && saved[0].specMaxPressure === '' &&
+    ['specModel', 'specCapacity', 'specWorkingPressure', 'specDimensions'].every((k) => k in saved[0]), saved);
+  await page.fill('#catalog-search', 'ELG-100002');
+  await page.waitForTimeout(350);
+  await page.click('#catalog-tbody [data-edit="SP-2"]');
+  await page.waitForTimeout(200);
+  ok('a part without one opens folded and empty — nothing carried over from the last',
+    await page.evaluate(() => !document.querySelector('#pm-spec').open &&
+      document.querySelector('#pm-spec-title').value === '' &&
+      document.querySelector('#pm-spec-weight').value === ''));
+  await page.click('#btn-cancel-part');
 
   ok('no page errors anywhere', errors.length === 0, errors);
   await browser.close();

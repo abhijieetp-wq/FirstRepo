@@ -1392,6 +1392,14 @@
   }
 
   // ---- Spare modal ----
+  /** The part form's specification-table inputs and the fields they save to (Spares.gs). */
+  var PART_SPEC_INPUTS = [
+    ["pm-spec-title", "specTitle"], ["pm-spec-model", "specModel"],
+    ["pm-spec-capacity", "specCapacity"], ["pm-spec-maxpressure", "specMaxPressure"],
+    ["pm-spec-workpressure", "specWorkingPressure"], ["pm-spec-dimensions", "specDimensions"],
+    ["pm-spec-weight", "specWeight"]
+  ];
+
   function openSpareModal(id) {
     $("pm-pie-wrap").style.display = canSeeCost() ? "" : "none";
     var s = id ? sparesCache.find(function (x) { return x.id === id; }) : null;
@@ -1418,6 +1426,13 @@
     $("pm-stock-summary").textContent = s
       ? "On hand " + s.onHand + " · reserved " + s.reserved + " · available " + s.available
       : "";
+    var anySpec = false;
+    PART_SPEC_INPUTS.forEach(function (f) {
+      var v = s && s[f[1]] ? s[f[1]] : "";
+      $(f[0]).value = v;
+      if (v) anySpec = true;
+    });
+    $("pm-spec").open = anySpec;
     $("part-modal-backdrop").classList.add("show");
   }
   $("btn-cancel-part").addEventListener("click", function () { $("part-modal-backdrop").classList.remove("show"); });
@@ -1437,6 +1452,7 @@
       elgiPrice: $("pm-elgiprice").value,
       openingStock: $("pm-opening").value
     };
+    PART_SPEC_INPUTS.forEach(function (f) { obj[f[1]] = $(f[0]).value.trim(); });
     srv.withSuccessHandler(function (saved) {
       catalogLoaded.spares = false;
       $("part-modal-backdrop").classList.remove("show");
@@ -11021,7 +11037,10 @@
           }).length;
           return "<tr>" +
             "<td><b>" + escapeHtml(qtplSectionLabel(t.section)) + "</b></td>" +
-            "<td>" + escapeHtml(t.businessStream || "Both streams") + "</td>" +
+            "<td>" + escapeHtml(t.businessStream || "Both streams") +
+              (String(t.appliesTo || "").trim()
+                ? ' <span class="badge">' + escapeHtml(String(t.appliesTo).trim()) + " series</span>"
+                : "") + "</td>" +
             "<td>" + escapeHtml(t.title || "—") + "</td>" +
             '<td class="num">' + lines + "</td>" +
             '<td><span class="badge ' + (live ? "badge-won" : "badge-lost") + '">' +
@@ -11097,6 +11116,7 @@
       }).join("");
     $("qtpl-stream").value = t ? (t.businessStream || "") : "";
     $("qtpl-sort").value = t ? (Number(t.sortOrder) || 0) : 0;
+    $("qtpl-applies").value = t ? (t.appliesTo || "") : "";
     $("qtpl-title").value = t ? (t.title || "") : "";
     $("qtpl-body").value = t ? (t.body || "") : "";
     $("qtpl-active").checked = !t || String(t.active).toUpperCase() !== "FALSE";
@@ -11120,6 +11140,10 @@
       id: $("qtpl-id").value || "",
       section: $("qtpl-section").value,
       businessStream: $("qtpl-stream").value,
+      // Sent every time: the save used to leave it out, and on the server a missing value
+      // reads as blank — editing a typo in the EG scope would have made it print on every
+      // series.
+      appliesTo: $("qtpl-applies").value.trim().toUpperCase(),
       sortOrder: $("qtpl-sort").value,
       title: $("qtpl-title").value.trim(),
       body: $("qtpl-body").value,
