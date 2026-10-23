@@ -703,8 +703,9 @@ function buildQuotationHtml(quotationId) {
        { t: L('colHsn', 'HSN code'), c: '' },
        { t: L('colUom', 'Unit of measurement'), c: '' }];
     if (perLine) priceCols.push({ t: L('colDelivery', 'Delivery'), c: '' });
-    priceCols.push({ t: L('colPricePer', 'Price Per'), c: 'num' },
-                   { t: L('colQuantity', 'Quantity'), c: 'num' },
+    // Quantity before the price, at PIE's request: how many, at what each, for how much.
+    priceCols.push({ t: L('colQuantity', 'Quantity'), c: 'num' },
+                   { t: L('colPricePer', 'Price Per'), c: 'num' },
                    { t: L('colTotalAmount', 'Total Amount'), c: 'num' });
   }
 
@@ -748,8 +749,8 @@ function buildQuotationHtml(quotationId) {
         // A charge is an amount, not a quantity of anything, so it has no unit either.
         '<td>' + (isCharge ? '' : esc_(i.uom || 'Nos')) + '</td>' +
         (perLine ? '<td>' + (isCharge ? '' : esc_(lineDeliveryText_(i, q))) + '</td>' : '') +
-        '<td class="num">' + (isCharge ? '' : inr_(unit)) + '</td>' +
         '<td class="num">' + (isCharge ? '' : esc_(qty)) + '</td>' +
+        '<td class="num">' + (isCharge ? '' : inr_(unit)) + '</td>' +
         '<td class="num">' + inr_(lineTotal) + '</td>') +
       '</tr>');
   });

@@ -285,6 +285,12 @@ const SPEC_CSV = '﻿' + [
   const spareTbl = html.slice(html.indexOf('<table class="price">'));
   ok('no "ELGi make" names', spareTbl.slice(0, spareTbl.indexOf('</table>')).indexOf('ELGi make') === -1);
   ok('and still its total amount', /Total amount/i.test(html));
+  const spareRows = rows(spareTbl.slice(0, spareTbl.indexOf('</table>')));
+  ok('Quantity before Price Per, at PIE’s request', JSON.stringify(cells(spareRows[0])) === JSON.stringify(
+    ['Part Number', 'Description', 'HSN code', 'Unit of measurement', 'Quantity', 'Price Per', 'Total Amount']),
+    cells(spareRows[0]));
+  ok('and the figures moved with their headings', JSON.stringify(cells(spareRows[1]).slice(4)) ===
+    JSON.stringify(['1', '₹ 3,32,000.00', '₹ 3,32,000.00']), cells(spareRows[1]));
 
   console.log('\nTHE SERIES SURVIVES AN EDIT OF THE TEXT');
   const tpl = (await p.listQuoteTemplates({ includeInactive: true })).find((t) => t.id === 'QTPL-COMP-SCOPE-EG');
