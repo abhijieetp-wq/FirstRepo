@@ -99,7 +99,7 @@ It uses the same Google Cloud project and OAuth client as the Google sign-in. On
    `/oauth/gmail`). Add **both** while you are there, so moving to the domain needs nothing new:
 
    ```
-   https://hello-deploy-production.up.railway.app/oauth/gmail
+   https://<the-railway-address>/oauth/gmail
    https://pie.erp.imcglobal.in/oauth/gmail
    ```
 

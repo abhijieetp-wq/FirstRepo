@@ -73,7 +73,11 @@ function defaultCompanyProfile_() {
     // point of the letterhead, so it is a field rather than something only we can add.
     partnerLogoUrl: '',
     // Their documents set headings and the partner line in red.
-    docAccentColor: '#C00000'
+    docAccentColor: '#C00000',
+    // The picture of the compressor range that opens the specifications on every compressor
+    // offer of theirs, whatever the model. Uploaded in Settings like the logos — it is ELGi's
+    // product photograph, so it is not shipped with the code.
+    compressorPictureUrl: ''
   };
 }
 
@@ -103,7 +107,7 @@ function saveCompanyProfile(input) {
   record.gstin = gstin;
   record.logoShowsName = input.logoShowsName ? 'TRUE' : 'FALSE';
 
-  ['logoUrl', 'sealUrl', 'partnerLogoUrl'].forEach(function (k) {
+  ['logoUrl', 'sealUrl', 'partnerLogoUrl', 'compressorPictureUrl'].forEach(function (k) {
     if (record[k].length > MAX_CELL_CHARS) {
       throw new Error('That image is too large to store (' +
         Math.round(record[k].length / 1024) + ' KB, and the limit is ' +

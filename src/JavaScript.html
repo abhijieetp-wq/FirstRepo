@@ -9735,7 +9735,7 @@
 
   function setSetMode(mode) {
     if (setMode === "company" && mode !== "company") {
-      pendingImages = { logo: null, partner: null, seal: null };
+      pendingImages = { logo: null, partner: null, seal: null, compressor: null };
     }
     setMode = mode;
     SET_SUBTABS.forEach(function (m) {
@@ -10846,7 +10846,9 @@
   var IMAGE_LIMITS = {
     logo:    { w: 400, h: 300 },
     partner: { w: 320, h: 180 },
-    seal:    { w: 300, h: 200 }
+    seal:    { w: 300, h: 200 },
+    // Printed across the page, so it keeps more width than a logo.
+    compressor: { w: 900, h: 340 }
   };
 
   function readImageAsDataUri(file, maxW, maxH, done, fail) {
@@ -10875,7 +10877,11 @@
           var fx = flat.getContext("2d");
           fx.fillStyle = "#fff"; fx.fillRect(0, 0, w, h);
           fx.drawImage(img, 0, 0, w, h);
-          uri = flat.toDataURL("image/jpeg", 0.82);
+          // A photograph — the compressor range — can need a little more squeezing than that.
+          [0.82, 0.72, 0.62, 0.52].some(function (q) {
+            uri = flat.toDataURL("image/jpeg", q);
+            return uri.length <= 48000;
+          });
         }
         if (uri.length > 48000) {
           fail("Even after resizing, that image is too large to store. Try a simpler PNG.");
@@ -10909,8 +10915,9 @@
   }
 
   // Held between picking a file and pressing Save, so the preview survives the re-render.
-  var pendingImages = { logo: null, partner: null, seal: null };
-  var IMAGE_TO_FIELD = { logo: "logoUrl", partner: "partnerLogoUrl", seal: "sealUrl" };
+  var pendingImages = { logo: null, partner: null, seal: null, compressor: null };
+  var IMAGE_TO_FIELD = { logo: "logoUrl", partner: "partnerLogoUrl", seal: "sealUrl",
+    compressor: "compressorPictureUrl" };
 
   function renderCompanyPanel() {
     var co = setData.companyProfile || {};
@@ -10940,6 +10947,9 @@
         imageFieldHtml("seal", "Company Seal",
           "Leave empty if the seal is stamped on the printed page by hand.",
           pendingImages.seal, editable) +
+        imageFieldHtml("compressor", "Compressor Offer Picture",
+          "Printed above the specification tables on every compressor quotation.",
+          pendingImages.compressor, editable) +
       "</div>" +
       '<label class="check-line" style="margin-top:10px;">' +
         '<input type="checkbox" id="co-logoShowsName"' +
@@ -10996,7 +11006,7 @@
       payload.logoShowsName = $("co-logoShowsName").checked;
       srv.withSuccessHandler(function () {
         // re-read from what was actually stored
-        pendingImages = { logo: null, partner: null, seal: null };
+        pendingImages = { logo: null, partner: null, seal: null, compressor: null };
         loadSettings();
         showMsg("Letterhead saved. Every quotation printed from now on carries it.", "success");
       }).withFailureHandler(onServerError).saveCompanyProfile(payload);

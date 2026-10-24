@@ -14,6 +14,8 @@ const path = require('path');
 const { chromium } = require(path.join(__dirname, '..', 'node_modules', 'playwright'));
 
 const PREVIEW = process.argv[2];
+// A real picture to try the upload with, if given; otherwise one is drawn.
+const PICTURE = process.argv[3];
 let pass = 0;
 const failures = [];
 const ok = (label, cond, detail) => {
@@ -98,6 +100,50 @@ const ok = (label, cond, detail) => {
   await page.waitForTimeout(300);
   sent = await saved();
   ok('sent in capitals, trimmed', sent && sent.appliesTo === 'EG, EN' && !sent.id, sent);
+
+  console.log('\nTHE COMPRESSOR OFFER PICTURE, ON THE LETTERHEAD PANEL');
+  await page.evaluate(() => { window.__data.saveCompanyProfile = (o) => o; window.__calls = []; });
+  await page.evaluate(() => document.querySelector('#subtab-company').click());
+  await page.waitForTimeout(300);
+  ok('it has a place beside the logos', /Compressor Offer Picture/.test(await page.$eval('#set-panel', (e) => e.textContent)));
+  // A wide picture, larger than it needs to be, the way one arrives from a brochure.
+  const upload = PICTURE || null;
+  if (upload) {
+    await page.setInputFiles('#compressor-file', upload);
+  } else {
+    await page.evaluate(async () => {
+      const c = document.createElement('canvas'); c.width = 1800; c.height = 620;
+      const x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 1800, 620);
+      g.addColorStop(0, '#eeeeee'); g.addColorStop(1, '#333333');
+      x.fillStyle = g; x.fillRect(0, 0, 1800, 620);
+      for (let i = 0; i < 40; i++) {
+        x.fillStyle = ['#c00', '#111', '#ddd', '#888'][i % 4];
+        x.fillRect((i * 97) % 1700, (i * 53) % 560, 80 + (i * 13) % 120, 40 + (i * 7) % 90);
+      }
+      const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+      const dt = new DataTransfer();
+      dt.items.add(new File([blob], 'range.png', { type: 'image/png' }));
+      const inp = document.querySelector('#compressor-file');
+      inp.files = dt.files;
+      inp.dispatchEvent(new Event('change'));
+    });
+  }
+  await page.waitForTimeout(800);
+  await page.click('#btn-save-company');
+  await page.waitForTimeout(300);
+  const co = await page.evaluate(() => {
+    const c = window.__calls.filter((x) => x.fn === 'saveCompanyProfile');
+    return c.length ? c[c.length - 1].args[0] : null;
+  });
+  const pic = co && co.compressorPictureUrl || '';
+  ok('it is resized and saved with the letterhead', /^data:image\/(png|jpeg);base64,/.test(pic) && pic.length <= 48000,
+    [pic.slice(0, 30), pic.length]);
+  const dims = await page.evaluate((src) => new Promise((r) => {
+    const i = new Image(); i.onload = () => r([i.width, i.height]); i.src = src;
+  }), pic);
+  ok('no wider than the page needs', dims[0] <= 900 && dims[1] <= 340, dims);
+  ok('the logos travel with it untouched', co && 'logoUrl' in co && 'partnerLogoUrl' in co && 'sealUrl' in co);
 
   ok('no page errors anywhere', errors.length === 0, errors);
   await browser.close();

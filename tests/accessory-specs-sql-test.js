@@ -35,7 +35,7 @@ const ok = (label, cond, detail) => {
 const TENANT = 'accessory-test';
 const BOSS = { email: 'boss@pie.in', name: 'Anil Shah', role: 'ERP Admin' };
 const TABLES = ['users', 'customers', 'customer_addresses', 'products', 'spares', 'price_list',
-  'quotations', 'quotation_items', 'quote_templates', 'audit_log'];
+  'quotations', 'quotation_items', 'quote_templates', 'company_profile', 'audit_log'];
 
 /** The table printed under a heading: from the heading to the end of its table. */
 const tableAfter = (html, title) => {
@@ -303,6 +303,29 @@ const SPEC_CSV = '﻿' + [
     cells(spareRows[0]));
   ok('and the figures moved with their headings', JSON.stringify(cells(spareRows[1]).slice(4)) ===
     JSON.stringify(['1', '₹ 3,32,000.00', '₹ 3,32,000.00']), cells(spareRows[1]));
+
+  console.log('\nTHE PICTURE OF THE RANGE OPENS THE SPECIFICATIONS');
+  const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=';
+  html = await offer([['Product', 'PR-EG'], ['Spare', 'SP-DRY']]);
+  ok('no picture until one is set', html.indexOf('<div class="offer-picture">') === -1);
+  const co = await p.getCompanyProfile();
+  await p.saveCompanyProfile(Object.assign({}, co, { compressorPictureUrl: PIC }));
+  html = await offer([['Product', 'PR-EG'], ['Spare', 'SP-DRY']]);
+  const picAt = html.indexOf('<div class="offer-picture"><img src="' + PIC + '" /></div>');
+  ok('set once, it prints on a compressor offer', picAt !== -1);
+  ok('after the heading and before the first table', picAt > html.indexOf('Technical specifications</div>') &&
+    picAt < html.indexOf('<div class="spec-block">'), [picAt, html.indexOf('<div class="spec-block">')]);
+  ok('once', html.split('offer-picture"><img').length === 2);
+  html = await offer([['Product', 'PR-EQ']]);
+  ok('on every series', html.indexOf(PIC) !== -1);
+  html = await offer([['Spare', 'SP-DRY']], 'Spare Sales');
+  ok('never on a spares offer', html.indexOf(PIC) === -1);
+  let tooBig = '';
+  try { await p.saveCompanyProfile(Object.assign({}, co, { compressorPictureUrl: 'data:image/jpeg;base64,' + 'A'.repeat(60000) })); }
+  catch (e) { tooBig = e.message; }
+  ok('a picture too large to store is refused with a reason', /too large to store/.test(tooBig), tooBig);
+  await p.saveCompanyProfile(Object.assign({}, co, { compressorPictureUrl: '' }));
+  ok('and removing it removes it', (await offer([['Product', 'PR-EG']])).indexOf('<div class="offer-picture">') === -1);
 
   console.log('\nTHE SERIES SURVIVES AN EDIT OF THE TEXT');
   const tpl = (await p.listQuoteTemplates({ includeInactive: true })).find((t) => t.id === 'QTPL-COMP-SCOPE-EG');

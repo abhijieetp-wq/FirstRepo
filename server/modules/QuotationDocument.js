@@ -594,6 +594,11 @@ async function buildQuotationHtml(quotationId) {
   if (specced.length) {
     push('<div class="page-break"></div>');
     push('<div class="h1">' + esc_(L('specHeading', 'Technical specifications')) + '</div>');
+    // The picture of the range that opens the specifications on every one of PIE's compressor
+    // offers, the same whatever the model. Set once in Settings → Letterhead.
+    if (isCompressor && String(co.compressorPictureUrl || '').trim()) {
+      push('<div class="offer-picture"><img src="' + esc_(co.compressorPictureUrl) + '" /></div>');
+    }
     var specNote = await quoteTemplate_('SpecNote', stream, series);
     if (specNote) push('<div class="note">' + esc_(String(specNote.body).trim()) + '</div>');
     specced.forEach(function (i) {
@@ -1120,6 +1125,8 @@ function quotationCss_(co) {
     '.note{font-size:9pt;color:#444;margin:6px 0 8px;font-style:italic;}' +
 
     '.spec-block{page-break-inside:avoid;break-inside:avoid;}' +
+    '.offer-picture{text-align:center;margin:4px 0 8px;page-break-inside:avoid;}' +
+    '.offer-picture img{max-width:100%;max-height:6.5cm;}' +
     '.spec-title{font-weight:bold;margin:10px 0 4px;page-break-after:avoid;break-after:avoid;}' +
     'table.spec{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
     'table.spec th{background:#eee;text-align:left;padding:5px 8px;border:1px solid #999;}' +

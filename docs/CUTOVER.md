@@ -181,6 +181,12 @@ parts keep their own descriptions. Anything typed into a part's *Specification t
 website before the switch is in the old database only, and needs typing again or adding to
 this file.
 
+Then the picture that opens a compressor offer's specifications: Settings → Letterhead →
+**Compressor Offer Picture** → Upload → `compressor-offer-picture.jpg` (in the data pack) →
+**Save Letterhead**. The Sheet has no column for it, so it does not come across. Check the
+logos are still there while you are on that panel: any uploaded on the website rather than
+the old portal are in the old database only, and need uploading again too.
+
 Standard quotation text the Sheet never had — the EG's scope of supply, and the wording of
 PIE's compressor price schedule — is installed on the first load after the switch, because
 step 5b leaves the build stamp behind. Settings → Quotation Text should list two *Scope of
