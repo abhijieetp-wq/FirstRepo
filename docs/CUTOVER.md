@@ -46,6 +46,11 @@ you will not be rushed.
    collected this month, open quotations. Those are the numbers that must match.
 4. **Decide who is told what afterwards.** The URL changes. People have the old one
    bookmarked.
+5. **Have the data pack on the PC.** `PIE-data-pack-<date>.zip` — every file PIE shared
+   while the website was built, and the upload files made from them. Its folder
+   `2-upload-after-cutover` holds the three files step 6 uploads. The pack is not in git
+   (ELGi's prices and spec sheets are confidential) and the cloud machine that made it is
+   temporary, so the copy on the PC or in engage@'s private Drive is the only one.
 
 ---
 
