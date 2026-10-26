@@ -534,6 +534,35 @@ const ok = (label, cond, detail) => {
   ok('with nothing to choose into', (await page.$$('[data-pk-choose]')).length === 0);
   await page.evaluate(() => document.querySelector('#btn-pk-close').click());
 
+  // ------------------------------------------------------------- the customer's e-mail
+  console.log('\nAN OFFER WITH NO E-MAIL TO PRINT SAYS SO');
+  // Whatever an earlier check left open is closed first; it is not what this looks at.
+  const openQuote = () => page.evaluate(() => {
+    document.querySelectorAll('.modal-backdrop.show').forEach((m) => m.classList.remove('show'));
+    document.querySelector('[data-open-quote]').click();
+  });
+  await page.evaluate(() => {
+    const D = window.__data;
+    D.getQuotation = Object.assign({}, D.getQuotation, { status: 'Draft', locked: false,
+      printEmail: '', emailGap: 'Test Customer has no e-mail address on file, so the offer will ' +
+        'print without one. Add it to a contact on their record (Customers) and it prints here.' });
+  });
+  await go('quotations');
+  await page.waitForTimeout(300);
+  await openQuote();
+  await page.waitForTimeout(600);
+  ok('a warning above the quotation, saying where to add it',
+    !!(await page.$('[data-email-gap]')) && /Customers/.test(await text('[data-email-gap]')));
+  await page.evaluate(() => {
+    window.__data.getQuotation = Object.assign({}, window.__data.getQuotation,
+      { printEmail: 'buyer@test.in', emailGap: '' });
+  });
+  await go('quotations');
+  await page.waitForTimeout(300);
+  await openQuote();
+  await page.waitForTimeout(600);
+  ok('and none once there is one', !(await page.$('[data-email-gap]')));
+
   ok('no page errors anywhere', errors.length === 0, errors);
   await browser.close();
   console.log('\n' + (failures.length

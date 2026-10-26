@@ -78,8 +78,9 @@ var SCHEMA = {
       // signature, the brand the numbering is built from, and what the app calls itself.
       'sealUrl', 'signOffPhone', 'salutation', 'signOffLine', 'defaultBrand', 'appName',
       'appSubtitle', 'logoShowsName', 'partnerLogoUrl', 'docAccentColor',
-      // The picture of the range above the specification tables on a compressor offer.
-      'compressorPictureUrl']
+      // The picture of the range above the specification tables on a compressor offer, and
+      // the two drawings on its installation page.
+      'compressorPictureUrl', 'airSystemPictureUrl', 'placementPictureUrl']
   },
   QuoteTemplates: {
     label: 'The standing text on a quotation — cover letter, scope of supply, terms',

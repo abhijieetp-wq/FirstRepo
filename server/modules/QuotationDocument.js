@@ -78,9 +78,10 @@ function templateLines_(body) {
 }
 
 /**
- * The compressor series a template is written for, off its "Applies to" column: "EG",
- * "EG, EN". None means every series. "All", which is what the lost-reasons list uses for the
- * same idea, is read as none rather than as a series called ALL.
+ * What a template is written for, off its "Applies to" column: compressor series ("EG",
+ * "EQ, EN") or a kind of machine ("RECIP", "DRYER"). None means every offer. "All", which is
+ * what the lost-reasons list uses for the same idea, is read as none rather than as a series
+ * called ALL.
  */
 function templateSeries_(tpl) {
   return String(tpl && tpl.appliesTo || '').toUpperCase().split(/[\s,;\/]+/)
@@ -100,6 +101,21 @@ function productSeries_(p) {
 }
 
 /**
+ * What kind of machine a product is, for the wording that differs by kind — PIE titles a
+ * screw compressor, a reciprocating compressor and a dryer differently. Read off the family,
+ * the category and the description, so it needs no new column: a product whose family says
+ * "Reciprocating" is a RECIP, one that says "Dryer" a DRYER, and anything else — every
+ * lubricated screw in the catalogue — a SCREW.
+ */
+function productKind_(p) {
+  if (!p) return '';
+  var text = [p.family, p.category, p.description].join(' ');
+  if (/recip/i.test(text)) return 'RECIP';
+  if (/dryer|drier/i.test(text)) return 'DRYER';
+  return 'SCREW';
+}
+
+/**
  * The active template for a section.
  *
  * A section can have a row for one stream and a general row for both, and a row for one
@@ -112,7 +128,9 @@ function productSeries_(p) {
  * one series is never printed on an offer for another, or on a spares offer, which has none.
  */
 async function quoteTemplate_(section, stream, series) {
-  var want = String(series || '').trim().toUpperCase();
+  // One key or several: an offer is for a series and a kind of machine at once.
+  var want = [].concat(series || []).map(function (k) { return String(k || '').trim().toUpperCase(); })
+    .filter(Boolean);
   var best;
   var bestScore = -1;
   (await readTable_('QuoteTemplates')).forEach(function (t) {
@@ -120,7 +138,7 @@ async function quoteTemplate_(section, stream, series) {
     if (String(t.active).toUpperCase() === 'FALSE') return;
     if (t.businessStream && t.businessStream !== stream) return;
     var applies = templateSeries_(t);
-    if (applies.length && applies.indexOf(want) === -1) return;
+    if (applies.length && !applies.some(function (k) { return want.indexOf(k) !== -1; })) return;
     var score = (applies.length ? 2 : 0) + (t.businessStream === stream ? 1 : 0);
     if (score > bestScore) { best = t; bestScore = score; }
   });
@@ -155,6 +173,74 @@ async function docLabels_(stream) {
     });
   });
   return out;
+}
+
+/**
+ * The installation page, laid out as PIE's: an opening line, the picture of the compressed-air
+ * system, the placement points numbered 1 to 6 with the clearance drawing after the two that
+ * refer to it, and the closing note.
+ *
+ * The text says where things go, so PIE can reword it without a code change:
+ *   - a line "[picture: air system]" or "[picture: placement]" places that picture, uploaded
+ *     in Settings → Letterhead (nothing prints until one is);
+ *   - a line ending in a colon is a heading; the lines under it are numbered, and the numbers
+ *     run on across a picture;
+ *   - a line starting "Note:" is the closing note, in bold;
+ *   - lines before the first heading are plain paragraphs.
+ *
+ * Text written before any of this — one numbered point per line, no headings, no pictures —
+ * still prints as it did, with the pictures where PIE puts them: the system at the top and
+ * the clearance drawing after the second point.
+ */
+function installationHtml_(body, co) {
+  var lines = templateLines_(body);
+  var isPicture = function (l) { return /^\[picture:\s*[^\]]+\]$/i.test(l); };
+  var isHeading = function (l) { return /:$/.test(l); };
+  var isNote = function (l) { return /^note\s*:/i.test(l); };
+  var pictures = {
+    'air system': co.airSystemPictureUrl,
+    'placement': co.placementPictureUrl
+  };
+  if (!lines.some(function (l) { return isPicture(l) || isHeading(l); })) {
+    var numbered = 0;
+    var placed = [];
+    lines.forEach(function (l) {
+      placed.push(l);
+      if (!isNote(l) && ++numbered === 2) placed.push('[picture: placement]');
+    });
+    // Everything in the old text is a numbered point, so it reads as if under a heading.
+    lines = ['[picture: air system]', ':'].concat(placed);
+  }
+
+  var html = [];
+  var inList = false;
+  var afterHeading = false;
+  var number = 0;
+  var closeList = function () { if (inList) { html.push('</ol>'); inList = false; } };
+  lines.forEach(function (l) {
+    if (isPicture(l)) {
+      closeList();
+      var key = l.replace(/^\[picture:\s*/i, '').replace(/\]$/, '').trim().toLowerCase();
+      var src = String(pictures[key] || '').trim();
+      if (src) html.push('<div class="offer-picture"><img src="' + esc_(src) + '" /></div>');
+    } else if (isNote(l)) {
+      closeList();
+      html.push('<p class="install-note">' + esc_(l) + '</p>');
+    } else if (isHeading(l)) {
+      closeList();
+      if (l !== ':') html.push('<div class="scope-head">' + esc_(l) + '</div>');
+      afterHeading = true;
+      number = 0;
+    } else if (afterHeading) {
+      if (!inList) { html.push('<ol start="' + (number + 1) + '">'); inList = true; }
+      html.push('<li>' + esc_(l) + '</li>');
+      number++;
+    } else {
+      html.push('<p>' + esc_(l) + '</p>');
+    }
+  });
+  closeList();
+  return html.join('');
 }
 
 /** Whether a part carries any of the specification table a compressor offer prints. */
@@ -330,9 +416,15 @@ async function buildQuotationHtml(quotationId) {
   var customer = (await readTable_('Customers')).filter(function (c) {
     return String(c.id) === String(q.customerId);
   })[0] || {};
-  var contact = (await readTable_('CustomerContacts')).filter(function (c) {
+  var customerContacts = (await readTable_('CustomerContacts')).filter(function (c) {
+    return String(c.customerId) === String(q.customerId);
+  });
+  var contact = customerContacts.filter(function (c) {
     return String(c.id) === String(q.contactId);
   })[0] || {};
+  // The customer's e-mail, which PIE wants on every offer: the addressed person's, or else the
+  // customer's own (their primary contact's) when that person has none on file.
+  var customerEmail = quoteEmailFor_(q.contactId, customerContacts);
   // Refuses rather than prints a name over blank space; the message names the record to fix.
   await requireQuoteAddress_(q);
   var address = await resolveQuoteAddress_(q) || {};
@@ -377,6 +469,13 @@ async function buildQuotationHtml(quotationId) {
     if (ps && seriesOnOffer.indexOf(ps) === -1) seriesOnOffer.push(ps);
   });
   var series = seriesOnOffer[0] || '';
+  // The kind of machine the offer leads with — screw, reciprocating, dryer — for the title.
+  var leadProduct = items.filter(function (i) {
+    return i.itemType === 'Product' && products[String(i.itemId)];
+  })[0];
+  var offerKind = leadProduct ? productKind_(products[String(leadProduct.itemId)]) : '';
+  // What any series- or kind-specific text is chosen by.
+  var offerKeys = [series, offerKind].filter(Boolean);
 
   // One row, and only when the offer came from an enquiry at all.
   var enquiryNo = '';
@@ -474,7 +573,7 @@ async function buildQuotationHtml(quotationId) {
   push('<tbody><tr><td>');
 
   // ---------------------------------------------------------------- page 1: the letter
-  var titleTpl = await quoteTemplate_('DocumentTitle', stream, series);
+  var titleTpl = await quoteTemplate_('DocumentTitle', stream, offerKeys);
   if (titleTpl) {
     if (titleTpl.title) push('<div class="doc-title">' + esc_(titleTpl.title) + '</div>');
     if (titleTpl.body) push('<div class="doc-sub">' + esc_(String(titleTpl.body).trim()) + '</div>');
@@ -501,10 +600,10 @@ async function buildQuotationHtml(quotationId) {
       ? esc_(L('attention', 'Kind Attention')) + ': ' + esc_(plainName_(contact.name)) + '<br />'
       : '') +
     (contact.phone ? esc_(L('mobile', 'Mobile No')) + ': ' + esc_(contact.phone) + '<br />' : '') +
-    (contact.email ? esc_(L('email', 'Email Id')) + ': ' + esc_(contact.email) : '') +
+    (customerEmail ? esc_(L('email', 'Email Id')) + ': ' + esc_(customerEmail) : '') +
     '</div>');
 
-  var cover = await quoteTemplate_('CoverLetter', stream, series);
+  var cover = await quoteTemplate_('CoverLetter', stream, offerKeys);
   if (cover) {
     if (cover.title) {
       push('<div class="subject"><b>' + esc_(L('subject', 'Subject')) + ':</b> ' +
@@ -530,7 +629,7 @@ async function buildQuotationHtml(quotationId) {
     return false;
   });
 
-  var why = await quoteTemplate_('WhyBrand', stream, series);
+  var why = await quoteTemplate_('WhyBrand', stream, offerKeys);
   if (why) {
     push('<div class="h2">' + esc_(why.title) + '</div>');
     push(bulletList_(templateLines_(why.body), false));
@@ -559,17 +658,17 @@ async function buildQuotationHtml(quotationId) {
     enclosures.push(L('scopeHeading', 'Scope of supply'));
   }
   enclosures.push(L('enclPrice', 'Price schedule'));
-  if (await quoteTemplate_('Terms', stream, series)) enclosures.push(L('enclTerms', 'Commercial terms and conditions'));
-  if (isCompressor && await quoteTemplate_('InstallationNotes', stream, series)) {
+  if (await quoteTemplate_('Terms', stream, offerKeys)) enclosures.push(L('enclTerms', 'Commercial terms and conditions'));
+  if (isCompressor && await quoteTemplate_('InstallationNotes', stream, offerKeys)) {
     enclosures.push(L('enclInstall', 'Installation guidelines'));
   }
   // Documents that travel with the offer but are not generated by it — the UPTIME Assurance
   // annexure above all, which is ELGi's own and comes as it is. Listed here so the reader is
   // told what is in the envelope, which is the whole point of this list.
-  if (isCompressor && await quoteTemplate_('UptimeWarranty', stream, series)) {
+  if (isCompressor && await quoteTemplate_('UptimeWarranty', stream, offerKeys)) {
     enclosures.push(L('enclUptime', 'UPTIME Warranty'));
   }
-  var extraEncl = await quoteTemplate_('ExtraEnclosures', stream, series);
+  var extraEncl = await quoteTemplate_('ExtraEnclosures', stream, offerKeys);
   if (extraEncl) {
     templateLines_(extraEncl.body).forEach(function (line) {
       // The annexure prints now, so the standing "attached separately" list must not name it
@@ -582,7 +681,7 @@ async function buildQuotationHtml(quotationId) {
   enclosures.forEach(function (e) { push('<li>' + esc_(e) + '</li>'); });
   push('</ul>');
 
-  var closing = await quoteTemplate_('Closing', stream, series);
+  var closing = await quoteTemplate_('Closing', stream, offerKeys);
   if (closing) {
     String(closing.body).split('\n\n').forEach(function (para) {
       if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
@@ -593,13 +692,17 @@ async function buildQuotationHtml(quotationId) {
   // ---------------------------------------------------------------- specifications
   if (specced.length) {
     push('<div class="page-break"></div>');
-    push('<div class="h1">' + esc_(L('specHeading', 'Technical specifications')) + '</div>');
+    // A compressor offer heads its specifications with what the machine is — "ELGi ELECTRIC
+    // POWERED OIL SCREW AIR COMPRESSOR", or the reciprocating or dryer wording — as PIE's own
+    // offers do: the document title for the kind of machine quoted.
+    push('<div class="h1">' + esc_(isCompressor && titleTpl && titleTpl.title
+      ? titleTpl.title : L('specHeading', 'Technical specifications')) + '</div>');
     // The picture of the range that opens the specifications on every one of PIE's compressor
     // offers, the same whatever the model. Set once in Settings → Letterhead.
     if (isCompressor && String(co.compressorPictureUrl || '').trim()) {
       push('<div class="offer-picture"><img src="' + esc_(co.compressorPictureUrl) + '" /></div>');
     }
-    var specNote = await quoteTemplate_('SpecNote', stream, series);
+    var specNote = await quoteTemplate_('SpecNote', stream, offerKeys);
     if (specNote) push('<div class="note">' + esc_(String(specNote.body).trim()) + '</div>');
     specced.forEach(function (i) {
       if (i.itemType === 'Spare') {
@@ -637,8 +740,9 @@ async function buildQuotationHtml(quotationId) {
 
   scopes.forEach(function (sc) {
     var heading = sc.tpl.title || L('scopeHeading', 'Scope of supply');
-    // Named by series only when there is more than one to tell apart.
-    if (scopes.length > 1 && sc.series.length) {
+    // Named by series when the offer quotes more than one, so an EG with an EL beside it
+    // does not read as if the EG's scope covered both.
+    if (seriesOnOffer.length > 1 && sc.series.length) {
       heading += ' \u2014 ' + sc.series.join(', ') + ' ' + L('seriesWord', 'series');
     }
     push('<div class="h1">' + esc_(heading) + '</div>');
@@ -804,7 +908,7 @@ async function buildQuotationHtml(quotationId) {
   push('</tbody></table>');
 
   // ---------------------------------------------------------------- terms
-  var terms = await quoteTemplate_('Terms', stream, series);
+  var terms = await quoteTemplate_('Terms', stream, offerKeys);
   if (terms) {
     // The standing terms carry a validity clause in general words; this quotation knows the
     // actual number of days and the actual date. Rather than print both and contradict
@@ -834,7 +938,7 @@ async function buildQuotationHtml(quotationId) {
 
   // They close twice, and differently: the letter ends by inviting questions, the terms end by
   // asking for a meeting. Printing the first one again in the second place loses that.
-  var closingFinal = await quoteTemplate_('ClosingFinal', stream, series);
+  var closingFinal = await quoteTemplate_('ClosingFinal', stream, offerKeys);
   if (closingFinal) {
     String(closingFinal.body).split('\n\n').forEach(function (para) {
       if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
@@ -846,18 +950,18 @@ async function buildQuotationHtml(quotationId) {
   // asked for the two documents to agree.
 
   // ---------------------------------------------------------------- installation
-  var install = await quoteTemplate_('InstallationNotes', stream, series);
+  var install = await quoteTemplate_('InstallationNotes', stream, offerKeys);
   if (install && isCompressor) {
     push('<div class="page-break"></div>');
     push('<div class="h1">' + esc_(install.title) + '</div>');
-    push(bulletList_(templateLines_(install.body), true));
+    push(installationHtml_(install.body, co));
   }
 
   // ---------------------------------------------------------------- UPTIME warranty
   // ELGi's annexure, printed rather than attached. It is a page that gets filled in by hand
   // and signed by both sides at commissioning, so the fields print as ruled blanks: an
   // attachment nobody can sign is worth nothing, which is why it is here at all.
-  var uptime = await quoteTemplate_('UptimeWarranty', stream, series);
+  var uptime = await quoteTemplate_('UptimeWarranty', stream, offerKeys);
   if (uptime && isCompressor) {
     push('<div class="page-break"></div>');
     push('<div class="h1">' + esc_(uptime.title) + '</div>');
@@ -1127,6 +1231,7 @@ function quotationCss_(co) {
     '.spec-block{page-break-inside:avoid;break-inside:avoid;}' +
     '.offer-picture{text-align:center;margin:4px 0 8px;page-break-inside:avoid;}' +
     '.offer-picture img{max-width:100%;max-height:6.5cm;}' +
+    '.install-note{font-weight:bold;margin-top:10px;}' +
     '.spec-title{font-weight:bold;margin:10px 0 4px;page-break-after:avoid;break-after:avoid;}' +
     'table.spec{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:10pt;}' +
     'table.spec th{background:#eee;text-align:left;padding:5px 8px;border:1px solid #999;}' +

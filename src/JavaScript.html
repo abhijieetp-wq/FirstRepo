@@ -3613,6 +3613,12 @@
         ? '<div class="msg msg-error show" style="position:static; margin-bottom:16px;">' +
           '<span class="msg-text"><b>No address to print.</b> ' + escapeHtml(q.addressGap) +
           ' Until then this quotation can be built, but not printed, emailed or sent.</span></div>'
+        : "") +
+      // The customer's e-mail prints on every offer. When there is none on file, said here.
+      (q.emailGap && !q.addressGap
+        ? '<div class="msg msg-warn show" data-email-gap style="position:static; margin-bottom:16px;">' +
+          '<span class="msg-text"><b>No e-mail address to print.</b> ' + escapeHtml(q.emailGap) +
+          "</span></div>"
         : "");
 
     // A draft can still be re-addressed; anything locked shows the name as plain text.
@@ -9735,7 +9741,7 @@
 
   function setSetMode(mode) {
     if (setMode === "company" && mode !== "company") {
-      pendingImages = { logo: null, partner: null, seal: null, compressor: null };
+      pendingImages = { logo: null, partner: null, seal: null, compressor: null, airsystem: null, placement: null };
     }
     setMode = mode;
     SET_SUBTABS.forEach(function (m) {
@@ -10848,7 +10854,9 @@
     partner: { w: 320, h: 180 },
     seal:    { w: 300, h: 200 },
     // Printed across the page, so it keeps more width than a logo.
-    compressor: { w: 900, h: 340 }
+    compressor: { w: 900, h: 340 },
+    airsystem: { w: 900, h: 340 },
+    placement: { w: 900, h: 340 }
   };
 
   function readImageAsDataUri(file, maxW, maxH, done, fail) {
@@ -10915,9 +10923,10 @@
   }
 
   // Held between picking a file and pressing Save, so the preview survives the re-render.
-  var pendingImages = { logo: null, partner: null, seal: null, compressor: null };
+  var pendingImages = { logo: null, partner: null, seal: null, compressor: null, airsystem: null, placement: null };
   var IMAGE_TO_FIELD = { logo: "logoUrl", partner: "partnerLogoUrl", seal: "sealUrl",
-    compressor: "compressorPictureUrl" };
+    compressor: "compressorPictureUrl", airsystem: "airSystemPictureUrl",
+    placement: "placementPictureUrl" };
 
   function renderCompanyPanel() {
     var co = setData.companyProfile || {};
@@ -10950,6 +10959,12 @@
         imageFieldHtml("compressor", "Compressor Offer Picture",
           "Printed above the specification tables on every compressor quotation.",
           pendingImages.compressor, editable) +
+        imageFieldHtml("airsystem", "Air System Drawing",
+          "The compressed-air system, at the top of a compressor quotation's installation page.",
+          pendingImages.airsystem, editable) +
+        imageFieldHtml("placement", "Placement Drawing",
+          "The clearances around the compressor, on the installation page after point 2.",
+          pendingImages.placement, editable) +
       "</div>" +
       '<label class="check-line" style="margin-top:10px;">' +
         '<input type="checkbox" id="co-logoShowsName"' +
@@ -11006,7 +11021,7 @@
       payload.logoShowsName = $("co-logoShowsName").checked;
       srv.withSuccessHandler(function () {
         // re-read from what was actually stored
-        pendingImages = { logo: null, partner: null, seal: null, compressor: null };
+        pendingImages = { logo: null, partner: null, seal: null, compressor: null, airsystem: null, placement: null };
         loadSettings();
         showMsg("Letterhead saved. Every quotation printed from now on carries it.", "success");
       }).withFailureHandler(onServerError).saveCompanyProfile(payload);

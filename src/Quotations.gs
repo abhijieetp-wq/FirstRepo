@@ -311,7 +311,7 @@ function createBlankQuotation(input) {
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_(defaultBrand_()),
+    quoteNo: nextQuoteNo_(defaultBrand_(), stream),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
@@ -376,7 +376,7 @@ function createQuotationFromEnquiry(spareEnquiryId) {
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_(defaultBrand_()),
+    quoteNo: nextQuoteNo_(defaultBrand_(), STREAM_SPARE),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),
@@ -499,6 +499,12 @@ function getQuotation(id) {
   // The customer record behind this offer may have no address to print. Said here, while the
   // quotation is still being built, rather than at the print button.
   row.addressGap = quoteAddressGap_(q);
+  // The e-mail the offer will print, and what to do when there is none: PIE wants the
+  // customer's address on every offer, and the place to add it is the customer's record.
+  row.printEmail = quoteEmailFor_(q.contactId, row.contactChoices);
+  row.emailGap = row.printEmail ? '' : (customer ? customer.name : 'This customer') +
+    ' has no e-mail address on file, so the offer will print without one. Add it to a ' +
+    'contact on their record (Customers) and it prints here.';
   row.billingAddressId = q.billingAddressId;
   // Where this offer stands in the order-to-cash run, read off the records that own each
   // step rather than duplicated onto the quotation.
@@ -1322,6 +1328,21 @@ function payableTotal_(q) {
   return roundMoney_(String(q.taxMode || 'Extra') === 'Extra' ? grand + tax : grand);
 }
 
+/**
+ * The e-mail address an offer prints: the addressed person's; or, when they have none on
+ * file, the customer's primary contact's; or any contact's at all. Only active contacts, and
+ * only addresses that are actually there.
+ */
+function quoteEmailFor_(contactId, contacts) {
+  var withMail = (contacts || []).filter(function (c) {
+    return String(c.email || '').trim() && String(c.active).toUpperCase() !== 'FALSE';
+  });
+  var primary = function (c) { return c.isPrimary === true || String(c.isPrimary).toUpperCase() === 'TRUE'; };
+  var chosen = withMail.filter(function (c) { return String(c.id) === String(contactId || ''); })[0] ||
+    withMail.filter(primary)[0] || withMail[0];
+  return chosen ? String(chosen.email).trim() : '';
+}
+
 /** One quotation row, from the block this request will want the rest of anyway. */
 function quotationRow_(quotationId) {
   return readTable_('Quotations').filter(function (q) {
@@ -1422,7 +1443,7 @@ function masterRecordFor_(itemType, itemId) {
  * serial. The brand sits inside the number, which is exactly what a second brand will need.
  * The serial runs on across the financial year rather than resetting monthly, as theirs does.
  */
-function nextQuoteNo_(brand) {
+function nextQuoteNo_(brand, stream) {
   var profile = readTable_('CompanyProfile').filter(function (c) {
     return String(c.id) === 'CO-1';
   })[0];
@@ -1435,15 +1456,26 @@ function nextQuoteNo_(brand) {
       '/' + String(brand).toUpperCase() + '/');
   }
 
+  // A word at the front says which kind of offer it is, so the number alone tells a units
+  // quotation from a spares one: UNIT/PIE/ELGI/QUOT/26-27/45, SPARE/PIE/ELGI/QUOT/26-27/46.
+  // The serial is shared — it runs on across both kinds and across numbers written before the
+  // word was added — so no two offers ever carry the same serial in a year.
+  var tag = stream === STREAM_SPARE ? QUOTE_TAG_SPARE : QUOTE_TAG_UNIT;
   var prefix = base + '/' + indianFinancialYear_() + '/';
+  var esc = function (t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
+  var pattern = new RegExp('^(?:(?:' + esc(QUOTE_TAG_UNIT) + '|' + esc(QUOTE_TAG_SPARE) + ')/)?' +
+    esc(prefix) + '(\\d+)$');
   var highest = 0;
   readTable_('Quotations').forEach(function (q) {
-    var m = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\d+)$')
-      .exec(String(q.quoteNo || '').trim());
+    var m = pattern.exec(String(q.quoteNo || '').trim());
     if (m) highest = Math.max(highest, Number(m[1]));
   });
-  return prefix + String(highest + 1);
+  return tag + '/' + prefix + String(highest + 1);
 }
+
+/** The word at the front of a quotation number, by stream (nextQuoteNo_). */
+var QUOTE_TAG_UNIT = 'UNIT';
+var QUOTE_TAG_SPARE = 'SPARE';
 
 /** India's financial year runs April to March, and is written 26-27. */
 function indianFinancialYear_(date) {
@@ -1506,7 +1538,7 @@ function createQuotationFromOpportunity(opportunityId) {
 
   var quote = {
     id: generateId_('QT-'),
-    quoteNo: nextQuoteNo_(defaultBrand_()),
+    quoteNo: nextQuoteNo_(defaultBrand_(), STREAM_COMPRESSOR),
     revision: 'R0',
     parentQuotationId: '',
     date: todayIso_(),

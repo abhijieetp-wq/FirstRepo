@@ -34,8 +34,8 @@ const ok = (label, cond, detail) => {
 
 const TENANT = 'accessory-test';
 const BOSS = { email: 'boss@pie.in', name: 'Anil Shah', role: 'ERP Admin' };
-const TABLES = ['users', 'customers', 'customer_addresses', 'products', 'spares', 'price_list',
-  'quotations', 'quotation_items', 'quote_templates', 'company_profile', 'audit_log'];
+const TABLES = ['users', 'customers', 'customer_addresses', 'customer_contacts', 'products', 'spares',
+  'price_list', 'quotations', 'quotation_items', 'quote_templates', 'company_profile', 'audit_log'];
 
 /** The table printed under a heading: from the heading to the end of its table. */
 const tableAfter = (html, title) => {
@@ -73,8 +73,8 @@ const SPEC_CSV = '﻿' + [
   await db.appendRow('CustomerAddresses', { id: 'AD-1', customerId: 'CU-1', addressType: 'Billing',
     line1: 'Plot 1', city: 'Pune', state: 'Maharashtra', pincode: '411001', isDefault: 'TRUE' });
 
-  const machine = (id, code, model, series) => db.appendRow('Products', {
-    id, productCode: code, model, series, family: 'Lubricated screw', gstPct: 18,
+  const machine = (id, code, model, series, family) => db.appendRow('Products', {
+    id, productCode: code, model, series, family: family || 'Lubricated screw', gstPct: 18,
     hsnCode: '84148011', capacityCfm: '150 cfm', maxPressure: '7.5 bar', workingPressure: '7 bar',
     motorKw: '22 kW, 30 hp', starterType: 'Automatic star delta', dimensionsMm: '1500 x 800 x 1300 mm',
     weightKg: '700 kg', active: 'TRUE' });
@@ -82,6 +82,11 @@ const SPEC_CSV = '﻿' + [
   await machine('PR-EQ', 'EQ-TEST-7.5', 'EQ 22-7.5 DM', 'EQ');
   // No series on file: the model says what it is.
   await machine('PR-EN', 'EN-TEST-8', 'EN11-8', '');
+  // The rare series, with no scope of supply written yet.
+  await machine('PR-EL', 'EL-TEST-8', 'EL 5-8', 'EL');
+  // The other kinds of machine PIE sells, by family.
+  await machine('PR-RECIP', 'TS-TEST', 'TS 05', '', 'Reciprocating');
+  await machine('PR-DRYER', 'AD-TEST', 'AD 100', '', 'Air Dryer');
 
   const part = (id, partNo, description) => db.appendRow('Spares', {
     id, partNo, description, productGroup: 'Dryer /OWS /HRS/Tank', uom: 'Nos', gstPct: 18,
@@ -198,11 +203,22 @@ const SPEC_CSV = '﻿' + [
   ok('the XT controller', scope.indexOf('Neuron XT controller') !== -1, scope.slice(0, 200));
   ok('and nothing of the EG’s', scope.indexOf('Neuron IV controller') === -1 && scope.indexOf('EG 55') === -1);
 
-  console.log('\nA SERIES WITH NO TEXT OF ITS OWN, AND NO SERIES ON FILE');
+  console.log('\nTHE EN SHARES THE EQ’S, EVEN WITH NO SERIES ON FILE');
   html = await offer([['Product', 'PR-EN']]);
   scope = scopeAfter(html, 'Scope of supply');
-  ok('gets the general text, not the EG’s', scope.indexOf('Neuron XT controller') !== -1 &&
+  ok('the EQ’s text, not the EG’s', scope.indexOf('Neuron XT controller') !== -1 &&
     scope.indexOf('Neuron IV controller') === -1, scope.slice(0, 200));
+
+  console.log('\nTHE EL HAS NONE YET, SO PRINTS NONE');
+  html = await offer([['Product', 'PR-EL']]);
+  ok('no scope of supply at all', html.indexOf('<div class="h1">Scope of supply') === -1 &&
+    html.indexOf('Neuron') === -1);
+  ok('and the enclosures do not promise one', /<li>Technical specifications<\/li>/.test(html) &&
+    html.indexOf('Technical specifications and scope of supply') === -1);
+  html = await offer([['Product', 'PR-EG'], ['Product', 'PR-EL']]);
+  ok('beside an EG, only the EG’s prints — named, so it does not read as the EL’s too',
+    scopeAfter(html, 'Scope of supply \u2014 EG series').indexOf('Neuron IV controller') !== -1 &&
+    html.split('<div class="h1">Scope of supply').length === 2, html.indexOf('series'));
 
   console.log('\nAN OFFER FOR BOTH SERIES PRINTS BOTH, EACH NAMED');
   html = await offer([['Product', 'PR-EG'], ['Product', 'PR-EQ']]);
@@ -212,10 +228,9 @@ const SPEC_CSV = '﻿' + [
   ok('and the EQ’s', eq.indexOf('Neuron XT controller') !== -1, html.indexOf('EQ series'));
   ok('in line order', html.indexOf('EG series') < html.indexOf('EQ series'));
   html = await offer([['Product', 'PR-EQ'], ['Product', 'PR-EN']]);
-  ok('two series that come to the same text print it once, headed plainly',
-    scopeAfter(html, 'Scope of supply').indexOf('Neuron XT controller') !== -1 &&
-    html.split('Neuron XT controller').length === 2 && html.indexOf('Scope of supply —') === -1,
-    html.indexOf('series'));
+  ok('the EQ and EN on one offer: their shared text once, naming both',
+    scopeAfter(html, 'Scope of supply \u2014 EQ, EN series').indexOf('Neuron XT controller') !== -1 &&
+    html.split('Neuron XT controller').length === 2, html.indexOf('series'));
 
   console.log('\nA SPARES OFFER FOR THE SAME DRYER');
   html = await offer([['Spare', 'SP-DRY']], 'Spare Sales');
@@ -313,7 +328,7 @@ const SPEC_CSV = '﻿' + [
   html = await offer([['Product', 'PR-EG'], ['Spare', 'SP-DRY']]);
   const picAt = html.indexOf('<div class="offer-picture"><img src="' + PIC + '" /></div>');
   ok('set once, it prints on a compressor offer', picAt !== -1);
-  ok('after the heading and before the first table', picAt > html.indexOf('Technical specifications</div>') &&
+  ok('after the heading and before the first table', picAt > html.indexOf('SCREW AIR COMPRESSOR</div>') &&
     picAt < html.indexOf('<div class="spec-block">'), [picAt, html.indexOf('<div class="spec-block">')]);
   ok('once', html.split('offer-picture"><img').length === 2);
   html = await offer([['Product', 'PR-EQ']]);
@@ -327,6 +342,106 @@ const SPEC_CSV = '﻿' + [
   await p.saveCompanyProfile(Object.assign({}, co, { compressorPictureUrl: '' }));
   ok('and removing it removes it', (await offer([['Product', 'PR-EG']])).indexOf('<div class="offer-picture">') === -1);
 
+  console.log('\nTHE TITLE SAYS WHAT KIND OF MACHINE IT IS');
+  html = await offer([['Product', 'PR-EG']]);
+  const h1s = (doc) => (doc.match(/<div class="h1">[^<]*<\/div>/g) || []).map((h) => h.replace(/<[^>]+>/g, ''));
+  ok('a screw compressor: the screw title, at the top', /<div class="doc-title">ELGi ELECTRIC POWERED OIL SCREW AIR COMPRESSOR<\/div>/.test(html));
+  ok('and heading its specifications, as on PIE’s offer', h1s(html)[0] === 'ELGi ELECTRIC POWERED OIL SCREW AIR COMPRESSOR', h1s(html));
+  html = await offer([['Product', 'PR-RECIP']]);
+  ok('a reciprocating one: the reciprocating title', /doc-title">ELGi ELECTRIC POWERED OIL RECIPROCATING AIR COMPRESSOR</.test(html) &&
+    h1s(html)[0] === 'ELGi ELECTRIC POWERED OIL RECIPROCATING AIR COMPRESSOR', h1s(html));
+  html = await offer([['Product', 'PR-DRYER']]);
+  ok('a dryer: the dryer title', /doc-title">ELGi ELECTRIC POWERED OIL AIR DRYER</.test(html) &&
+    h1s(html)[0] === 'ELGi ELECTRIC POWERED OIL AIR DRYER', h1s(html));
+  html = await offer([['Spare', 'SP-DRY']], 'Spare Sales');
+  ok('a spares offer keeps its own', /doc-title">ELGi GENUINE SPARE PARTS</.test(html));
+
+  console.log('\nTHE CUSTOMER’S E-MAIL IS ON THE OFFER');
+  await db.appendRow('CustomerContacts', { id: 'CC-1', customerId: 'CU-1', name: 'Kunal Shah',
+    phone: '7798222271', email: '', isPrimary: 'FALSE', active: 'TRUE' });
+  await db.appendRow('CustomerContacts', { id: 'CC-2', customerId: 'CU-1', name: 'Purchase Dept',
+    phone: '', email: 'purchase@test-customer.in', isPrimary: 'TRUE', active: 'TRUE' });
+  await offer([['Product', 'PR-EG']]);
+  await p.saveQuotationHeader({ id: lastQuoteId, contactId: 'CC-1' });
+  html = await p.buildQuotationHtml(lastQuoteId);
+  ok('addressed to someone with none on file: the customer’s own, from their primary contact',
+    /Kind Attention: Kunal Shah[\s\S]*Email Id: purchase@test-customer\.in/.test(html), html.slice(html.indexOf('class="to"'), html.indexOf('class="to"') + 400));
+  let qv = await p.getQuotation(lastQuoteId);
+  ok('the screen says which address will print, and has nothing to warn about',
+    qv.printEmail === 'purchase@test-customer.in' && qv.emailGap === '', [qv.printEmail, qv.emailGap]);
+  await db.q("UPDATE customer_contacts SET email = 'kunal@test-customer.in' WHERE tenant_id = $1 AND id = 'CC-1'", [TENANT]);
+  html = await p.buildQuotationHtml(lastQuoteId);
+  ok('their own address, once they have one', /Email Id: kunal@test-customer\.in/.test(html) &&
+    html.indexOf('purchase@test-customer.in') === -1);
+  await db.q("UPDATE customer_contacts SET email = '' WHERE tenant_id = $1", [TENANT]);
+  html = await p.buildQuotationHtml(lastQuoteId);
+  qv = await p.getQuotation(lastQuoteId);
+  ok('none anywhere: no empty line on the offer', html.indexOf('Email Id') === -1);
+  ok('and the screen says so, and where to add it', /no e-mail address on file/.test(qv.emailGap) &&
+    /Customers/.test(qv.emailGap), qv.emailGap);
+  await db.q("DELETE FROM customer_contacts WHERE tenant_id = $1", [TENANT]);
+
+  console.log('\nTHE NUMBER SAYS WHICH KIND OF OFFER IT IS');
+  const fy = await p.indianFinancialYear_();
+  const unitNo = (await p.getQuotation(lastQuoteId)).quoteNo;
+  ok('a compressor offer starts UNIT/', new RegExp('^UNIT/PIE/ELGI/QUOT/' + fy + '/\\d+$').test(unitNo), unitNo);
+  await db.appendRow('Quotations', { id: 'QT-OLD', quoteNo: 'PIE/ELGI/QUOT/' + fy + '/900', revision: 'R0',
+    businessStream: 'Spare Sales', customerId: 'CU-1', status: 'Draft', date: '2026-10-01' });
+  await offer([['Product', 'PR-EQ']]);
+  const after900 = (await p.getQuotation(lastQuoteId)).quoteNo;
+  ok('the serial runs on from numbers written before the word was added',
+    after900 === 'UNIT/PIE/ELGI/QUOT/' + fy + '/901', after900);
+  const nextSpare = await p.nextQuoteNo_('ELGI', 'Spare Sales');
+  ok('a spares offer starts SPARE/, on the same serial', nextSpare === 'SPARE/PIE/ELGI/QUOT/' + fy + '/902', nextSpare);
+
+  console.log('\nTHE INSTALLATION PAGE, LAID OUT AS PIE’S, WITH ITS TWO DRAWINGS');
+  const AIR = 'data:image/png;base64,QUlS';
+  const PLACE = 'data:image/png;base64,UExBQ0U=';
+  const co2 = await p.getCompanyProfile();
+  await p.saveCompanyProfile(Object.assign({}, co2, { airSystemPictureUrl: AIR, placementPictureUrl: PLACE }));
+  html = await offer([['Product', 'PR-EG']]);
+  const inst = html.slice(html.indexOf('<div class="h1">Recommended layout</div>'));
+  const at = (t) => inst.indexOf(t);
+  ok('headed Recommended layout', inst !== html && at('Recommended layout') !== -1, html.indexOf('Recommended'));
+  ok('the opening line, then the air system drawing', at('<p>To achieve best performance levels') !== -1 &&
+    at(AIR) > at('To achieve best performance levels'));
+  ok('then the placement heading and points 1 and 2', at('Recommended compressor placement') > at(AIR) &&
+    at('<ol start="1">') > at('Recommended compressor placement'));
+  ok('then the clearance drawing', at(PLACE) > at('figure on the left below'));
+  ok('then points 3 onwards, numbered on from 2', at('<ol start="3">') > at(PLACE) &&
+    at('figure on the right above') > at('<ol start="3">'));
+  ok('and the note last, in bold', at('<p class="install-note">Note:') > at('wooden pallet'));
+  // Text from before the drawings — one point per line — still prints, with them placed.
+  const oldBody = await p.INSTALL_TEXT_BEFORE_DRAWINGS_;
+  await db.q("UPDATE quote_templates SET body = $2, title = 'Recommended compressor placement' WHERE tenant_id = $1 AND id = 'QTPL-COMP-INSTALL'",
+    [TENANT, oldBody]);
+  html = await offer([['Product', 'PR-EG']]);
+  const old = html.slice(html.indexOf('<div class="h1">Recommended compressor placement</div>'));
+  ok('the old text: the system drawing first, the clearance after point 2, numbers running on',
+    old.indexOf(AIR) !== -1 && old.indexOf(AIR) < old.indexOf('<ol start="1">') &&
+    old.indexOf(PLACE) > old.indexOf('for safe and proper inspection') &&
+    old.indexOf('<ol start="3">') > old.indexOf(PLACE), old.slice(0, 600));
+  await p.saveCompanyProfile(Object.assign({}, co2, { airSystemPictureUrl: '', placementPictureUrl: '' }));
+  html = await offer([['Product', 'PR-EG']]);
+  ok('no drawing uploaded, none printed — and nothing in its place',
+    html.indexOf(AIR) === -1 && html.indexOf('[picture') === -1);
+
+  console.log('\nA SYSTEM SET UP BEFORE GETS THE CORRECTIONS, UNLESS PIE CHANGED THE TEXT');
+  await db.q("UPDATE quote_templates SET applies_to = '' WHERE tenant_id = $1 AND id = 'QTPL-COMP-SCOPE'", [TENANT]);
+  const fixed = await p.applyStandardTextFixes_('test');
+  const rowOf = async (id) => (await db.q('SELECT title, body, applies_to FROM quote_templates WHERE tenant_id = $1 AND id = $2', [TENANT, id])).rows[0];
+  ok('the EQ scope becomes the EQ’s and EN’s', (await rowOf('QTPL-COMP-SCOPE')).applies_to === 'EQ, EN');
+  ok('the installation page gets PIE’s layout', (await rowOf('QTPL-COMP-INSTALL')).title === 'Recommended layout' &&
+    /\[picture: air system\]/.test((await rowOf('QTPL-COMP-INSTALL')).body));
+  ok('and says what it changed', JSON.stringify(fixed.slice().sort()) === JSON.stringify(['InstallationNotes', 'ScopeOfSupply']), fixed);
+  ok('a second run changes nothing', (await p.applyStandardTextFixes_('test')).length === 0);
+  await db.q("UPDATE quote_templates SET body = 'PIE’s own wording' WHERE tenant_id = $1 AND id = 'QTPL-COMP-INSTALL'", [TENANT]);
+  await db.q("UPDATE quote_templates SET applies_to = 'EQ' WHERE tenant_id = $1 AND id = 'QTPL-COMP-SCOPE'", [TENANT]);
+  await p.applyStandardTextFixes_('test');
+  ok('wording PIE has changed is left alone', (await rowOf('QTPL-COMP-INSTALL')).body === 'PIE’s own wording' &&
+    (await rowOf('QTPL-COMP-SCOPE')).applies_to === 'EQ');
+  await db.q("UPDATE quote_templates SET applies_to = 'EQ, EN' WHERE tenant_id = $1 AND id = 'QTPL-COMP-SCOPE'", [TENANT]);
+
   console.log('\nTHE SERIES SURVIVES AN EDIT OF THE TEXT');
   const tpl = (await p.listQuoteTemplates({ includeInactive: true })).find((t) => t.id === 'QTPL-COMP-SCOPE-EG');
   ok('the EG scope ships for the EG', tpl && tpl.appliesTo === 'EG', tpl && tpl.appliesTo);
@@ -336,11 +451,11 @@ const SPEC_CSV = '﻿' + [
   let after = (await p.listQuoteTemplates({ includeInactive: true })).find((t) => t.id === tpl.id);
   ok('an edit that does not mention the series keeps it', after.appliesTo === 'EG', after.appliesTo);
   await p.saveQuoteTemplate({ id: tpl.id, section: tpl.section, businessStream: tpl.businessStream,
-    sortOrder: 2, title: tpl.title, body: tpl.body, appliesTo: 'eg, en', active: true });
+    sortOrder: 2, title: tpl.title, body: tpl.body, appliesTo: 'eg, el', active: true });
   after = (await p.listQuoteTemplates({ includeInactive: true })).find((t) => t.id === tpl.id);
-  ok('one that does sets it, in capitals', after.appliesTo === 'EG, EN', after.appliesTo);
-  html = await offer([['Product', 'PR-EN']]);
-  ok('and the EN now gets that text', scopeAfter(html, 'Scope of supply').indexOf('Neuron IV controller') !== -1);
+  ok('one that does sets it, in capitals', after.appliesTo === 'EG, EL', after.appliesTo);
+  html = await offer([['Product', 'PR-EL']]);
+  ok('and the EL now gets that text', scopeAfter(html, 'Scope of supply').indexOf('Neuron IV controller') !== -1);
   const added = await p.saveQuoteTemplate({ section: 'WhyBrand', businessStream: 'Compressor Sales',
     title: 'Why the EQ?', body: 'Because', active: true });
   ok('a new section with no series is for every series',

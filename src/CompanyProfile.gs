@@ -77,7 +77,11 @@ function defaultCompanyProfile_() {
     // The picture of the compressor range that opens the specifications on every compressor
     // offer of theirs, whatever the model. Uploaded in Settings like the logos — it is ELGi's
     // product photograph, so it is not shipped with the code.
-    compressorPictureUrl: ''
+    compressorPictureUrl: '',
+    // The two drawings on the installation page of a compressor offer: the compressed-air
+    // system (compressor, receiver, filters, dryer) and the clearances around the machine.
+    airSystemPictureUrl: '',
+    placementPictureUrl: ''
   };
 }
 
@@ -107,7 +111,8 @@ function saveCompanyProfile(input) {
   record.gstin = gstin;
   record.logoShowsName = input.logoShowsName ? 'TRUE' : 'FALSE';
 
-  ['logoUrl', 'sealUrl', 'partnerLogoUrl', 'compressorPictureUrl'].forEach(function (k) {
+  ['logoUrl', 'sealUrl', 'partnerLogoUrl', 'compressorPictureUrl', 'airSystemPictureUrl',
+   'placementPictureUrl'].forEach(function (k) {
     if (record[k].length > MAX_CELL_CHARS) {
       throw new Error('That image is too large to store (' +
         Math.round(record[k].length / 1024) + ' KB, and the limit is ' +
@@ -232,7 +237,8 @@ function restoreQuoteTemplates() {
       continue;
     }
     if (String(existing[t.id].body).trim() === String(t.body).trim() &&
-        String(existing[t.id].title).trim() === String(t.title).trim()) {
+        String(existing[t.id].title).trim() === String(t.title).trim() &&
+        String(existing[t.id].appliesTo || '').trim() === String(t.appliesTo || '').trim()) {
       continue;   // already identical — no write, no audit noise
     }
     var patch = {};
@@ -259,6 +265,74 @@ function installQuoteTemplates_(report) {
 
 /** Adds the standard sections that are absent and returns their names. Never touches a row
  * that is already there — an edited clause stays edited. */
+/** The installation page's text as it shipped before the drawings (applyStandardTextFixes_). */
+var INSTALL_TEXT_BEFORE_DRAWINGS_ = 'The entrance to the compressor room should be high enough and wide enough to get ' +
+  'the compressor in and out.\n' +
+  'Leave a minimum of 1 m space for compressors under 75 kW and 1.5 m for those over ' +
+  '75 kW, around the compressor, for safe and proper inspection, cleaning and ' +
+  'maintenance activities.\n' +
+  'Leave a minimum of 2 m space above the compressor for the hot air to flow away from ' +
+  'the compressor (air cooled).\n' +
+  'Maintain the room temperature with proper ventilation \u2014 the compressor room ' +
+  'temperature should stay within 50\u00b0C (122\u00b0F). Higher suction temperatures result in ' +
+  'reduced oil life through a higher discharge oil temperature, so ventilation must be ' +
+  'fitted properly.\n' +
+  'Ensure the compressor is protected against direct sunlight and rain.\n' +
+  'The compressor base should make 100% contact directly with the floor. Do not place the ' +
+  'compressor on the wooden pallet supplied with it.\n' +
+  'Note: installation and commissioning will be done only after the above recommendations ' +
+  'are met.';
+
+/** The installation page's text now: PIE's layout, with the two drawings placed. */
+var INSTALL_TEXT_ = 'To achieve best performance levels, the following layout is recommended.\n' +
+  '[picture: air system]\n' +
+  'Recommended compressor placement \u2013 basic:\n' +
+  'The entrance to the compressor room should be high enough and wide enough to get ' +
+  'the compressor in and out.\n' +
+  'Leave a minimum of 1 m space for compressors under 75 kW and 1.5 m for those over ' +
+  '75 kW, around the compressor, for safe and proper inspection, cleaning and ' +
+  'maintenance activities (figure on the left below).\n' +
+  '[picture: placement]\n' +
+  'Leave a minimum of 2 m space above the compressor for the hot air to flow away from ' +
+  'the compressor (figure on the right above; air cooled).\n' +
+  'Maintain the room temperature with proper ventilation \u2014 the compressor room ' +
+  'temperature should stay within 50\u00b0C (122\u00b0F). Higher suction temperatures result in ' +
+  'reduced oil life through a higher discharge oil temperature, so ventilation must be ' +
+  'fitted properly.\n' +
+  'Ensure the compressor is protected against direct sunlight and rain.\n' +
+  'The compressor base should make 100% contact directly with the floor. Do not place the ' +
+  'compressor on the wooden pallet supplied with it.\n' +
+  'Note: installation and commissioning will be done only after the above recommendations ' +
+  'are met.';
+
+/**
+ * Corrections to standard text a system already has. installMissingQuoteTemplates_ only adds
+ * what is absent and never touches a row that is there, which is right for wording PIE has
+ * edited — and is also why a correction to the standard text would never arrive. So each fix
+ * here changes a row only while it is still exactly as it shipped, and says what it did.
+ *
+ *   - the EQ's scope of supply applied to every series; it is the EQ's and the EN's (an EL,
+ *     with no scope written, then prints none);
+ *   - the installation page gains PIE's layout and the places for its two drawings.
+ */
+function applyStandardTextFixes_(auditReason) {
+  var fixed = [];
+  // A loop rather than forEach: each fix writes.
+  for (var t of readTable_('QuoteTemplates')) {
+    if (String(t.id) === 'QTPL-COMP-SCOPE' && !templateSeries_(t).length) {
+      updateRowById_('QuoteTemplates', 'id', t.id, { appliesTo: 'EQ, EN' }, auditReason);
+      fixed.push('ScopeOfSupply');
+    }
+    if (String(t.id) === 'QTPL-COMP-INSTALL' &&
+        String(t.body || '').trim() === INSTALL_TEXT_BEFORE_DRAWINGS_.trim()) {
+      updateRowById_('QuoteTemplates', 'id', t.id,
+        { title: 'Recommended layout', body: INSTALL_TEXT_ }, auditReason);
+      fixed.push('InstallationNotes');
+    }
+  }
+  return fixed;
+}
+
 function installMissingQuoteTemplates_(auditReason) {
   var have = {};
   readTable_('QuoteTemplates').forEach(function (t) { have[String(t.id)] = true; });
@@ -313,6 +387,12 @@ function applyBuildUpdates_() {
     }
     var added = installMissingQuoteTemplates_('Standard quotation text installed with build ' +
       APP_BUILD);
+    try {
+      added = added.concat(applyStandardTextFixes_('Standard quotation text corrected with build ' +
+        APP_BUILD));
+    } catch (err) {
+      console.warn('Could not correct the standard quotation text: ' + err.message);
+    }
     props.setProperty(BUILD_STAMP_KEY_, APP_BUILD);
     return added.length ? added : null;
   } finally {
@@ -460,9 +540,13 @@ function defaultQuoteTemplates_() {
     // and the document has always known how to print it — a line ending in a colon is a
     // heading, the rest are lines beneath it — but nothing was ever seeded, so two pages of
     // every compressor offer came out blank.
+    //
+    // The EQ's, which the EN shares (PIE, 26 Oct). It used to apply to every series, so an EL
+    // — which has no scope written yet — printed the EQ's. applyStandardTextFixes_ makes the
+    // same change on a system where this row was installed before.
     {
       id: 'QTPL-COMP-SCOPE', section: 'ScopeOfSupply', brand: 'ELGI',
-      businessStream: STREAM_COMPRESSOR, appliesTo: '', title: 'Scope of supply',
+      businessStream: STREAM_COMPRESSOR, appliesTo: 'EQ, EN', title: 'Scope of supply',
       sortOrder: 2, active: 'TRUE',
       body: 'Base & Enclosure:\n' +
         'Rigid frame\n' +
@@ -748,26 +832,15 @@ function defaultQuoteTemplates_() {
       body: 'UPTIME Warranty'
     },
 
+    // Their installation page, "Recommended layout", off the EG 26 offer: an opening line, the
+    // drawing of the compressed-air system, the placement points with the clearance drawing
+    // after the two that refer to it, and the note. The [picture: …] lines place the drawings
+    // uploaded in Settings → Letterhead (installationHtml_).
     {
       id: 'QTPL-COMP-INSTALL', section: 'InstallationNotes', brand: 'ELGI',
       businessStream: STREAM_COMPRESSOR, appliesTo: '',
-      title: 'Recommended compressor placement', sortOrder: 4, active: 'TRUE',
-      body: 'The entrance to the compressor room should be high enough and wide enough to get ' +
-        'the compressor in and out.\n' +
-        'Leave a minimum of 1 m space for compressors under 75 kW and 1.5 m for those over ' +
-        '75 kW, around the compressor, for safe and proper inspection, cleaning and ' +
-        'maintenance activities.\n' +
-        'Leave a minimum of 2 m space above the compressor for the hot air to flow away from ' +
-        'the compressor (air cooled).\n' +
-        'Maintain the room temperature with proper ventilation \u2014 the compressor room ' +
-        'temperature should stay within 50\u00b0C (122\u00b0F). Higher suction temperatures result in ' +
-        'reduced oil life through a higher discharge oil temperature, so ventilation must be ' +
-        'fitted properly.\n' +
-        'Ensure the compressor is protected against direct sunlight and rain.\n' +
-        'The compressor base should make 100% contact directly with the floor. Do not place the ' +
-        'compressor on the wooden pallet supplied with it.\n' +
-        'Note: installation and commissioning will be done only after the above recommendations ' +
-        'are met.'
+      title: 'Recommended layout', sortOrder: 4, active: 'TRUE',
+      body: INSTALL_TEXT_
     },
 
     // ---- the document's own wording, kept out of the code ----
@@ -775,6 +848,23 @@ function defaultQuoteTemplates_() {
       id: 'QTPL-COMP-TITLE', section: 'DocumentTitle', brand: 'ELGI',
       businessStream: STREAM_COMPRESSOR, appliesTo: '',
       title: 'ELGi ELECTRIC POWERED OIL SCREW AIR COMPRESSOR',
+      sortOrder: 5, active: 'TRUE',
+      body: 'TECHNICAL OFFER'
+    },
+    // The title for the other kinds of machine PIE sells (their correction of 26 Oct). Chosen
+    // by the product's family or category: "Reciprocating" or "Dryer" (productKind_). The
+    // title also heads the specifications.
+    {
+      id: 'QTPL-COMP-TITLE-RECIP', section: 'DocumentTitle', brand: 'ELGI',
+      businessStream: STREAM_COMPRESSOR, appliesTo: 'RECIP',
+      title: 'ELGi ELECTRIC POWERED OIL RECIPROCATING AIR COMPRESSOR',
+      sortOrder: 5, active: 'TRUE',
+      body: 'TECHNICAL OFFER'
+    },
+    {
+      id: 'QTPL-COMP-TITLE-DRYER', section: 'DocumentTitle', brand: 'ELGI',
+      businessStream: STREAM_COMPRESSOR, appliesTo: 'DRYER',
+      title: 'ELGi ELECTRIC POWERED OIL AIR DRYER',
       sortOrder: 5, active: 'TRUE',
       body: 'TECHNICAL OFFER'
     },

@@ -144,6 +144,10 @@ const ok = (label, cond, detail) => {
   }), pic);
   ok('no wider than the page needs', dims[0] <= 900 && dims[1] <= 340, dims);
   ok('the logos travel with it untouched', co && 'logoUrl' in co && 'partnerLogoUrl' in co && 'sealUrl' in co);
+  const panelText = await page.$eval('#set-panel', (e) => e.textContent);
+  ok('the two installation drawings have their places too', /Air System Drawing/.test(panelText) &&
+    /Placement Drawing/.test(panelText) && !!(await page.$('#airsystem-file')) && !!(await page.$('#placement-file')));
+  ok('and are saved with the letterhead', co && 'airSystemPictureUrl' in co && 'placementPictureUrl' in co);
 
   ok('no page errors anywhere', errors.length === 0, errors);
   await browser.close();
