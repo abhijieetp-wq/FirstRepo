@@ -372,6 +372,8 @@
       </div>
       <div class="search-bar">
         <select id="sdc-list" style="max-width:260px;" title="Which week's list"></select>
+        <button class="btn btn-sm" id="btn-sdc-remove-list" type="button" style="display:none;"
+          title="Take this week's upload back out">Remove this upload</button>
         <select id="sdc-view" style="max-width:150px;" title="Open or closed">
           <option value="open">Open</option>
           <option value="closed">Closed</option>
@@ -384,16 +386,20 @@
         <label class="check-line"><input type="checkbox" id="sdc-due" /> Follow-up due</label>
       </div>
       <div id="sdc-summary"></div>
-      <div id="sdc-bulk" class="sdc-bulk" style="display:none;">
-        <span id="sdc-bulk-count"></span>
-        <select id="sdc-bulk-owner"></select>
-        <button class="btn btn-sm btn-primary" id="btn-sdc-assign" type="button">Assign</button>
-        <button class="btn btn-sm" id="btn-sdc-clear" type="button">Clear</button>
+      <div id="sdc-bulk" class="sdc-bulk">
+        <label class="check-line" style="margin:0;"><input type="checkbox" id="sdc-selectall" />
+          <span id="sdc-selectall-text">Select all</span></label>
+        <span id="sdc-bulk-actions" style="display:none; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span id="sdc-bulk-count"></span>
+          <select id="sdc-bulk-owner"></select>
+          <button class="btn btn-sm btn-primary" id="btn-sdc-assign" type="button">Assign</button>
+          <button class="btn btn-sm" id="btn-sdc-clear" type="button">Clear</button>
+        </span>
       </div>
       <div class="card" style="padding:0; overflow-x:auto;">
         <table>
           <thead><tr>
-            <th style="width:28px;"><input type="checkbox" id="sdc-all" title="Tick every row shown" /></th>
+            <th style="width:28px;"><input type="checkbox" id="sdc-all" title="Select all" /></th>
             <th>Customer</th><th>Machine</th><th>Due</th><th>Coordinator</th><th>Call</th>
             <th>Quotation</th><th>Follow-ups</th><th>Status</th>
           </tr></thead>

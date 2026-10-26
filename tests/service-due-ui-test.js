@@ -58,7 +58,45 @@ function sdrWorkbook() {
       strings.map((t) => '<si><t>' + t + '</t></si>').join('') + '</sst>',
     'xl/worksheets/data.xml': sheet
   };
-  // Deflated, with the central directory at the end, as Excel writes it.
+  return zipDeflated(files);
+}
+
+/**
+ * A report laid out differently: a summary sheet in front, headings renamed, "Due Date" over
+ * the part names on a second heading row, a date typed as text and one stored as a date cell.
+ */
+function otherLayoutWorkbook() {
+  const strings = ['Zone', 'Machines', 'South', 'Fab No', 'Customer', 'Machine Model', 'Due Date', 'Dealer',
+    'AF', 'Oil', 'Valve Kit', 'TXFAB010', 'Northwind Agro', 'TX 30-8', '09-Aug-2026', 'Some Dealer - CU9', 'TXFAB011', 'Nandi Mills'];
+  const s = (ref, t) => '<c r="' + ref + '" t="s"><v>' + strings.indexOf(t) + '</v></c>';
+  const ws = (rows) => '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+    rows + '</sheetData></worksheet>';
+  const summary = ws('<row r="1">' + s('A1', 'Zone') + s('B1', 'Machines') + '</row><row r="2">' + s('A2', 'South') +
+    '<c r="B2"><v>2</v></c></row>');
+  const data = ws(
+    '<row r="1">' + s('A1', 'Fab No') + s('B1', 'Customer') + s('C1', 'Machine Model') + s('D1', 'Due Date') + s('G1', 'Dealer') + '</row>' +
+    '<row r="2">' + s('D2', 'AF') + s('E2', 'Oil') + s('F2', 'Valve Kit') + '</row>' +
+    '<row r="3">' + s('A3', 'TXFAB010') + s('B3', 'Northwind Agro') + s('C3', 'TX 30-8') + s('D3', '09-Aug-2026') +
+      '<c r="E3" t="d"><v>2026-11-15T00:00:00</v></c>' + s('G3', 'Some Dealer - CU9') + '</row>' +
+    '<row r="4">' + s('A4', 'TXFAB011') + s('B4', 'Nandi Mills') + s('C4', 'TX 30-8') + '</row>');
+  return zipDeflated({
+    '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>',
+    'xl/workbook.xml': '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+      '<sheet name="Summary" sheetId="1" r:id="rId1"/><sheet name="Machines" sheetId="2" r:id="rId2"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="/xl/worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>' +
+      '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="strings.xml"/></Relationships>',
+    'xl/strings.xml': '<?xml version="1.0"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      strings.map((t) => '<si><r><t>' + t + '</t></r></si>').join('') + '</sst>',
+    'xl/worksheets/sheet1.xml': summary,
+    'xl/worksheets/sheet2.xml': data
+  });
+}
+
+/** Files zipped deflated, with the central directory at the end, as Excel writes them. */
+function zipDeflated(files) {
   const local = [], central = [];
   let offset = 0;
   for (const [name, text] of Object.entries(files)) {
@@ -113,7 +151,10 @@ const call = (id, extra) => Object.assign({
       statuses: STATUSES, responses: ['Needs spares', 'Not now'], modes: ['Call', 'WhatsApp'],
       followUpLimit: 6, me: 'p@pie.in', canEdit: true
     };
-    D.getServiceDueScreen = () => screen;
+    const big = Object.assign({}, screen, { calls: Array.from({ length: 160 }, (x, i) => Object.assign({}, calls[0],
+      { id: 'B' + i, fabNo: 'BIG' + i })) });
+    D.getServiceDueScreen = (f) => (f && f.view === 'closed' ? big : screen);
+    D.deleteServiceDueList = (id) => ({ removed: 400, kept: 3, carried: 0, listDate: '2026-10-19' });
     D.getServiceDueCall = (id) => Object.assign({}, calls.find((c) => c.id === id), {
       followUps: [], contacts: [{ id: 'CC-1', name: 'Mr Rao', phone: '9800000001', email: 'rao@x.in' }],
       siblings: id === '1' ? [{ id: '2', fabNo: 'FAB2', productModel: 'TX 22', dueParts: '' }] : []
@@ -170,16 +211,78 @@ const call = (id, extra) => Object.assign({
   await page.fill('#sdc-search', '');
   await page.waitForTimeout(100);
 
+  console.log('\nSELECT ALL');
+  const ticked = () => page.$$eval('#sdc-tbody [data-sdc-tick]:checked', (t) => t.map((x) => x.dataset.sdcTick));
+  ok('a Select all above the list, saying how many', await page.isVisible('#sdc-selectall') &&
+    /Select all 4/.test(await page.textContent('#sdc-selectall-text')), await page.textContent('#sdc-selectall-text'));
+  ok('nothing to assign until something is ticked', !(await page.isVisible('#sdc-bulk-actions')));
+  await page.check('#sdc-selectall');
+  ok('Select all ticks every call', (await ticked()).length === 4 && /4 calls ticked/.test(await page.textContent('#sdc-bulk-count')),
+    await ticked());
+  ok('and the heading box agrees', await page.isChecked('#sdc-all'));
+  await page.uncheck('#sdc-selectall');
+  ok('and clears them again', (await ticked()).length === 0 && !(await page.isVisible('#sdc-bulk-actions')));
+  await page.click('.sdc-tile[data-sdc-tile="Not closed"]');
+  await page.check('#sdc-selectall');
+  ok('only the calls the filters leave', /Select all 1/.test(await page.textContent('#sdc-selectall-text')) &&
+    JSON.stringify(await ticked()) === '["3"]', await ticked());
+  await page.click('.sdc-tile[data-sdc-tile=""]');
+  await page.check('[data-sdc-tick="1"]');
+  ok('one of several ticked shows as part-selected', await page.evaluate(() => document.querySelector('#sdc-selectall').indeterminate));
+  await page.fill('#sdc-search', 'unknown');
+  await page.waitForTimeout(100);
+  await page.fill('#sdc-search', '');
+  await page.waitForTimeout(100);
+  ok('a tick a filter hid is dropped, so Assign only touches what was seen', (await ticked()).length === 0, await ticked());
+  await page.click('#sdc-all');
+  ok('the heading box selects all too', (await ticked()).length === 4);
+  await page.click('#btn-sdc-clear');
+  ok('Clear empties it', (await ticked()).length === 0 && !(await page.isChecked('#sdc-selectall')));
+
   console.log('\nHANDING CALLS OVER');
   await page.check('[data-sdc-tick="1"]');
   await page.check('[data-sdc-tick="2"]');
-  ok('ticking shows the assign bar', await page.isVisible('#sdc-bulk') && /2 calls ticked/.test(await page.textContent('#sdc-bulk-count')));
+  ok('ticking shows the assign bar', await page.isVisible('#sdc-bulk-actions') && /2 calls ticked/.test(await page.textContent('#sdc-bulk-count')));
   await page.selectOption('#sdc-bulk-owner', 'd@pie.in');
   await page.evaluate(() => { window.__calls = []; });
   await page.click('#btn-sdc-assign');
   await page.waitForTimeout(400);
   const assigned = await page.evaluate(() => (window.__calls.find((c) => c.fn === 'assignServiceDueCalls') || {}).args);
   ok('assigned to who was picked', assigned && JSON.stringify(assigned[0].sort()) === '["1","2"]' && assigned[1] === 'd@pie.in', assigned);
+
+  // A full week: more calls than the screen shows at once.
+  await page.selectOption('#sdc-view', 'closed');
+  await page.waitForTimeout(500);
+  ok('a long list shows the first page', (await rows()).length === 150, (await rows()).length);
+  await page.check('#sdc-selectall');
+  ok('Select all takes the whole list, not only the rows on screen',
+    /Select all 160/.test(await page.textContent('#sdc-selectall-text')) && /160 calls ticked/.test(await page.textContent('#sdc-bulk-count')),
+    await page.textContent('#sdc-bulk-count'));
+  await page.evaluate(() => { window.__calls = []; });
+  await page.click('#btn-sdc-assign');
+  await page.waitForTimeout(400);
+  const many = await page.evaluate(() => (window.__calls.find((c) => c.fn === 'assignServiceDueCalls') || {}).args);
+  ok('and Assign sends all 160', many && many[0].length === 160, many && many[0].length);
+  await page.selectOption('#sdc-view', 'open');
+  await page.waitForTimeout(500);
+
+  console.log('\nTAKING A WRONG UPLOAD BACK OUT');
+  ok('no Remove button across every week', !(await page.isVisible('#btn-sdc-remove-list')));
+  await page.selectOption('#sdc-list', 'SDL-1');
+  await page.waitForTimeout(400);
+  ok('a week picked: Remove this upload', await page.isVisible('#btn-sdc-remove-list'));
+  await page.evaluate(() => { const m = document.querySelector('#msg-box'); if (m) m.classList.remove('show'); window.__calls = []; });
+  await page.click('#btn-sdc-remove-list');
+  await page.waitForTimeout(200);
+  ok('it asks first, naming the week', /19-10-2026/.test(await page.textContent('#ask-message')),
+    await page.textContent('#ask-message'));
+  await page.click('#ask-ok');
+  await page.waitForTimeout(500);
+  const removed = await page.evaluate(() => (window.__calls.find((c) => c.fn === 'deleteServiceDueList') || {}).args);
+  ok('then removes that week', removed && removed[0] === 'SDL-1', removed);
+  ok('and says what went and what stayed', /400 calls deleted/.test(await page.textContent('#msg-box')) &&
+    /3 calls already worked on were kept/.test(await page.textContent('#msg-box')), await page.textContent('#msg-box'));
+  ok('back to every week', await page.inputValue('#sdc-list') === '' && !(await page.isVisible('#btn-sdc-remove-list')));
 
   console.log('\nA CALL');
   await page.evaluate(() => document.querySelector('#sdc-tbody tr[data-sdc="1"] td:nth-child(2)').click());
@@ -250,7 +353,55 @@ const call = (id, extra) => Object.assign({
     buffer: Buffer.from('﻿Fabrication Number,Customer Name,AF DUE DATE\nCSV1,"Rao, Sons",09-08-2026\n') });
   await page.waitForTimeout(400);
   ok('a CSV reads too, commas in quotes and Indian dates', /1 machines/.test(await page.textContent('#sdc-import-preview')));
-  await page.click('#btn-sdc-import-cancel');
+  ok('the preview says what it read and what it did not find',
+    /Read: Fab no\., Customer, due dates for AF/.test(await page.textContent('#sdc-import-preview')) &&
+    /Not found: Model, Dealer/.test(await page.textContent('#sdc-import-preview')), await page.textContent('#sdc-import-preview'));
+
+  await page.setInputFiles('#sdc-import-file', { name: 'no-names.csv', mimeType: 'text/csv',
+    buffer: Buffer.from('Fabrication Number,Model,AF DUE DATE\nX1,TX 15,09-08-2026\n') });
+  await page.waitForTimeout(400);
+  ok('a file without a customer column is refused, listing its headings',
+    /no Customer Name column/.test(await page.textContent('#sdc-import-msg')) &&
+    /Fabrication Number, Model, AF DUE DATE/.test(await page.textContent('#sdc-import-msg')) &&
+    await page.isDisabled('#btn-sdc-import-go'), await page.textContent('#sdc-import-msg'));
+  await page.setInputFiles('#sdc-import-file', { name: 'blank-names.csv', mimeType: 'text/csv',
+    buffer: Buffer.from('Fabrication Number,Customer Name\nX1,\nX2,\n') });
+  await page.waitForTimeout(400);
+  ok('and one whose customer column is empty', /Customer Name column in blank-names\.csv is empty/.test(await page.textContent('#sdc-import-msg')) &&
+    await page.isDisabled('#btn-sdc-import-go'), await page.textContent('#sdc-import-msg'));
+
+  await page.setInputFiles('#sdc-import-file', { name: 'dupes.csv', mimeType: 'text/csv',
+    buffer: Buffer.from('Fab No,Customer Name,Customer,AF Due,Oil Due Dt,AF Remaining Hours,Over Due\n' +
+      'D1,,Kaveri Mills,9 Aug 26,2026/11/15,500,1\n') });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => { window.__calls = []; });
+  await page.click('#btn-sdc-import-go');
+  await page.waitForTimeout(400);
+  const dup = await page.evaluate(() => ((window.__calls.find((c) => c.fn === 'importServiceDueList') || {}).args || [{}])[0].rows);
+  ok('the same field twice: the column with something in it wins', dup && dup[0].customerName === 'Kaveri Mills', dup);
+  ok('renamed due headings and other date styles read', dup && dup[0].dueDates.AF === '2026-08-09' &&
+    dup[0].dueDates.OIL === '2026-11-15' && dup[0].overdue === '1', dup && dup[0]);
+
+  await page.evaluate(() => { const m = document.querySelector('#msg-box'); if (m) m.classList.remove('show'); });
+  await page.click('#btn-sdc-import');
+  await page.setInputFiles('#sdc-import-file', { name: 'SDR_OTHER.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: otherLayoutWorkbook() });
+  await page.waitForFunction(() => /machines/.test(document.querySelector('#sdc-import-preview').textContent) ||
+    document.querySelector('#sdc-import-msg').textContent, null, { timeout: 8000 });
+  const pv = await page.textContent('#sdc-import-preview');
+  ok('the machines’ sheet is found behind a summary', /2 machines/.test(pv) && /Machines/.test(pv),
+    [pv, await page.textContent('#sdc-import-msg')]);
+  await page.evaluate(() => { window.__calls = []; });
+  await page.click('#btn-sdc-import-go');
+  await page.waitForTimeout(400);
+  const other = await page.evaluate(() => ((window.__calls.find((c) => c.fn === 'importServiceDueList') || {}).args || [{}])[0].rows);
+  const o0 = other && other[0];
+  ok('renamed headings read: Fab No, Customer, Machine Model, Dealer', o0 && o0.fabNo === 'TXFAB010' &&
+    o0.customerName === 'Northwind Agro' && o0.productModel === 'TX 30-8' && o0.dealerName === 'Some Dealer - CU9', o0);
+  ok('part names under a Due Date heading, a date typed as text, a date cell', o0 &&
+    o0.dueDates.AF === '2026-08-09' && o0.dueDates.OIL === '2026-11-15' && !o0.dueDates.VALVEKIT, o0 && o0.dueDates);
+  ok('the heading rows are not machines', other && other.length === 2 && other[1].customerName === 'Nandi Mills',
+    other && other.map((r) => r.fabNo));
 
   console.log('\nTHE REPORT');
   await page.evaluate(() => { const m = document.querySelector('#msg-box'); if (m) m.classList.remove('show'); });

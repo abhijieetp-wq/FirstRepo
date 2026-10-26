@@ -55,7 +55,8 @@ const machine = (fabNo, customerName, extra) => Object.assign({
     for (const t of TABLES) await db.q('DELETE FROM ' + t + ' WHERE tenant_id = $1', [TENANT]);
   };
   await clean();
-  for (const u of [COORD, COORD2]) {
+  for (const u of [COORD, COORD2, { email: 'admin@pie.in', name: 'Abhi Admin', role: 'ERP Admin', businessStream: 'All' },
+    { email: 'svc@pie.in', name: 'Sam Service', role: 'Service Engineer', businessStream: 'All' }]) {
     await db.appendRow('Users', { id: 'U-' + u.name, email: u.email, name: u.name, role: u.role,
       businessStream: u.businessStream, active: 'TRUE' });
   }
@@ -91,6 +92,13 @@ const machine = (fabNo, customerName, extra) => Object.assign({
   ok('what is due, in words', f.FAB001.dueParts === 'Overdue: AF · This month: OF · Next month: Oil', f.FAB001.dueParts);
   ok('and every part’s date kept', /AF 2026-09-01 \| OF 2026-10-25/.test(f.FAB001.dueDetail), f.FAB001.dueDetail);
   ok('everything starts To call, with the uploader', screen.calls.every((c) => c.status === 'To call' && c.ownerEmail === COORD.email));
+  const people = screen.coordinators.map((x) => x.email);
+  ok('the people list holds the ERP Admin, so their name shows, not their e-mail',
+    people.includes('admin@pie.in') && screen.coordinators.find((x) => x.email === 'admin@pie.in').name === 'Abhi Admin', screen.coordinators);
+  ok('but not a service engineer, who does not work the list', !people.includes('svc@pie.in'), people);
+  ok('a file with no customer names is refused, nothing written', await refused(() => p.importServiceDueList({
+    listDate: '2026-10-19', rows: [{ fabNo: 'X1', customerName: '' }, { fabNo: 'X2' }] }), /no customer names/) &&
+    (await p.getServiceDueScreen({ view: 'all' })).lists.length === 1);
   ok('the week is listed', screen.lists.length === 1 && screen.lists[0].addedCount === 3 && screen.lists[0].skippedCount === 3, screen.lists);
 
   console.log('\nNEXT WEEK’S LIST');
@@ -213,10 +221,34 @@ const machine = (fabNo, customerName, extra) => Object.assign({
   const onlyRejected = await p.exportServiceDueReport({ view: 'all', status: 'PO rejected' });
   ok('and it follows the screen’s filter', onlyRejected.rows.length === 1);
 
+  console.log('\nTAKING A WRONG UPLOAD BACK OUT');
+  const before5 = (await p.getServiceDueScreen({})).calls.find((c) => c.fabNo === 'FAB005');
+  const wrong = await p.importServiceDueList({ listDate: '2026-11-16', fileName: 'wrong.xlsx', rows: [
+    machine('FAB005', '', { dueDates: {} }), machine('FAB100', 'Fresh Mills'), machine('FAB101', 'Fresh Mills') ] });
+  ok('the wrong file: two new, one carried', wrong.added === 2 && wrong.carried === 1, wrong);
+  let s5 = (await p.getServiceDueScreen({})).calls.find((c) => c.fabNo === 'FAB005');
+  ok('a blank in the new file does not wipe the name or what is due', s5.sdrCustomerName === 'Sample Castings' &&
+    s5.dueParts === before5.dueParts && s5.dueParts !== '', [s5.sdrCustomerName, s5.dueParts]);
+  ok('but the week is added to it', s5.listedCount === 2 && s5.lastListDate === '2026-11-16');
+  const f101 = (await p.getServiceDueScreen({})).calls.find((c) => c.fabNo === 'FAB101');
+  await p.saveServiceDueCall({ id: f101.id, callDate: '2026-11-17', callResponse: 'Needs spares', contactName: 'Mr Jain' });
+  const out = await p.deleteServiceDueList(wrong.listId);
+  ok('removed: the untouched machine goes, the one already called stays, the carried one goes back',
+    out.removed === 1 && out.kept === 1 && out.carried === 1 && out.listDate === '2026-11-16', out);
+  const after = await p.getServiceDueScreen({});
+  ok('the week is gone from the list of weeks', !after.lists.some((l) => l.id === wrong.listId), after.lists.map((l) => l.listDate));
+  ok('FAB100 deleted, FAB101 kept with its call', !after.calls.some((c) => c.fabNo === 'FAB100') &&
+    after.calls.some((c) => c.fabNo === 'FAB101' && c.status === 'Called'));
+  s5 = after.calls.find((c) => c.fabNo === 'FAB005');
+  ok('FAB005 back to the weeks it was on before', s5.listedCount === 1 && s5.lastListDate === '2026-10-26' &&
+    s5.listIds === before5.listIds, [s5.listedCount, s5.lastListDate, s5.listIds, before5.listIds]);
+  ok('removing it twice says so', await refused(() => p.deleteServiceDueList(wrong.listId), /no longer there/));
+
   console.log('\nWHO MAY');
   const svc = loadPortal(db, 'eng@pie.in', { quiet: true });
   svc.CURRENT_USER_ = { email: 'eng@pie.in', name: 'Eng', role: 'Service Engineer', businessStream: 'All' };
   ok('not a service engineer', await refused(() => svc.getServiceDueScreen({}), /.+/));
+  ok('nor take an upload out', await refused(() => svc.deleteServiceDueList('SDL-x'), /.+/));
   const comp = loadPortal(db, 'unit@pie.in', { quiet: true });
   comp.CURRENT_USER_ = { email: 'unit@pie.in', name: 'Unit', role: 'Sales Coordinator', businessStream: 'Compressor Sales' };
   ok('not the compressor desk', await refused(() => comp.getServiceDueScreen({}), /Spare Sales/));

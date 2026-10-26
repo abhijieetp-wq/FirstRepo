@@ -307,8 +307,8 @@
 
   /* Service due calls. The reasons a call was not closed or a PO rejected are what the
      report is read for, so they stand out wherever they show. */
-  .sdc-tiles{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
-  .sdc-tile{ flex:1 1 110px; text-align:left; cursor:pointer; padding:12px 14px; font:inherit; }
+  .sdc-tiles{ display:grid; grid-template-columns:repeat(auto-fill, minmax(104px, 1fr)); gap:10px; margin-bottom:16px; }
+  .sdc-tile{ min-width:0; text-align:left; cursor:pointer; padding:12px 14px; font:inherit; }
   .sdc-tile .kpi-value{ font-size:22px; }
   .sdc-tile.on{ border-color:var(--gray-900); box-shadow:inset 0 0 0 1px var(--gray-900); }
   .sdc-reason{ margin-top:5px; padding:5px 9px; border-radius:6px; background:var(--bad-50);
@@ -323,8 +323,10 @@
   .sdc-contact{ background:var(--gray-100); border-radius:6px; padding:5px 9px; }
   table.sdc-fu{ width:100%; font-size:13px; margin-top:4px; }
   table.sdc-fu th, table.sdc-fu td{ padding:6px 8px; }
-  .sdc-bulk{ display:flex; gap:8px; align-items:center; margin:0 0 12px; padding:10px 12px;
-    background:var(--brand-50); border:1px solid var(--brand-200); border-radius:10px; font-size:13.5px; }
+  .sdc-bulk{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:0 0 12px; padding:8px 12px;
+    background:#fff; border:1px solid var(--gray-200); border-radius:10px; font-size:13.5px; min-height:42px; }
+  .sdc-bulk.on{ background:var(--brand-50); border-color:var(--brand-200); }
+  .sdc-bulk .check-line{ font-weight:600; }
   .sdc-bulk select{ max-width:220px; }
   #sdc-tbody tr[data-sdc]{ cursor:pointer; }
   #sdc-tbody tr[data-sdc]:hover td{ background:var(--gray-50); }

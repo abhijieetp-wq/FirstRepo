@@ -80,11 +80,10 @@ function getServiceDueScreen(filter) {
   });
 
   var rows = serviceDueRows_(calls);
-  var people = listPeople();
   return {
     lists: lists,
     calls: rows,
-    coordinators: people.coordinators.concat(people.management),
+    coordinators: serviceDuePeople_(),
     statuses: SERVICE_DUE_STATUSES,
     responses: SERVICE_DUE_RESPONSES,
     modes: SERVICE_DUE_MODES,
@@ -150,6 +149,11 @@ function importServiceDueList(input) {
   if (!rows.length) throw new Error('That file has no machines in it.');
   if (rows.length > 5000) throw new Error('That is ' + rows.length + ' rows — more than a weekly ' +
     'list. Check it is the Service Due Report.');
+  // A file read without its customer column would make several hundred calls to nobody.
+  if (!rows.some(function (r) { return String(r.customerName || '').trim(); })) {
+    throw new Error('That file has no customer names in it, so the calls would have nobody to ring. ' +
+      'Nothing was uploaded. Check it is the Service Due Report and its Customer Name column is filled.');
+  }
 
   var customers = readTable_('Customers');
   var byName = {};
@@ -191,6 +195,14 @@ function importServiceDueList(input) {
     var machine = serviceDueMachine_(r, listDate);
     var open = openByFab[fab];
     if (open) {
+      // A blank in this week's file never wipes what an earlier week gave: a file read without
+      // its customer or due-date columns must not empty several hundred calls.
+      Object.keys(machine).forEach(function (k) {
+        if (String(machine[k] === undefined || machine[k] === null ? '' : machine[k]) === '' &&
+            String(open[k] === undefined || open[k] === null ? '' : open[k]) !== '') {
+          machine[k] = String(open[k]);
+        }
+      });
       var ids = serviceDueListIds_(open);
       if (ids.indexOf(listId) === -1) ids.push(listId);
       machine.id = String(open.id);
@@ -547,6 +559,51 @@ function linkServiceDueQuotation(callId, quoteNo) {
   return getServiceDueCall(callId);
 }
 
+/**
+ * Takes a weekly upload back out — for the wrong file, or a file read wrongly.
+ *
+ * The machines it added that nobody has touched yet go. A machine already worked on — called,
+ * quoted, followed up or closed — stays, because that work is real whatever the file was.
+ * Machines it carried over from earlier weeks stay too, with this week taken off their list.
+ */
+function deleteServiceDueList(listId) {
+  requireServiceDueEditor_();
+  var list = findRowById_('ServiceDueLists', listId);
+  if (!list) throw new Error('That upload is no longer there.');
+  var id = String(listId);
+  var worked = function (c) {
+    return !!(String(c.callDate || '') || String(c.quotationId || '') ||
+      (Number(c.followUpCount) || 0) > 0 || String(c.outcome || ''));
+  };
+
+  var dates = {};
+  readTable_('ServiceDueLists').forEach(function (l) { dates[String(l.id)] = String(l.listDate || ''); });
+  var doomed = {};
+  var removed = 0, kept = 0;
+  var carried = [];
+  readTable_('ServiceDueCalls').forEach(function (c) {
+    var ids = serviceDueListIds_(c);
+    if (ids.indexOf(id) === -1) return;
+    var rest = ids.filter(function (x) { return x !== id; });
+    if (!rest.length) {
+      if (worked(c)) kept++; else { doomed[String(c.id)] = true; removed++; }
+      return;
+    }
+    var first = rest[0], last = rest[rest.length - 1];
+    carried.push({ id: String(c.id), listIds: rest.join(','), listedCount: rest.length,
+      firstListId: first, firstListDate: dates[first] || '', lastListId: last,
+      lastListDate: dates[last] || '' });
+  });
+
+  if (removed) {
+    deleteRowsWhere_('ServiceDueCalls', function (r) { return !!doomed[String(r.id)]; },
+      'Service due upload removed');
+  }
+  if (carried.length) updateServiceDueRows_(carried);
+  deleteRowById_('ServiceDueLists', 'id', id, 'Service due upload removed');
+  return { removed: removed, kept: kept, carried: carried.length, listDate: String(list.listDate || '') };
+}
+
 // ------------------------------------------------------------------ the report
 
 /**
@@ -635,6 +692,20 @@ function exportServiceDueReport(filter) {
 }
 
 // ------------------------------------------------------------------ internals
+
+/** Everybody who works the list, by name: coordinators, engineers, management, the admin. */
+function serviceDuePeople_() {
+  return readTable_('Users')
+    .filter(function (u) {
+      return String(u.active).toUpperCase() !== 'FALSE' && String(u.email || '').trim() &&
+        SERVICE_DUE_EDITORS.indexOf(String(u.role || '')) !== -1;
+    })
+    .map(function (u) {
+      return { email: String(u.email).trim(), name: String(u.name || '').trim() || String(u.email).trim(),
+               role: String(u.role || '') };
+    })
+    .sort(function (a, b) { return a.name.localeCompare(b.name); });
+}
 
 function requireServiceDueUser_() {
   var user = getCurrentUser();

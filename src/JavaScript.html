@@ -6591,7 +6591,35 @@
     $("sdc-bulk-owner").innerHTML = d.coordinators.map(function (p) {
       return '<option value="' + escapeHtml(p.email) + '">' + escapeHtml(p.name) + "</option>";
     }).join("");
+    $("btn-sdc-remove-list").style.display = sdc.listId && d.canEdit ? "" : "none";
   }
+
+  // A wrong file uploaded: take that week back out. Calls already worked on stay.
+  $("btn-sdc-remove-list").addEventListener("click", function () {
+    var list = ((sdc.data && sdc.data.lists) || []).filter(function (l) { return l.id === sdc.listId; })[0];
+    if (!list) return;
+    askDialog({
+      title: "Remove this upload?",
+      message: "The upload for the week of " + sdcDate(list.listDate) + " (" + (Number(list.machineCount) || 0) +
+        " machines) comes out. Calls nobody has worked on yet are deleted; any already called, quoted or " +
+        "closed stay. Machines also on an earlier week go back to that week.",
+      okLabel: "Remove upload",
+      danger: true
+    }, function () {
+      var done = busyButton("btn-sdc-remove-list", "Removing…");
+      srv.withSuccessHandler(function (r) {
+        done();
+        sdc.listId = "";
+        sdc.selected = {};
+        var notes = [];
+        if (r.kept) notes.push(r.kept + (r.kept === 1 ? " call already worked on was" : " calls already worked on were") + " kept");
+        if (r.carried) notes.push(r.carried + " also on an earlier week went back to it");
+        showMsg("Upload for the week of " + sdcDate(r.listDate) + " removed: " + r.removed +
+          (r.removed === 1 ? " call" : " calls") + " deleted." + (notes.length ? " " + notes.join("; ") + "." : ""), "success");
+        loadServiceDue();
+      }).withFailureHandler(function (err) { done(); onServerError(err); }).deleteServiceDueList(list.id);
+    });
+  });
 
   /** The calls the screen's own filters leave, on top of the server's week and open/closed. */
   function serviceDueShown() {
@@ -6678,6 +6706,10 @@
     if ($("btn-sdc-more")) {
       $("btn-sdc-more").addEventListener("click", function () { sdc.shown += SDC_PAGE; renderServiceDue(); });
     }
+    // Only what the filters leave stays ticked, so Assign never touches a call nobody can see.
+    var inView = {};
+    rows.forEach(function (c) { inView[c.id] = true; });
+    Object.keys(sdc.selected).forEach(function (id) { if (!inView[id]) delete sdc.selected[id]; });
     renderServiceDueBulk();
   }
 
@@ -6688,10 +6720,34 @@
     }).join("<br>") || '<span class="sdc-muted">—</span>';
   }
 
+  /**
+   * The bar above the table: Select all, for every call the filters leave (not only the rows
+   * on screen), and once anything is ticked, who to give them to.
+   */
   function renderServiceDueBulk() {
+    var d = sdc.data;
+    var shown = serviceDueShown();
     var n = Object.keys(sdc.selected).length;
-    $("sdc-bulk").style.display = n ? "" : "none";
+    var picked = shown.filter(function (c) { return sdc.selected[c.id]; }).length;
+    var all = shown.length > 0 && picked === shown.length;
+    ["sdc-selectall", "sdc-all"].forEach(function (id) {
+      $(id).checked = all;
+      $(id).indeterminate = picked > 0 && !all;
+      $(id).disabled = !shown.length;
+    });
+    $("sdc-selectall-text").textContent = "Select all " + shown.length;
+    $("sdc-bulk").style.display = d && d.canEdit ? "" : "none";
+    $("sdc-bulk").classList.toggle("on", n > 0);
+    $("sdc-bulk-actions").style.display = n ? "inline-flex" : "none";
     $("sdc-bulk-count").textContent = n + (n === 1 ? " call ticked — assign to" : " calls ticked — assign to");
+  }
+
+  /** Ticks, or clears, every call the filters leave — all of them, not only the rows shown. */
+  function selectAllServiceDue(on) {
+    serviceDueShown().forEach(function (c) {
+      if (on) sdc.selected[c.id] = true; else delete sdc.selected[c.id];
+    });
+    renderServiceDue();
   }
 
   $("sdc-tbody").addEventListener("click", function (e) {
@@ -6704,16 +6760,10 @@
     var row = e.target.closest("[data-sdc]");
     if (row) openServiceDueCall(row.dataset.sdc);
   });
-  $("sdc-all").addEventListener("change", function () {
-    var on = $("sdc-all").checked;
-    serviceDueShown().slice(0, sdc.shown).forEach(function (c) {
-      if (on) sdc.selected[c.id] = true; else delete sdc.selected[c.id];
-    });
-    renderServiceDue();
-  });
+  $("sdc-all").addEventListener("change", function () { selectAllServiceDue($("sdc-all").checked); });
+  $("sdc-selectall").addEventListener("change", function () { selectAllServiceDue($("sdc-selectall").checked); });
   $("btn-sdc-clear").addEventListener("click", function () {
     sdc.selected = {};
-    $("sdc-all").checked = false;
     renderServiceDue();
   });
   $("btn-sdc-assign").addEventListener("click", function () {
@@ -6723,7 +6773,6 @@
     srv.withSuccessHandler(function (r) {
       done();
       sdc.selected = {};
-      $("sdc-all").checked = false;
       showMsg(r.assigned + (r.assigned === 1 ? " call" : " calls") + " given to " + sdcPerson(r.ownerEmail) + ".", "success");
       loadServiceDue();
     }).withFailureHandler(function (err) { done(); onServerError(err); }).assignServiceDueCalls(ids, to);
@@ -7039,14 +7088,26 @@
     $("sdc-import-msg").innerHTML = "";
     if (!file) return;
     $("sdc-import-preview").textContent = "Reading " + file.name + "…";
-    readSheetFile(file, function (table) {
+    readSheetFile(file, function (tables) {
       try {
-        var rows = sdrRowsFrom(table);
+        var rows = sdrRowsFromSheets(tables);
         var customers = {};
-        rows.forEach(function (r) { customers[String(r.customerName).toUpperCase()] = true; });
-        sdcParsed = { fileName: file.name, rows: rows };
+        rows.forEach(function (r) { if (r.customerName) customers[String(r.customerName).toUpperCase()] = true; });
+        if (rows.length && !rows.named) {
+          throw new Error("The Customer Name column in " + file.name + " is empty, so the calls would have no " +
+            "names. Nothing was uploaded.");
+        }
+        sdcParsed = { fileName: file.name, rows: rows.slice() };
+        var unnamed = rows.length - rows.named;
         $("sdc-import-preview").innerHTML = "<b>" + rows.length + " machines</b> for " +
-          Object.keys(customers).length + " customers in " + escapeHtml(file.name) + ". Press Upload to add them.";
+          Object.keys(customers).length + " customers in " + escapeHtml(file.name) +
+          (rows.sheets > 1 ? " (sheet “" + escapeHtml(rows.sheet) + "”)" : "") + ". Press Upload to add them." +
+          '<div class="sdc-muted" style="margin-top:6px;">Read: ' + escapeHtml(rows.found.join(", ")) + ".</div>" +
+          (rows.missing.length ? '<div class="sdc-warn">Not found: ' + escapeHtml(rows.missing.join(", ")) +
+            (rows.missing.indexOf("due dates") !== -1 ? " — the list will not say which parts are due" : "") +
+            ".</div>" : "") +
+          (unnamed ? '<div class="sdc-warn">' + unnamed + (unnamed === 1 ? " row has" : " rows have") +
+            " no customer name.</div>" : "");
         $("btn-sdc-import-go").disabled = !rows.length;
       } catch (err) {
         $("sdc-import-preview").textContent = "";
@@ -7083,48 +7144,162 @@
 
   /**
    * ELGi's report, row by row, as the server wants it. Columns are found by their heading, not
-   * their position, so a report with a column added or moved still reads.
+   * their position, so a report with a column added, moved or renamed a little still reads.
    */
   var SDR_COLUMNS = {
-    fabricationnumber: "fabNo", fabno: "fabNo", fabnumber: "fabNo", serialno: "fabNo",
-    model: "productModel", productsubgroup: "productGroup", customername: "customerName",
-    dealername: "dealerName", warrantytype: "warrantyType", amctype: "amcType", calltype: "callType",
+    fabricationnumber: "fabNo", fabricationno: "fabNo", fabno: "fabNo", fabnumber: "fabNo",
+    serialno: "fabNo", serialnumber: "fabNo", machineserialno: "fabNo",
+    model: "productModel", productmodel: "productModel", modelname: "productModel",
+    productsubgroup: "productGroup", customername: "customerName", customer: "customerName",
+    custname: "customerName", endcustomername: "customerName", endcustomer: "customerName",
+    dealername: "dealerName", dealer: "dealerName", warrantytype: "warrantyType", warranty: "warrantyType",
+    amctype: "amcType", calltype: "callType",
     category: "category", segment: "segment", serviceengineer: "serviceEngineer",
     latestservicecall: "lastServiceCall", serviceengineercomments: "lastServiceComment",
-    commdate: "commissionDate", invdate: "invoiceDate", hmrdate: "hmrDate", totalhours: "totalHours",
+    commdate: "commissionDate", commissioningdate: "commissionDate", commissiondate: "commissionDate",
+    invdate: "invoiceDate", invoicedate: "invoiceDate", hmrdate: "hmrDate", totalhours: "totalHours",
     avgrunninghoursperday: "runningHoursPerDay", overdue: "overdue", currentmonthdue: "dueThisMonth",
     nextmonthdue: "dueNextMonth"
   };
   var SDR_DUE = { afduedate: "AF", ofduedate: "OF", oilduedate: "OIL", aosduedate: "AOS",
     valvekitduedate: "VALVEKIT", rgtduedate: "RGT", pfduedate: "PF", ffduedate: "FF", cfduedate: "CF" };
+  // What is left of a due-date heading once "due" and "date" are taken out: "AF Due", "Due Date
+  // - Air Filter", "OIL_DUE_DT" all name a part.
+  var SDR_PART_WORDS = {
+    af: "AF", airfilter: "AF", of: "OF", oilfilter: "OF", oil: "OIL", lubricant: "OIL",
+    aos: "AOS", separator: "AOS", oilseparator: "AOS", airoilseparator: "AOS",
+    valvekit: "VALVEKIT", valve: "VALVEKIT", vk: "VALVEKIT", rgt: "RGT", regreasing: "RGT",
+    pf: "PF", prefilter: "PF", ff: "FF", finefilter: "FF", cf: "CF", carbonfilter: "CF"
+  };
   var SDR_DATES = { commissionDate: true, invoiceDate: true, hmrDate: true };
+  var SDR_LABELS = { fabNo: "Fab no.", customerName: "Customer", productModel: "Model", dealerName: "Dealer",
+    warrantyType: "Warranty", serviceEngineer: "Service engineer", commissionDate: "Commissioning date" };
+  var SDR_PART_NAMES = { AF: "AF", OF: "OF", OIL: "Oil", AOS: "AOS", VALVEKIT: "Valve kit", RGT: "RGT",
+    PF: "PF", FF: "FF", CF: "CF" };
+
+  /** What a heading holds: { key } for a field, { due } for a part's due date, or null. */
+  function sdrHeading(raw) {
+    var h = String(raw === undefined || raw === null ? "" : raw).toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!h) return null;
+    if (SDR_DUE[h]) return { due: SDR_DUE[h] };
+    if (SDR_COLUMNS[h]) return { key: SDR_COLUMNS[h] };
+    if (/due/.test(h) && !/remaining|overdue|currentmonth|nextmonth|thismonth|hour|hrs|days/.test(h)) {
+      var part = SDR_PART_WORDS[h.replace(/due|date|dt/g, "")];
+      return part ? { due: part } : null;
+    }
+    // Replaced-on dates ("AF R Date") and hours left are not when a part is due.
+    if (/rdate|remaining|hours/.test(h)) return null;
+    if (/fab/.test(h)) return { key: "fabNo" };
+    if (/customer|client|enduser|custname/.test(h) &&
+        !/pace|code|type|id$|category|segment|number|no$|phone|mobile|email|contact|address|city|state|group|zone|class/.test(h)) {
+      return { key: "customerName" };
+    }
+    if (/dealer/.test(h) && !/code|id$/.test(h)) return { key: "dealerName" };
+    if (/model/.test(h) && !/group|code|type/.test(h)) return { key: "productModel" };
+    if (/warranty/.test(h)) return { key: "warrantyType" };
+    return null;
+  }
+
+  /**
+   * The rows of the sheet that holds the report. An Excel file can have several sheets — a
+   * summary in front, the machines behind — so each is tried and the one with the most
+   * recognised columns wins.
+   */
+  function sdrRowsFromSheets(tables) {
+    var best = null, firstError = null;
+    tables.forEach(function (t) {
+      try {
+        var rows = sdrRowsFrom(t.rows);
+        rows.sheet = t.name;
+        if (!best || rows.found.length > best.found.length) best = rows;
+      } catch (err) {
+        // A sheet with a fab number column but no customer says more than one with neither.
+        if (!firstError || (err.sdrStage === "nocustomer" && firstError.sdrStage !== "nocustomer")) firstError = err;
+      }
+    });
+    if (best) {
+      best.sheets = tables.length;
+      return best;
+    }
+    throw firstError || new Error("That file is empty.");
+  }
 
   function sdrRowsFrom(table) {
     var start = 0;
     // The heading row is the first one naming the fab number.
-    while (start < table.length && !table[start].some(function (h) {
-      return /^(fabricationnumber|fabno|fabnumber)$/.test(String(h).toLowerCase().replace(/[^a-z0-9]/g, ""));
-    })) start++;
+    var namesFab = function (line) {
+      return line.some(function (h) { var m = sdrHeading(h); return m && m.key === "fabNo"; });
+    };
+    while (start < table.length && !namesFab(table[start])) start++;
     if (start >= table.length) {
-      throw new Error("This does not look like the Service Due Report: there is no Fabrication Number column.");
+      var e1 = new Error("This does not look like the Service Due Report: there is no Fabrication Number column.");
+      e1.sdrStage = "nofab";
+      throw e1;
     }
-    var heads = table[start].map(function (h) { return String(h).toLowerCase().replace(/[^a-z0-9]/g, ""); });
+    var top = table[start].map(function (h) { return String(h === undefined || h === null ? "" : h).trim(); });
+    var heads = top.slice();
+    var fabCol = top.findIndex(function (h) { var m = sdrHeading(h); return m && m.key === "fabNo"; });
+    var first = start + 1;
+    // A second heading row under the first: "Due Date" across several columns, "AF", "OF" under it.
+    // Data rows always have a fab number; this row does not, and it is all words.
+    var under = table[first] || [];
+    var undersWords = under.filter(function (v) { return String(v).trim() !== ""; });
+    if (String(under[fabCol] === undefined ? "" : under[fabCol]).trim() === "" && undersWords.length >= 2 &&
+        undersWords.every(function (v) { return typeof v === "string" && !/^\d/.test(v.trim()); })) {
+      var parent = "";
+      heads = [];
+      for (var c = 0; c < Math.max(top.length, under.length); c++) {
+        if (top[c]) parent = top[c];
+        var child = String(under[c] === undefined || under[c] === null ? "" : under[c]).trim();
+        var joined = child ? (top[c] || parent) + " " + child : (top[c] || "");
+        heads.push(sdrHeading(joined) || !child ? joined : child);
+      }
+      first++;
+    }
+    var map = heads.map(sdrHeading);
+    var has = {};
+    var dueParts = [];
+    map.forEach(function (m) {
+      if (!m) return;
+      if (m.due) { if (dueParts.indexOf(m.due) === -1) dueParts.push(m.due); return; }
+      has[m.key] = true;
+    });
+    var shownHeads = heads.filter(function (h) { return String(h).trim(); });
+    if (!has.customerName) {
+      var e2 = new Error("This file has no Customer Name column, so the calls would have no names. Nothing was " +
+        "uploaded. Headings in the file: " + shownHeads.join(", ") + ".");
+      e2.sdrStage = "nocustomer";
+      throw e2;
+    }
     var rows = [];
-    for (var i = start + 1; i < table.length; i++) {
+    for (var i = first; i < table.length; i++) {
       var line = table[i];
-      if (!line.some(function (v) { return String(v).trim() !== ""; })) continue;
+      if (!line || !line.some(function (v) { return String(v).trim() !== ""; })) continue;
       var r = { dueDates: {} };
-      heads.forEach(function (h, j) {
-        var v = line[j] === undefined ? "" : line[j];
-        if (SDR_DUE[h]) { r.dueDates[SDR_DUE[h]] = sdrDate(v); return; }
-        var k = SDR_COLUMNS[h];
-        if (!k) return;
-        r[k] = SDR_DATES[k] ? sdrDate(v) : String(v).trim();
+      map.forEach(function (m, j) {
+        if (!m) return;
+        var v = line[j] === undefined || line[j] === null ? "" : line[j];
+        // The same field twice: the first column with something in it wins.
+        if (m.due) { if (!r.dueDates[m.due]) r.dueDates[m.due] = sdrDate(v); return; }
+        var val = SDR_DATES[m.key] ? sdrDate(v) : String(v).trim();
+        if (r[m.key] === undefined || r[m.key] === "") r[m.key] = val;
       });
       if (r.fabNo || r.customerName) rows.push(r);
     }
+    var order = ["fabNo", "customerName", "productModel", "dealerName", "warrantyType", "serviceEngineer", "commissionDate"];
+    rows.found = order.filter(function (k) { return has[k]; }).map(function (k) { return SDR_LABELS[k]; });
+    if (dueParts.length) {
+      rows.found.push("due dates for " + dueParts.map(function (p) { return SDR_PART_NAMES[p]; }).join(", "));
+    }
+    rows.missing = ["productModel", "dealerName"].filter(function (k) { return !has[k]; })
+      .map(function (k) { return SDR_LABELS[k]; });
+    if (!dueParts.length) rows.missing.push("due dates");
+    rows.named = rows.filter(function (r) { return String(r.customerName || "").trim(); }).length;
+    rows.heads = shownHeads;
     return rows;
   }
+
+  var SDR_MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
   /**
    * A date from the sheet as yyyy-MM-dd. Excel gives a serial number; ELGi's dates carry the
@@ -7146,15 +7321,23 @@
     }
     m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(t);
     if (m) return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+    m = /^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})/.exec(t);
+    if (m) return m[1] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[3]).slice(-2);
+    // "09-Aug-2026", "9 Aug 26", "09-August-2026"
+    m = /^(\d{1,2})[-\/. ]+([A-Za-z]{3})[A-Za-z]*[-\/., ]+(\d{4}|\d{2})\b/.exec(t);
+    if (m && SDR_MONTHS[m[2].toLowerCase()]) {
+      var y = m[3].length === 2 ? "20" + m[3] : m[3];
+      return y + "-" + ("0" + SDR_MONTHS[m[2].toLowerCase()]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+    }
     return "";
   }
 
-  /** The first sheet of an .xlsx, or a .csv, as rows of cells. */
+  /** Every sheet of an .xlsx, or a .csv, as [{ name, rows }] with rows as arrays of cells. */
   function readSheetFile(file, done, fail) {
     var reader = new FileReader();
     reader.onerror = function () { fail("The file could not be read."); };
     if (/\.csv$/i.test(file.name)) {
-      reader.onload = function () { done(parseCsvText(String(reader.result || ""))); };
+      reader.onload = function () { done([{ name: file.name, rows: parseCsvText(String(reader.result || "")) }]); };
       reader.readAsText(file);
       return;
     }
@@ -7224,49 +7407,70 @@
     var xml = function (t) { return new DOMParser().parseFromString(t, "application/xml"); };
     var tags = function (node, tag) { return Array.prototype.slice.call(node.getElementsByTagNameNS("*", tag)); };
 
-    return Promise.all([read("xl/workbook.xml"), read("xl/_rels/workbook.xml.rels"), read("xl/sharedStrings.xml")])
+    var inXl = function (target) {
+      target = String(target || "").replace(/^\//, "");
+      return /^xl\//.test(target) ? target : "xl/" + target;
+    };
+    return Promise.all([read("xl/workbook.xml"), read("xl/_rels/workbook.xml.rels")])
       .then(function (parts) {
-        var sheetPath = "xl/worksheets/sheet1.xml";
-        if (parts[0] && parts[1]) {
-          var first = tags(xml(parts[0]), "sheet")[0];
-          var rid = first && (first.getAttribute("r:id") || first.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id"));
-          var rel = tags(xml(parts[1]), "Relationship").filter(function (r) { return r.getAttribute("Id") === rid; })[0];
-          if (rel) {
-            var target = rel.getAttribute("Target").replace(/^\//, "");
-            sheetPath = /^xl\//.test(target) ? target : "xl/" + target;
-          }
-        }
-        var shared = parts[2] ? tags(xml(parts[2]), "si").map(function (si) {
-          return tags(si, "t").map(function (t) { return t.textContent; }).join("");
-        }) : [];
-        return read(sheetPath).then(function (sheetXml) {
-          if (!sheetXml) throw new Error("That Excel file has no sheet in it.");
-          var rows = [];
-          tags(xml(sheetXml), "row").forEach(function (rowEl) {
-            var r = Number(rowEl.getAttribute("r")) - 1;
-            var line = [];
-            tags(rowEl, "c").forEach(function (cEl) {
-              var ref = cEl.getAttribute("r") || "";
-              var letters = ref.replace(/[0-9]/g, "");
-              var col = 0;
-              for (var k = 0; k < letters.length; k++) col = col * 26 + (letters.charCodeAt(k) - 64);
-              col = col ? col - 1 : line.length;
-              var type = cEl.getAttribute("t");
-              var vEl = tags(cEl, "v")[0];
-              var v = vEl ? vEl.textContent : "";
-              var val;
-              if (type === "s") val = shared[Number(v)] || "";
-              else if (type === "inlineStr") val = tags(cEl, "t").map(function (t) { return t.textContent; }).join("");
-              else if (type === "str" || type === "b" || type === "e") val = v;
-              else val = v === "" ? "" : Number(v);
-              line[col] = val;
-            });
-            for (var x = 0; x < line.length; x++) if (line[x] === undefined) line[x] = "";
-            rows[isNaN(r) ? rows.length : r] = line;
+        var rels = {};
+        var sharedPath = "xl/sharedStrings.xml";
+        if (parts[1]) {
+          tags(xml(parts[1]), "Relationship").forEach(function (r) {
+            rels[r.getAttribute("Id")] = inXl(r.getAttribute("Target"));
+            if (/\/sharedStrings$/.test(r.getAttribute("Type") || "")) sharedPath = inXl(r.getAttribute("Target"));
           });
-          return rows.filter(function (l) { return l; });
+        }
+        var sheets = parts[0] ? tags(xml(parts[0]), "sheet").map(function (sh) {
+          var rid = sh.getAttribute("r:id") || sh.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+          return { name: sh.getAttribute("name") || "", path: rels[rid] };
+        }).filter(function (sh) { return sh.path; }) : [];
+        if (!sheets.length) sheets = [{ name: "Sheet1", path: "xl/worksheets/sheet1.xml" }];
+        return read(sharedPath).then(function (sharedXml) {
+          var shared = sharedXml ? tags(xml(sharedXml), "si").map(function (si) {
+            // Phonetic guides (rPh) are not part of the text.
+            return tags(si, "t").filter(function (t) {
+              return !(t.parentNode && t.parentNode.localName === "rPh");
+            }).map(function (t) { return t.textContent; }).join("");
+          }) : [];
+          return Promise.all(sheets.map(function (sh) {
+            return read(sh.path).then(function (sheetXml) {
+              return sheetXml ? { name: sh.name, rows: xlsxSheetRows(sheetXml, shared) } : null;
+            });
+          }));
+        }).then(function (tables) {
+          tables = tables.filter(Boolean);
+          if (!tables.length) throw new Error("That Excel file has no sheet in it.");
+          return tables;
         });
       });
+
+    function xlsxSheetRows(sheetXml, shared) {
+      var rows = [];
+      tags(xml(sheetXml), "row").forEach(function (rowEl) {
+        var r = Number(rowEl.getAttribute("r")) - 1;
+        var line = [];
+        tags(rowEl, "c").forEach(function (cEl) {
+          var ref = cEl.getAttribute("r") || "";
+          var letters = ref.replace(/[0-9]/g, "");
+          var col = 0;
+          for (var k = 0; k < letters.length; k++) col = col * 26 + (letters.charCodeAt(k) - 64);
+          col = col ? col - 1 : line.length;
+          var type = cEl.getAttribute("t");
+          var vEl = tags(cEl, "v")[0];
+          var v = vEl ? vEl.textContent : "";
+          var val;
+          if (type === "s") val = shared[Number(v)] || "";
+          else if (type === "inlineStr") val = tags(cEl, "t").map(function (t) { return t.textContent; }).join("");
+          else if (type === "str" || type === "b" || type === "e" || type === "d") val = v;
+          else val = v === "" ? "" : Number(v);
+          line[col] = val;
+        });
+        for (var x = 0; x < line.length; x++) if (line[x] === undefined) line[x] = "";
+        rows[isNaN(r) ? rows.length : r] = line;
+      });
+      return rows.filter(function (l) { return l; });
+    }
   }
 
   // ---- The report, as a real .xlsx with the reasons highlighted ----
