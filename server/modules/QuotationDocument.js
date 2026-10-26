@@ -690,6 +690,8 @@ async function buildQuotationHtml(quotationId) {
   push(signoff());
 
   // ---------------------------------------------------------------- specifications
+  var offerPicture = isCompressor && String(co.compressorPictureUrl || '').trim()
+    ? '<div class="offer-picture"><img src="' + esc_(co.compressorPictureUrl) + '" /></div>' : '';
   if (specced.length) {
     push('<div class="page-break"></div>');
     // A compressor offer heads its specifications with what the machine is — "ELGi ELECTRIC
@@ -699,9 +701,7 @@ async function buildQuotationHtml(quotationId) {
       ? titleTpl.title : L('specHeading', 'Technical specifications')) + '</div>');
     // The picture of the range that opens the specifications on every one of PIE's compressor
     // offers, the same whatever the model. Set once in Settings → Letterhead.
-    if (isCompressor && String(co.compressorPictureUrl || '').trim()) {
-      push('<div class="offer-picture"><img src="' + esc_(co.compressorPictureUrl) + '" /></div>');
-    }
+    if (offerPicture) push(offerPicture);
     var specNote = await quoteTemplate_('SpecNote', stream, offerKeys);
     if (specNote) push('<div class="note">' + esc_(String(specNote.body).trim()) + '</div>');
     specced.forEach(function (i) {
@@ -764,6 +764,10 @@ async function buildQuotationHtml(quotationId) {
   // now, so the letter fills its page and the annexure starts the next one: the break costs
   // nothing it used to cost, and the table is whole.
   push('<div class="page-break"></div>');
+  // An offer with nothing to specify — a heat recovery kit on its own — has no specifications
+  // page to carry the picture, so it heads the price schedule instead: every compressor offer
+  // carries it.
+  if (offerPicture && !specced.length) push(offerPicture);
   push('<div class="h1">' + esc_(L('priceHeading', 'Price schedule')) + '</div>');
 
   // The machine the parts belong to. A spare part is meaningless without it — their own spares

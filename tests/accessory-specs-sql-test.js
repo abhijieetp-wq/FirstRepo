@@ -335,6 +335,18 @@ const SPEC_CSV = '﻿' + [
   ok('on every series', html.indexOf(PIC) !== -1);
   html = await offer([['Spare', 'SP-DRY']], 'Spare Sales');
   ok('never on a spares offer', html.indexOf(PIC) === -1);
+  // A kit on its own — a part with no specification table — has no specifications page.
+  html = await offer([['Spare', 'SP-HOSE']]);
+  const kitPic = html.indexOf('<div class="offer-picture"><img src="' + PIC + '" /></div>');
+  const priceAt = html.indexOf('<div class="h1">Price schedule</div>');
+  ok('nothing to specify: the picture heads the price schedule instead', kitPic !== -1 && priceAt !== -1 &&
+    kitPic < priceAt && html.lastIndexOf('<div class="page-break"></div>', priceAt) < kitPic, [kitPic, priceAt]);
+  ok('still once, and no empty specifications page', html.split('offer-picture"><img').length === 2 &&
+    html.indexOf('<div class="spec-block">') === -1);
+  html = await offer([['Product', 'PR-EG']]);
+  ok('with a specifications page it stays there, not above the prices too',
+    html.split('offer-picture"><img').length === 2 &&
+    html.indexOf('offer-picture') < html.indexOf('<div class="h1">Price schedule</div>'));
   let tooBig = '';
   try { await p.saveCompanyProfile(Object.assign({}, co, { compressorPictureUrl: 'data:image/jpeg;base64,' + 'A'.repeat(60000) })); }
   catch (e) { tooBig = e.message; }
