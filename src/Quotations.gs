@@ -1020,8 +1020,128 @@ function discardQuotation(quotationId) {
   var quoteNo = quote.quoteNo;
   deleteRowById_('Quotations', 'id', quotationId,
     'Draft quotation discarded (' + lines.length + ' line(s))');
+  var restored = afterQuotationRemoved_(quote);
 
-  return { quoteNo: quoteNo, lines: lines.length };
+  return { quoteNo: quoteNo, lines: lines.length, restored: restored };
+}
+
+/**
+ * Deletes a quotation with no compressor and no part on it, whatever its status.
+ *
+ * An empty quotation offers nothing: one raised by mistake, or a revision opened and never
+ * filled in, has no record worth keeping, and an approved or sent one cannot be discarded
+ * like a draft. So it can go. Charge lines (freight, P&F) on their own go with it.
+ *
+ * Still refused when something hangs off it: a sales order raised from it, or a later
+ * revision. Only the latest version of an offer can be deleted, so revision numbers never
+ * repeat; the version it replaced becomes the current one again.
+ */
+function deleteQuotation(quotationId) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+
+  var all = readTable_('Quotations');
+  var quote = all.filter(function (q) { return String(q.id) === String(quotationId); })[0];
+  if (!quote) throw new Error('That quotation no longer exists.');
+  var label = quoteLabel_(quote);
+
+  var lines = quotationLines_(quotationId);
+  var goods = lines.filter(function (l) { return String(l.lineType || 'Item') !== 'Charge'; });
+  if (goods.length) {
+    throw new Error(label + ' has ' + goods.length + (goods.length === 1 ? ' compressor or part' :
+      ' compressors or parts') + ' on it, so it is not deleted. Remove them first' +
+      (quote.status === 'Draft' ? ', or use Discard Draft.' :
+        ', or mark it Declined so the record of what was offered survives.'));
+  }
+
+  var order = readTable_('SalesOrders').filter(function (o) {
+    return String(o.quotationId) === String(quotationId);
+  })[0];
+  if (order) {
+    throw new Error('Sales order ' + order.orderNo + ' was raised from ' + label + ', so it cannot be deleted.');
+  }
+
+  var later = all.filter(function (q) { return String(q.parentQuotationId) === String(quotationId); })[0];
+  if (later) {
+    throw new Error('Revision ' + quoteLabel_(later) + ' came from ' + label + ', so it cannot be ' +
+      'deleted. Delete that revision first.');
+  }
+  if (String(quote.parentQuotationId || '')) {
+    var newer = all.filter(function (q) {
+      return String(q.parentQuotationId) === String(quote.parentQuotationId) &&
+        revisionNo_(q) > revisionNo_(quote);
+    })[0];
+    if (newer) {
+      throw new Error('Only the latest version can be deleted, and ' + quoteLabel_(newer) +
+        ' came after ' + label + '.');
+    }
+  }
+
+  for (var line of lines) {
+    deleteRowById_('QuotationItems', 'id', line.id, 'Line removed with deleted quotation');
+  }
+  deleteRowById_('Quotations', 'id', quotationId, 'Empty quotation deleted');
+  var restored = afterQuotationRemoved_(quote);
+
+  return { quoteNo: String(quote.quoteNo || ''), revision: String(quote.revision || ''),
+           restored: restored };
+}
+
+/**
+ * What a quotation leaves behind when it is discarded or deleted, put right.
+ *
+ *   - The version it replaced was marked Revised; with nothing after it, it is the current
+ *     version again, at the status its own dates show.
+ *   - The spares enquiry it was raised from went to Quoted; with no quotation left, it goes
+ *     back to Identifying.
+ *   - A service due call it was prepared for lets go of it, so Prepare quotation works again.
+ *
+ * Returns the version made current again, or null.
+ */
+function afterQuotationRemoved_(quote) {
+  var id = String(quote.id);
+  var rest = readTable_('Quotations').filter(function (q) { return String(q.id) !== id; });
+  var restored = null;
+
+  var rootId = String(quote.parentQuotationId || '');
+  if (rootId) {
+    var versions = rest.filter(function (q) {
+      return String(q.id) === rootId || String(q.parentQuotationId) === rootId;
+    }).sort(function (a, b) { return revisionNo_(b) - revisionNo_(a); });
+    var latest = versions[0];
+    if (latest && String(latest.status) === 'Revised') {
+      var status = latest.wonDate ? 'Won' : latest.lostDate ? 'Lost' :
+        (latest.submittedDate || latest.emailSentDate) ? 'Submitted' :
+        latest.approvalDate ? 'Approved' : 'Draft';
+      var patch = { status: status };
+      if (status === 'Draft') patch.locked = 'FALSE';
+      updateRowById_('Quotations', 'id', latest.id, patch,
+        quoteLabel_(latest) + ' is the current version again: ' + quoteLabel_(quote) + ' was removed');
+      restored = { id: String(latest.id), quoteNo: String(latest.quoteNo || ''),
+                   revision: String(latest.revision || ''), status: status };
+    }
+  }
+
+  var enquiryId = String(quote.spareEnquiryId || '');
+  if (enquiryId && !rest.some(function (q) { return String(q.spareEnquiryId) === enquiryId; })) {
+    var enquiry = findRowById_('SpareEnquiries', enquiryId);
+    if (enquiry && String(enquiry.status) === 'Quoted') {
+      updateRowById_('SpareEnquiries', 'id', enquiryId, { status: 'Identifying' },
+        'Quotation ' + quoteLabel_(quote) + ' removed');
+    }
+  }
+
+  var calls = readTable_('ServiceDueCalls').filter(function (c) { return String(c.quotationId) === id; });
+  for (var c of calls) {
+    updateRowById_('ServiceDueCalls', 'id', c.id, { quotationId: '' },
+      'Quotation ' + quoteLabel_(quote) + ' removed');
+  }
+  return restored;
+}
+
+/** "PIE/ELGI/QUOT/26-27/48 R1", or just the number for the first version. */
+function quoteLabel_(q) {
+  return String(q.quoteNo || '') + (q.revision && q.revision !== 'R0' ? ' ' + q.revision : '');
 }
 
 /**

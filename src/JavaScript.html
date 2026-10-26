@@ -3739,7 +3739,11 @@
     if (canEditQuotes() && q.locked && ["Won", "Lost"].indexOf(q.status) === -1) {
       others.push({ act: "reopen", id: "btn-qb-reopen", text: "Reopen as Draft" });
     }
-    if (editable && q.status === "Draft") {
+    // Nothing on it — no compressor, no part — so nothing to keep, whatever its status.
+    var goods = (q.items || []).filter(function (i) { return (i.lineType || "Item") !== "Charge"; });
+    if (canEditQuotes() && !goods.length && !journey.orderNo) {
+      others.push({ act: "delete", id: "btn-qb-delete", text: "Delete Quotation", danger: true });
+    } else if (editable && q.status === "Draft") {
       others.push({ act: "discard", id: "btn-qb-discard", text: "Discard Draft", danger: true });
     }
 
@@ -3841,6 +3845,7 @@
       versions: openVersions,
       reopen: reopenOpenQuote,
       discard: discardOpenQuote,
+      "delete": deleteOpenQuote,
       revise: reviseOpenQuote
     };
     menu.querySelectorAll("[data-act]").forEach(function (btn) {
@@ -3904,6 +3909,29 @@
         clearMsg();
         showMsg(res.quoteNo + " discarded.", "success");
       }).withFailureHandler(onServerError).discardQuotation(openQuote.id);
+    });
+  }
+
+  function deleteOpenQuote() {
+    var q = openQuote;
+    var label = q.quoteNo + (q.revision && q.revision !== "R0" ? " " + q.revision : "");
+    askDialog({
+      title: "Delete " + label + "?",
+      message: "It has no compressors or parts on it, so nothing offered is lost. It is deleted " +
+        "for good" + ((q.items || []).length ? ", with its charge lines" : "") + "." +
+        (q.parentQuotationId ? " The version before it becomes the current one again." : ""),
+      okLabel: "Delete Quotation",
+      danger: true
+    }, function (ok) {
+      if (ok === null) return;
+      srv.withSuccessHandler(function (res) {
+        openQuote = null;
+        renderQuoteEmpty();
+        clearMsg();
+        var back = res.restored;
+        showMsg(label + " deleted." + (back ? " " + back.quoteNo + (back.revision !== "R0" ? " " + back.revision : "") +
+          " is the current version again (" + back.status + ")." : ""), "success");
+      }).withFailureHandler(onServerError).deleteQuotation(q.id);
     });
   }
 

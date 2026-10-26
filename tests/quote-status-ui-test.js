@@ -53,7 +53,9 @@ const journeyFor = (reached, extra) => Object.assign({
     await page.evaluate((qq) => {
       document.querySelectorAll('.modal-backdrop.show').forEach((m) => m.classList.remove('show'));
       const D = window.__data;
-      D.getQuotation = Object.assign({}, D.getQuotation, qq);
+      // A quotation with something on it, unless the case says otherwise.
+      D.getQuotation = Object.assign({}, D.getQuotation, { id: 'QT-9', items: [{ id: 'QI-1', lineType: 'Item',
+        itemType: 'Spare', itemCode: 'TST-1', description: 'Test part', qty: 1, unitPrice: 100, lineTotal: 100 }] }, qq);
       D.listQuotations = [Object.assign({ itemCount: 1 }, D.getQuotation)];
       window.__calls = [];
     }, quote);
@@ -96,6 +98,7 @@ const journeyFor = (reached, extra) => Object.assign({
   ok('the stages after it are listed but not pressable',
     !row(m, 'Sent to customer').pressable && !row(m, 'Invoiced').pressable && row(m, 'Invoiced').tick === '');
   ok('and Discard Draft is under More', pressables(m).includes('Discard Draft'), pressables(m));
+  ok('with something on it, no Delete', !pressables(m).includes('Delete Quotation'));
   await page.keyboard.press('Escape');
   ok('Escape closes it', (await menu()).hidden === true);
   await page.click('#btn-qb-status');
@@ -148,6 +151,39 @@ const journeyFor = (reached, extra) => Object.assign({
   m = await menu();
   ok('and shows where it stopped, with the reason', row(m, 'Declined').tick === '✕', m.rows);
   ok('nothing to press but Revise', JSON.stringify(pressables(m)) === JSON.stringify(['Revise']), pressables(m));
+
+  console.log('\nNOTHING ON IT');
+  await page.evaluate(() => {
+    window.__data.deleteQuotation = { quoteNo: 'PIE/ELGI/QUOT/26-27/401', revision: 'R1',
+      restored: { id: 'QT-8', quoteNo: 'PIE/ELGI/QUOT/26-27/401', revision: 'R0', status: 'Submitted' } };
+  });
+  await open({ status: 'Submitted', locked: true, revision: 'R1', parentQuotationId: 'QT-8', items: [], journey: journeyFor(3) });
+  await page.click('#btn-qb-status');
+  m = await menu();
+  ok('an empty quotation can be deleted, sent or not', pressables(m).includes('Delete Quotation'), pressables(m));
+  await page.click('#btn-qb-delete');
+  await page.waitForTimeout(200);
+  ok('it asks first, saying nothing offered is lost and the version before comes back',
+    /no compressors or parts/.test(await page.textContent('#ask-message')) &&
+    /version before it becomes the current one again/.test(await page.textContent('#ask-message')),
+    await page.textContent('#ask-message'));
+  await page.click('#ask-ok');
+  await page.waitForTimeout(500);
+  const del = await page.evaluate(() => (window.__calls.find((c) => c.fn === 'deleteQuotation') || {}).args);
+  ok('then deletes that quotation', del && del[0] === 'QT-9', del);
+  ok('and says which version is current again', /401 R1 deleted/.test(await page.textContent('#msg-box')) &&
+    /401 is the current version again \(Submitted\)/.test(await page.textContent('#msg-box')), await page.textContent('#msg-box'));
+  await open({ status: 'Draft', locked: false, revision: 'R0', parentQuotationId: '', journey: journeyFor(1),
+    items: [{ id: 'QI-2', lineType: 'Charge', description: 'Freight', qty: 1, unitPrice: 500, lineTotal: 500 }] });
+  await page.click('#btn-qb-status');
+  m = await menu();
+  ok('a freight line alone still counts as empty, and Delete stands in for Discard',
+    pressables(m).includes('Delete Quotation') && !pressables(m).includes('Discard Draft'), pressables(m));
+  await page.keyboard.press('Escape');
+  await open({ status: 'Won', locked: true, items: [], journey: journeyFor(7, { orderNo: 'SO-0012', orderId: 'SO-1' }) });
+  await page.click('#btn-qb-status');
+  m = await menu();
+  ok('not with an order raised from it', !pressables(m).includes('Delete Quotation'), pressables(m));
 
   ok('no page errors anywhere', errors.length === 0, errors);
   await browser.close();
