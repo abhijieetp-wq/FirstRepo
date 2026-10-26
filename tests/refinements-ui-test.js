@@ -163,6 +163,8 @@ const ok = (label, cond, detail) => {
   await page.click('[data-open-quote]');
   await page.waitForTimeout(600);
   ok('a sent quotation offers Revise', !!(await page.$('#btn-qb-revise')));
+  // Revise lives in the Status menu now.
+  await page.click('#btn-qb-status');
   await page.click('#btn-qb-revise');
   await page.waitForTimeout(300);
   ok('it asks why before anything happens', await shown('#ask-modal-backdrop') &&
@@ -194,6 +196,7 @@ const ok = (label, cond, detail) => {
   await page.evaluate(() => { window.__data.getQuotation.id = 'QT-9'; });
   const before = await count('reviseQuotation');
   if (await page.$('#btn-qb-revise')) {
+    await page.click('#btn-qb-status');
     await page.click('#btn-qb-revise');
     await page.waitForTimeout(200);
     await page.click('#ask-cancel');

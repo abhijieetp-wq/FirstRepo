@@ -3601,9 +3601,11 @@
         // has gone out yet, so telling them the sent version stays untouched named a version
         // that does not exist, and said nothing about the step they were actually on.
         (q.status === "Approved"
-          ? 'Send it to the customer, then press <b>Mark Sent</b> — or use <b>Revise</b> if it ' +
+          ? 'Send it to the customer, then choose <b>Mark Sent</b> in the <b>Status</b> menu — or ' +
+            '<b>Revise</b> there if it ' +
             'still needs changing.'
-          : 'Use <b>Revise</b> to create the next revision — the version already sent stays ' +
+          : 'Use <b>Revise</b> in the <b>Status</b> menu to create the next revision — the ' +
+            'version already sent stays ' +
             'untouched.') +
         "</div>"
       : "") +
@@ -3674,93 +3676,173 @@
     renderQuoteTotals(q);
   }
 
+  /**
+   * The quotation's way forward, as one menu.
+   *
+   * It used to be a row of buttons that changed at every stage — Mark Approved became Mark
+   * Sent became Mark Accepted and Mark Declined, with Revise and Reopen appearing beside them
+   * — so the button under the cursor was a different one each time, and the header never
+   * looked the same twice. PIE asked for one place instead: a Status menu listing every stage
+   * in order, ticked where it has been reached, with the next step the one that can be
+   * pressed. The other actions that come and go (Declined, Revise, Versions, Reopen, Discard)
+   * sit under it. Print and New Quotation are there at every stage, so they stay buttons.
+   *
+   * The rules for what may be done when are the ones the buttons had; only where they live
+   * has changed.
+   */
   function renderQuoteActions(q, editable) {
     var zone = $("qb-actions");
-    var buttons = [];
-    // Available at every status, locked included: a sent quotation is exactly the one most
-    // often reprinted.
-    buttons.push('<button class="btn btn-sm" id="btn-qb-print">Print / PDF</button>');
-    // Leaving a quotation was impossible: the New Quotation screen reopened whichever one was
-    // in hand, so the only way to start another was to finish this one first. Both ways out
-    // live here — keep it and come back, or throw it away.
-    buttons.push('<button class="btn btn-sm" id="btn-qb-new">+ New Quotation</button>');
     // Changing a quotation's content needs it unlocked; moving it to the next step does not,
-    // and conflating the two left an Approved quotation with no way forward. Approving locks
-    // it — that is the point, it is the version about to go out — and the button that would
-    // have sent it was hidden by the same lock. The only route to Sent was to email it.
+    // and conflating the two left an Approved quotation with no way forward.
     var mayAdvance = canEditQuotes();
+    var journey = q.journey || {};
+    var stages = journey.stages || [];
 
-    if (editable && q.status === "Draft") {
-      buttons.push('<button class="btn btn-sm" id="btn-qb-discard">Discard Draft</button>');
-    }
+    // What a stage's row does, when it is the step to take now.
+    var stepAction = {};
     if (mayAdvance && q.status === "Draft") {
-      buttons.push('<button class="btn btn-sm btn-primary" data-qs="Approved">Mark Approved</button>');
+      stepAction.approved = { qs: "Approved", text: "Mark Approved" };
     }
-    // "Submitted" is the stored status; "Sent" is what the journey calls it and what actually
-    // happened, so that is what the button says.
-    //
-    // Not offered on a draft. Nothing leaves without being approved first — the server has
-    // always refused it, but the button sat there on a draft and a coordinator pressed it and
-    // was told no, which reads as a fault rather than a rule. The step it is waiting for is
-    // the one beside it.
+    // Not offered on a draft: nothing leaves without being approved first.
     if (mayAdvance && ["Approved", "Negotiating"].indexOf(q.status) !== -1) {
-      buttons.push('<button class="btn btn-sm btn-primary" data-qs="Submitted">Mark Sent</button>');
+      stepAction.sent = { qs: "Submitted", text: "Mark Sent" };
     }
-    // No "With Customer" button. Once an offer is out there are two things worth recording —
-    // that it went out, and what the customer said — and a third press in between, which
-    // changed nothing anyone downstream reads, only stood between the two.
-    // Won and Lost are the customer's answer, so they only make sense once the customer has
-    // been asked. These used to appear the moment a quotation was approved — it locks at
-    // Approved — offering to win an offer that had never left the building.
+    // The customer's answer, once the customer has been asked.
     if (mayAdvance && ["Submitted", "Negotiating"].indexOf(q.status) !== -1) {
-      // Named for the stage each one reaches, not for the status it stores.
-      buttons.push('<button class="btn btn-sm btn-primary" data-qs="Won">Mark Accepted</button>');
-      buttons.push('<button class="btn btn-sm" data-qs="Lost">Mark Declined</button>');
+      stepAction.accepted = { qs: "Won", text: "Mark Accepted" };
     }
-    // An accepted offer had nowhere to go: the order lived on another screen behind a
-    // dropdown, so the step the customer had just triggered was the one step the quotation
-    // could not take. The PO is what turns their yes into an order, so it is asked for here.
+    // The PO is what turns their yes into an order, so it is asked for here.
     if (mayAdvance && q.status === "Won") {
-      if (q.journey && q.journey.orderNo) {
-        buttons.push('<button class="btn btn-sm" id="btn-qb-open-order">Open ' +
-          escapeHtml(q.journey.orderNo) + "</button>");
+      if (journey.orderNo) {
+        stepAction.order = { act: "open-order", id: "btn-qb-open-order", text: "Open " + journey.orderNo };
       } else if (canEditOrders()) {
-        buttons.push('<button class="btn btn-sm btn-primary" id="btn-qb-make-order">' +
-          "Record PO &amp; Create Order</button>");
+        stepAction.po = { act: "make-order", id: "btn-qb-make-order", text: "Record PO & Create Order" };
       }
     }
-    if (canEditQuotes() && q.locked) {
-      buttons.push('<button class="btn btn-sm btn-amber" id="btn-qb-revise">Revise</button>');
-    }
-    // Offered whenever this offer has been revised at all — on any of its versions, since the
-    // question "what did we send them last time" is asked from whichever one is open.
-    if (q.revision !== "R0" || q.parentQuotationId) {
-      buttons.push('<button class="btn btn-sm" id="btn-qb-versions">Versions</button>');
-    }
-    // The way back down. Revise is for a quotation that went out and needs changing; this is
-    // for one that should not have left Draft at all — marked Submitted by mistake, or raised
-    // to try the screen out. Without it a locked quotation could never be edited or discarded,
-    // and held onto the products it named for good.
-    if (canEditQuotes() && q.locked && ["Won", "Lost"].indexOf(q.status) === -1) {
-      buttons.push('<button class="btn btn-sm" id="btn-qb-reopen">Reopen as Draft</button>');
-    }
-    zone.innerHTML = buttons.join("");
 
-    zone.querySelectorAll("[data-qs]").forEach(function (btn) {
-      btn.addEventListener("click", function () { changeQuoteStatus(btn.dataset.qs); });
-    });
-    if ($("btn-qb-make-order")) {
-      $("btn-qb-make-order").addEventListener("click", openPurchaseOrderForm);
+    var others = [];
+    if (mayAdvance && ["Submitted", "Negotiating"].indexOf(q.status) !== -1) {
+      others.push({ qs: "Lost", text: "Mark Declined" });
     }
-    if ($("btn-qb-open-order")) {
-      $("btn-qb-open-order").addEventListener("click", function () {
+    if (canEditQuotes() && q.locked) {
+      others.push({ act: "revise", id: "btn-qb-revise", text: "Revise" });
+    }
+    // Whenever this offer has been revised at all, from whichever version is open.
+    if (q.revision !== "R0" || q.parentQuotationId) {
+      others.push({ act: "versions", id: "btn-qb-versions", text: "Versions" });
+    }
+    // The way back down, for an offer that should not have left Draft at all.
+    if (canEditQuotes() && q.locked && ["Won", "Lost"].indexOf(q.status) === -1) {
+      others.push({ act: "reopen", id: "btn-qb-reopen", text: "Reopen as Draft" });
+    }
+    if (editable && q.status === "Draft") {
+      others.push({ act: "discard", id: "btn-qb-discard", text: "Discard Draft", danger: true });
+    }
+
+    var pressable = function (a, cls, inner) {
+      return '<button type="button" role="menuitem" class="qs-item ' + cls + '"' +
+        (a.id ? ' id="' + a.id + '"' : "") +
+        (a.qs ? ' data-qs="' + a.qs + '"' : "") +
+        (a.act ? ' data-act="' + a.act + '"' : "") + ">" + inner + "</button>";
+    };
+    var tick = function (done) {
+      return '<span class="qs-tick" aria-hidden="true">' + (done ? "✓" : "") + "</span>";
+    };
+
+    var rows = stages.map(function (st) {
+      var a = stepAction[st.key];
+      var when = st.date || st.detail || "";
+      if (a) {
+        return pressable(a, "qs-next" + (st.done ? " qs-done" : ""), tick(st.done) +
+          '<span class="qs-label">' + escapeHtml(a.text) + "</span>" +
+          '<span class="qs-sub">' + escapeHtml(st.label) + "</span>");
+      }
+      return '<div class="qs-item qs-static' + (st.done ? " qs-done" : "") + '" role="menuitem" ' +
+        'aria-disabled="true">' + tick(st.done) +
+        '<span class="qs-label">' + escapeHtml(st.label) +
+          (st.done ? '<span class="sr-only"> (done)</span>' : "") + "</span>" +
+        (st.done && when ? '<span class="qs-sub">' + escapeHtml(when) + "</span>" : "") +
+        "</div>";
+    });
+    if (journey.declined) {
+      rows.push('<div class="qs-item qs-static qs-stop" role="menuitem" aria-disabled="true">' +
+        '<span class="qs-tick" aria-hidden="true">✕</span><span class="qs-label">Declined</span>' +
+        (journey.declined.reason ? '<span class="qs-sub">' + escapeHtml(journey.declined.reason) + "</span>" : "") +
+        "</div>");
+    } else if (journey.expired) {
+      rows.push('<div class="qs-item qs-static qs-stop" role="menuitem" aria-disabled="true">' +
+        '<span class="qs-tick" aria-hidden="true">✕</span><span class="qs-label">Expired</span></div>');
+    }
+
+    var current = journey.label || q.status || "";
+    zone.innerHTML =
+      // Available at every status, locked included: a sent quotation is exactly the one most
+      // often reprinted.
+      '<button class="btn btn-sm" id="btn-qb-print">Print / PDF</button>' +
+      // Leaving a quotation: keep it and come back, or start another.
+      '<button class="btn btn-sm" id="btn-qb-new">+ New Quotation</button>' +
+      '<div class="qs-menu" id="qb-status-menu">' +
+        '<button type="button" class="btn btn-sm btn-primary" id="btn-qb-status" aria-haspopup="menu" ' +
+          'aria-expanded="false" aria-controls="qb-status-list">Status: ' + escapeHtml(current) +
+          ' <span class="qs-caret" aria-hidden="true">▾</span></button>' +
+        '<div class="qs-list" id="qb-status-list" role="menu" aria-label="Quotation status" hidden>' +
+          '<div class="qs-head">Stages</div>' + rows.join("") +
+          (others.length
+            ? '<div class="qs-head">More</div>' + others.map(function (a) {
+                return pressable(a, a.danger ? "qs-danger" : "", tick(false) +
+                  '<span class="qs-label">' + escapeHtml(a.text) + "</span>");
+              }).join("")
+            : "") +
+        "</div>" +
+      "</div>";
+
+    var menu = $("qb-status-list");
+    var toggle = $("btn-qb-status");
+    var setOpen = function (open) {
+      menu.hidden = !open;
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        var first = menu.querySelector("button.qs-item");
+        if (first) first.focus();
+      }
+    };
+    toggle.addEventListener("click", function (e) {
+      e.stopPropagation();
+      setOpen(menu.hidden);
+    });
+    menu.addEventListener("click", function (e) { e.stopPropagation(); });
+    menu.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { setOpen(false); toggle.focus(); return; }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      var items = Array.prototype.slice.call(menu.querySelectorAll("button.qs-item"));
+      var at = items.indexOf(document.activeElement);
+      var next = items[(at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length];
+      if (next) next.focus();
+    });
+    quoteStatusMenuClose = function () { if (!menu.hidden) setOpen(false); };
+
+    var run = function (btn, fn) {
+      btn.addEventListener("click", function () { setOpen(false); fn(); });
+    };
+    menu.querySelectorAll("[data-qs]").forEach(function (btn) {
+      run(btn, function () { changeQuoteStatus(btn.dataset.qs); });
+    });
+    var acts = {
+      "make-order": openPurchaseOrderForm,
+      "open-order": function () {
         goToTab("orders");
         setTimeout(function () { openOrderModal(q.journey.orderId); }, 400);
-      });
-    }
-    if ($("btn-qb-versions")) {
-      $("btn-qb-versions").addEventListener("click", openVersions);
-    }
+      },
+      versions: openVersions,
+      reopen: reopenOpenQuote,
+      discard: discardOpenQuote,
+      revise: reviseOpenQuote
+    };
+    menu.querySelectorAll("[data-act]").forEach(function (btn) {
+      run(btn, acts[btn.dataset.act]);
+    });
+
     $("btn-qb-print").addEventListener("click", openQuoteDocument);
 
     // Nothing to save: a quotation is written to the sheet the moment it is created, so
@@ -3774,78 +3856,80 @@
       showMsg(leaving.quoteNo + " is saved as a draft — reopen it any time from " +
         "All Quotations. Starting a new one.", "success");
     });
+  }
 
-    if ($("btn-qb-reopen")) {
-      $("btn-qb-reopen").addEventListener("click", function () {
-        var id = openQuote.id;
-        askDialog({
-          title: "Reopen " + openQuote.quoteNo + " as a draft?",
-          message: "It becomes editable again, and its approval and submission dates are " +
-            "cleared. Use Revise instead if this quotation went to the customer and needs " +
-            "changing — that keeps the sent version.",
-          input: true, inputLabel: "Reason", okLabel: "Reopen"
-        }, function (reason) {
-          if (reason === null) return;
-          srv.withSuccessHandler(function (q) {
-            openQuote = q;
-            renderQuoteBuilder();
-            showMsg(q.quoteNo + " is a draft again.", "success");
-          }).withFailureHandler(onServerError).reopenQuotation(id, reason);
-        });
-      });
-    }
+  // The open Status menu closes on a click anywhere else, or Escape, like the other menus.
+  var quoteStatusMenuClose = function () {};
+  document.addEventListener("click", function () { quoteStatusMenuClose(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") quoteStatusMenuClose();
+  });
 
-    if ($("btn-qb-discard")) {
-      $("btn-qb-discard").addEventListener("click", function () {
-        var lineCount = (openQuote.items || []).length;
-        askDialog({
-          title: "Discard " + openQuote.quoteNo + "?",
-          message: "This draft and " + (lineCount === 1 ? "its 1 line" : "its " + lineCount + " lines") +
-            " are deleted for good. Only a draft can be discarded — anything already sent to a " +
-            "customer is marked Lost instead, so the record survives.",
-          okLabel: "Discard",
-          danger: true
-        }, function (ok) {
-          if (ok === null) return;
-          srv.withSuccessHandler(function (res) {
-            openQuote = null;
-            renderQuoteEmpty();
-            clearMsg();
-            showMsg(res.quoteNo + " discarded.", "success");
-          }).withFailureHandler(onServerError).discardQuotation(openQuote.id);
-        });
-      });
-    }
-    if ($("btn-qb-revise")) {
-      $("btn-qb-revise").addEventListener("click", function () {
-        // The reason is asked before anything happens, and the server refuses a revision
-        // without one, so this is not a box that can be skipped by pressing Enter.
-        askDialog({
-          title: "Why is this quotation being revised?",
-          message: "The current version is kept exactly as it is and marked Revised. " +
-            "A copy opens for editing as the next revision, and the reason is recorded " +
-            "against it for anyone who later asks why it changed.",
-          input: true,
-          inputLabel: "Reason for revision *",
-          placeholder: "e.g. Customer asked for a lower price",
-          // The same rule reviseQuotation enforces, said here first so the dialog stays open.
-          validate: function (v) {
-            var t = String(v || "").replace(/\s+/g, " ").trim();
-            return (t.length < 5 || !/[A-Za-z0-9]{2,}/.test(t))
-              ? "Give a real reason \u2014 for example \u201cCustomer asked for a lower price\u201d."
-              : "";
-          },
-          okLabel: "Revise"
-        }, function (reason) {
-          if (reason === null) return;
-          srv.withSuccessHandler(function (nq) {
-            openQuote = nq;
-            renderQuoteBuilder();
-            showMsg("Now editing " + nq.quoteNo + " " + nq.revision + ".", "success");
-          }).withFailureHandler(onServerError).reviseQuotation(openQuote.id, reason);
-        });
-      });
-    }
+  function reopenOpenQuote() {
+    var id = openQuote.id;
+    askDialog({
+      title: "Reopen " + openQuote.quoteNo + " as a draft?",
+      message: "It becomes editable again, and its approval and submission dates are " +
+        "cleared. Use Revise instead if this quotation went to the customer and needs " +
+        "changing — that keeps the sent version.",
+      input: true, inputLabel: "Reason", okLabel: "Reopen"
+    }, function (reason) {
+      if (reason === null) return;
+      srv.withSuccessHandler(function (q) {
+        openQuote = q;
+        renderQuoteBuilder();
+        showMsg(q.quoteNo + " is a draft again.", "success");
+      }).withFailureHandler(onServerError).reopenQuotation(id, reason);
+    });
+  }
+
+  function discardOpenQuote() {
+    var lineCount = (openQuote.items || []).length;
+    askDialog({
+      title: "Discard " + openQuote.quoteNo + "?",
+      message: "This draft and " + (lineCount === 1 ? "its 1 line" : "its " + lineCount + " lines") +
+        " are deleted for good. Only a draft can be discarded — anything already sent to a " +
+        "customer is marked Lost instead, so the record survives.",
+      okLabel: "Discard",
+      danger: true
+    }, function (ok) {
+      if (ok === null) return;
+      srv.withSuccessHandler(function (res) {
+        openQuote = null;
+        renderQuoteEmpty();
+        clearMsg();
+        showMsg(res.quoteNo + " discarded.", "success");
+      }).withFailureHandler(onServerError).discardQuotation(openQuote.id);
+    });
+  }
+
+  function reviseOpenQuote() {
+    // The reason is asked before anything happens, and the server refuses a revision
+    // without one, so this is not a box that can be skipped by pressing Enter.
+    askDialog({
+      title: "Why is this quotation being revised?",
+      message: "The current version is kept exactly as it is and marked Revised. " +
+        "A copy opens for editing as the next revision, and the reason is recorded " +
+        "against it for anyone who later asks why it changed.",
+      input: true,
+      inputLabel: "Reason for revision *",
+      placeholder: "e.g. Customer asked for a lower price",
+      // The same rule reviseQuotation enforces, said here first so the dialog stays open.
+      validate: function (v) {
+        var t = String(v || "").replace(/\s+/g, " ").trim();
+        return (t.length < 5 || !/[A-Za-z0-9]{2,}/.test(t))
+          ? "Give a real reason — for example “Customer asked for a lower price”."
+          : "";
+      },
+      okLabel: "Revise"
+    }, function (reason) {
+      if (reason === null) return;
+      srv.withSuccessHandler(function (nq) {
+        openQuote = nq;
+        renderQuoteBuilder();
+        showMsg("Now editing " + nq.quoteNo + " " + nq.revision + ".", "success");
+      }).withFailureHandler(onServerError).reviseQuotation(openQuote.id, reason);
+    });
   }
 
   // ---- The customer said yes ----
