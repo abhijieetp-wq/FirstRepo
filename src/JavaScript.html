@@ -211,6 +211,8 @@
     // The server refuses either way; this is so nobody is shown a door that will not open.
     { view: "compressor", label: "Compressor Sales", roles: SALES_SIDE, stream: "Compressor Sales" },
     { view: "enquiries", label: "Spare Sales", roles: SALES_SIDE, stream: "Spare Sales" },
+    // ELGi's weekly Service Due Report, worked call by call. The spares desk's other front door.
+    { view: "servicedue", label: "Service Due Calls", roles: SALES_SIDE, stream: "Spare Sales" },
     { label: "Quotations", children: [
       { view: "quote", label: "New Quotation", roles: SALES_SIDE },
       { view: "quotations", label: "All Quotations", roles: SALES_SIDE },
@@ -280,6 +282,7 @@
     dashboard: "/dashboard",
     compressor: "/compressor-sales",
     enquiries: "/spare-sales",
+    servicedue: "/service-due-calls",
     quote: "/quotation",
     quotations: "/quotations",
     progress: "/quotation-progress",
@@ -555,6 +558,7 @@
     catalog: initCatalogView,
     customers: initCustomersView,
     enquiries: initEnquiriesView,
+    servicedue: initServiceDueView,
     quotations: initQuotationsView,
     progress: initProgressView,
     engineers: initEngineersView,
@@ -6514,6 +6518,913 @@
       onServerError(err);
     }).exportQuotationProgress();
   });
+
+  // ================= SERVICE DUE CALLS =================
+  // ELGi's weekly Service Due Report, worked machine by machine: the call, the spares
+  // quotation sent whatever the answer, the follow-ups, and how it ended — a PO, or the reason
+  // it did not happen. The two reasons stand out everywhere, because they are what the report
+  // is read for. The server is ServiceDue.gs.
+  var sdc = { data: null, listId: "", view: "open", selected: {}, open: null, shown: 150 };
+  var SDC_PAGE = 150;
+
+  function initServiceDueView() { loadServiceDue(); }
+
+  function loadServiceDue(then) {
+    srv.withSuccessHandler(function (d) {
+      sdc.data = d;
+      $("btn-sdc-import").style.display = d.canEdit ? "" : "none";
+      fillServiceDueFilters();
+      renderServiceDue();
+      if (then) then();
+    }).withFailureHandler(onServerError).getServiceDueScreen({ listId: sdc.listId, view: sdc.view });
+  }
+
+  function sdcToday() {
+    var d = new Date();
+    return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+  }
+  function sdcDate(d) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ""));
+    return m ? m[3] + "-" + m[2] + "-" + m[1] : "";
+  }
+  function sdcPerson(email) {
+    var p = ((sdc.data && sdc.data.coordinators) || []).filter(function (x) { return x.email === email; })[0];
+    return p ? p.name : (email || "");
+  }
+  var SDC_BADGE = {
+    "To call": "badge-new", "Called": "badge-followup", "Quotation prepared": "badge-draft",
+    "Quotation sent": "badge-sent", "Following up": "badge-sent", "PO received": "badge-won",
+    "Not closed": "badge-lost", "PO rejected": "badge-lost"
+  };
+  function sdcBadge(status) {
+    return '<span class="badge ' + (SDC_BADGE[status] || "badge-draft") + '">' + escapeHtml(status) + "</span>";
+  }
+  /** The reason a call was not closed, or a PO rejected — highlighted wherever it shows. */
+  function sdcReason(c) {
+    var r = c.notClosedReason || c.poRejectedReason || "";
+    if (!r) return "";
+    return '<div class="sdc-reason"><b>' + escapeHtml(c.status === "PO rejected" ? "PO rejected: " : "Not closed: ") +
+      "</b>" + escapeHtml(r) + "</div>";
+  }
+
+  function fillServiceDueFilters() {
+    var d = sdc.data;
+    var keep = function (id) { return $(id).value; };
+    $("sdc-list").innerHTML = '<option value="">Every week</option>' + d.lists.map(function (l) {
+      return '<option value="' + escapeHtml(l.id) + '">Week of ' + escapeHtml(sdcDate(l.listDate)) +
+        " · " + (Number(l.machineCount) || 0) + " machines</option>";
+    }).join("");
+    $("sdc-list").value = sdc.listId;
+    $("sdc-view").value = sdc.view;
+    var status = keep("sdc-status");
+    $("sdc-status").innerHTML = '<option value="">Any status</option>' + d.statuses.map(function (s) {
+      return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + "</option>";
+    }).join("");
+    $("sdc-status").value = status;
+    var owner = keep("sdc-owner");
+    var people = '<option value="">Everyone</option><option value="__me">Mine</option>' +
+      d.coordinators.map(function (p) {
+        return '<option value="' + escapeHtml(p.email) + '">' + escapeHtml(p.name) + "</option>";
+      }).join("");
+    $("sdc-owner").innerHTML = people;
+    $("sdc-owner").value = owner;
+    $("sdc-bulk-owner").innerHTML = d.coordinators.map(function (p) {
+      return '<option value="' + escapeHtml(p.email) + '">' + escapeHtml(p.name) + "</option>";
+    }).join("");
+  }
+
+  /** The calls the screen's own filters leave, on top of the server's week and open/closed. */
+  function serviceDueShown() {
+    var d = sdc.data;
+    if (!d) return [];
+    var status = $("sdc-status").value;
+    var owner = $("sdc-owner").value === "__me" ? d.me : $("sdc-owner").value;
+    var q = $("sdc-search").value.trim().toLowerCase();
+    var overdue = $("sdc-overdue").checked;
+    var due = $("sdc-due").checked;
+    var today = sdcToday();
+    return d.calls.filter(function (c) {
+      if (status && c.status !== status) return false;
+      if (owner && c.ownerEmail !== owner) return false;
+      if (overdue && c.overdue !== "TRUE") return false;
+      if (due && !(c.nextFollowUpDate && c.nextFollowUpDate <= today && !c.outcome)) return false;
+      if (q) {
+        var hay = [c.customerName, c.sdrCustomerName, c.fabNo, c.productModel, c.quoteNo].join(" ").toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderServiceDue() {
+    var d = sdc.data;
+    var counts = {};
+    d.calls.forEach(function (c) { counts[c.status] = (counts[c.status] || 0) + 1; });
+    var active = $("sdc-status").value;
+    $("sdc-summary").innerHTML = '<div class="sdc-tiles">' +
+      '<button type="button" class="kpi-card sdc-tile' + (active ? "" : " on") + '" data-sdc-tile="">' +
+        '<div class="kpi-label">All</div><div class="kpi-value">' + d.calls.length + "</div></button>" +
+      d.statuses.map(function (s) {
+        var bad = s === "Not closed" || s === "PO rejected";
+        return '<button type="button" class="kpi-card sdc-tile' + (bad && counts[s] ? " alert" : "") +
+          (active === s ? " on" : "") + '" data-sdc-tile="' + escapeHtml(s) + '">' +
+          '<div class="kpi-label">' + escapeHtml(s) + '</div><div class="kpi-value">' + (counts[s] || 0) +
+          "</div></button>";
+      }).join("") + "</div>";
+    $("sdc-summary").querySelectorAll("[data-sdc-tile]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        $("sdc-status").value = b.dataset.sdcTile;
+        sdc.shown = SDC_PAGE;
+        renderServiceDue();
+      });
+    });
+
+    var rows = serviceDueShown();
+    var today = sdcToday();
+    var limit = d.followUpLimit || 6;
+    var body = rows.slice(0, sdc.shown).map(function (c) {
+      var name = c.customerName || c.sdrCustomerName;
+      var dueNext = c.nextFollowUpDate && !c.outcome
+        ? '<div class="' + (c.nextFollowUpDate <= today ? "sdc-late" : "sdc-muted") + '">Next ' +
+          escapeHtml(sdcDate(c.nextFollowUpDate)) + "</div>" : "";
+      return '<tr data-sdc="' + escapeHtml(c.id) + '">' +
+        '<td><input type="checkbox" data-sdc-tick="' + escapeHtml(c.id) + '"' +
+          (sdc.selected[c.id] ? " checked" : "") + " /></td>" +
+        "<td><b>" + escapeHtml(name) + "</b>" +
+          (c.customerId ? "" : '<div class="sdc-warn">Not in Customers yet</div>') +
+          (c.previousOutcome ? '<div class="sdc-muted">Last time: ' + escapeHtml(c.previousOutcome) + "</div>" : "") +
+        "</td>" +
+        "<td>" + escapeHtml(c.productModel) + '<div class="mono sdc-muted">' + escapeHtml(c.fabNo) +
+          (Number(c.listedCount) > 1 ? " · listed " + c.listedCount + "×" : "") + "</div></td>" +
+        '<td class="sdc-due">' + sdcDueHtml(c.dueParts) + "</td>" +
+        "<td>" + escapeHtml(sdcPerson(c.ownerEmail)) + "</td>" +
+        "<td>" + (c.callDate ? escapeHtml(sdcDate(c.callDate)) + '<div class="sdc-muted">' +
+          escapeHtml(c.callResponse || "") + "</div>" : '<span class="sdc-muted">Not yet</span>') + "</td>" +
+        "<td>" + (c.quoteNo ? '<span class="mono">' + escapeHtml(c.quoteNo) + "</span>" +
+          '<div class="sdc-muted">' + (c.quoteValue !== "" ? fmt(c.quoteValue) : "") +
+          (c.sentDate ? " · sent " + escapeHtml(sdcDate(c.sentDate)) : "") + "</div>"
+          : '<span class="sdc-muted">—</span>') + "</td>" +
+        "<td>" + (Number(c.followUpCount) || 0) + " of " + limit + dueNext + "</td>" +
+        "<td>" + sdcBadge(c.status) + sdcReason(c) + "</td>" +
+        "</tr>";
+    }).join("");
+    $("sdc-tbody").innerHTML = body || '<tr><td colspan="9" class="empty">' +
+      (d.calls.length ? "Nothing matches these filters." :
+        (d.lists.length ? "No calls here." : "No list uploaded yet. Press Upload weekly sheet and pick this week's Service Due Report.")) +
+      "</td></tr>";
+    $("sdc-more").innerHTML = rows.length > sdc.shown
+      ? '<div style="text-align:center; margin:12px 0;"><button class="btn btn-sm" id="btn-sdc-more" type="button">Show ' +
+        Math.min(SDC_PAGE, rows.length - sdc.shown) + " more of " + (rows.length - sdc.shown) + "</button></div>" : "";
+    if ($("btn-sdc-more")) {
+      $("btn-sdc-more").addEventListener("click", function () { sdc.shown += SDC_PAGE; renderServiceDue(); });
+    }
+    renderServiceDueBulk();
+  }
+
+  /** "Overdue: AF, OF · This month: AOS" with the overdue part in red. */
+  function sdcDueHtml(text) {
+    return String(text || "").split(" · ").map(function (part) {
+      return /^Overdue:/.test(part) ? '<span class="sdc-late">' + escapeHtml(part) + "</span>" : escapeHtml(part);
+    }).join("<br>") || '<span class="sdc-muted">—</span>';
+  }
+
+  function renderServiceDueBulk() {
+    var n = Object.keys(sdc.selected).length;
+    $("sdc-bulk").style.display = n ? "" : "none";
+    $("sdc-bulk-count").textContent = n + (n === 1 ? " call ticked — assign to" : " calls ticked — assign to");
+  }
+
+  $("sdc-tbody").addEventListener("click", function (e) {
+    var tick = e.target.closest("[data-sdc-tick]");
+    if (tick) {
+      if (tick.checked) sdc.selected[tick.dataset.sdcTick] = true; else delete sdc.selected[tick.dataset.sdcTick];
+      renderServiceDueBulk();
+      return;
+    }
+    var row = e.target.closest("[data-sdc]");
+    if (row) openServiceDueCall(row.dataset.sdc);
+  });
+  $("sdc-all").addEventListener("change", function () {
+    var on = $("sdc-all").checked;
+    serviceDueShown().slice(0, sdc.shown).forEach(function (c) {
+      if (on) sdc.selected[c.id] = true; else delete sdc.selected[c.id];
+    });
+    renderServiceDue();
+  });
+  $("btn-sdc-clear").addEventListener("click", function () {
+    sdc.selected = {};
+    $("sdc-all").checked = false;
+    renderServiceDue();
+  });
+  $("btn-sdc-assign").addEventListener("click", function () {
+    var ids = Object.keys(sdc.selected);
+    var to = $("sdc-bulk-owner").value;
+    var done = busyButton("btn-sdc-assign", "Assigning…");
+    srv.withSuccessHandler(function (r) {
+      done();
+      sdc.selected = {};
+      $("sdc-all").checked = false;
+      showMsg(r.assigned + (r.assigned === 1 ? " call" : " calls") + " given to " + sdcPerson(r.ownerEmail) + ".", "success");
+      loadServiceDue();
+    }).withFailureHandler(function (err) { done(); onServerError(err); }).assignServiceDueCalls(ids, to);
+  });
+
+  ["sdc-status", "sdc-owner", "sdc-overdue", "sdc-due"].forEach(function (id) {
+    $(id).addEventListener("change", function () { sdc.shown = SDC_PAGE; renderServiceDue(); });
+  });
+  $("sdc-search").addEventListener("input", function () { sdc.shown = SDC_PAGE; renderServiceDue(); });
+  $("sdc-list").addEventListener("change", function () { sdc.listId = $("sdc-list").value; sdc.shown = SDC_PAGE; loadServiceDue(); });
+  $("sdc-view").addEventListener("change", function () { sdc.view = $("sdc-view").value; sdc.shown = SDC_PAGE; loadServiceDue(); });
+
+  // ---- One machine's call ----
+  function openServiceDueCall(id) {
+    var show = function () {
+      srv.withSuccessHandler(function (c) {
+        sdc.open = c;
+        sdcOutcomeMode = "";
+        renderServiceDueCall();
+        $("sdc-modal-backdrop").classList.add("show");
+      }).withFailureHandler(onServerError).getServiceDueCall(id);
+    };
+    if (!quoteCustomers.length) loadQuoteCustomers(show); else show();
+  }
+
+  var sdcOutcomeMode = "";
+
+  function sdcMsg(text, kind) {
+    $("sdc-msg").innerHTML = text ? '<div class="msg msg-' + (kind || "error") + ' show" style="position:static;">' +
+      '<span class="msg-text">' + escapeHtml(text) + "</span></div>" : "";
+  }
+
+  function renderServiceDueCall() {
+    var c = sdc.open;
+    var d = sdc.data || { coordinators: [], responses: [], modes: [], followUpLimit: 6 };
+    var closed = !!c.outcome;
+    sdcMsg("");
+    $("sdc-title").textContent = c.customerName || c.sdrCustomerName;
+    $("sdc-sub").textContent = c.productModel + " · Fab No " + c.fabNo + " · on the list " +
+      (Number(c.listedCount) > 1 ? c.listedCount + " weeks, since " : "from ") + sdcDate(c.firstListDate);
+    $("sdc-status-pill").innerHTML = sdcBadge(c.status);
+
+    var fact = function (label, value) {
+      return value ? '<div><span class="sdc-muted">' + escapeHtml(label) + "</span><br>" + escapeHtml(value) + "</div>" : "";
+    };
+    $("sdc-machine").innerHTML = '<div class="sdc-facts">' +
+      fact("Warranty", c.warrantyType) + fact("AMC", c.amcType || "No AMC") + fact("Category", c.category) +
+      fact("Last service call", [c.lastServiceCall, c.lastServiceComment].filter(Boolean).join(" — ")) +
+      fact("Hours (HMR " + sdcDate(c.hmrDate) + ")", c.totalHours) +
+      fact("Runs a day", c.runningHoursPerDay ? c.runningHoursPerDay + " h" : "") +
+      fact("Service engineer", c.serviceEngineer) + "</div>" +
+      '<div style="margin-top:8px;"><span class="sdc-muted">Due</span><br>' + sdcDueHtml(c.dueParts) +
+        (c.dueDetail ? '<div class="sdc-muted mono" style="margin-top:4px;">' + escapeHtml(c.dueDetail) + "</div>" : "") + "</div>" +
+      (c.previousOutcome ? '<div class="sdc-warn" style="margin-top:8px;">Last time this machine was on the list: ' +
+        escapeHtml(c.previousOutcome) + "</div>" : "");
+
+    $("sdc-customer").innerHTML = '<option value="">— not linked —</option>' + customerOptions(c.customerId);
+    $("sdc-customer").value = c.customerId || "";
+    $("sdc-customer-note").textContent = c.customerId
+      ? (c.sdrCustomerName && c.sdrCustomerName !== c.customerName ? "ELGi's report calls them “" + c.sdrCustomerName + "”." : "")
+      : "ELGi's report calls them “" + c.sdrCustomerName + "”. Pick their record — or add them in Customers first. The quotation needs it.";
+    $("sdc-owner-pick").innerHTML = d.coordinators.map(function (p) {
+      return '<option value="' + escapeHtml(p.email) + '">' + escapeHtml(p.name) + "</option>";
+    }).join("") + (d.coordinators.some(function (p) { return p.email === c.ownerEmail; }) || !c.ownerEmail
+      ? "" : '<option value="' + escapeHtml(c.ownerEmail) + '">' + escapeHtml(c.ownerEmail) + "</option>");
+    $("sdc-owner-pick").value = c.ownerEmail || "";
+
+    $("sdc-contacts").innerHTML = (c.contacts || []).length
+      ? (c.contacts || []).map(function (p) {
+          return '<span class="sdc-contact"><b>' + escapeHtml(p.name) + "</b>" +
+            (p.phone ? ' · <a href="tel:' + escapeHtml(p.phone) + '">' + escapeHtml(p.phone) + "</a>" : "") +
+            (p.email ? " · " + escapeHtml(p.email) : "") + "</span>";
+        }).join("")
+      : (c.customerId ? '<span class="sdc-muted">No contacts on their record. Add one in Customers so the quotation has an e-mail to go to.</span>' : "");
+    $("sdc-contact-list").innerHTML = (c.contacts || []).map(function (p) {
+      return '<option value="' + escapeHtml(p.name) + '"></option>';
+    }).join("");
+
+    $("sdc-call-date").value = c.callDate || sdcToday();
+    $("sdc-call-contact").value = c.contactName || "";
+    $("sdc-call-response").innerHTML = '<option value="">— pick —</option>' + d.responses.map(function (r) {
+      return '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + "</option>";
+    }).join("");
+    $("sdc-call-response").value = c.callResponse || "";
+    $("sdc-call-notes").value = c.callNotes || "";
+    ["sdc-call-date", "sdc-call-contact", "sdc-call-response", "sdc-call-notes"].forEach(function (id) {
+      $(id).disabled = closed;
+    });
+
+    // The quotation.
+    if (c.quotationId) {
+      $("sdc-quote").innerHTML = '<div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">' +
+        '<div><span class="mono"><b>' + escapeHtml(c.quoteNo) + "</b></span> · " +
+          (c.quoteValue !== "" ? fmt(c.quoteValue) + " · " : "") + escapeHtml(c.quoteStatus) +
+          (c.sentDate ? " · sent " + escapeHtml(sdcDate(c.sentDate)) : " · not sent yet") +
+          (c.enquiryNo ? '<div class="sdc-muted">From enquiry ' + escapeHtml(c.enquiryNo) + "</div>" : "") + "</div>" +
+        '<button class="btn btn-sm" id="btn-sdc-open-quote" type="button">Open quotation</button></div>';
+      $("btn-sdc-open-quote").addEventListener("click", function () {
+        $("sdc-modal-backdrop").classList.remove("show");
+        openQuotation(c.quotationId);
+      });
+    } else {
+      $("sdc-quote").innerHTML = (closed ? '<span class="sdc-muted">No quotation was raised.</span>' :
+        '<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">' +
+          '<button class="btn btn-sm btn-primary" id="btn-sdc-quote" type="button"' + (c.customerId ? "" : " disabled") +
+            ">Prepare spares quotation</button>" +
+          '<span class="sdc-muted">' + (c.customerId ? "Raises it for this machine — fab number and model on it — and opens it to add the parts and e-mail it."
+            : "Link the customer record first.") + "</span></div>" +
+        '<div style="display:flex; gap:8px; margin-top:8px; align-items:center;">' +
+          '<span class="sdc-muted">Or one already made:</span>' +
+          '<input id="sdc-link-no" class="mono" placeholder="Quotation number" style="max-width:260px;" />' +
+          '<button class="btn btn-sm" id="btn-sdc-link" type="button">Link</button></div>');
+      if ($("btn-sdc-quote")) $("btn-sdc-quote").addEventListener("click", prepareServiceDueQuote);
+      if ($("btn-sdc-link")) $("btn-sdc-link").addEventListener("click", function () {
+        sdcRun(function (h) { h.linkServiceDueQuotation(c.id, $("sdc-link-no").value); }, "Quotation linked.");
+      });
+    }
+
+    // The follow-ups.
+    var ups = c.followUps || [];
+    var limit = d.followUpLimit || 6;
+    $("sdc-fu-count").textContent = "(" + ups.length + " of " + limit + ")";
+    $("sdc-followups").innerHTML = ups.length
+      ? '<table class="sdc-fu"><thead><tr><th>#</th><th>Date</th><th>How</th><th>Spoke to</th><th>What was said</th>' +
+        "<th>Answer</th><th>Next</th></tr></thead><tbody>" + ups.map(function (u) {
+          return "<tr><td>" + escapeHtml(u.followUpNo) + "</td><td>" + escapeHtml(sdcDate(u.followUpDate)) + "</td><td>" +
+            escapeHtml(u.mode) + "</td><td>" + escapeHtml(u.contactName) + "</td><td>" + escapeHtml(u.notes) +
+            "</td><td>" + escapeHtml(u.response) + "</td><td>" + escapeHtml(sdcDate(u.nextFollowUpDate)) + "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<p class="sdc-muted" style="margin:0;">None yet.</p>';
+    if (!closed && ups.length >= limit) {
+      $("sdc-followups").innerHTML += '<div class="sdc-warn" style="margin-top:8px;">' + ups.length +
+        " follow-ups done — time to decide. Close it below: PO received, not closed, or PO rejected.</div>";
+    }
+    $("sdc-fu-form").style.display = closed ? "none" : "";
+    $("sdc-fu-date").value = sdcToday();
+    $("sdc-fu-mode").innerHTML = d.modes.map(function (m) {
+      return '<option value="' + escapeHtml(m) + '">' + escapeHtml(m) + "</option>";
+    }).join("");
+    $("sdc-fu-contact").value = c.contactName || "";
+    $("sdc-fu-notes").value = "";
+    $("sdc-fu-response").value = "";
+    $("sdc-fu-next").value = "";
+
+    renderServiceDueOutcome();
+
+    // The same customer's other machines.
+    var sib = c.siblings || [];
+    $("sdc-siblings-wrap").style.display = sib.length && !closed ? "" : "none";
+    $("sdc-siblings").checked = false;
+    $("sdc-siblings-text").textContent = sib.length
+      ? "Also record the call, follow-ups and outcome for this customer's other " +
+        (sib.length === 1 ? "machine" : sib.length + " machines") + " on the list (" +
+        sib.map(function (s) { return s.fabNo; }).join(", ") + ")"
+      : "";
+    $("btn-sdc-save-call").style.display = d.canEdit === false ? "none" : "";
+  }
+
+  function renderServiceDueOutcome() {
+    var c = sdc.open;
+    var zone = $("sdc-outcome");
+    if (c.outcome) {
+      zone.innerHTML = '<div class="sdc-panel">' + sdcBadge(c.status) + " on " + escapeHtml(sdcDate(c.outcomeDate)) +
+        (c.poNo ? ' · PO <span class="mono">' + escapeHtml(c.poNo) + "</span>" : "") +
+        (c.poDate ? " dated " + escapeHtml(sdcDate(c.poDate)) : "") +
+        (c.poValue !== "" && c.poValue !== undefined ? " · " + fmt(c.poValue) : "") + sdcReason(c) +
+        '<div style="margin-top:8px;"><button class="btn btn-sm" id="btn-sdc-reopen" type="button">Reopen</button></div></div>';
+      $("btn-sdc-reopen").addEventListener("click", function () {
+        sdcRun(function (h) { h.reopenServiceDueCall(c.id); }, "Reopened.");
+      });
+      return;
+    }
+    if (!c.outcome && c.status === "PO received" && c.orderNo) {
+      zone.innerHTML = '<div class="sdc-panel">The quotation became order <b>' + escapeHtml(c.orderNo) + "</b>" +
+        (c.poNo ? " against PO " + escapeHtml(c.poNo) : "") + ". Record it here to close the call.</div>";
+    } else {
+      zone.innerHTML = "";
+    }
+    var mode = sdcOutcomeMode;
+    zone.innerHTML += '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+      ["PO received", "Not closed", "PO rejected"].map(function (o) {
+        return '<button type="button" class="btn btn-sm' + (mode === o ? " btn-primary" : "") +
+          (o === "PO received" ? "" : " sdc-bad-btn") + '" data-sdc-outcome="' + o + '">' + o + "</button>";
+      }).join("") + "</div>";
+    if (mode) {
+      var po = mode !== "Not closed";
+      zone.innerHTML += '<div class="sdc-panel" style="margin-top:8px;">' +
+        (po ? '<div class="grid grid-3">' +
+          '<div class="field"><label>PO No' + (mode === "PO received" ? " *" : "") + '</label><input id="sdc-po-no" class="mono" value="' + escapeHtml(c.poNo || "") + '" /></div>' +
+          '<div class="field"><label>PO date</label><input id="sdc-po-date" type="date" value="' + escapeHtml(c.poDate || "") + '" /></div>' +
+          '<div class="field"><label>PO value (₹)</label><input id="sdc-po-value" type="number" min="0" step="0.01" /></div></div>' : "") +
+        (mode !== "PO received" ? '<div class="field" style="margin-top:8px;"><label>' +
+          (mode === "Not closed" ? "Why it could not be closed *" : "Why the PO was rejected *") +
+          '</label><textarea id="sdc-reason" rows="2" placeholder="' + (mode === "Not closed"
+            ? "e.g. Bought from a local supplier; plant shut till March" : "e.g. Price above their budget; wrong part") +
+          '"></textarea></div>' : "") +
+        '<div style="display:flex; justify-content:flex-end; margin-top:8px;">' +
+          '<button class="btn btn-sm btn-primary" id="btn-sdc-close-call" type="button">Close as ' + escapeHtml(mode) + "</button></div></div>";
+    }
+    zone.querySelectorAll("[data-sdc-outcome]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        sdcOutcomeMode = sdcOutcomeMode === b.dataset.sdcOutcome ? "" : b.dataset.sdcOutcome;
+        renderServiceDueOutcome();
+      });
+    });
+    if ($("btn-sdc-close-call")) {
+      $("btn-sdc-close-call").addEventListener("click", function () {
+        var input = {
+          id: c.id, outcome: mode, alsoIds: sdcAlsoIds(),
+          poNo: $("sdc-po-no") ? $("sdc-po-no").value.trim() : "",
+          poDate: $("sdc-po-date") ? $("sdc-po-date").value : "",
+          poValue: $("sdc-po-value") ? $("sdc-po-value").value : "",
+          reason: $("sdc-reason") ? $("sdc-reason").value : ""
+        };
+        sdcRun(function (h) { h.closeServiceDueCall(input); }, "Closed as " + mode + ".");
+      });
+    }
+  }
+
+  function sdcAlsoIds() {
+    return $("sdc-siblings").checked ? (sdc.open.siblings || []).map(function (s) { return s.id; }) : [];
+  }
+
+  /** Runs one server action on the open call, shows the call as it came back, refreshes the list. */
+  function sdcRun(call, okText) {
+    var h = srv.withSuccessHandler(function (c) {
+      sdc.open = c;
+      sdcOutcomeMode = "";
+      renderServiceDueCall();
+      sdcMsg(okText, "success");
+      loadServiceDue();
+    }).withFailureHandler(function (err) {
+      sdcMsg(err && err.message ? err.message : String(err), "error");
+    });
+    call(h);
+  }
+
+  $("btn-sdc-save-call").addEventListener("click", function () {
+    var c = sdc.open;
+    var input = { id: c.id, customerId: $("sdc-customer").value, ownerEmail: $("sdc-owner-pick").value };
+    if (!c.outcome && $("sdc-call-response").value) {
+      input.callDate = $("sdc-call-date").value;
+      input.callResponse = $("sdc-call-response").value;
+      input.callNotes = $("sdc-call-notes").value;
+      input.contactName = $("sdc-call-contact").value.trim();
+      var match = (c.contacts || []).filter(function (p) { return p.name === input.contactName; })[0];
+      input.contactId = match ? match.id : "";
+      input.alsoIds = sdcAlsoIds();
+    }
+    sdcRun(function (h) { h.saveServiceDueCall(input); }, input.callResponse ? "Call saved." : "Saved.");
+  });
+
+  $("btn-sdc-fu-add").addEventListener("click", function () {
+    var c = sdc.open;
+    var input = {
+      callId: c.id, followUpDate: $("sdc-fu-date").value, mode: $("sdc-fu-mode").value,
+      contactName: $("sdc-fu-contact").value.trim(), notes: $("sdc-fu-notes").value,
+      response: $("sdc-fu-response").value, nextFollowUpDate: $("sdc-fu-next").value, alsoIds: sdcAlsoIds()
+    };
+    sdcRun(function (h) { h.addServiceDueFollowUp(input); }, "Follow-up added.");
+  });
+
+  function prepareServiceDueQuote() {
+    var c = sdc.open;
+    // Whatever was typed about the call is kept first, so the quotation goes to the person spoken to.
+    var go = function () {
+      var done = busyButton("btn-sdc-quote", "Preparing…");
+      srv.withSuccessHandler(function (r) {
+        done();
+        $("sdc-modal-backdrop").classList.remove("show");
+        loadServiceDue();
+        showMsg((r.existing ? "Opening " : "Quotation ") + (r.quoteNo || "") + (r.existing ? "." :
+          " raised for " + c.fabNo + ". Add the parts, then e-mail it to the customer."), "success");
+        openQuotation(r.quotationId);
+      }).withFailureHandler(function (err) { done(); sdcMsg(err.message || String(err)); }).prepareServiceDueQuotation(c.id);
+    };
+    if (!c.callDate && $("sdc-call-response").value) {
+      srv.withSuccessHandler(function (fresh) { sdc.open = fresh; go(); })
+        .withFailureHandler(function (err) { sdcMsg(err.message || String(err)); })
+        .saveServiceDueCall({ id: c.id, callDate: $("sdc-call-date").value, callResponse: $("sdc-call-response").value,
+          callNotes: $("sdc-call-notes").value, contactName: $("sdc-call-contact").value.trim(),
+          contactId: ((c.contacts || []).filter(function (p) { return p.name === $("sdc-call-contact").value.trim(); })[0] || {}).id || "" });
+    } else {
+      go();
+    }
+  }
+
+  $("btn-sdc-close").addEventListener("click", function () { $("sdc-modal-backdrop").classList.remove("show"); });
+
+  // ---- The weekly upload ----
+  var sdcParsed = null;
+
+  $("btn-sdc-import").addEventListener("click", function () {
+    sdcParsed = null;
+    $("sdc-import-msg").innerHTML = "";
+    $("sdc-import-preview").textContent = "";
+    $("sdc-import-file").value = "";
+    $("sdc-import-date").value = sdcToday();
+    $("btn-sdc-import-go").disabled = true;
+    $("sdc-import-backdrop").classList.add("show");
+  });
+  $("btn-sdc-import-cancel").addEventListener("click", function () { $("sdc-import-backdrop").classList.remove("show"); });
+
+  function sdcImportError(text) {
+    $("sdc-import-msg").innerHTML = '<div class="msg msg-error show" style="position:static; margin-bottom:12px;">' +
+      '<span class="msg-text">' + escapeHtml(text) + "</span></div>";
+  }
+
+  $("sdc-import-file").addEventListener("change", function () {
+    var file = $("sdc-import-file").files[0];
+    sdcParsed = null;
+    $("btn-sdc-import-go").disabled = true;
+    $("sdc-import-msg").innerHTML = "";
+    if (!file) return;
+    $("sdc-import-preview").textContent = "Reading " + file.name + "…";
+    readSheetFile(file, function (table) {
+      try {
+        var rows = sdrRowsFrom(table);
+        var customers = {};
+        rows.forEach(function (r) { customers[String(r.customerName).toUpperCase()] = true; });
+        sdcParsed = { fileName: file.name, rows: rows };
+        $("sdc-import-preview").innerHTML = "<b>" + rows.length + " machines</b> for " +
+          Object.keys(customers).length + " customers in " + escapeHtml(file.name) + ". Press Upload to add them.";
+        $("btn-sdc-import-go").disabled = !rows.length;
+      } catch (err) {
+        $("sdc-import-preview").textContent = "";
+        sdcImportError(err.message);
+      }
+    }, function (msg) {
+      $("sdc-import-preview").textContent = "";
+      sdcImportError(msg);
+    });
+  });
+
+  $("btn-sdc-import-go").addEventListener("click", function () {
+    if (!sdcParsed) return;
+    var done = busyButton("btn-sdc-import-go", "Uploading…");
+    srv.withSuccessHandler(function (r) {
+      done();
+      $("sdc-import-backdrop").classList.remove("show");
+      sdc.listId = r.listId;
+      sdc.view = "open";
+      var sk = r.skipped || {};
+      var notes = [];
+      if (sk.dealer) notes.push(sk.dealer + " registered to PIE itself left out");
+      if (sk.recentlyClosed) notes.push(sk.recentlyClosed + " closed in the last 30 days left out");
+      if (sk.duplicate) notes.push(sk.duplicate + " repeated rows left out");
+      if (sk.noFab) notes.push(sk.noFab + " rows without a fab number left out");
+      showMsg("Week of " + sdcDate(r.listDate) + ": " + r.added + " new to call, " + r.carried +
+        " still open from earlier weeks, refreshed." + (notes.length ? " " + notes.join("; ") + "." : "") +
+        (r.unmatchedCustomers.length ? " " + r.unmatchedCustomers.length + " customers are not in Customers yet — " +
+          "they are marked on the list; link or add them before quoting." : ""), "success");
+      loadServiceDue();
+    }).withFailureHandler(function (err) { done(); sdcImportError(err.message || String(err)); })
+      .importServiceDueList({ listDate: $("sdc-import-date").value, fileName: sdcParsed.fileName, rows: sdcParsed.rows });
+  });
+
+  /**
+   * ELGi's report, row by row, as the server wants it. Columns are found by their heading, not
+   * their position, so a report with a column added or moved still reads.
+   */
+  var SDR_COLUMNS = {
+    fabricationnumber: "fabNo", fabno: "fabNo", fabnumber: "fabNo", serialno: "fabNo",
+    model: "productModel", productsubgroup: "productGroup", customername: "customerName",
+    dealername: "dealerName", warrantytype: "warrantyType", amctype: "amcType", calltype: "callType",
+    category: "category", segment: "segment", serviceengineer: "serviceEngineer",
+    latestservicecall: "lastServiceCall", serviceengineercomments: "lastServiceComment",
+    commdate: "commissionDate", invdate: "invoiceDate", hmrdate: "hmrDate", totalhours: "totalHours",
+    avgrunninghoursperday: "runningHoursPerDay", overdue: "overdue", currentmonthdue: "dueThisMonth",
+    nextmonthdue: "dueNextMonth"
+  };
+  var SDR_DUE = { afduedate: "AF", ofduedate: "OF", oilduedate: "OIL", aosduedate: "AOS",
+    valvekitduedate: "VALVEKIT", rgtduedate: "RGT", pfduedate: "PF", ffduedate: "FF", cfduedate: "CF" };
+  var SDR_DATES = { commissionDate: true, invoiceDate: true, hmrDate: true };
+
+  function sdrRowsFrom(table) {
+    var start = 0;
+    // The heading row is the first one naming the fab number.
+    while (start < table.length && !table[start].some(function (h) {
+      return /^(fabricationnumber|fabno|fabnumber)$/.test(String(h).toLowerCase().replace(/[^a-z0-9]/g, ""));
+    })) start++;
+    if (start >= table.length) {
+      throw new Error("This does not look like the Service Due Report: there is no Fabrication Number column.");
+    }
+    var heads = table[start].map(function (h) { return String(h).toLowerCase().replace(/[^a-z0-9]/g, ""); });
+    var rows = [];
+    for (var i = start + 1; i < table.length; i++) {
+      var line = table[i];
+      if (!line.some(function (v) { return String(v).trim() !== ""; })) continue;
+      var r = { dueDates: {} };
+      heads.forEach(function (h, j) {
+        var v = line[j] === undefined ? "" : line[j];
+        if (SDR_DUE[h]) { r.dueDates[SDR_DUE[h]] = sdrDate(v); return; }
+        var k = SDR_COLUMNS[h];
+        if (!k) return;
+        r[k] = SDR_DATES[k] ? sdrDate(v) : String(v).trim();
+      });
+      if (r.fabNo || r.customerName) rows.push(r);
+    }
+    return rows;
+  }
+
+  /**
+   * A date from the sheet as yyyy-MM-dd. Excel gives a serial number; ELGi's dates carry the
+   * time in UTC — 18:30 the day before is midnight in India — so the day is read in India.
+   */
+  function sdrDate(v) {
+    if (v === "" || v === null || v === undefined) return "";
+    var ist = 5.5 * 3600000;
+    if (typeof v === "number" || /^\d+(\.\d+)?$/.test(String(v).trim())) {
+      var n = Number(v);
+      if (n < 20000 || n > 80000) return "";
+      return new Date(Math.round((n - 25569) * 86400000) + ist).toISOString().slice(0, 10);
+    }
+    var t = String(v).trim();
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(t);
+    if (m) {
+      if (m[4] === undefined) return m[1] + "-" + m[2] + "-" + m[3];
+      return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) + ist).toISOString().slice(0, 10);
+    }
+    m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(t);
+    if (m) return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+    return "";
+  }
+
+  /** The first sheet of an .xlsx, or a .csv, as rows of cells. */
+  function readSheetFile(file, done, fail) {
+    var reader = new FileReader();
+    reader.onerror = function () { fail("The file could not be read."); };
+    if (/\.csv$/i.test(file.name)) {
+      reader.onload = function () { done(parseCsvText(String(reader.result || ""))); };
+      reader.readAsText(file);
+      return;
+    }
+    reader.onload = function () {
+      readXlsxRows(new Uint8Array(reader.result)).then(done, function (err) {
+        fail(err && err.message ? err.message : "That file could not be read as Excel. Save it as .xlsx or CSV and try again.");
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function parseCsvText(text) {
+    var rows = [], row = [], field = "", q = false;
+    var s = text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+    for (var i = 0; i < s.length; i++) {
+      var ch = s[i];
+      if (q) {
+        if (ch === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else q = false; }
+        else field += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === ",") { row.push(field); field = ""; }
+      else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else field += ch;
+    }
+    if (field !== "" || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  /**
+   * An .xlsx is a zip of XML files. Read without a library: the zip's directory, each file
+   * inflated by the browser's own DecompressionStream, the XML by DOMParser.
+   */
+  function readXlsxRows(bytes) {
+    var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    var eocd = -1;
+    for (var i = bytes.length - 22; i >= Math.max(0, bytes.length - 66000); i--) {
+      if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) return Promise.reject(new Error("That is not an Excel (.xlsx) file."));
+    var count = dv.getUint16(eocd + 10, true);
+    var at = dv.getUint32(eocd + 16, true);
+    var entries = {};
+    var dec = new TextDecoder();
+    for (var e = 0; e < count; e++) {
+      if (dv.getUint32(at, true) !== 0x02014b50) break;
+      var method = dv.getUint16(at + 10, true);
+      var size = dv.getUint32(at + 20, true);
+      var nameLen = dv.getUint16(at + 28, true), extraLen = dv.getUint16(at + 30, true), commentLen = dv.getUint16(at + 32, true);
+      var local = dv.getUint32(at + 42, true);
+      var name = dec.decode(bytes.subarray(at + 46, at + 46 + nameLen));
+      entries[name] = { method: method, size: size, local: local };
+      at += 46 + nameLen + extraLen + commentLen;
+    }
+    var read = function (name) {
+      var en = entries[name];
+      if (!en) return Promise.resolve(null);
+      var start = en.local + 30 + dv.getUint16(en.local + 26, true) + dv.getUint16(en.local + 28, true);
+      var data = bytes.subarray(start, start + en.size);
+      if (en.method === 0) return Promise.resolve(dec.decode(data));
+      if (en.method !== 8) return Promise.reject(new Error("That Excel file is packed in a way this page cannot read. Save it as CSV and upload that."));
+      if (typeof DecompressionStream === "undefined") {
+        return Promise.reject(new Error("This browser cannot open .xlsx files. Use Chrome or Edge, or save the file as CSV."));
+      }
+      var stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return new Response(stream).text();
+    };
+    var xml = function (t) { return new DOMParser().parseFromString(t, "application/xml"); };
+    var tags = function (node, tag) { return Array.prototype.slice.call(node.getElementsByTagNameNS("*", tag)); };
+
+    return Promise.all([read("xl/workbook.xml"), read("xl/_rels/workbook.xml.rels"), read("xl/sharedStrings.xml")])
+      .then(function (parts) {
+        var sheetPath = "xl/worksheets/sheet1.xml";
+        if (parts[0] && parts[1]) {
+          var first = tags(xml(parts[0]), "sheet")[0];
+          var rid = first && (first.getAttribute("r:id") || first.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id"));
+          var rel = tags(xml(parts[1]), "Relationship").filter(function (r) { return r.getAttribute("Id") === rid; })[0];
+          if (rel) {
+            var target = rel.getAttribute("Target").replace(/^\//, "");
+            sheetPath = /^xl\//.test(target) ? target : "xl/" + target;
+          }
+        }
+        var shared = parts[2] ? tags(xml(parts[2]), "si").map(function (si) {
+          return tags(si, "t").map(function (t) { return t.textContent; }).join("");
+        }) : [];
+        return read(sheetPath).then(function (sheetXml) {
+          if (!sheetXml) throw new Error("That Excel file has no sheet in it.");
+          var rows = [];
+          tags(xml(sheetXml), "row").forEach(function (rowEl) {
+            var r = Number(rowEl.getAttribute("r")) - 1;
+            var line = [];
+            tags(rowEl, "c").forEach(function (cEl) {
+              var ref = cEl.getAttribute("r") || "";
+              var letters = ref.replace(/[0-9]/g, "");
+              var col = 0;
+              for (var k = 0; k < letters.length; k++) col = col * 26 + (letters.charCodeAt(k) - 64);
+              col = col ? col - 1 : line.length;
+              var type = cEl.getAttribute("t");
+              var vEl = tags(cEl, "v")[0];
+              var v = vEl ? vEl.textContent : "";
+              var val;
+              if (type === "s") val = shared[Number(v)] || "";
+              else if (type === "inlineStr") val = tags(cEl, "t").map(function (t) { return t.textContent; }).join("");
+              else if (type === "str" || type === "b" || type === "e") val = v;
+              else val = v === "" ? "" : Number(v);
+              line[col] = val;
+            });
+            for (var x = 0; x < line.length; x++) if (line[x] === undefined) line[x] = "";
+            rows[isNaN(r) ? rows.length : r] = line;
+          });
+          return rows.filter(function (l) { return l; });
+        });
+      });
+  }
+
+  // ---- The report, as a real .xlsx with the reasons highlighted ----
+  $("btn-sdc-download").addEventListener("click", function () {
+    var done = busyButton("btn-sdc-download", "Preparing…");
+    var owner = $("sdc-owner").value === "__me" ? (sdc.data && sdc.data.me) : $("sdc-owner").value;
+    srv.withSuccessHandler(function (t) {
+      done();
+      if (!t || !t.rows.length) { showMsg("There are no calls to put in the report.", "error"); return; }
+      var reasonCols = {};
+      t.reasonColumns.forEach(function (i) { if (i >= 0) reasonCols[i] = true; });
+      var style = function (row, col) {
+        var v = row[col];
+        if (reasonCols[col] && v) return "reason";
+        if (col === t.statusColumn) return v === "PO received" ? "good" : (v === "Not closed" || v === "PO rejected" ? "bad" : "");
+        return "";
+      };
+      var widths = t.headers.map(function (h) {
+        if (/^Reason/.test(h)) return 42;
+        if (/notes|said|Due parts|Customer/i.test(h)) return 30;
+        return 14;
+      });
+      var bytes = xlsxBytes([
+        { name: "Service due calls", headers: t.headers, rows: t.rows, widths: widths, style: style },
+        { name: "By coordinator", headers: t.summaryHeaders, rows: t.summary,
+          widths: t.summaryHeaders.map(function (h, i) { return i ? 14 : 26; }) }
+      ]);
+      var stamp = String(t.generatedAt || "").slice(0, 10) || sdcToday();
+      var ok = downloadText("Service due calls " + stamp + ".xlsx", bytes,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      showMsg(ok ? t.rows.length + (t.rows.length === 1 ? " call" : " calls") + " downloaded — open the file in Excel."
+        : "This browser would not save the file. Try again from Chrome or Edge.", ok ? "success" : "error");
+    }).withFailureHandler(function (err) { done(); onServerError(err); }).exportServiceDueReport({
+      listId: sdc.listId, view: sdc.view, status: $("sdc-status").value, ownerEmail: owner || ""
+    });
+  });
+
+  /**
+   * A workbook as .xlsx bytes: each sheet's heading row frozen and filtered, columns sized, and
+   * cells styled by name — "reason" (bold on red), "good" (green), "bad" (red). Written by hand
+   * because there is no spreadsheet library here: an .xlsx is a zip of a few XML files, and a
+   * zip that only stores is a header, the bytes and a checksum.
+   */
+  function xlsxBytes(sheets) {
+    // Split so the page's template engine — Apps Script's and the server's — never sees the
+    // characters it reads as the start of a template tag.
+    var XML_HEAD = "<" + '?xml version="1.0" encoding="UTF-8" standalone="yes"?' + ">";
+    var enc = new TextEncoder();
+    var x = function (s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    };
+    var colName = function (i) { var s = ""; i++; while (i) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+    var STYLE = { "": 0, header: 1, reason: 2, good: 3, bad: 4 };
+    var files = {};
+    files["[Content_Types].xml"] = XML_HEAD +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      sheets.map(function (s, i) {
+        return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';
+      }).join("") + "</Types>";
+    files["_rels/.rels"] = XML_HEAD +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+    files["xl/workbook.xml"] = XML_HEAD +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+      sheets.map(function (s, i) {
+        return '<sheet name="' + x(s.name).slice(0, 31) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>';
+      }).join("") + "</sheets></workbook>";
+    files["xl/_rels/workbook.xml.rels"] = XML_HEAD +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map(function (s, i) {
+        return '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>';
+      }).join("") +
+      '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
+    files["xl/styles.xml"] = XML_HEAD +
+      '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF9B1C1C"/><name val="Calibri"/></font>' +
+      '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+      '<fill><patternFill patternType="solid"><fgColor rgb="FF1F2A44"/><bgColor indexed="64"/></patternFill></fill>' +
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFFDE2E1"/><bgColor indexed="64"/></patternFill></fill>' +
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFE3F4EA"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
+      '<xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>' +
+      '<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/>' +
+      '<xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs>' +
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+    sheets.forEach(function (s, si) {
+      var cell = function (v, r, c, st) {
+        var ref = colName(c) + (r + 1);
+        var sAttr = st ? ' s="' + st + '"' : "";
+        if (typeof v === "number" && isFinite(v)) return '<c r="' + ref + '"' + sAttr + "><v>" + v + "</v></c>";
+        if (v === "" || v === null || v === undefined) return st ? '<c r="' + ref + '"' + sAttr + "/>" : "";
+        return '<c r="' + ref + '" t="inlineStr"' + sAttr + '><is><t xml:space="preserve">' + x(v) + "</t></is></c>";
+      };
+      var out = ['<row r="1">' + s.headers.map(function (h, c) { return cell(h, 0, c, STYLE.header); }).join("") + "</row>"];
+      s.rows.forEach(function (row, r) {
+        out.push('<row r="' + (r + 2) + '">' + row.map(function (v, c) {
+          return cell(v, r + 1, c, s.style ? STYLE[s.style(row, c) || ""] : 0);
+        }).join("") + "</row>");
+      });
+      var last = colName(Math.max(0, s.headers.length - 1)) + (s.rows.length + 1);
+      files["xl/worksheets/sheet" + (si + 1) + ".xml"] = XML_HEAD +
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+        '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+        "<cols>" + (s.widths || []).map(function (w, i) {
+          return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>';
+        }).join("") + "</cols>" +
+        "<sheetData>" + out.join("") + "</sheetData>" +
+        '<autoFilter ref="A1:' + last + '"/></worksheet>';
+    });
+    return zipStore(Object.keys(files).map(function (n) { return { name: n, data: enc.encode(files[n]) }; }));
+  }
+
+  /** A zip that stores its files uncompressed — all Excel needs. */
+  function zipStore(files) {
+    var table = zipStore.crc || (zipStore.crc = (function () {
+      var t = new Uint32Array(256);
+      for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+      return t;
+    })());
+    var crc32 = function (b) { var c = 0xFFFFFFFF; for (var i = 0; i < b.length; i++) c = table[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+    var enc = new TextEncoder();
+    var chunks = [], central = [], offset = 0;
+    files.forEach(function (f) {
+      var name = enc.encode(f.name), crc = crc32(f.data), size = f.data.length;
+      var lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+      lh.setUint16(8, 0, true); lh.setUint16(10, 0, true); lh.setUint16(12, 0x21, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, size, true); lh.setUint32(22, size, true);
+      lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+      chunks.push(new Uint8Array(lh.buffer), name, f.data);
+      var ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+      ch.setUint16(10, 0, true); ch.setUint16(12, 0, true); ch.setUint16(14, 0x21, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, size, true); ch.setUint32(24, size, true);
+      ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+      central.push(new Uint8Array(ch.buffer), name);
+      offset += 30 + name.length + size;
+    });
+    var centralSize = central.reduce(function (n, b) { return n + b.length; }, 0);
+    var end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, centralSize, true); end.setUint32(16, offset, true);
+    var parts = chunks.concat(central, [new Uint8Array(end.buffer)]);
+    var total = parts.reduce(function (n, b) { return n + b.length; }, 0);
+    var outBytes = new Uint8Array(total), at = 0;
+    parts.forEach(function (b) { outBytes.set(b, at); at += b.length; });
+    return outBytes;
+  }
 
   // ================= LEADS BY ENGINEER =================
   // Which service engineer generated each spare enquiry and compressor lead, and what it

@@ -45,6 +45,8 @@ run_ui "quote-text-ui-test.js (classic)" tests/quote-text-ui-test.js "$tmp/base.
 run_ui "quote-text-ui-test.js (new design)" tests/quote-text-ui-test.js "$tmp/base-web.html"
 run_ui "quote-status-ui-test.js (classic)" tests/quote-status-ui-test.js "$tmp/base.html"
 run_ui "quote-status-ui-test.js (new design)" tests/quote-status-ui-test.js "$tmp/base-web.html"
+run_ui "service-due-ui-test.js (classic)" tests/service-due-ui-test.js "$tmp/base.html"
+run_ui "service-due-ui-test.js (new design)" tests/service-due-ui-test.js "$tmp/base-web.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

@@ -335,6 +335,49 @@ var SCHEMA = {
       'identifiedBy', 'compatibilityConfirmed', 'availabilityNote', 'notes']
   },
 
+  // ---------------------------------------------------------------- Service due calls
+  // ELGi's weekly Service Due Report (SDR): the machines PIE sold that are due for service or
+  // parts. The spares coordinators ring each customer, send a spares quotation whatever the
+  // answer, follow it up — once, or five or six times — and then either get a PO or close the
+  // call with the reason it did not happen. ServiceDue.gs.
+  ServiceDueLists: {
+    label: 'One weekly Service Due Report as uploaded',
+    columns: ['id', 'listNo', 'listDate', 'fileName', 'machineCount', 'addedCount',
+      'carriedCount', 'skippedCount', 'notes', 'createdAt', 'createdBy']
+  },
+  ServiceDueCalls: {
+    label: 'One machine on the service due list, worked from call to PO or a reason',
+    columns: ['id',
+      // Which weekly lists it has been on. Kept open across weeks: a machine still due next
+      // week is the same piece of work, not a second one.
+      'firstListId', 'lastListId', 'listIds', 'firstListDate', 'lastListDate', 'listedCount',
+      // The machine, as ELGi's report gives it.
+      'fabNo', 'productModel', 'productGroup', 'sdrCustomerName', 'customerId',
+      'warrantyType', 'amcType', 'category', 'segment', 'callType', 'serviceEngineer',
+      'lastServiceCall', 'lastServiceComment', 'commissionDate', 'installInvoiceDate',
+      'hmrDate', 'totalHours', 'runningHoursPerDay', 'dueParts', 'dueDetail', 'overdue',
+      'dueThisMonth', 'dueNextMonth',
+      // Whose call it is.
+      'ownerEmail',
+      // The call.
+      'callDate', 'contactId', 'contactName', 'callResponse', 'callNotes',
+      // The quotation sent after it, through a spares enquiry like every spares offer.
+      'spareEnquiryId', 'quotationId',
+      // The follow-ups, counted; each one is a ServiceDueFollowUps row.
+      'followUpCount', 'lastFollowUpDate', 'nextFollowUpDate',
+      // How it ended: PO received, Not closed (with why) or PO rejected (with why).
+      'outcome', 'outcomeDate', 'poNo', 'poDate', 'poValue', 'notClosedReason',
+      'poRejectedReason',
+      // What happened last time this machine was on the list, when it comes round again.
+      'previousOutcome',
+      'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
+  },
+  ServiceDueFollowUps: {
+    label: 'One follow-up on a service due call',
+    columns: ['id', 'callId', 'followUpNo', 'followUpDate', 'mode', 'contactName', 'notes',
+      'response', 'nextFollowUpDate', 'createdAt', 'createdBy']
+  },
+
   // ---------------------------------------------------------------- Quotation (shared)
   Quotations: {
     label: 'Shared across both streams; revision-controlled (FR-018, FR-019, FR-020)',

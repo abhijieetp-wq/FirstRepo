@@ -19,6 +19,7 @@ const PAGES = [
   '/dashboard',
   '/compressor-sales',
   '/spare-sales',
+  '/service-due-calls',
   '/quotation',
   '/quotations',
   '/quotation-progress',

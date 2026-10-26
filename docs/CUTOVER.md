@@ -221,5 +221,9 @@ as of the cutover, which is what makes a comparison possible.
 - **The website's own settings** — Google client, Gmail connection, sign-in requirement,
   Tally address — only if step 5b is skipped. They live in the `settings` table of whichever
   database is connected; `migration/copy-settings.js` carries them across.
+- **Service due calls worked on the website before the switch** — the weekly lists, calls,
+  follow-ups and outcomes live only in the website's database; the Sheet never had them. Upload
+  the current week's Service Due Report again after the switch, or ask for a carry-over step
+  before the day if real work has been done on them.
 - **Anything typed into the Sheet after the freeze.** Which is why the freeze is a
   permission change and not an announcement.
