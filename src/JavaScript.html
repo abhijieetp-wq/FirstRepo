@@ -617,6 +617,8 @@
    * asked for that view and still gets it; everyone else opens on the screen they came for.
    */
   function landingView(visible) {
+    // 2.0 opens everybody on their own dashboard (PersonDashboard.gs), as ERP 2 did.
+    if (FACE_V2 && visible.some(function (t) { return t.view === "dashboard"; })) return "dashboard";
     if (["Management", "ERP Admin"].indexOf(currentUser.role) !== -1) return visible[0].view;
     var work = visible.filter(function (t) { return t.view !== "dashboard"; });
     return (work[0] || visible[0]).view;
@@ -11206,7 +11208,140 @@
     $("dash-title").textContent = "Control Tower \u00b7 " + currentUser.businessStream;
   }
 
-  function initDashboardView() { paintDashboardStream(); loadDashboard(false); }
+  // ================= MY DASHBOARD (2.0) =================
+  // ERP 2.0's dashboard per person (PersonDashboard.gs), above ERP 1's control tower, which is
+  // unchanged under it. Management can open anybody's, exactly as they see it.
+  var pd = { data: null, as: "" };
+  var PD_SAY = {
+    coordinator: "Your desk for today: follow-ups, drafts to approve, offers waiting for an answer and SDR calls.",
+    salesEngineer: "The leads you found, what is due on them, and your offers out with customers.",
+    serviceCoordinator: "Jobs to assign, today’s and tomorrow’s visits, and machines that have stopped.",
+    serviceEngineer: "Your visits today and tomorrow, and what you have raised for sales.",
+    boss: "The team at a glance. Pick a name to see their desk as they see it. The control tower, with its nine checks, is below."
+  };
+
+  function pdHost() {
+    if ($("pd-host")) return $("pd-host");
+    var host = document.createElement("section");
+    host.id = "pd-host";
+    host.className = "pd";
+    var view = $("view-dashboard");
+    view.insertBefore(host, view.firstChild);
+    host.addEventListener("click", function (e) {
+      var open = e.target.closest("[data-pd-open]");
+      if (open) { pdOpen(open.dataset.pdOpen, open.dataset.id); return; }
+      var go = e.target.closest("[data-pd-go]");
+      if (go) { if (visibleLeaves().some(function (t) { return t.view === go.dataset.pdGo; })) goToTab(go.dataset.pdGo); return; }
+      var who = e.target.closest("[data-pd-as]");
+      if (who) { pd.as = who.dataset.pdAs; pdLoad(); window.scrollTo(0, 0); }
+    });
+    host.addEventListener("change", function (e) {
+      if (e.target.id === "pd-as") { pd.as = e.target.value; pdLoad(); }
+    });
+    return host;
+  }
+
+  function pdLoad() {
+    var host = pdHost();
+    if (!pd.data) host.innerHTML = '<div class="empty">Loading your desk…</div>';
+    srv.withSuccessHandler(function (d) {
+      pd.data = d;
+      pdRender();
+    }).withFailureHandler(function (err) {
+      host.innerHTML = '<div class="empty">' + escapeHtml(err && err.message ? err.message : String(err)) + "</div>";
+    }).getPersonDashboard({ as: pd.as });
+  }
+
+  function pdGreeting(name) {
+    var h = new Date().getHours();
+    return (h < 12 ? "Good morning, " : h < 17 ? "Good afternoon, " : "Good evening, ") + String(name || "").split(" ")[0];
+  }
+
+  function pdRender() {
+    var d = pd.data;
+    var host = pdHost();
+    var day = new Date(d.today + "T00:00:00");
+    var html = '<div class="pd-hero"><div>' +
+      '<div class="pd-date">' + escapeHtml(day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })) + "</div>" +
+      "<h1>" + escapeHtml(d.self ? pdGreeting(d.person.name) : d.person.name + "’s desk") + "</h1>" +
+      "<p>" + escapeHtml(d.self ? PD_SAY[d.kind] || "" : d.person.role + (d.person.stream && d.person.stream !== "All" ? " · " + d.person.stream : "") +
+        ". What they see when they open the ERP.") + "</p></div>";
+    if (d.canViewAs) {
+      html += '<div class="pd-as"><label for="pd-as">Dashboard of</label><select id="pd-as">' +
+        d.everyone.map(function (p) {
+          var mine = p.email.toLowerCase() === String(currentUser.email).toLowerCase();
+          return '<option value="' + escapeHtml(mine ? "" : p.email) + '"' +
+            ((mine && d.self) || (!mine && p.email.toLowerCase() === d.person.email.toLowerCase()) ? " selected" : "") + ">" +
+            escapeHtml(mine ? "Me (" + p.name + ")" : p.name + " · " + p.role) + "</option>";
+        }).join("") + "</select>" +
+        (d.self ? "" : '<button type="button" class="btn btn-sm" data-pd-as="">Back to mine</button>') + "</div>";
+    }
+    html += "</div>";
+
+    html += '<div class="pd-tiles">' + d.tiles.map(function (t) {
+      var tag = t.go ? "button" : "div";
+      return "<" + tag + (t.go ? ' type="button" data-pd-go="' + escapeHtml(t.go) + '"' : "") +
+        ' class="pd-tile' + (t.tone ? " " + t.tone : "") + '" data-pd-tile="' + escapeHtml(t.key) + '">' +
+        '<span class="pd-label">' + escapeHtml(t.label) + "</span>" +
+        '<span class="pd-value">' + escapeHtml(t.value) + "</span>" +
+        '<span class="pd-sub">' + (t.money !== undefined ? "<b>" + escapeHtml(fmtShort(t.money)) + "</b> " : "") + escapeHtml(t.sub || "") + "</span>" +
+        "</" + tag + ">";
+    }).join("") + "</div>";
+
+    if (d.team) {
+      html += '<div class="pd-panel"><div class="pd-panel-head"><h3>The team</h3><span class="pd-note">Pick a name to open their desk.</span></div>' +
+        '<div class="pd-table-wrap"><table class="pd-team"><thead><tr><th>Person</th><th class="num">Open enquiries</th>' +
+        '<th class="num">Past their date</th><th class="num">Out with customers</th><th class="num">Booked this month</th><th class="num">SDR to call</th></tr></thead><tbody>' +
+        (d.team.length ? d.team.map(function (t) {
+          return '<tr><td><button type="button" class="pd-link" data-pd-as="' + escapeHtml(t.email) + '">' + escapeHtml(t.name) + "</button>" +
+            '<div class="pd-muted">' + escapeHtml(t.role) + "</div></td>" +
+            '<td class="num">' + t.open + '<div class="pd-muted">' + escapeHtml(t.openValue ? fmtShort(t.openValue) : "") + "</div></td>" +
+            '<td class="num' + (t.late ? " pd-bad" : "") + '">' + t.late + "</td>" +
+            '<td class="num">' + t.waiting + '<div class="pd-muted">' + escapeHtml(t.waitingValue ? fmtShort(t.waitingValue) : "") + "</div></td>" +
+            '<td class="num">' + t.booked + '<div class="pd-muted">' + escapeHtml(t.bookedValue ? fmtShort(t.bookedValue) : "") + "</div></td>" +
+            '<td class="num">' + (t.sdr || "—") + "</td></tr>";
+        }).join("") : '<tr><td colspan="6" class="empty">No sales coordinators or engineers in Users yet.</td></tr>') +
+        "</tbody></table></div></div>";
+    }
+
+    if (d.lists.length) {
+      html += '<div class="pd-lists">' + d.lists.map(function (l) {
+        return '<div class="pd-panel" data-pd-list="' + escapeHtml(l.key) + '"><div class="pd-panel-head"><h3>' + escapeHtml(l.title) + "</h3>" +
+          '<span class="pd-count">' + l.count + "</span></div>" +
+          (l.rows.length ? l.rows.map(function (r) {
+            return '<button type="button" class="pd-row"' + (r.open ? ' data-pd-open="' + escapeHtml(r.open.kind) + '" data-id="' + escapeHtml(r.open.id) + '"' : "") + ">" +
+              '<span class="pd-row-main"><b>' + escapeHtml(r.title) + "</b><span>" + escapeHtml(r.sub) + "</span></span>" +
+              '<span class="pd-row-side' + (r.tone ? " " + r.tone : "") + '"><b>' + escapeHtml(typeof r.right === "number" ? (r.right ? ebMoney(r.right) : "") : r.right) + "</b>" +
+                "<span>" + escapeHtml(r.rightSub) + "</span></span></button>";
+          }).join("") + (l.count > l.rows.length ? '<div class="pd-note">and ' + (l.count - l.rows.length) + " more</div>" : "")
+            : '<div class="pd-empty">' + escapeHtml(l.empty) + "</div>") + "</div>";
+      }).join("") + "</div>";
+    }
+    host.innerHTML = html;
+  }
+
+  /** Opens the ERP 1 record a line is about. */
+  function pdOpen(kind, id) {
+    if (kind === "quotation") { openQuotation(id); return; }
+    if (kind === "job") { openServiceJobModal(id); return; }
+    ebGo(kind, id);
+  }
+
+  function initDashboardView() {
+    if (FACE_V2) {
+      pdLoad();
+      // Service does not see the commercial side (requireCommercial_), and the control tower is
+      // money from top to bottom. 2.0 opens them on the Dashboard, so it shows their desk alone.
+      if (["Service Coordinator", "Service Engineer"].indexOf(currentUser.role) !== -1) {
+        ["#view-dashboard > .page-head", "#view-dashboard > .dash-head", "#dash-body"].forEach(function (sel) {
+          var el = document.querySelector(sel);
+          if (el) el.style.display = "none";
+        });
+        return;
+      }
+    }
+    paintDashboardStream(); loadDashboard(false);
+  }
 
   $("dash-stream").querySelectorAll("button").forEach(function (btn) {
     btn.addEventListener("click", function () {

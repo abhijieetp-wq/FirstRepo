@@ -57,6 +57,19 @@ Today:
     enquiry behind them. Dispatched and closed cards stay for 90 days.
   - Management and ERP Admin can rename the stages (both desks; stored in ConfigLists as
     `BoardStage`). Stages cannot be added.
+- **A dashboard per person** (`src/PersonDashboard.gs`). 2.0 opens everybody on the
+  Dashboard, which starts with their own desk; ERP 1's control tower — the nine checks and the
+  charts — is unchanged under it.
+  - Sales Coordinator: open enquiries (their cards on the board), follow-ups due, offers
+    waiting for the customer's answer, drafts to approve for customers they look after, their
+    orders this month, SDR calls to make.
+  - Sales Engineer: leads they found, follow-ups due, offers out, won this month.
+  - Service Coordinator: open jobs, jobs to assign, visits today and tomorrow, breakdowns.
+  - Service Engineer: visits today and tomorrow, open jobs, enquiries and leads they raised
+    — counts only, no money, as everywhere for service.
+  - Management and ERP Admin: the team, one row a person; a name, or the "Dashboard of" list,
+    opens that person's desk exactly as they see it.
+  - Every figure and line opens the ERP 1 screen or record it is about.
 
 The type is stored on the spare enquiry (`enquiryType`). On the printed offer an AMC renewal or
 a service takes its own heading and subject — rows with *Applies to* `AMC` or `SERVICE` in
@@ -75,6 +88,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/sdr-rows-ui-test.js` — the SDR rows on 2.0, and ERP 1's row unchanged on the others.
 - `tests/enquiry-board-ui-test.js`, `tests/enquiry-board-sql-test.js` — the board on 2.0 (and
   the lists unchanged on the others), and every stage read correctly from the records.
+- `tests/person-dashboard-ui-test.js`, `tests/person-dashboard-sql-test.js` — each position's
+  desk, Management's team and view of anybody's, and ERP 1's Dashboard unchanged elsewhere.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

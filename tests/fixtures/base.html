@@ -86,6 +86,27 @@
   };
 
   window.__data = {
+    // ERP 2.0's dashboard per person (PersonDashboard.gs): Priya's, as a coordinator.
+    getPersonDashboard: function (opts) {
+      return { person: { email: "p@pie.in", name: "Priya", role: "Sales Coordinator", stream: "Spare Sales" },
+        self: true, kind: "coordinator", today: "2026-10-28",
+        tiles: [
+          { key: "open", label: "My open enquiries", value: "5", money: 182500, sub: "in play", go: "enquiries" },
+          { key: "due", label: "Follow-ups due", value: "2", sub: "1 past their date", tone: "bad" },
+          { key: "waiting", label: "Waiting for the customer’s answer", value: "1", money: 12500, sub: "offered", go: "quotations" },
+          { key: "approve", label: "Drafts to approve and send", value: "1", sub: "customers I look after", tone: "warn", go: "quotations" },
+          { key: "orders", label: "My orders this month", value: "1", money: 20060, sub: "booked", go: "orders" },
+          { key: "sdr", label: "SDR calls to make", value: "3", sub: "1 follow-ups due", tone: "warn", go: "servicedue" }
+        ],
+        lists: [
+          { key: "due", title: "Follow-ups due", count: 2, empty: "Nothing due.", rows: [
+            { title: "Topworth Urja", sub: "SE2610-0001 · EG 99 · FAB-1", right: "", rightSub: "Expected 2026-10-27", tone: "bad", open: { kind: "enquiry", id: "SE-1" } },
+            { title: "Topworth Urja", sub: "SE2610-0002 · EG 55", right: 0, rightSub: "Expected 2026-10-29", tone: "warn", open: { kind: "enquiry", id: "SE-1" } }] },
+          { key: "approve", title: "Drafts to approve and send", count: 1, empty: "None.", rows: [
+            { title: "Topworth Urja", sub: "SPARE/26/0006 · by Dhriti", right: 4100, rightSub: "prepared 2026-10-25", tone: "", open: { kind: "quotation", id: "QT-6" } }] },
+          { key: "waiting", title: "Waiting for the customer’s answer", count: 0, empty: "No offers out with customers.", rows: [] }
+        ] };
+    },
     getEnquiryBoard: function (opts) {
       var desk = opts && opts.stream === "Compressor Sales" ? "compressor" : "spare";
       return { stream: opts && opts.stream, stages: BOARD_STAGES.map(function (s) { return Object.assign({ id: "" }, s); }),
@@ -170,7 +191,9 @@
       headline: { openOrderCount: 0, openOrderValue: 0, weightedPipeline: 0, outstanding: 0,
         overdueAmount: 0, overduePct: 0, invoicedThisMonth: 0, collectedThisMonth: 0,
         openQuotationCount: 1, openQuotationValue: 0 },
-      exceptions: [], streams: [], funnel: [], ageing: [], recent: [], leadCount: 0 }
+      // Every list the control tower draws, empty: 2.0 opens everybody on the Dashboard.
+      exceptions: [], streams: [], funnel: [], enquiryFunnel: [], ageing: [], orderPipeline: [], trend: [],
+      topCustomers: [], recent: [], leadCount: 0 }
   };
 
   function respond(name, args, ok, fail) {

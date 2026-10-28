@@ -204,6 +204,55 @@
     spareSalesScreen: function () {
       return { enquiries: ENQUIRIES, customers: CUSTOMERS, lostReasons: [], knownModels: [] };
     },
+    // ERP 2.0's dashboard per person (PersonDashboard.gs): Management's, with the team, and
+    // any one of them picked.
+    getPersonDashboard: function (opts) {
+      var everyone = [{ email: "anil@pie.in", name: "Anil Mehta", role: "Management" },
+        { email: "kiran@pie.in", name: "Kiran Patil", role: "Sales Coordinator" },
+        { email: "neha@pie.in", name: "Neha Rao", role: "Sales Coordinator" },
+        { email: "omkar@pie.in", name: "Omkar Joshi", role: "Sales Engineer" },
+        { email: "sanjay@pie.in", name: "Sanjay Kale", role: "Service Engineer" }];
+      if (opts && opts.as) {
+        var who = everyone.filter(function (p) { return p.email === opts.as; })[0] || everyone[1];
+        return { person: { email: who.email, name: who.name, role: who.role, stream: "Spare Sales" }, self: false,
+          kind: "coordinator", today: "2026-10-28", canViewAs: true, everyone: everyone,
+          tiles: [
+            { key: "open", label: "My open enquiries", value: "9", money: 742600, sub: "in play", go: "enquiries" },
+            { key: "due", label: "Follow-ups due", value: "4", sub: "2 past their date", tone: "bad" },
+            { key: "waiting", label: "Waiting for the customer’s answer", value: "3", money: 375750, sub: "offered", go: "quotations" },
+            { key: "approve", label: "Drafts to approve and send", value: "2", sub: "customers I look after", tone: "warn", go: "quotations" },
+            { key: "orders", label: "My orders this month", value: "4", money: 471300, sub: "booked", go: "orders" },
+            { key: "sdr", label: "SDR calls to make", value: "12", sub: "3 follow-ups due", tone: "warn", go: "servicedue" }
+          ],
+          lists: [
+            { key: "due", title: "Follow-ups due", count: 4, empty: "", rows: [
+              { title: C[0].name, sub: "SE2610-0040 · EG 37 · EG37-21874", right: "", rightSub: "Expected 2026-10-24", tone: "bad", open: { kind: "enquiry", id: "SE-31" } },
+              { title: C[4].name, sub: "SE2610-0041 · EG 22 · EG22-11203", right: "", rightSub: "Expected 2026-10-25", tone: "bad", open: { kind: "enquiry", id: "SE-31" } },
+              { title: C[1].name, sub: "SE2610-0043 · EG 55 · EG55-90311", right: "", rightSub: "Expected 2026-10-28", tone: "warn", open: { kind: "enquiry", id: "SE-31" } },
+              { title: C[2].name, sub: "SE2610-0047 · EG 45 · EG45-2219", right: 92800, rightSub: "Expected 2026-10-29", tone: "warn", open: { kind: "enquiry", id: "SE-31" } }] },
+            { key: "approve", title: "Drafts to approve and send", count: 2, empty: "", rows: [
+              { title: C[3].name, sub: "SPARE/26/0305 · by Neha Rao", right: 186420, rightSub: "prepared 2026-10-21", tone: "", open: { kind: "quotation", id: "QT-418" } },
+              { title: C[0].name, sub: "SPARE/26/0306 · by Kiran Patil", right: 41250, rightSub: "prepared 2026-10-26", tone: "", open: { kind: "quotation", id: "QT-418" } }] },
+            { key: "waiting", title: "Waiting for the customer’s answer", count: 3, empty: "", rows: [
+              { title: C[5].name, sub: "SPARE/26/0310 · Spare Sales", right: 112400, rightSub: "validity ran out 2026-10-26", tone: "bad", open: { kind: "quotation", id: "QT-418" } },
+              { title: C[2].name, sub: "SPARE/26/0307 · Spare Sales", right: 92800, rightSub: "valid till 2026-11-18", tone: "", open: { kind: "quotation", id: "QT-418" } },
+              { title: C[4].name, sub: "SPARE/26/0308 · Spare Sales", right: 18650, rightSub: "valid till 2026-11-19", tone: "", open: { kind: "quotation", id: "QT-418" } }] }
+          ] };
+      }
+      return { person: { email: "anil@pie.in", name: "Anil Mehta", role: "Management", stream: "All" }, self: true, kind: "boss",
+        today: "2026-10-28", canViewAs: true, everyone: everyone, lists: [],
+        tiles: [
+          { key: "open", label: "Open enquiries", value: "26", money: 9999370, sub: "in play, both desks", go: "enquiries" },
+          { key: "late", label: "Follow-ups past their date", value: "7", sub: "across the team", tone: "bad" },
+          { key: "waiting", label: "Waiting for customers’ answers", value: "8", money: 1852250, sub: "offered", go: "quotations" },
+          { key: "orders", label: "Orders this month", value: "11", money: 3864500, sub: "booked", go: "orders" }
+        ],
+        team: [
+          { email: "kiran@pie.in", name: "Kiran Patil", role: "Sales Coordinator", open: 9, openValue: 742600, late: 2, waiting: 3, waitingValue: 375750, booked: 4, bookedValue: 471300, sdr: 12 },
+          { email: "neha@pie.in", name: "Neha Rao", role: "Sales Coordinator", open: 8, openValue: 612900, late: 4, waiting: 2, waitingValue: 207150, booked: 3, bookedValue: 284000, sdr: 9 },
+          { email: "omkar@pie.in", name: "Omkar Joshi", role: "Sales Engineer", open: 0, openValue: 0, late: 1, waiting: 3, waitingValue: 1269350, booked: 2, bookedValue: 3109200, sdr: 0 }
+        ] };
+    },
     // ERP 2.0's enquiry board (EnquiryBoard.gs): a desk's worth of invented cards on every stage.
     getEnquiryBoard: function (opts) {
       var compressor = opts && opts.stream === "Compressor Sales";
