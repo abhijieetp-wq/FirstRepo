@@ -101,7 +101,7 @@ const ok = (label, cond, detail) => {
   // somebody tries to use it.
   const h = JSON.parse(health.text);
   ok('it names the build', /^\d{4}-\d{2}-\d{2}\./.test(h.build || ''), h.build);
-  ok('and which face it is serving', h.look === 'web' || h.look === 'classic', h.look);
+  ok('and which face it is serving', ['web', 'classic', 'v2'].indexOf(h.look) !== -1, h.look);
   ok('it reports the attachments directory', h.attachments && h.attachments.state === 'ok',
     h.attachments);
   ok('whether it can make PDFs', !!h.pdfs && typeof h.pdfs.state === 'string', h.pdfs);
@@ -164,6 +164,41 @@ const ok = (label, cond, detail) => {
   ok('with the same behaviour underneath', classic.indexOf(
     fs.readFileSync(path.join(__dirname, '..', 'src', 'JavaScript.html'), 'utf8')) !== -1 &&
     page.text.indexOf(fs.readFileSync(path.join(__dirname, '..', 'src', 'JavaScript.html'), 'utf8')) !== -1);
+
+  console.log('\nAND ERP 2.0 IS A THIRD LOOK OVER THE SAME PORTAL');
+  const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+  const is2 = (html) => html.indexOf(read('web2/Theme.html')) !== -1 && html.indexOf(read('web2/Shell.html')) !== -1;
+  ok('not served unless asked for', !is2(page.text));
+  const v2Server = build({ db, tenant: TENANT, ui: 'v2' });
+  await new Promise((r) => v2Server.listen(0, '127.0.0.1', r));
+  const v2Base = 'http://127.0.0.1:' + v2Server.address().port;
+  const v2 = await (await fetch(v2Base + '/')).text();
+  ok('ERP_UI=v2 serves its theme and its shell', is2(v2));
+  ok('over the new design and the same behaviour, byte for byte', v2.indexOf(read('web/Stylesheet.html')) !== -1 &&
+    v2.indexOf(read('web/Shell.html')) !== -1 && v2.indexOf(read('src/JavaScript.html')) !== -1);
+  ok('the theme after the stylesheet, so its tokens win', v2.indexOf(read('web2/Theme.html')) > v2.indexOf(read('web/Stylesheet.html')));
+  ok('the 2.0 shell after the shell it builds on', v2.indexOf(read('web2/Shell.html')) > v2.indexOf(read('web/Shell.html')));
+  ok('and the health check says which look', JSON.parse(await (await fetch(v2Base + '/health')).text()).look === 'v2');
+  await new Promise((r) => v2Server.close(r));
+  const fonts2 = await Promise.all(['archivo-latin-var', 'plexsans-latin-400', 'plexsans-latin-500', 'plexsans-latin-600',
+    'plexsans-latin-700'].map((n) => fetch(base + '/fonts/' + n + '.woff2').then((r) => r.status)));
+  ok('the faces 2.0 names are here to be fetched', fonts2.every((x) => x === 200), fonts2);
+
+  console.log('\nAND ONE BROWSER CAN TRY IT WITHOUT ANYBODY ELSE SEEING IT');
+  const tried = await fetch(base + '/quotations?look=2');
+  const cookie = tried.headers.get('set-cookie') || '';
+  ok('?look=2 serves 2.0', is2(await tried.text()));
+  ok('and remembers it for this browser only', /^erp_look=v2;/.test(cookie) && /HttpOnly/.test(cookie) &&
+    /SameSite=Lax/.test(cookie) && /Path=\//.test(cookie), cookie);
+  ok('the next page in that browser is 2.0 too', is2(await (await fetch(base + '/customers', { headers: { cookie: 'erp_look=v2' } })).text()));
+  ok('another browser still gets the current look', !is2(await (await fetch(base + '/customers')).text()));
+  const back = await fetch(base + '/?look=web', { headers: { cookie: 'erp_look=v2' } });
+  ok('?look=web goes back', !is2(await back.text()) && /^erp_look=web;/.test(back.headers.get('set-cookie') || ''));
+  const forget = await fetch(base + '/?look=default', { headers: { cookie: 'erp_look=v2' } });
+  ok('?look=default forgets the choice', !is2(await forget.text()) && /Max-Age=0/.test(forget.headers.get('set-cookie') || ''),
+    forget.headers.get('set-cookie'));
+  ok('a cookie naming no look is ignored', !is2(await (await fetch(base + '/', { headers: { cookie: 'erp_look=<script>' } })).text()));
+  ok('and the same address with no ?look sets nothing', !(await fetch(base + '/')).headers.get('set-cookie'));
 
   console.log('\nAND SIGNING IN WORKS');
   const login = await post('/api/login', { username: 'boss', password });

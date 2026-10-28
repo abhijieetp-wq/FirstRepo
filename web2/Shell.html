@@ -1,0 +1,114 @@
+<script>
+/**
+ * What ERP 2.0 adds to the new design's shell. Loaded after web/Shell.html, on the 2.0 face
+ * only (server/page.js).
+ *
+ * Like web/Shell.html it reaches the portal only through the DOM and changes no behaviour:
+ * every screen, button, permission and document is JavaScript.html's. So far it does three
+ * things:
+ *
+ *   - names the Service Due Calls screen "SDR", as PIE asked for 2.0: in the menu, on the
+ *     screen's heading, in the breadcrumb and in the browser tab;
+ *   - marks the app's name "2.0";
+ *   - puts a way back to the current look at the foot of the menu, for anyone previewing.
+ *
+ * Every part is wrapped, as in web/Shell.html, so a fault here costs a decoration and never a
+ * screen.
+ */
+(function () {
+  "use strict";
+
+  /** Screens 2.0 names differently. The screen, its server calls and its address are unchanged. */
+  var RENAME = { servicedue: { from: "Service Due Calls", to: "SDR" } };
+
+  function $(id) { return document.getElementById(id); }
+  function safely(what, fn) {
+    try { fn(); } catch (e) { if (window.console) console.warn("[2.0 shell] " + what + ": " + (e && e.message)); }
+  }
+
+  /** The text node a menu button carries its words in — after the icon web/Shell.html adds. */
+  function setButtonText(btn, words) {
+    var nodes = Array.prototype.slice.call(btn.childNodes).filter(function (n) {
+      return n.nodeType === 3 && n.nodeValue.trim();
+    });
+    if (nodes.length) {
+      if (nodes[0].nodeValue.trim() !== words) nodes[0].nodeValue = words;
+      nodes.slice(1).forEach(function (n) { n.nodeValue = ""; });
+    } else {
+      btn.appendChild(document.createTextNode(words));
+    }
+    if (btn.title && btn.title !== words) btn.title = words;
+  }
+
+  function renameMenu() {
+    Object.keys(RENAME).forEach(function (view) {
+      document.querySelectorAll('#tabs [data-view="' + view + '"]').forEach(function (b) {
+        setButtonText(b, RENAME[view].to);
+      });
+      var head = document.querySelector("#view-" + view + " .page-head h2");
+      if (head && head.textContent.trim() !== RENAME[view].to) head.textContent = RENAME[view].to;
+    });
+    var crumb = $("ws-crumb-page");
+    if (crumb) {
+      Object.keys(RENAME).forEach(function (view) {
+        if (crumb.textContent.trim() === RENAME[view].from) crumb.textContent = RENAME[view].to;
+      });
+    }
+  }
+
+  function renameTitle() {
+    var t = document.title;
+    Object.keys(RENAME).forEach(function (view) {
+      if (t.indexOf(RENAME[view].from) === 0) t = RENAME[view].to + t.slice(RENAME[view].from.length);
+    });
+    if (t !== document.title) document.title = t;
+  }
+
+  /** "2.0" after the app's name — re-added whenever JavaScript.html writes the name again. */
+  function markBrand() {
+    var name = $("app-name");
+    if (!name || !name.textContent.trim() || name.querySelector(".v2-tag")) return;
+    var tag = document.createElement("span");
+    tag.className = "v2-tag";
+    tag.textContent = "2.0";
+    name.appendChild(tag);
+  }
+
+  function addWayBack() {
+    var bar = document.querySelector(".topbar");
+    if (!bar || document.querySelector(".v2-back")) return;
+    var a = document.createElement("a");
+    a.className = "v2-back";
+    a.href = "?look=web";
+    a.textContent = "Back to the current look";
+    bar.appendChild(a);
+  }
+
+  var pending = false;
+  function soon() {
+    if (pending) return;
+    pending = true;
+    setTimeout(function () {
+      pending = false;
+      safely("rename", renameMenu);
+      safely("title", renameTitle);
+      safely("brand", markBrand);
+    }, 0);
+  }
+
+  safely("start", function () {
+    var tabs = $("tabs");
+    if (tabs) new MutationObserver(soon).observe(tabs, { childList: true, subtree: true, characterData: true });
+    var crumb = $("ws-crumb-page");
+    if (crumb) new MutationObserver(soon).observe(crumb, { childList: true, characterData: true, subtree: true });
+    var name = $("app-name");
+    if (name) new MutationObserver(soon).observe(name, { childList: true });
+    var title = document.querySelector("title");
+    if (title) new MutationObserver(soon).observe(title, { childList: true, characterData: true, subtree: true });
+    addWayBack();
+    soon();
+  });
+
+  document.documentElement.classList.add("v2");
+})();
+</script>

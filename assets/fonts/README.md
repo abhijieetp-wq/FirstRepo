@@ -10,6 +10,14 @@ Three families, latin only, 104 KB for all four files, served by `server/index.j
 | `jakarta-latin-var.woff2` | Plus Jakarta Sans | 500–800 variable | 27,348 | headings, headline numbers, the brand |
 | `plexmono-latin-400.woff2` | IBM Plex Mono | 400 | 14,708 | part and document numbers |
 | `plexmono-latin-600.woff2` | IBM Plex Mono | 600 | 15,620 | the same, emphasised |
+| `archivo-latin-var.woff2` | Archivo | 100–900 variable | 35,272 | ERP 2.0: headings (`web2/Theme.html`) |
+| `plexsans-latin-400.woff2` | IBM Plex Sans | 400 | 19,156 | ERP 2.0: reading text |
+| `plexsans-latin-500.woff2` | IBM Plex Sans | 500 | 20,064 | ERP 2.0: the same, medium |
+| `plexsans-latin-600.woff2` | IBM Plex Sans | 600 | 20,356 | ERP 2.0: the same, semibold |
+| `plexsans-latin-700.woff2` | IBM Plex Sans | 700 | 19,440 | ERP 2.0: the same, bold |
+
+The ERP 2.0 files are from Fontsource (`@fontsource-variable/archivo` 5.1.0,
+`@fontsource/ibm-plex-sans` 5.1.0), latin subset, SIL OFL 1.1 like the rest.
 
 ## Why they are here and not fetched from Google
 

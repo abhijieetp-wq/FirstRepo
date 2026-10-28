@@ -9,7 +9,7 @@
  * the thing under test is the real client, not a copy of it that has drifted.
  *
  *   node tests/build-preview.js tests/fixtures/base.html /tmp/preview.html [googlePass]
- *        [--ui=classic|web] [--title="ELGi Sales ERP"]
+ *        [--ui=classic|web|v2] [--title="ELGi Sales ERP"]
  *
  * --ui=classic (the default) is exactly what Apps Script serves. --ui=web is the Node server's
  * face: the same markup and behaviour, dressed by web/Stylesheet.html and web/Shell.html.
@@ -31,7 +31,7 @@ for (const a of process.argv.slice(2)) {
 const fixture = fs.readFileSync(positional[0], 'utf8');
 const outPath = positional[1];
 const pass = positional[2] || '';
-const ui = flags.ui === 'web' ? 'web' : 'classic';
+const ui = flags.ui === 'web' || flags.ui === 'v2' ? flags.ui : 'classic';
 
 const page = render({ title: flags.title || 'ERP', googlePass: pass }, { ui, inject: fixture });
 if (page.warnings.length) {

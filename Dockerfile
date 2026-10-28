@@ -42,11 +42,13 @@ WORKDIR /app
 COPY server/package.json server/package-lock.json ./server/
 RUN npm ci --prefix server --omit=dev
 
-# Only what the server reads at runtime. page.js assembles the portal from src/ and web/,
-# so both are needed; tests, migrations and the export tooling are not.
+# Only what the server reads at runtime. page.js assembles the portal from src/, web/ and web2/,
+# so all three are needed; tests, migrations and the export tooling are not.
 COPY server/ ./server/
 COPY src/ ./src/
 COPY web/ ./web/
+# ERP 2.0's look (ERP_UI=v2, or ?look=2 in one browser): see web2/README.md.
+COPY web2/ ./web2/
 COPY assets/ ./assets/
 # Not a migration script despite where it lives: db.js reads its column mapping from here,
 # which it derives from src/Schema.gs so the database can never drift from the declaration

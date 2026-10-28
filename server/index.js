@@ -125,11 +125,14 @@ function build(options) {
 
   /**
    * Which face of the portal to serve. The new design by default; ERP_UI=classic serves
-   * exactly what Apps Script serves, from the same files. Same behaviour either way — only
-   * the stylesheet and the shell differ — so this is a way to switch the new look off in a
-   * minute if it ever has to be, without a deployment and without losing anything.
+   * exactly what Apps Script serves, from the same files, and ERP_UI=v2 serves ERP 2.0's look
+   * to everyone. Same behaviour in all three — only the stylesheet and the shell differ — so
+   * this is a way to switch a look on or off in a minute, without a deployment and without
+   * losing anything. One browser can also choose for itself (lookFor), which is how 2.0 is
+   * looked at on the live portal before anyone else sees it.
    */
-  const ui = (o.ui || process.env.ERP_UI) === 'classic' ? 'classic' : 'web';
+  const asked = o.ui || process.env.ERP_UI;
+  const ui = asked === 'classic' || asked === 'v2' ? asked : 'web';
 
   /**
    * Attachments and e-mail.
@@ -313,6 +316,30 @@ function failed(res, err, where) {
  * matches on the text, exactly as it did against Apps Script. These codes are for whoever
  * is reading the log at three in the afternoon wondering what broke.
  */
+/**
+ * The face one browser has asked for, if any.
+ *
+ * `?look=2` on any address shows ERP 2.0's look and remembers it for this browser; `?look=web`
+ * or `?look=classic` one of the others; `?look=default` forgets the choice and goes back to
+ * whatever the server serves everyone. Nobody else's screen changes, which is what lets 2.0 be
+ * tried on the live portal by one person at a time. The cookie names a look and nothing else —
+ * every face is the same portal with the same permissions — so it carries no risk if forged.
+ */
+const LOOK_COOKIE = 'erp_look';
+const LOOK_NAMES = { 2: 'v2', '2.0': 'v2', v2: 'v2', web: 'web', current: 'web', classic: 'classic' };
+function lookFor(req, url, serverDefault) {
+  const tail = '; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly';
+  const want = url.searchParams.get('look');
+  if (want !== null) {
+    const look = LOOK_NAMES[String(want).trim().toLowerCase()];
+    if (look) return { ui: look, cookie: LOOK_COOKIE + '=' + look + tail };
+    return { ui: serverDefault, cookie: LOOK_COOKIE + '=' + tail.replace('Max-Age=31536000', 'Max-Age=0') };
+  }
+  const kept = new RegExp('(?:^|;\\s*)' + LOOK_COOKIE + '=([a-z0-9]+)').exec(String(req.headers.cookie || ''));
+  const look = kept && ['web', 'classic', 'v2'].indexOf(kept[1]) !== -1 ? kept[1] : '';
+  return { ui: look || serverDefault, cookie: '' };
+}
+
 function statusFor(message) {
   if (/SESSION_ENDED|GOOGLE_ACCOUNT_BLOCKED/.test(message)) return 401;
   if (/do not match|must change your password/i.test(message)) return 401;
@@ -363,7 +390,9 @@ function statusFor(message) {
           // it is logged and the portal is served, which leaves the password in front of it.
           console.error('[page] ' + (err && err.message));
         }
-        const page = render({ title, googlePass }, { ui });
+        const look = lookFor(req, url, ui);
+        if (look.cookie) res.setHeader('Set-Cookie', look.cookie);
+        const page = render({ title, googlePass }, { ui: look.ui });
         if (page.warnings.length) {
           console.error('Template tags the renderer does not understand: ' +
             page.warnings.join(' '));
@@ -888,7 +917,9 @@ if (require.main === module) {
       : server.smtpReady ? 'SMTP mailbox'
         : 'not connected — Settings \u2192 Email \u2192 Connect Gmail to send quotations')));
     console.log('  look:     ' + (server.ui === 'classic'
-      ? 'classic (ERP_UI=classic) — the Apps Script design' : 'the new design'));
+      ? 'classic (ERP_UI=classic) — the Apps Script design'
+      : server.ui === 'v2' ? 'ERP 2.0 (ERP_UI=v2)' : 'the new design') +
+      ' — one browser can try another with ?look=2, ?look=web or ?look=classic');
     console.log('  database: ' +
       String(process.env.DATABASE_URL).replace(/:[^:@/]*@/, ':****@'));
   });

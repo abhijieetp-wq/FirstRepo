@@ -205,6 +205,12 @@
       return { enquiries: ENQUIRIES, customers: CUSTOMERS, lostReasons: [], knownModels: [] };
     },
     listSpareEnquiries: function () { return ENQUIRIES; },
+    // The SDR screen, with no week uploaded yet — enough for it to open.
+    getServiceDueScreen: { lists: [], calls: [], coordinators: [], me: "anil@pie.in", canEdit: true,
+      statuses: ["To call", "Called", "Quotation prepared", "Quotation sent", "Following up", "PO received",
+        "Not closed", "PO rejected"],
+      responses: ["Needs spares", "Needs service", "Needs service and spares", "Not now", "Not reachable", "Wrong number"],
+      modes: ["Call", "E-mail", "WhatsApp", "Visit"], followUpLimit: 6 },
     listCustomers: function () { return CUSTOMERS; },
     listQuotations: function () { return QUOTATIONS; },
     listSpares: SPARES,

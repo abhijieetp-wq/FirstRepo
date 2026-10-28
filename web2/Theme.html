@@ -1,0 +1,120 @@
+<style>
+  /* ============================================================================
+     ERP 2.0's look, laid over the new design.
+
+     The 2.0 face is web/Stylesheet.html and web/Shell.html with this file and
+     web2/Shell.html on top (server/page.js). Same markup, same behaviour, same server
+     — every screen, form, rule, the bulk imports and the printed quotation are ERP 1's
+     own. Only the look changes: ERP 2's green rail, its lime accent, its greenish
+     neutrals, Archivo for headings and IBM Plex Sans for reading, and flatter corners.
+
+     It works by redefining the design's own tokens, so everything drawn from them
+     follows; the rules further down are the few places web/Stylesheet.html wrote a
+     colour out in full instead of through a token.
+
+     The nineteen names JavaScript.html reads (--amber, --navy, --green, ...) keep
+     their names; only their values move.
+     ========================================================================= */
+
+  @font-face{ font-family:'Archivo'; font-style:normal; font-weight:100 900; font-display:swap;
+    src:url('/fonts/archivo-latin-var.woff2') format('woff2'); }
+  @font-face{ font-family:'IBM Plex Sans'; font-style:normal; font-weight:400; font-display:swap;
+    src:url('/fonts/plexsans-latin-400.woff2') format('woff2'); }
+  @font-face{ font-family:'IBM Plex Sans'; font-style:normal; font-weight:500; font-display:swap;
+    src:url('/fonts/plexsans-latin-500.woff2') format('woff2'); }
+  @font-face{ font-family:'IBM Plex Sans'; font-style:normal; font-weight:600; font-display:swap;
+    src:url('/fonts/plexsans-latin-600.woff2') format('woff2'); }
+  @font-face{ font-family:'IBM Plex Sans'; font-style:normal; font-weight:700; font-display:swap;
+    src:url('/fonts/plexsans-latin-700.woff2') format('woff2'); }
+
+  :root{
+    /* ERP 2's accent: the deep green of its buttons, with the lime as the light end. */
+    --brand-50:#EEF7DF; --brand-100:#DDEFD6; --brand-200:#C2E3A8; --brand-300:#A6D46E;
+    --brand-400:#8CC63F; --brand-500:#23772F; --brand-600:#1C6227; --brand-700:#154D1E;
+
+    /* The rail: ERP 2's dark green, as a ramp. */
+    --night-950:#081A0C; --night-900:#0F2B14; --night-850:#123318; --night-800:#16401C;
+    --night-700:#245A2A; --night-600:#2F6E36; --night-500:#4D7F4A; --night-400:#6F9A6A;
+    --night-300:#9BBB96; --night-200:#C3D9BF; --night-100:#E8F4E3;
+
+    /* ERP 2's neutrals carry a little green, so white cards sit on a pale field. */
+    --gray-0:#FFFFFF; --gray-25:#FBFDFA; --gray-50:#F6FAF3; --gray-75:#F1F6EE;
+    --gray-100:#E8F0E4; --gray-150:#DFE9DA; --gray-200:#D3E0CD; --gray-300:#BCCDB6;
+    --gray-400:#8FA58B; --gray-500:#6A8266; --gray-600:#405A3D; --gray-700:#2F472D;
+    --gray-800:#1D331C; --gray-900:#10240F;
+
+    --ok-50:#E3F4EA;   --ok-200:#B5E2C6;   --ok-600:#1D8A4A;   --ok-700:#18733E;
+    --bad-50:#FBE1DC;  --bad-200:#F3B9AF;  --bad-600:#C23A2A;  --bad-700:#A23022;
+    --warn-50:#FDEBCC; --warn-200:#F7D397; --warn-600:#C06C00; --warn-700:#9C5800;
+
+    --navy:#16401C; --navy-2:#245A2A;
+    --amber:var(--brand-500); --amber-dark:var(--brand-600); --amberbg:var(--brand-50);
+
+    /* Flatter, as ERP 2 is. */
+    --r-xs:5px; --r-sm:6px; --r:8px; --r-lg:10px; --r-xl:12px;
+    --sh-sm:0 1px 2px rgba(16,48,20,.05), 0 1px 3px rgba(16,48,20,.06);
+    --sh-md:0 1px 2px rgba(16,48,20,.06), 0 8px 24px rgba(16,48,20,.08);
+    --sh-lg:0 12px 24px -6px rgba(16,48,20,.12), 0 4px 8px -4px rgba(16,48,20,.06);
+    --ring:0 0 0 4px rgba(35,119,47,.18);
+
+    --font-sans:'IBM Plex Sans','Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;
+    --font-display:'Archivo','Segoe UI',system-ui,-apple-system,Roboto,sans-serif;
+
+    --sidebar-w:252px;
+
+    /* Charts: the trend pair and the severity colours in ERP 2's palette. */
+    --series-1:#2464B4; --series-2:#D46F12;
+    --st-good:#1D8A4A; --st-warning:#C06C00; --st-serious:#D46F12; --st-critical:#C23A2A;
+  }
+
+  body{ background:
+      radial-gradient(1100px 520px at 100% -8%, rgba(140,198,63,.10), transparent 62%),
+      var(--gray-75); }
+  h1,h2,h3{ letter-spacing:-.01em; }
+
+  /* ---- the rail ---- */
+  .topbar{ background:
+      radial-gradient(320px 220px at 0% 0%, rgba(140,198,63,.16), transparent 70%),
+      linear-gradient(180deg, var(--night-900) 0%, var(--night-800) 100%); }
+  .brand-mark{ color:#08200B; border-radius:9px;
+    background:linear-gradient(135deg, var(--brand-400) 0%, #3F8F2C 100%);
+    box-shadow:0 8px 20px -8px rgba(140,198,63,.55), inset 0 1px 0 rgba(255,255,255,.35); }
+  .tabs [data-view].active{ background:var(--night-700); box-shadow:none; }
+  .tabs [data-view].active .nav-ico{ color:var(--brand-400); }
+  .tabs [data-view].active::before{ background:var(--brand-400); box-shadow:0 0 12px rgba(140,198,63,.6); }
+
+  /* ---- screens ---- */
+  .page-ico{ color:var(--brand-500); background:var(--brand-50); border-color:var(--brand-200);
+    box-shadow:0 1px 2px rgba(16,48,20,.05); border-radius:10px; }
+  .btn:hover, .field input:hover, .field select:hover, .field textarea:hover{ border-color:var(--gray-300); }
+  .btn-primary{ border-color:var(--brand-600); background:var(--brand-500);
+    box-shadow:0 1px 2px rgba(16,48,20,.14); }
+  .btn-primary:hover{ border-color:var(--brand-700); background:var(--brand-600); }
+  /* The call to action: ERP 2's green, where the new design had amber. */
+  .btn-amber{ color:#fff; border-color:var(--brand-600); background:var(--brand-500);
+    box-shadow:0 1px 2px rgba(16,48,20,.12), 0 6px 16px -8px rgba(35,119,47,.55); }
+  .btn-amber:hover{ color:#fff; border-color:var(--brand-700); background:var(--brand-600); }
+  tbody tr:hover td{ background:var(--gray-50); }
+  .card[style*="overflow-x"] tbody tr:hover td:last-child:has(.btn, .btn-ghost){ background:var(--gray-50); }
+  .badge-sent, .badge-quoted, .badge-partial, .badge-dispatched{ background:var(--warn-50);
+    color:var(--warn-700); border-color:var(--warn-200); }
+  .jstep.now .jdot{ border-color:var(--brand-500); box-shadow:0 0 0 5px rgba(35,119,47,.18); }
+
+  /* ---- signing in ---- */
+  .signin-aside{ background:
+      radial-gradient(520px 420px at 0% 0%, rgba(140,198,63,.28), transparent 65%),
+      linear-gradient(160deg, var(--night-800) 0%, var(--night-900) 52%, var(--night-950) 100%); }
+  .signin-hero h1 em{ background:linear-gradient(90deg, #D9F0A8 0%, var(--brand-400) 60%, #5FA83A 100%);
+    -webkit-background-clip:text; background-clip:text; }
+  .signin-points .ico{ color:var(--brand-400); }
+  .signin-main{ background:radial-gradient(600px 400px at 50% 0%, rgba(140,198,63,.08), transparent 70%), var(--gray-0); }
+
+  /* ---- what 2.0 adds to the shell (web2/Shell.html) ---- */
+  .brand-text h1 .v2-tag{ display:inline-block; width:auto; overflow:visible; margin-left:6px; padding:0 6px; border-radius:5px;
+    font:700 10px/1.5 var(--font-sans); letter-spacing:.04em; color:#08200B; background:var(--brand-400);
+    vertical-align:1px; }
+  .v2-back{ display:block; margin:8px 8px 0; padding:7px 10px; border-radius:6px; text-align:center;
+    font:500 12px/1.3 var(--font-sans); color:var(--night-200) !important; text-decoration:none !important;
+    border:1px dashed rgba(255,255,255,.18); }
+  .v2-back:hover{ color:#fff !important; border-color:var(--brand-400); }
+</style>
