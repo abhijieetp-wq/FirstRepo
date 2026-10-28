@@ -89,18 +89,99 @@ function productSeries_(p) {
 }
 
 /**
+ * ELGi's model names say what a machine is. In PIE's unit master (28 Oct 2026: 641 screw codes,
+ * 176 reciprocating) every screw starts EG, EQ or EN and every reciprocating starts TS (two
+ * stage), SS (single stage) or MS (super pressure and PET), with no code in both. Whole dryers
+ * in ELGi's price list are the ELRD, ELHD, HLD, AR and 3GD families.
+ */
+var SCREW_MODEL_ = /^\s*E[GQN]\s*\d/i;
+var RECIP_MODEL_ = /^\s*[TSM]S\s*\d/i;
+var DRYER_MODEL_ = /^\s*(ELRD|ELHD|HLD|3GD|AR\s*\d)/i;
+
+/**
  * What kind of machine a product is, for the wording that differs by kind — PIE titles a
- * screw compressor, a reciprocating compressor and a dryer differently. Read off the family,
- * the category and the description, so it needs no new column: a product whose family says
- * "Reciprocating" is a RECIP, one that says "Dryer" a DRYER, and anything else — every
- * lubricated screw in the catalogue — a SCREW.
+ * screw compressor, a reciprocating compressor and a dryer differently.
+ *
+ * The model decides first. A reciprocating description never says "reciprocating" ("TS10
+ * LB-12 BM"), so reading the words alone printed the screw title on every reciprocating offer
+ * whose family had been left empty; and a screw with a built-in dryer ("EG 11-7.5 D") is a
+ * screw, whatever its family says about the dryer. Only a model that matches none of ELGi's
+ * names falls back to the family, the category and the description, and then to SCREW.
  */
 function productKind_(p) {
   if (!p) return '';
+  var names = [p.model, p.productCode, p.description];
+  for (var i = 0; i < names.length; i++) {
+    var n = String(names[i] || '');
+    if (SCREW_MODEL_.test(n)) return 'SCREW';
+    if (RECIP_MODEL_.test(n)) return 'RECIP';
+    if (DRYER_MODEL_.test(n)) return 'DRYER';
+  }
   var text = [p.family, p.category, p.description].join(' ');
   if (/recip/i.test(text)) return 'RECIP';
   if (/dryer|drier/i.test(text)) return 'DRYER';
   return 'SCREW';
+}
+
+/**
+ * Whether a part from the price list is a whole dryer rather than a part of one.
+ *
+ * Dryers are sold off ELGi's price list, so they reach an offer as parts, not as units. More
+ * than nine in ten price-list lines that mention a dryer are parts of one (kits, valves, heat
+ * exchangers, the dryer built into a screw), and those sit with the compressor spares; the
+ * whole dryers sit in the "Dryer /OWS /HRS/Tank" group, beside receivers, heat-recovery kits
+ * and oil-water separators. So: a dryer family's name or "air dryer" in the description, not a
+ * kit or an assembly, and not filed under some other group.
+ */
+function spareIsDryerUnit_(s) {
+  if (!s) return false;
+  var d = String(s.description || '');
+  if (/\b(KIT|ASSY|ASSEMBLY|ELEMENT|FILTER|VALVE|EXCHANG\w*|INTEGRATED|SPARES?)\b/i.test(d)) return false;
+  var group = String(s.productGroup || '').trim();
+  if (group && !/dryer|drier/i.test(group)) return false;
+  return DRYER_MODEL_.test(d) || /\bAIR\s+DR[IY]ER\b/i.test(d);
+}
+
+/** The machine's name as the screw wording carries it, and what replaces it for the others. */
+var MACHINE_NAMES_ = { RECIP: 'Reciprocating Air Compressor', DRYER: 'Air Dryer' };
+
+/**
+ * A line of offer text with the machine's name changed for the kind of machine quoted.
+ *
+ * PIE's rule (28 Oct 2026): in the heading and the subject only the machine changes and the
+ * rest of the line stays as written — "Submission of Budgetary Offer for ELGi Rotary Screw Air
+ * Compressor" becomes "...for ELGi Reciprocating Air Compressor", and "ELGi ELECTRIC POWERED
+ * OIL SCREW AIR COMPRESSOR" becomes "...OIL AIR DRYER". Keeps the case the text was written in,
+ * so an edit to the screw wording in Settings carries over to the others.
+ */
+function swapMachineName_(text, kind) {
+  var name = MACHINE_NAMES_[kind];
+  if (!name) return String(text || '');
+  return String(text || '').replace(/(rotary\s+)?screw\s+air\s+compressor/gi, function (m) {
+    if (m === m.toUpperCase()) return name.toUpperCase();
+    if (m === m.toLowerCase()) return name.toLowerCase();
+    var titleCase = m.split(/\s+/).every(function (w) { return w.charAt(0) === w.charAt(0).toUpperCase(); });
+    return titleCase ? name : name.charAt(0) + name.slice(1).toLowerCase();
+  });
+}
+
+/**
+ * The heading or subject line for the kind of machine on the offer.
+ *
+ * A row written for the kind ("Applies to: RECIP") prints as it is. Otherwise a compressor
+ * offer takes its general row with the machine's name changed. A dryer quoted from the spares
+ * desk takes the compressor wording for a dryer the same way — it is a machine, not a part —
+ * while every other line of the spares offer stays the spares offer's own.
+ */
+function machineLine_(section, stream, keys, kind, own) {
+  var ownTitle = own ? String(own.title || '') : '';
+  if (!kind || kind === 'SCREW') return ownTitle;
+  if (own && templateSeries_(own).indexOf(kind) !== -1) return ownTitle;
+  if (stream === STREAM_COMPRESSOR) return swapMachineName_(ownTitle, kind);
+  if (kind !== 'DRYER') return ownTitle;
+  var tpl = quoteTemplate_(section, STREAM_COMPRESSOR, keys);
+  if (!tpl || !tpl.title) return ownTitle;
+  return templateSeries_(tpl).indexOf(kind) !== -1 ? String(tpl.title) : swapMachineName_(tpl.title, kind);
 }
 
 /**
@@ -462,6 +543,18 @@ function buildQuotationHtml(quotationId) {
     return i.itemType === 'Product' && products[String(i.itemId)];
   })[0];
   var offerKind = leadProduct ? productKind_(products[String(leadProduct.itemId)]) : '';
+  // No unit on it: an offer for a whole dryer, on either desk, is a dryer offer. It used to take
+  // the screw heading on the compressor desk and "spare parts" on the spares desk.
+  if (!offerKind && hasType.Spare) {
+    var spareRows = isCompressor ? spareSpecs : {};
+    if (!isCompressor) {
+      findRowsByColumn_('Spares', 'id', items.filter(function (i) { return i.itemType === 'Spare'; })
+        .map(function (i) { return String(i.itemId); })).forEach(function (s) { spareRows[String(s.id)] = s; });
+    }
+    if (items.some(function (i) { return i.itemType === 'Spare' && spareIsDryerUnit_(spareRows[String(i.itemId)]); })) {
+      offerKind = 'DRYER';
+    }
+  }
   // What any series- or kind-specific text is chosen by.
   var offerKeys = [series, offerKind].filter(Boolean);
 
@@ -562,10 +655,10 @@ function buildQuotationHtml(quotationId) {
 
   // ---------------------------------------------------------------- page 1: the letter
   var titleTpl = quoteTemplate_('DocumentTitle', stream, offerKeys);
-  if (titleTpl) {
-    if (titleTpl.title) push('<div class="doc-title">' + esc_(titleTpl.title) + '</div>');
-    if (titleTpl.body) push('<div class="doc-sub">' + esc_(String(titleTpl.body).trim()) + '</div>');
-  }
+  // The heading names the kind of machine quoted; only the machine changes (machineLine_).
+  var headTitle = machineLine_('DocumentTitle', stream, offerKeys, offerKind, titleTpl);
+  if (headTitle) push('<div class="doc-title">' + esc_(headTitle) + '</div>');
+  if (titleTpl && titleTpl.body) push('<div class="doc-sub">' + esc_(String(titleTpl.body).trim()) + '</div>');
 
   push('<table class="refbar"><tr>' +
     '<td><b>' + esc_(L('refNo', 'Ref No.')) + ':</b> ' + esc_(q.quoteNo) +
@@ -592,14 +685,19 @@ function buildQuotationHtml(quotationId) {
     '</div>');
 
   var cover = quoteTemplate_('CoverLetter', stream, offerKeys);
+  // The subject as well: "...for ELGi Rotary Screw Air Compressor" becomes "...for ELGi Air
+  // Dryer", the rest as written. On a compressor offer the letter's own mention of the machine
+  // follows; a row written for the kind is left exactly as it is.
+  var subject = machineLine_('CoverLetter', stream, offerKeys, offerKind, cover);
+  var swapBody = isCompressor && cover && templateSeries_(cover).indexOf(offerKind) === -1;
   if (cover) {
-    if (cover.title) {
+    if (subject) {
       push('<div class="subject"><b>' + esc_(L('subject', 'Subject')) + ':</b> ' +
-        esc_(cover.title) + '</div>');
+        esc_(subject) + '</div>');
     }
     push('<div class="salut">' + esc_(co.salutation || 'Dear Sir/Madam,') + '</div>');
     String(cover.body).split('\n\n').forEach(function (para) {
-      if (para.trim()) push('<p>' + esc_(para.trim()) + '</p>');
+      if (para.trim()) push('<p>' + esc_(swapBody ? swapMachineName_(para.trim(), offerKind) : para.trim()) + '</p>');
     });
   }
 
@@ -685,8 +783,8 @@ function buildQuotationHtml(quotationId) {
     // A compressor offer heads its specifications with what the machine is — "ELGi ELECTRIC
     // POWERED OIL SCREW AIR COMPRESSOR", or the reciprocating or dryer wording — as PIE's own
     // offers do: the document title for the kind of machine quoted.
-    push('<div class="h1">' + esc_(isCompressor && titleTpl && titleTpl.title
-      ? titleTpl.title : L('specHeading', 'Technical specifications')) + '</div>');
+    push('<div class="h1">' + esc_(isCompressor && headTitle
+      ? headTitle : L('specHeading', 'Technical specifications')) + '</div>');
     // The picture of the range that opens the specifications on every one of PIE's compressor
     // offers, the same whatever the model. Set once in Settings → Letterhead.
     if (offerPicture) push(offerPicture);
