@@ -232,6 +232,8 @@
       // The last step of the process, and the first of service's: once the goods are known to
       // have arrived, the customer is handed over and an engineer goes to fit them.
       { view: "service", label: "Service Jobs", roles: SERVICE_VIEW },
+      // ERP 2.0's AMC contracts and visits (Amc.gs). Only on the 2.0 face.
+      { view: "amc", label: "AMC", roles: SERVICE_VIEW, v2: true },
       { view: "collections", label: "Collections", roles: COMMERCIAL_SIDE }
     ] },
     { view: "inventory", label: "Inventory", roles: COMMERCIAL_SIDE },
@@ -254,6 +256,7 @@
 
   function visibleLeaves() {
     return navLeaves().filter(function (t) {
+      if (t.v2 && !FACE_V2) return false;
       if (t.roles.indexOf(currentUser.role) === -1) return false;
       // 'All' — Management and the ERP admin — sees both front offices.
       if (!t.stream) return true;
@@ -293,6 +296,7 @@
     orders: "/sales-orders",
     dispatch: "/dispatch-billing",
     service: "/service-jobs",
+    amc: "/amc",
     collections: "/collections",
     inventory: "/inventory",
     customers: "/customers",
@@ -566,6 +570,7 @@
     progress: initProgressView,
     engineers: initEngineersView,
     service: initServiceView,
+    amc: initAmcView,
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
@@ -5655,6 +5660,278 @@
       thenStatus();
     }
   });
+
+  // ================= AMC (2.0) =================
+  // ERP 2.0's AMC contracts and the visits they promise (Amc.gs). A screen of its own, on the
+  // 2.0 face only: the other faces have no AMC and do not offer it.
+  var amc = { data: null, mode: "due", window: 30, open: null, machines: [] };
+
+  if (FACE_V2 && !$("view-amc")) {
+    (function () {
+      var view = document.createElement("div");
+      view.className = "view";
+      view.id = "view-amc";
+      view.innerHTML = '<div class="page-head"><div><h2>AMC</h2><p>Every AMC contract and service reminder, with its visits. ' +
+        "A due visit becomes a service job with one press; a contract near its end gets a renewal quotation.</p></div>" +
+        '<button class="btn btn-amber" id="btn-new-amc" type="button" style="display:none;">+ AMC contract</button></div>' +
+        '<div id="amc-kpis" class="amc-kpis"></div>' +
+        '<div class="amc-bar"><div class="eb-switch" id="amc-mode">' +
+          '<button type="button" data-amc-mode="due">Visits due</button><button type="button" data-amc-mode="contracts">Contracts</button>' +
+          '<button type="button" data-amc-mode="renewals">Renewals</button></div>' +
+          '<label class="amc-window" id="amc-window-wrap">Due within <select id="amc-window"></select></label>' +
+          '<input id="amc-search" placeholder="Search customer, machine, contract or area…" /></div>' +
+        '<div class="card" style="padding:0; overflow-x:auto;"><div id="amc-body"></div></div>';
+      var after = $("view-service");
+      after.parentNode.insertBefore(view, after.nextSibling);
+
+      var back = document.createElement("div");
+      back.className = "modal-backdrop";
+      back.id = "amc-modal-backdrop";
+      back.innerHTML = '<div class="modal" style="max-width:820px;"><h3 id="amc-m-title">AMC contract</h3>' +
+        '<p id="amc-m-sub" style="font-size:12.5px; color:var(--ink-soft); margin:0 0 14px;"></p><div id="amc-m-body"></div>' +
+        '<div class="amc-m-foot"><button type="button" class="btn sd-danger" id="btn-amc-delete">Delete</button>' +
+        '<span style="flex:1"></span><button type="button" class="btn" id="btn-amc-cancel">Close</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-amc-save">Save contract</button></div></div>';
+      document.body.appendChild(back);
+    })();
+  }
+
+  // Service Jobs can be narrowed to AMC visits too, on the face that makes them.
+  if (FACE_V2 && $("service-type") && !$("service-type").querySelector('option[value="AMC visit"]')) {
+    var amcOpt = document.createElement("option");
+    amcOpt.value = "AMC visit";
+    amcOpt.textContent = "AMC visits";
+    $("service-type").appendChild(amcOpt);
+  }
+
+  function initAmcView() {
+    if (!FACE_V2) return;
+    loadAmc();
+  }
+
+  function loadAmc() {
+    srv.withSuccessHandler(function (d) {
+      amc.data = d;
+      $("btn-new-amc").style.display = d.canEdit ? "" : "none";
+      $("amc-window").innerHTML = d.windows.map(function (w) {
+        return '<option value="' + w + '"' + (w === d.window ? " selected" : "") + ">" + w + " days</option>";
+      }).join("");
+      renderAmc();
+    }).withFailureHandler(onServerError).listAmc({ window: amc.window });
+  }
+
+  function amcMoney(v) { return v === "" || v === null || v === undefined ? "—" : ebMoney(v); }
+
+  function renderAmc() {
+    var d = amc.data;
+    if (!d) return;
+    var k = d.kpis;
+    $("amc-kpis").innerHTML = [
+      ["Active contracts", k.active, d.money ? (k.valueAYear ? fmtShort(k.valueAYear) + " a year" : "") : "", ""],
+      ["Visits due this month", k.dueThisMonth, "not yet done", ""],
+      ["Visits overdue", k.overdue, "no job made, or the job not done", k.overdue ? "bad" : ""],
+      ["Renewals in 60 days", k.renewals, "contracts ending", k.renewals ? "warn" : ""]
+    ].map(function (t) {
+      return '<div class="pd-tile' + (t[3] ? " " + t[3] : "") + '"><span class="pd-label">' + escapeHtml(t[0]) + '</span><span class="pd-value">' +
+        t[1] + '</span><span class="pd-sub">' + escapeHtml(t[2]) + "</span></div>";
+    }).join("");
+    $("amc-mode").querySelectorAll("[data-amc-mode]").forEach(function (b) { b.classList.toggle("on", b.dataset.amcMode === amc.mode); });
+    $("amc-window-wrap").style.display = amc.mode === "due" ? "" : "none";
+    var q = ($("amc-search").value || "").trim().toLowerCase();
+    var hit = function (r) {
+      return !q || [r.customerName, r.machineModel, r.serialNo, r.contractNo, r.area, r.amcType].join(" ").toLowerCase().indexOf(q) !== -1;
+    };
+    var html = "";
+    if (amc.mode === "due") {
+      var rows = d.dues.filter(hit);
+      html = '<table><thead><tr><th>Customer</th><th>Machine</th><th>Contract</th><th>Visit</th><th>Due</th><th>Where it stands</th><th></th></tr></thead><tbody>' +
+        (rows.length ? rows.map(function (v) {
+          var badge = v.state === "Overdue" ? "badge-lost" : v.state === "Call made" ? "badge-quoted" : "badge-sent";
+          return '<tr data-amc-visit="' + escapeHtml(v.id) + '"><td><b>' + escapeHtml(v.customerName) + "</b>" +
+            (v.area ? '<div class="sdc-muted">' + escapeHtml(v.area) + "</div>" : "") + "</td>" +
+            "<td>" + escapeHtml(v.machineModel || "—") + '<div class="mono sdc-muted">' + escapeHtml(v.serialNo) + "</div></td>" +
+            "<td>" + escapeHtml(v.amcType) + '<div class="sdc-muted">' + escapeHtml(v.contractNo) + (v.endDate ? " · till " + escapeHtml(ebDate(v.endDate)) : "") + "</div></td>" +
+            "<td>" + v.visitNo + " of " + v.visitOf + "</td>" +
+            '<td class="' + (v.state === "Overdue" ? "sdc-late" : "") + '">' + escapeHtml(ebDate(v.dueDate)) + "</td>" +
+            '<td><span class="badge ' + badge + '">' + escapeHtml(v.state) + "</span>" +
+              (v.jobNo ? '<div class="sdc-muted">' + escapeHtml(v.jobNo) + (v.engineer ? " · " + escapeHtml(v.engineer) : " · no engineer yet") + "</div>" : "") + "</td>" +
+            '<td class="center">' + (v.jobId ? '<button type="button" class="btn btn-sm" data-amc-job="' + escapeHtml(v.jobId) + '">Open job</button>'
+              : d.canMakeCall ? '<button type="button" class="btn btn-sm btn-primary" data-amc-call="' + escapeHtml(v.id) + '">Make service job</button>' : "") + "</td></tr>";
+        }).join("") : '<tr><td colspan="7" class="empty">No visits due within ' + d.window + " days.</td></tr>") + "</tbody></table>";
+    } else if (amc.mode === "contracts") {
+      var cs = d.contracts.filter(hit);
+      html = '<table><thead><tr><th>Contract</th><th>Customer</th><th>Machine</th><th>Type</th><th>Period</th><th>Service every</th>' +
+        (d.money ? '<th class="num">Value a year</th>' : "") + '<th>Visits done</th><th>Next visit</th><th>State</th></tr></thead><tbody>' +
+        (cs.length ? cs.map(function (c) {
+          var st = /^Ends/.test(c.state) ? "badge-sent" : c.state === "Ended" ? "badge-lost" : "badge-won";
+          return '<tr class="amc-row" data-amc-contract="' + escapeHtml(c.id) + '"><td class="mono">' + escapeHtml(c.contractNo) + "</td>" +
+            "<td><b>" + escapeHtml(c.customerName) + "</b>" + (c.area ? '<div class="sdc-muted">' + escapeHtml(c.area) + "</div>" : "") + "</td>" +
+            "<td>" + escapeHtml(c.machineModel || "—") + '<div class="mono sdc-muted">' + escapeHtml(c.serialNo) + "</div></td>" +
+            "<td>" + escapeHtml(c.amcType) + "</td>" +
+            "<td>" + escapeHtml(ebDate(c.startDate)) + " – " + escapeHtml(ebDate(c.endDate)) + "</td>" +
+            "<td>" + c.everyMonths + (c.everyMonths === 1 ? " month" : " months") + "</td>" +
+            (d.money ? '<td class="num">' + escapeHtml(amcMoney(c.contractValue)) + "</td>" : "") +
+            "<td>" + c.visitsDone + " of " + c.visitsTotal + "</td>" +
+            "<td>" + escapeHtml(c.nextVisit ? ebDate(c.nextVisit) : "—") + "</td>" +
+            '<td><span class="badge ' + st + '">' + escapeHtml(c.state) + "</span></td></tr>";
+        }).join("") : '<tr><td colspan="10" class="empty">No AMC contracts yet' + (d.canEdit ? " — add the first with + AMC contract." : ".") + "</td></tr>") +
+        "</tbody></table>";
+    } else {
+      var rs = d.renewals.filter(hit);
+      html = '<table><thead><tr><th>Customer</th><th>Machine</th><th>Contract</th><th>Ends</th>' + (d.money ? '<th class="num">Value a year</th>' : "") +
+        "<th>Renewal offer</th></tr></thead><tbody>" +
+        (rs.length ? rs.map(function (c) {
+          return "<tr><td><b>" + escapeHtml(c.customerName) + "</b></td>" +
+            "<td>" + escapeHtml(c.machineModel || "—") + '<div class="mono sdc-muted">' + escapeHtml(c.serialNo) + "</div></td>" +
+            "<td>" + escapeHtml(c.amcType) + '<div class="sdc-muted">' + escapeHtml(c.contractNo) + "</div></td>" +
+            '<td class="' + (c.daysLeft < 0 ? "sdc-late" : "") + '">' + escapeHtml(ebDate(c.endDate)) + '<div class="sdc-muted">' +
+              escapeHtml(c.daysLeft < 0 ? "ended " + (-c.daysLeft) + " days ago" : "in " + c.daysLeft + " days") + "</div></td>" +
+            (d.money ? '<td class="num">' + escapeHtml(amcMoney(c.contractValue)) + "</td>" : "") +
+            "<td>" + (c.renewal ? '<button type="button" class="btn btn-sm" data-amc-quote="' + escapeHtml(c.renewal.quotationId) + '">' +
+                escapeHtml(c.renewal.quoteNo) + " · " + escapeHtml(c.renewal.status === "Submitted" ? "Sent" : c.renewal.status) + "</button>"
+              : d.canRenew ? '<button type="button" class="btn btn-sm btn-primary" data-amc-renew="' + escapeHtml(c.id) + '">Prepare renewal quotation</button>'
+              : '<span class="sdc-muted">The spares desk raises it.</span>') + "</td></tr>";
+        }).join("") : '<tr><td colspan="6" class="empty">No contract ends in the next 60 days.</td></tr>') + "</tbody></table>";
+    }
+    $("amc-body").innerHTML = html;
+  }
+
+  if (FACE_V2) {
+    $("amc-mode").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-amc-mode]");
+      if (b) { amc.mode = b.dataset.amcMode; renderAmc(); }
+    });
+    $("amc-window").addEventListener("change", function () { amc.window = Number($("amc-window").value); loadAmc(); });
+    $("amc-search").addEventListener("input", renderAmc);
+    $("amc-body").addEventListener("click", function (e) {
+      var call = e.target.closest("[data-amc-call]");
+      if (call) {
+        call.disabled = true;
+        srv.withSuccessHandler(function (r) {
+          showMsg("Service job " + r.jobNo + " made for the visit. Assign the engineer from Service Jobs.", "success");
+          loadAmc();
+        }).withFailureHandler(function (err) { call.disabled = false; onServerError(err); }).makeAmcVisitCall(call.dataset.amcCall);
+        return;
+      }
+      var job = e.target.closest("[data-amc-job]");
+      if (job) { openServiceJobModal(job.dataset.amcJob); return; }
+      var quote = e.target.closest("[data-amc-quote]");
+      if (quote) { openQuotation(quote.dataset.amcQuote); return; }
+      var renew = e.target.closest("[data-amc-renew]");
+      if (renew) {
+        renew.disabled = true;
+        srv.withSuccessHandler(function (r) {
+          showMsg((r.existing ? "Opening " : "AMC renewal quotation ") + r.quoteNo + (r.existing ? "." : " raised. Add the lines, then send it."), "success");
+          openQuotation(r.quotationId);
+        }).withFailureHandler(function (err) { renew.disabled = false; onServerError(err); }).prepareAmcRenewal(renew.dataset.amcRenew);
+        return;
+      }
+      var row = e.target.closest("[data-amc-contract]");
+      if (row) amcOpen(row.dataset.amcContract);
+    });
+    $("btn-new-amc").addEventListener("click", function () { amcOpen(""); });
+    $("btn-amc-cancel").addEventListener("click", function () { $("amc-modal-backdrop").classList.remove("show"); });
+    $("btn-amc-save").addEventListener("click", amcSave);
+    $("btn-amc-delete").addEventListener("click", function () {
+      var c = amc.open;
+      if (!c || !c.id) return;
+      askDialog({ title: "Delete " + c.contractNo + "?", message: "The contract and its visits leave the list. A contract whose visits have become service jobs stays on record.",
+        okLabel: "Delete", danger: true }, function (yes) {
+        if (yes === null) return;
+        srv.withSuccessHandler(function (r) {
+          $("amc-modal-backdrop").classList.remove("show");
+          showMsg(r.contractNo + " deleted.", "success");
+          loadAmc();
+        }).withFailureHandler(onServerError).deleteAmcContract(c.id);
+      });
+    });
+  }
+
+  function amcOpen(id) {
+    var draw = function (c) {
+      amc.open = c;
+      var d = amc.data || { types: [], money: false, canEdit: false };
+      var today = new Date().toISOString().slice(0, 10);
+      var ro = !d.canEdit;
+      var v = function (k) { return escapeHtml(c[k] === undefined || c[k] === null ? "" : c[k]); };
+      $("amc-m-title").textContent = c.id ? c.contractNo + " · " + c.customerName : "New AMC contract";
+      $("amc-m-sub").textContent = c.id ? (c.amcType + " · " + ebDate(c.startDate) + " – " + ebDate(c.endDate)) :
+        "A contract is for one machine. Its visits are laid out from the first one, every so many months, to the end.";
+      $("amc-m-body").innerHTML =
+        '<div class="grid grid-3">' +
+          '<div class="field" style="grid-column:span 2;"><label>Customer *</label><select id="amc-f-customer"' + (ro ? " disabled" : "") + '>' +
+            '<option value="">— pick —</option>' + customerOptions(c.customerId || null) + "</select></div>" +
+          '<div class="field"><label>Type *</label><select id="amc-f-type"' + (ro ? " disabled" : "") + ">" + d.types.map(function (t) {
+            return "<option" + (t === (c.amcType || "Comprehensive") ? " selected" : "") + ">" + escapeHtml(t) + "</option>"; }).join("") + "</select></div>" +
+        "</div>" +
+        '<div class="grid grid-3" style="margin-top:12px;">' +
+          '<div class="field"><label>Serial (fab) No. *</label><input id="amc-f-serial" class="mono" list="amc-machines" value="' + v("serialNo") + '"' + (ro ? " disabled" : "") + " /></div>" +
+          '<div class="field"><label>Model</label><input id="amc-f-model" value="' + v("machineModel") + '"' + (ro ? " disabled" : "") + " /></div>" +
+          '<div class="field"><label>Running hours at the start</label><input id="amc-f-hours" value="' + v("runningHours") + '"' + (ro ? " disabled" : "") + " /></div>" +
+        '</div><datalist id="amc-machines"></datalist>' +
+        '<div class="grid grid-4" style="margin-top:12px;">' +
+          '<div class="field"><label>Starts *</label><input id="amc-f-start" type="date" value="' + escapeHtml(c.startDate || today) + '"' + (ro ? " disabled" : "") + " /></div>" +
+          '<div class="field"><label>Ends</label><input id="amc-f-end" type="date" value="' + v("endDate") + '"' + (ro ? " disabled" : "") + ' /><div class="sdc-muted">Blank: a year</div></div>' +
+          '<div class="field"><label>Service every (months) *</label><input id="amc-f-every" type="number" min="1" max="24" value="' + escapeHtml(c.everyMonths || 3) + '"' + (ro ? " disabled" : "") + " /></div>" +
+          '<div class="field"><label>First visit</label><input id="amc-f-first" type="date" value="' + v("firstVisitDate") + '"' + (ro ? " disabled" : "") + ' /><div class="sdc-muted">Blank: end of the first period</div></div>' +
+        "</div>" +
+        '<div class="grid grid-4" style="margin-top:12px;">' +
+          (d.money ? '<div class="field"><label>Value a year (₹)</label><input id="amc-f-value" type="number" min="0" value="' + v("contractValue") + '"' + (ro ? " disabled" : "") + " /></div>" : "") +
+          '<div class="field"><label>Contact</label><input id="amc-f-contact" value="' + v("contactName") + '"' + (ro ? " disabled" : "") + " /></div>" +
+          '<div class="field"><label>Phone</label><input id="amc-f-phone" class="mono" value="' + v("contactPhone") + '"' + (ro ? " disabled" : "") + " /></div>" +
+          '<div class="field"><label>Area</label><input id="amc-f-area" value="' + v("area") + '"' + (ro ? " disabled" : "") + " /></div>" +
+        "</div>" +
+        '<div class="field" style="margin-top:12px;"><label>Notes</label><textarea id="amc-f-notes" rows="2"' + (ro ? " disabled" : "") + ">" + v("notes") + "</textarea></div>" +
+        (c.visits && c.visits.length ? '<div class="sd-h">Visits</div><table class="amc-visits"><thead><tr><th>#</th><th>Due</th><th>Where it stands</th><th>Job</th></tr></thead><tbody>' +
+          c.visits.map(function (x) {
+            return "<tr><td>" + x.visitNo + "</td><td>" + escapeHtml(ebDate(x.dueDate)) + "</td><td>" + escapeHtml(x.state) +
+              (x.doneDate ? " " + escapeHtml(ebDate(x.doneDate)) : "") + '</td><td class="mono">' + escapeHtml(x.jobNo || "—") + "</td></tr>";
+          }).join("") + "</tbody></table>" : "");
+      $("btn-amc-save").style.display = ro ? "none" : "";
+      $("btn-amc-delete").style.display = !ro && c.id ? "" : "none";
+      $("amc-modal-backdrop").classList.add("show");
+      var fillMachines = function () {
+        var cid = $("amc-f-customer").value;
+        if (!cid || ro) return;
+        srv.withSuccessHandler(function (list) {
+          amc.machines = list || [];
+          $("amc-machines").innerHTML = amc.machines.map(function (m) {
+            return '<option value="' + escapeHtml(m.serialNo) + '">' + escapeHtml((m.machineModel || "") + " · " + m.from) + "</option>";
+          }).join("");
+        }).withFailureHandler(function () { /* suggestions only */ }).listAmcMachines(cid);
+      };
+      $("amc-f-customer").addEventListener("change", fillMachines);
+      $("amc-f-serial").addEventListener("change", function () {
+        var m = amc.machines.filter(function (x) { return x.serialNo === $("amc-f-serial").value.trim(); })[0];
+        if (m && m.machineModel && !$("amc-f-model").value) $("amc-f-model").value = m.machineModel;
+      });
+      fillMachines();
+    };
+    loadQuoteCustomers(function () {
+      if (!id) { draw({}); return; }
+      srv.withSuccessHandler(draw).withFailureHandler(onServerError).getAmcContract(id);
+    });
+  }
+
+  function amcSave() {
+    var c = amc.open || {};
+    var input = {
+      id: c.id || "", customerId: $("amc-f-customer").value, amcType: $("amc-f-type").value,
+      serialNo: $("amc-f-serial").value.trim(), machineModel: $("amc-f-model").value.trim(),
+      runningHours: $("amc-f-hours").value.trim(), startDate: $("amc-f-start").value, endDate: $("amc-f-end").value,
+      everyMonths: $("amc-f-every").value, firstVisitDate: $("amc-f-first").value,
+      contactName: $("amc-f-contact").value.trim(), contactPhone: $("amc-f-phone").value.trim(),
+      area: $("amc-f-area").value.trim(), notes: $("amc-f-notes").value.trim()
+    };
+    if ($("amc-f-value")) input.contractValue = $("amc-f-value").value;
+    var done = busyButton("btn-amc-save", "Saving…");
+    srv.withSuccessHandler(function (saved) {
+      done();
+      $("amc-modal-backdrop").classList.remove("show");
+      showMsg(saved.contractNo + " saved, with " + (saved.visits || []).length + " visits.", "success");
+      loadAmc();
+    }).withFailureHandler(function (err) { done(); onServerError(err); }).saveAmcContract(input);
+  }
 
   // ================= COMPRESSOR SALES =================
   // 2.0 opens on the enquiry board unless this browser last chose a list.

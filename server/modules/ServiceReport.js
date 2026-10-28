@@ -79,7 +79,9 @@ async function buildServiceReportHtml(serviceJobId) {
 
   push('<div class="doc-title">SERVICE REPORT</div>');
   push('<div class="doc-sub">' +
-    esc_(breakdown ? 'Breakdown attendance' : 'Installation and commissioning of spares') +
+    esc_(breakdown ? 'Breakdown attendance'
+      : String(job.jobType) === 'AMC visit' ? 'AMC service visit'   // 2.0's AMC (Amc.gs)
+      : 'Installation and commissioning of spares') +
     '</div>');
 
   push('<table class="srtab">');

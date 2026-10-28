@@ -88,6 +88,23 @@ a service takes its own heading and subject — rows with *Applies to* `AMC` or 
 Settings → Quotation text, default wording PIE can change there — and everything else is the
 spares offer's, as before. An enquiry with no type reads as Spares.
 
+- **AMC** (`src/Amc.gs`), a screen of its own under Orders, at `/amc` — only in a 2.0 menu.
+  - A contract is one machine: type (Comprehensive, Non-comprehensive, Labour only, or a
+    Service reminder with no contract), period (a year unless given), service every N months
+    from the first visit (unless given, the end of the first period — a year of quarterly
+    service is four visits, the last on the final day), running hours, contact, area, value a
+    year. Saving lays out the visits; changing the schedule lays out again only the visits
+    nobody has made a job of. Edit and delete; a contract with a visit made into a job stays.
+  - Visits due within 7, 15, 30 or 60 days, and every overdue one. "Make service job" turns a
+    visit into a job (type AMC visit) in the Service Jobs queue; the visit reads its state from
+    that job — Call made, Done when the job is closed, Due again if it is cancelled.
+  - Renewals: contracts ending within 60 days. "Prepare renewal quotation" logs an AMC renewal
+    enquiry on the spares desk and raises its quotation, so it prints with the AMC renewal
+    heading and subject.
+  - Service sees no contract values, as everywhere. Two new tables, AmcContracts and
+    AmcVisits; nothing in ERP 1 reads them.
+  - The service coordinator's dashboard counts the AMC visits due this week.
+
 ## The rule for each screen that moves to 2.0
 
 A screen takes ERP 2's layout only when it keeps everything ERP 1's version of it does — the
@@ -104,6 +121,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   desk, Management's team and view of anybody's, and ERP 1's Dashboard unchanged elsewhere.
 - `tests/service-desk-ui-test.js`, `tests/service-desk-sql-test.js` — the statuses read from
   ERP 1's, the report, closing, cancelling, and ERP 1's job window unchanged elsewhere.
+- `tests/amc-ui-test.js`, `tests/amc-sql-test.js` — contracts, the visit schedule, visits made
+  into jobs, renewals, no money for service, and no AMC on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

@@ -281,6 +281,11 @@ function pdServiceCoordinator_(ctx, out) {
     { key: 'soon', label: 'Visits today and tomorrow', value: String(soon.length), sub: pdEngineerCount_(soon) + ' engineers out', go: 'service' },
     { key: 'breakdowns', label: 'Breakdowns open', value: String(breakdowns.length), sub: 'machines stopped', tone: breakdowns.length ? 'bad' : '', go: 'service' }
   ];
+  // AMC visits falling due this week that nobody has made a job of yet (Amc.gs).
+  var amcDue = listAmc({ window: 7 }).dues.filter(function (d) { return d.state !== 'Call made'; });
+  var amcLate = amcDue.filter(function (d) { return d.state === 'Overdue'; }).length;
+  out.tiles.push({ key: 'amc', label: 'AMC visits due', value: String(amcDue.length), sub: amcLate + ' overdue, this week’s too',
+    tone: amcLate ? 'bad' : amcDue.length ? 'warn' : '', go: 'amc' });
   out.lists.push({ key: 'fresh', title: 'New jobs to assign', count: fresh.length, empty: 'Every job has an engineer.',
     rows: fresh.slice(0, 8).map(function (j) { return pdJobRow_(j, ctx, true); }) });
   out.lists.push({ key: 'reports', title: 'Reports in, to close', count: reports.length, empty: 'No reports waiting.',

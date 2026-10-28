@@ -76,6 +76,10 @@ run_ui "person-dashboard-ui-test.js (2.0)" tests/person-dashboard-ui-test.js "$t
 run_ui "service-desk-ui-test.js (classic)" tests/service-desk-ui-test.js "$tmp/base.html"
 run_ui "service-desk-ui-test.js (new design)" tests/service-desk-ui-test.js "$tmp/base-web.html"
 run_ui "service-desk-ui-test.js (2.0)" tests/service-desk-ui-test.js "$tmp/base-v2.html"
+# AMC is a 2.0 screen; the other faces must not offer it at all.
+run_ui "amc-ui-test.js (classic)" tests/amc-ui-test.js "$tmp/base.html"
+run_ui "amc-ui-test.js (new design)" tests/amc-ui-test.js "$tmp/base-web.html"
+run_ui "amc-ui-test.js (2.0)" tests/amc-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

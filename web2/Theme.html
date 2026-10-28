@@ -282,6 +282,18 @@
   .sd-muted{ font-size:12.5px; color:var(--gray-500); }
   .sd-danger{ color:var(--bad-700) !important; border-color:var(--bad-200) !important; }
 
+  /* ---- AMC: contracts and visits (JavaScript.html, 2.0 only) ---- */
+  .amc-kpis{ display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:12px; margin-bottom:16px; }
+  .amc-bar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  .amc-bar input{ flex:1; min-width:220px; height:40px; padding:0 12px; border:1px solid var(--gray-200); border-radius:var(--r-sm);
+    background:var(--gray-0); font:inherit; font-size:14px; }
+  .amc-window{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--gray-600); }
+  .amc-window select{ height:36px; padding:0 8px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; }
+  .amc-row{ cursor:pointer; }
+  .amc-m-foot{ display:flex; gap:10px; align-items:center; margin-top:20px; }
+  .amc-visits{ width:100%; font-size:13px; }
+  .amc-visits td, .amc-visits th{ padding:6px 8px; }
+
   /* ---- what 2.0 adds to the shell (web2/Shell.html) ---- */
   .brand-text h1#app-name{ display:flex; align-items:center; min-width:0; }
   .brand-text h1 .v2-name{ display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;

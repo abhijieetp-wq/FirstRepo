@@ -580,6 +580,25 @@ var SCHEMA = {
     columns: ['id', 'serviceJobId', 'lineNo', 'itemType', 'itemId', 'itemCode', 'description',
       'qty']
   },
+  // ERP 2.0's AMC (Amc.gs). A contract on one machine, and the visits it promises. A due visit
+  // becomes a service job (jobType 'AMC visit'); the visit's state is read off that job, so
+  // the two cannot disagree. Added in 2.0; nothing in ERP 1 reads them.
+  AmcContracts: {
+    label: 'AMC contracts and service reminders, one machine each (2.0)',
+    columns: ['id', 'contractNo', 'customerId', 'customerName', 'machineModel', 'serialNo',
+      // Comprehensive, Non-comprehensive, Labour only, or a Service reminder with no contract.
+      'amcType', 'startDate', 'endDate',
+      // Service every so many months, starting from the first visit's date.
+      'everyMonths', 'firstVisitDate', 'contractValue', 'runningHours',
+      'contactName', 'contactPhone', 'area', 'ownerEmail', 'notes',
+      // The renewal offer, raised through an AMC renewal enquiry so it prints as one.
+      'renewalEnquiryId', 'renewalQuotationId',
+      'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
+  },
+  AmcVisits: {
+    label: 'The visits an AMC contract promises, and the service job each became (2.0)',
+    columns: ['id', 'contractId', 'visitNo', 'dueDate', 'serviceJobId', 'notes', 'createdAt']
+  },
 
   Invoices: {
     label: 'Invoice from order + actual dispatch, with Tally sync status (FR-048, FR-050)',

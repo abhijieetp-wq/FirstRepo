@@ -27,6 +27,7 @@ const PAGES = [
   '/sales-orders',
   '/dispatch-billing',
   '/service-jobs',
+  '/amc',
   '/collections',
   '/inventory',
   '/customers',
