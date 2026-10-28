@@ -88,6 +88,7 @@ function getServiceDueScreen(filter) {
     responses: SERVICE_DUE_RESPONSES,
     modes: SERVICE_DUE_MODES,
     followUpLimit: SERVICE_DUE_FOLLOW_UP_LIMIT,
+    quoteTypes: SPARE_ENQUIRY_TYPES,
     me: user.email,
     canEdit: SERVICE_DUE_EDITORS.indexOf(user.role) !== -1
   };
@@ -367,6 +368,9 @@ function saveServiceDueCall(input) {
   if (input.ownerEmail !== undefined) patch.ownerEmail = String(input.ownerEmail || '').trim();
 
   var logsCall = input.callDate !== undefined || input.callResponse !== undefined;
+  // A remark on its own, from the row on the list: kept without logging a call, so it can be
+  // written before anyone has rung, and without touching what was said or who said it.
+  if (!logsCall && input.callNotes !== undefined) patch.callNotes = String(input.callNotes || '').trim();
   if (logsCall) {
     var response = String(input.callResponse || '').trim();
     if (SERVICE_DUE_RESPONSES.indexOf(response) === -1) {
@@ -501,8 +505,10 @@ function reopenServiceDueCall(callId) {
  * from an enquiry, so this logs one — the machine's fab number and model, what is due — and
  * raises the quotation from it, then opens it like any other.
  */
-function prepareServiceDueQuotation(callId) {
+function prepareServiceDueQuotation(callId, enquiryType) {
   requireServiceDueEditor_();
+  // Spares, AMC renewal or Service: what the offer is for, which its heading and subject say.
+  var type = spareEnquiryType_(enquiryType, '');
   var call = findRowById_('ServiceDueCalls', callId);
   if (!call) throw new Error('That call is no longer on the list.');
   if (String(call.quotationId || '')) return { quotationId: String(call.quotationId), existing: true };
@@ -518,12 +524,15 @@ function prepareServiceDueQuotation(callId) {
     contactName: call.contactName || '',
     productModel: call.productModel,
     serialNo: call.fabNo,
-    requirementText: 'Service due list ' + ddmmyyyy_(call.lastListDate || call.firstListDate) +
+    requirementText: (type === 'Spares' ? '' : type + ' — ') +
+      'Service due list ' + ddmmyyyy_(call.lastListDate || call.firstListDate) +
       (call.dueParts ? ' — ' + call.dueParts : '') +
-      (call.callResponse ? '. Customer: ' + call.callResponse : ''),
+      (call.callResponse ? '. Customer: ' + call.callResponse : '') +
+      (call.callNotes ? '. ' + call.callNotes : ''),
     urgency: 'Normal',
     source: 'Service Due List',
-    ownerEmail: call.ownerEmail || ''
+    ownerEmail: call.ownerEmail || '',
+    enquiryType: type
   });
   var quote = createQuotationFromEnquiry(enquiry.id);
   var quotationId = String(quote && quote.id || '');
@@ -531,7 +540,7 @@ function prepareServiceDueQuotation(callId) {
     spareEnquiryId: enquiry.id, quotationId: quotationId, updatedAt: nowIso_(),
     updatedBy: getCurrentUser().email
   }, 'Service due quotation raised');
-  return { quotationId: quotationId, quoteNo: quote ? quote.quoteNo : '', existing: false };
+  return { quotationId: quotationId, quoteNo: quote ? quote.quoteNo : '', enquiryType: type, existing: false };
 }
 
 /** A quotation already made for this machine, tied to the call by its number. */
@@ -755,8 +764,9 @@ function serviceDueRows_(calls) {
     row.quoteValue = q ? (q.grand === '' || q.grand === undefined ? '' : Number(q.grand) || 0) : '';
     row.quoteStatus = q ? String(q.status || '') : '';
     row.sentDate = q ? String(q.submittedDate || q.emailSentDate || '').slice(0, 10) : '';
-    row.enquiryNo = enquiries[String(c.spareEnquiryId || '')]
-      ? String(enquiries[String(c.spareEnquiryId)].enquiryNo || '') : '';
+    var enquiry = enquiries[String(c.spareEnquiryId || '')];
+    row.enquiryNo = enquiry ? String(enquiry.enquiryNo || '') : '';
+    row.enquiryType = enquiry ? String(enquiry.enquiryType || '') || 'Spares' : '';
     row.orderNo = order ? String(order.orderNo || '') : '';
     if (!row.outcome && order) {
       // Recorded on the quotation rather than here: shown as what it is.

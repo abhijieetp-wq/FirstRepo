@@ -13,7 +13,8 @@
  *   - puts a way back to the current look at the foot of the menu, for anyone previewing.
  *
  * Every part is wrapped, as in web/Shell.html, so a fault here costs a decoration and never a
- * screen.
+ * screen. What 2.0 changes in how a screen is worked (the SDR rows) is JavaScript.html's, behind
+ * its FACE_V2 flag — see web2/README.md.
  */
 (function () {
   "use strict";
@@ -64,14 +65,29 @@
     if (t !== document.title) document.title = t;
   }
 
-  /** "2.0" after the app's name — re-added whenever JavaScript.html writes the name again. */
+  /**
+   * "2.0" after the app's name — re-added whenever JavaScript.html writes the name again. The
+   * name goes in a box of its own, so a long company name is what gets cut short, never the mark.
+   */
   function markBrand() {
     var name = $("app-name");
-    if (!name || !name.textContent.trim() || name.querySelector(".v2-tag")) return;
-    var tag = document.createElement("span");
-    tag.className = "v2-tag";
-    tag.textContent = "2.0";
-    name.appendChild(tag);
+    if (!name || !name.textContent.trim()) return;
+    var loose = Array.prototype.filter.call(name.childNodes, function (n) {
+      return n.nodeType === 3 && n.nodeValue.trim();
+    });
+    if (loose.length) {
+      var words = name.querySelector(".v2-name") || document.createElement("span");
+      words.className = "v2-name";
+      words.textContent = loose.map(function (n) { return n.nodeValue; }).join("").trim();
+      loose.forEach(function (n) { name.removeChild(n); });
+      name.insertBefore(words, name.firstChild);
+    }
+    if (!name.querySelector(".v2-tag")) {
+      var tag = document.createElement("span");
+      tag.className = "v2-tag";
+      tag.textContent = "2.0";
+      name.appendChild(tag);
+    }
   }
 
   function addWayBack() {

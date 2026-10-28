@@ -179,6 +179,9 @@ const ok = (label, cond, detail) => {
   ok('the theme after the stylesheet, so its tokens win', v2.indexOf(read('web2/Theme.html')) > v2.indexOf(read('web/Stylesheet.html')));
   ok('the 2.0 shell after the shell it builds on', v2.indexOf(read('web2/Shell.html')) > v2.indexOf(read('web/Shell.html')));
   ok('and the health check says which look', JSON.parse(await (await fetch(v2Base + '/health')).text()).look === 'v2');
+  // What JavaScript.html reads for the few things only 2.0 has (the SDR rows worked in place).
+  ok('the page says which face it is', /<html data-face="v2"/.test(v2) && /<html data-face="web"/.test(page.text) &&
+    /<html data-face="classic"/.test(classic));
   await new Promise((r) => v2Server.close(r));
   const fonts2 = await Promise.all(['archivo-latin-var', 'plexsans-latin-400', 'plexsans-latin-500', 'plexsans-latin-600',
     'plexsans-latin-700'].map((n) => fetch(base + '/fonts/' + n + '.woff2').then((r) => r.status)));

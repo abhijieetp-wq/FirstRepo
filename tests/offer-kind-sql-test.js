@@ -13,6 +13,9 @@
  * description never does ("TS10 LB-12 BM"); and an offer for a dryer alone took the screw
  * heading on the compressor desk and "spare parts" on the spares desk.
  *
+ * And on the spares desk an AMC renewal or a service (the enquiry's type) takes its own heading
+ * and subject, the rest of the offer the spares offer's own.
+ *
  * Model numbers are invented; only the family prefixes (EG, TS, SS, MS, ELRD, HLD) are ELGi's,
  * because they are what the rule reads.
  *
@@ -41,7 +44,7 @@ const ok = (label, cond, detail) => {
 const TENANT = 'offer-kind-test';
 const BOSS = { email: 'boss@pie.in', name: 'Anil Shah', role: 'ERP Admin' };
 const TABLES = ['users', 'customers', 'customer_addresses', 'customer_contacts', 'products', 'spares',
-  'price_list', 'quotations', 'quotation_items', 'quote_templates', 'company_profile', 'audit_log'];
+  'price_list', 'quotations', 'quotation_items', 'quote_templates', 'company_profile', 'spare_enquiries', 'audit_log'];
 
 const SCREW_HEAD = 'ELGi ELECTRIC POWERED OIL SCREW AIR COMPRESSOR';
 const RECIP_HEAD = 'ELGi ELECTRIC POWERED OIL RECIPROCATING AIR COMPRESSOR';
@@ -104,11 +107,14 @@ const letter = (html) => {
   p.CURRENT_USER_ = BOSS;
   await p.installMissingQuoteTemplates_('test');
 
-  const offer = async (lines, stream) => {
+  const offer = async (lines, stream, enquiryId) => {
     const q = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Compressor Sales' });
     for (const [itemType, itemId] of lines) await p.saveQuotationItem({ quotationId: q.id, itemType, itemId, qty: 1 });
     if (stream) {
       await db.q('UPDATE quotations SET business_stream = $3 WHERE tenant_id = $1 AND id = $2', [TENANT, q.id, stream]);
+    }
+    if (enquiryId) {
+      await db.q('UPDATE quotations SET spare_enquiry_id = $3 WHERE tenant_id = $1 AND id = $2', [TENANT, q.id, enquiryId]);
     }
     return p.buildQuotationHtml(q.id);
   };
@@ -231,6 +237,48 @@ const letter = (html) => {
   ok('and its letter, untouched', letter(html).indexOf('Text written for the reciprocating Rotary screw air compressor offer.') !== -1);
   ok('the screw offer does not take it', subject(await offer([['Product', 'PR-EG']])) !==
     'Offer for your piston compressor');
+
+  console.log('\nAN AMC RENEWAL OR A SERVICE, OFFERED FROM THE SPARES DESK');
+  // The enquiry's type (2.0's SDR rows and enquiry form) says what the offer is for.
+  const enquiry = (id, enquiryNo, enquiryType) => db.appendRow('SpareEnquiries', { id, enquiryNo, date: '2026-10-28',
+    customerId: 'CU-1', customerName: 'Test Customer', businessStream: 'Spare Sales', status: 'Quoted', enquiryType });
+  await enquiry('SE-AMC', 'SE/26/0001', 'AMC renewal');
+  await enquiry('SE-SVC', 'SE/26/0002', 'Service');
+  await enquiry('SE-SPR', 'SE/26/0003', 'Spares');
+  await enquiry('SE-OLD', 'SE/26/0004', '');
+  const AMC_HEAD = 'ELGi AMC RENEWAL';
+  const AMC_SUBJ = 'Offer for AMC renewal of your ELGi make air compressors';
+  html = await offer([['Spare', 'SP-FLT']], 'Spare Sales', 'SE-AMC');
+  ok('AMC renewal: its heading', heading(html) === AMC_HEAD, heading(html));
+  ok('its subject', subject(html) === AMC_SUBJ, subject(html));
+  ok('the spares offer’s line under the heading', subLine(html) === 'OFFER', subLine(html));
+  ok('its letter', letter(html).indexOf('renewal of the annual maintenance contract for your ELGi make air compressors') !== -1,
+    letter(html));
+  ok('the enquiry number still on it', html.indexOf('SE/26/0001') !== -1);
+  ok('and the rest the spares offer’s own', html.indexOf('Benefits of ELGi genuine spare parts') !== -1);
+  html = await offer([['Spare', 'SP-ELRD']], 'Spare Sales', 'SE-AMC');
+  ok('a dryer on an AMC renewal does not make it a dryer offer', heading(html) === AMC_HEAD && subject(html) === AMC_SUBJ,
+    [heading(html), subject(html)]);
+  html = await offer([['Spare', 'SP-FLT']], 'Spare Sales', 'SE-SVC');
+  ok('Service: its heading and subject', heading(html) === 'ELGi COMPRESSOR SERVICE' &&
+    subject(html) === 'Offer for service of your ELGi make air compressors', [heading(html), subject(html)]);
+  ok('its letter', letter(html).indexOf('our offer for the service of your ELGi make air compressors') !== -1, letter(html));
+  for (const [id, what] of [['SE-SPR', 'an enquiry for spares'], ['SE-OLD', 'an enquiry logged before types']]) {
+    html = await offer([['Spare', 'SP-FLT']], 'Spare Sales', id);
+    ok(what + ': the spare parts heading and subject', heading(html) === SPARE_HEAD && subject(html) === SPARE_SUBJ,
+      [heading(html), subject(html)]);
+  }
+  html = await offer([['Spare', 'SP-ELRD']], 'Spare Sales', 'SE-SPR');
+  ok('a dryer on a spares enquiry is still a dryer offer', heading(html) === DRYER_HEAD, heading(html));
+  html = await offer([['Product', 'PR-EG']], '', 'SE-AMC');
+  // (The screw subject as edited above.)
+  ok('the compressor desk is not touched by it', heading(html) === SCREW_HEAD &&
+    subject(html) === 'Our budgetary offer for your ELGi Rotary Screw Air Compressor requirement',
+    [heading(html), subject(html)]);
+  const rows = (await db.q("SELECT id, title FROM quote_templates WHERE tenant_id = $1 AND applies_to IN ('AMC', 'SERVICE') ORDER BY id",
+    [TENANT])).rows.map((r) => r.id);
+  ok('the wording is ordinary quotation text, editable in Settings', JSON.stringify(rows) ===
+    '["QTPL-SPARE-COVER-AMC","QTPL-SPARE-COVER-SERVICE","QTPL-SPARE-TITLE-AMC","QTPL-SPARE-TITLE-SERVICE"]', rows);
 
   await clean();
   console.log('\n' + (failures.length ? failures.length + ' failed, ' + pass + ' passed' : 'all ' + pass + ' passed'));

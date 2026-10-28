@@ -315,7 +315,11 @@ var SCHEMA = {
       'createdAt', 'createdBy',
       // Which service engineer the enquiry came from, when it came from one. Set on the form,
       // or by raising the enquiry from a service job. Read by the Leads by Engineer report.
-      'serviceEngineerEmail']
+      'serviceEngineerEmail',
+      // What the offer is for: Spares, AMC renewal or Service (SPARE_ENQUIRY_TYPES). Empty on
+      // enquiries logged before it existed, which read as Spares. The quotation's heading and
+      // subject follow it.
+      'enquiryType']
   },
   SpareEnquiryItems: {
     label: 'Identified parts against an enquiry (FR-023, D011)',

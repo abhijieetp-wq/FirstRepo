@@ -73,6 +73,21 @@ async function listSpareEnquiries(options) {
   return rows.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
 }
 
+/**
+ * What a spares-desk offer is for. ERP 2 had the three; PIE's spares desk sells all of them
+ * from ELGi's Service Due Report — the parts that are due, the AMC that is ending, or a visit.
+ */
+var SPARE_ENQUIRY_TYPES = ['Spares', 'AMC renewal', 'Service'];
+
+/** The type as stored, from whatever a caller sent: one of the three, or a refusal. */
+function spareEnquiryType_(value, was) {
+  var t = String(value === undefined ? (was || '') : value || '').trim();
+  if (!t) return 'Spares';
+  var hit = SPARE_ENQUIRY_TYPES.filter(function (x) { return x.toLowerCase() === t.toLowerCase(); })[0];
+  if (!hit) throw new Error('The type must be one of: ' + SPARE_ENQUIRY_TYPES.join(', ') + '.');
+  return hit;
+}
+
 async function saveSpareEnquiry(input) {
   var user = getCurrentUser();
   requireRole_(user, ENQUIRY_EDITORS);
@@ -132,7 +147,9 @@ async function saveSpareEnquiry(input) {
     expectedDeliveryDate: String(input.expectedDeliveryDate || '').slice(0, 10),
     lostReasonId: lostReasonId,
     businessStream: STREAM_SPARE,
-    brand: String(input.brand || 'ELGI').trim()
+    brand: String(input.brand || 'ELGI').trim(),
+    // Kept as it was when a caller does not say, like the engineer above.
+    enquiryType: spareEnquiryType_(input.enquiryType, existing ? existing.enquiryType : '')
   };
 
   if (input.id) {

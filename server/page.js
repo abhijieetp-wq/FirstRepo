@@ -118,6 +118,10 @@ function render(vars, options) {
   const left = html.match(ANY_TAG) || [];
   html = html.replace(ANY_TAG, '');
 
+  // Which face this is, for the few things only one face has (JavaScript.html reads it: the
+  // 2.0 SDR rows). Apps Script serves no attribute, which reads as the current design.
+  html = html.replace(/<html(?=[\s>])/, () => '<html data-face="' + ui + '"');
+
   // The head needs what doGet added through HtmlService rather than through the markup.
   html = html.replace('</head>', () =>
     '  <meta name="viewport" content="width=device-width, initial-scale=1">\n' +

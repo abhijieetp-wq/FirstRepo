@@ -60,6 +60,10 @@ run_ui "quote-status-ui-test.js (2.0)" tests/quote-status-ui-test.js "$tmp/base-
 run_ui "service-due-ui-test.js (classic)" tests/service-due-ui-test.js "$tmp/base.html"
 run_ui "service-due-ui-test.js (new design)" tests/service-due-ui-test.js "$tmp/base-web.html"
 run_ui "service-due-ui-test.js (2.0)" tests/service-due-ui-test.js "$tmp/base-v2.html"
+# The SDR rows worked in place are 2.0's alone: the other faces must keep ERP 1's row.
+run_ui "sdr-rows-ui-test.js (classic)" tests/sdr-rows-ui-test.js "$tmp/base.html"
+run_ui "sdr-rows-ui-test.js (new design)" tests/sdr-rows-ui-test.js "$tmp/base-web.html"
+run_ui "sdr-rows-ui-test.js (2.0)" tests/sdr-rows-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

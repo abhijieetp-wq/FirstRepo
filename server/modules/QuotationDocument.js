@@ -215,6 +215,12 @@ function letterParagraph_(para, kind) {
 }
 
 /**
+ * The key a spares-desk offer's type picks its own heading and subject by (SPARE_ENQUIRY_TYPES).
+ * Spares has none: it is what the general spares rows already say.
+ */
+var OFFER_FOR_TYPE_ = { 'AMC renewal': 'AMC', 'Service': 'SERVICE' };
+
+/**
  * The heading or subject line for the kind of machine on the offer.
  *
  * A row written for the kind ("Applies to: RECIP") prints as it is. Otherwise a compressor
@@ -592,9 +598,17 @@ async function buildQuotationHtml(quotationId) {
     return i.itemType === 'Product' && products[String(i.itemId)];
   })[0];
   var offerKind = leadProduct ? productKind_(products[String(leadProduct.itemId)]) : '';
+  // The enquiry it came from, when it came from one: its number goes on the letter, and on the
+  // spares desk its type says what the offer is for.
+  var se = String(q.spareEnquiryId || '').trim() ? await findRowById_('SpareEnquiries', q.spareEnquiryId) : null;
+  var enquiryNo = se ? String(se.enquiryNo || '') : '';
+  // An AMC renewal or a service visit is not a parts offer: its heading and subject come from
+  // the rows written for it ("Applies to: AMC" or "SERVICE"), the rest is the spares offer's.
+  var offerFor = !isCompressor && se ? OFFER_FOR_TYPE_[String(se.enquiryType || '')] || '' : '';
+  if (offerFor) offerKind = '';
   // No unit on it: an offer for a whole dryer, on either desk, is a dryer offer. It used to take
   // the screw heading on the compressor desk and "spare parts" on the spares desk.
-  if (!offerKind && hasType.Spare) {
+  if (!offerKind && !offerFor && hasType.Spare) {
     var spareRows = isCompressor ? spareSpecs : {};
     if (!isCompressor) {
       (await findRowsByColumn_('Spares', 'id', items.filter(function (i) { return i.itemType === 'Spare'; })
@@ -604,15 +618,8 @@ async function buildQuotationHtml(quotationId) {
       offerKind = 'DRYER';
     }
   }
-  // What any series- or kind-specific text is chosen by.
-  var offerKeys = [series, offerKind].filter(Boolean);
-
-  // One row, and only when the offer came from an enquiry at all.
-  var enquiryNo = '';
-  if (String(q.spareEnquiryId || '').trim()) {
-    var se = await findRowById_('SpareEnquiries', q.spareEnquiryId);
-    enquiryNo = se ? String(se.enquiryNo || '') : '';
-  }
+  // What any series-, kind- or type-specific text is chosen by.
+  var offerKeys = [series, offerKind, offerFor].filter(Boolean);
 
   var preparer = (await readTable_('Users')).filter(function (u) {
     return String(u.email).toLowerCase() === String(q.preparedBy).toLowerCase();

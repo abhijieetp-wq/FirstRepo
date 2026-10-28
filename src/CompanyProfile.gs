@@ -496,6 +496,29 @@ function defaultQuoteTemplates_() {
         'and conditions. We would like to highlight the advantages and benefits of using ELGi ' +
         'genuine spare parts.'
     },
+    // An AMC renewal or a service visit offered from the spares desk (the enquiry's type,
+    // SPARE_ENQUIRY_TYPES): only the subject and the letter differ. Default wording, PIE to
+    // reword in Settings → Quotation text.
+    {
+      id: 'QTPL-SPARE-COVER-AMC', section: 'CoverLetter', brand: 'ELGI',
+      businessStream: STREAM_SPARE, appliesTo: 'AMC',
+      title: 'Offer for AMC renewal of your ELGi make air compressors',
+      sortOrder: 1, active: 'TRUE',
+      body: 'We thank you very much for your enquiry.\n\n' +
+        'We are pleased to submit our offer for the renewal of the annual maintenance contract ' +
+        'for your ELGi make air compressors, along with the commercial terms and conditions. We ' +
+        'would like to highlight the advantages and benefits of using ELGi genuine spare parts.'
+    },
+    {
+      id: 'QTPL-SPARE-COVER-SERVICE', section: 'CoverLetter', brand: 'ELGI',
+      businessStream: STREAM_SPARE, appliesTo: 'SERVICE',
+      title: 'Offer for service of your ELGi make air compressors',
+      sortOrder: 1, active: 'TRUE',
+      body: 'We thank you very much for your enquiry.\n\n' +
+        'We are pleased to submit our offer for the service of your ELGi make air compressors, ' +
+        'along with the commercial terms and conditions. We would like to highlight the ' +
+        'advantages and benefits of using ELGi genuine spare parts.'
+    },
     {
       id: 'QTPL-SPARE-WHY', section: 'WhyBrand', brand: 'ELGI',
       businessStream: STREAM_SPARE, appliesTo: '',
@@ -872,6 +895,20 @@ function defaultQuoteTemplates_() {
       id: 'QTPL-SPARE-TITLE', section: 'DocumentTitle', brand: 'ELGI',
       businessStream: STREAM_SPARE, appliesTo: '',
       title: 'ELGi GENUINE SPARE PARTS',
+      sortOrder: 5, active: 'TRUE',
+      body: 'OFFER'
+    },
+    {
+      id: 'QTPL-SPARE-TITLE-AMC', section: 'DocumentTitle', brand: 'ELGI',
+      businessStream: STREAM_SPARE, appliesTo: 'AMC',
+      title: 'ELGi AMC RENEWAL',
+      sortOrder: 5, active: 'TRUE',
+      body: 'OFFER'
+    },
+    {
+      id: 'QTPL-SPARE-TITLE-SERVICE', section: 'DocumentTitle', brand: 'ELGI',
+      businessStream: STREAM_SPARE, appliesTo: 'SERVICE',
+      title: 'ELGi COMPRESSOR SERVICE',
       sortOrder: 5, active: 'TRUE',
       body: 'OFFER'
     },

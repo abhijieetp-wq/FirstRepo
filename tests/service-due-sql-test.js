@@ -244,6 +244,37 @@ const machine = (fabNo, customerName, extra) => Object.assign({
     s5.listIds === before5.listIds, [s5.listedCount, s5.lastListDate, s5.listIds, before5.listIds]);
   ok('removing it twice says so', await refused(() => p.deleteServiceDueList(wrong.listId), /no longer there/));
 
+  console.log('\n2.0: WORKED FROM THE ROW');
+  const fresh = (await p.getServiceDueScreen({})).calls.find((c) => c.fabNo === 'FAB005');
+  ok('the screen offers the three kinds of quotation',
+    JSON.stringify((await p.getServiceDueScreen({})).quoteTypes) === '["Spares","AMC renewal","Service"]');
+  call = await p.saveServiceDueCall({ id: fresh.id, callNotes: '  Ring after Diwali ' });
+  ok('a remark on its own is kept, and logs no call', call.callNotes === 'Ring after Diwali' && call.status === 'To call' &&
+    call.callResponse === '' && call.callDate === '', [call.status, call.callNotes, call.callDate]);
+  call = await p.saveServiceDueCall({ id: fresh.id, callResponse: 'Needs service', callDate: '2026-11-18',
+    callNotes: call.callNotes, contactName: '', contactId: '' });
+  ok('what they said, picked on the row, logs the call with the remark', call.status === 'Called' &&
+    call.callResponse === 'Needs service' && call.callNotes === 'Ring after Diwali', [call.status, call.callNotes]);
+  call = await p.saveServiceDueCall({ id: fresh.id, callNotes: 'AMC ends in December' });
+  ok('a remark changed after leaves the call as it was', call.callResponse === 'Needs service' &&
+    call.callDate === '2026-11-18' && call.callNotes === 'AMC ends in December', [call.callResponse, call.callDate]);
+  ok('a kind of quotation nobody sells is refused', await refused(() => p.prepareServiceDueQuotation(fresh.id, 'Repair'), /must be one of/));
+  const amc = await p.prepareServiceDueQuotation(fresh.id, 'amc renewal');
+  ok('an AMC renewal quotation, raised the same way', amc.existing === false && amc.enquiryType === 'AMC renewal' && /^SPARE\//.test(amc.quoteNo), amc);
+  const amcEnq = (await db.q('SELECT e.id, e.enquiry_type, e.requirement_text FROM spare_enquiries e JOIN quotations q ' +
+    'ON q.tenant_id = e.tenant_id AND q.spare_enquiry_id = e.id WHERE e.tenant_id = $1 AND q.id = $2', [TENANT, amc.quotationId])).rows[0];
+  ok('its enquiry says what it is for, and carries the remark', amcEnq.enquiry_type === 'AMC renewal' &&
+    /^AMC renewal — Service due list/.test(amcEnq.requirement_text) && /AMC ends in December/.test(amcEnq.requirement_text), amcEnq);
+  const rows2 = Object.fromEntries((await p.getServiceDueScreen({ view: 'all' })).calls.map((c) => [c.fabNo, c]));
+  ok('the row says so', rows2.FAB005.enquiryType === 'AMC renewal' && rows2.FAB005.quoteNo === amc.quoteNo, rows2.FAB005.enquiryType);
+  ok('a quotation raised before types existed reads as Spares', rows2.FAB001.enquiryType === 'Spares', rows2.FAB001.enquiryType);
+  ok('a call with no quotation has no type', rows2.FAB101.enquiryType === '', rows2.FAB101.enquiryType);
+  const enqId = amcEnq.id;
+  const kept = await p.saveSpareEnquiry({ id: enqId, customerId: 'CU-2', customerName: 'Sample Castings', requirementText: 'Edited' });
+  ok('editing the enquiry from a form without the type keeps it', kept.enquiryType === 'AMC renewal', kept.enquiryType);
+  ok('and the enquiry form refuses a type that is not one of the three', await refused(() => p.saveSpareEnquiry({
+    id: enqId, customerId: 'CU-2', customerName: 'Sample Castings', requirementText: 'x', enquiryType: 'Repair' }), /must be one of/));
+
   console.log('\nWHO MAY');
   const svc = loadPortal(db, 'eng@pie.in', { quiet: true });
   svc.CURRENT_USER_ = { email: 'eng@pie.in', name: 'Eng', role: 'Service Engineer', businessStream: 'All' };

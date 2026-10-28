@@ -4,6 +4,9 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var fmt = function (n) { return "₹" + (Math.round((n || 0) * 100) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  // Which face this page is (server/page.js): "v2" is ERP 2.0, which adds a few ways of working
+  // on top of ERP 1's screens. Apps Script and the other faces read as false and are unchanged.
+  var FACE_V2 = document.documentElement.getAttribute("data-face") === "v2";
 
   // ================= TALKING TO THE SERVER =================
   /**
@@ -2661,6 +2664,7 @@
     $("em-model").value = e ? (e.productModel || "") : "";
     $("em-serial").value = e ? (e.serialNo || "") : "";
     $("em-urgency").value = e ? (e.urgency || "Normal") : "Normal";
+    if ($("em-type")) $("em-type").value = e ? (e.enquiryType || "Spares") : "Spares";
     $("em-expdelivery").value = e ? (e.expectedDeliveryDate || "") : "";
     $("em-requirement").value = e ? (e.requirementText || "") : "";
     // Spare Sales is a coordinator and nobody else, so there is no engineer to name here.
@@ -2826,13 +2830,7 @@
       if (done) done();
       return;
     }
-    srv.withSuccessHandler(function (saved) {
-      if (done) done();
-      onSaved(saved);
-    }).withFailureHandler(function (err) {
-      if (done) done();
-      onServerError(err);
-    }).saveSpareEnquiry({
+    var input = {
       id: $("em-id").value || null,
       customerId: cust.id,
       customerName: cust.name,
@@ -2848,7 +2846,32 @@
       requirementText: $("em-requirement").value.trim(),
       ownerEmail: $("em-owner").value.trim(),
       serviceEngineerEmail: $("em-service-engineer").value.trim()
-    });
+    };
+    // 2.0 only: what the offer is for. Left out elsewhere, so the type already stored stays.
+    if ($("em-type")) input.enquiryType = $("em-type").value;
+    srv.withSuccessHandler(function (saved) {
+      if (done) done();
+      onSaved(saved);
+    }).withFailureHandler(function (err) {
+      if (done) done();
+      onServerError(err);
+    }).saveSpareEnquiry(input);
+  }
+
+  // 2.0's enquiry form says what the offer will be for — spares, an AMC renewal or a service —
+  // and the quotation's heading and subject follow it. The other faces keep ERP 1's form.
+  if (FACE_V2 && $("em-requirement") && !$("em-type")) {
+    (function () {
+      var ask = $("em-requirement").closest(".field");
+      var row = document.createElement("div");
+      row.className = "grid grid-4";
+      row.style.marginTop = "12px";
+      row.innerHTML = '<div class="field"><label>Quotation for</label><select id="em-type">' +
+        ["Spares", "AMC renewal", "Service"].map(function (t) {
+          return '<option value="' + t + '">' + t + "</option>";
+        }).join("") + "</select></div>";
+      if (ask && ask.parentNode) ask.parentNode.insertBefore(row, ask);
+    })();
   }
 
   $("btn-save-enquiry").addEventListener("click", function () {
@@ -6554,6 +6577,10 @@
   // is read for. The server is ServiceDue.gs.
   var sdc = { data: null, listId: "", view: "open", selected: {}, open: null, shown: 150 };
   var SDC_PAGE = 150;
+  // ERP 2.0 works each call from its row: what the customer said, a remark and the quotation's
+  // type, without opening the call. Only on the 2.0 face (server/page.js marks the page); the
+  // current and classic looks keep the row as it was.
+  var SDC_INLINE = FACE_V2;
 
   function initServiceDueView() { loadServiceDue(); }
 
@@ -6674,6 +6701,30 @@
 
   function renderServiceDue() {
     var d = sdc.data;
+    renderServiceDueTiles();
+
+    var rows = serviceDueShown();
+    var body = rows.slice(0, sdc.shown).map(sdcRowHtml).join("");
+    $("sdc-tbody").innerHTML = body || '<tr><td colspan="' + (SDC_INLINE ? 10 : 9) + '" class="empty">' +
+      (d.calls.length ? "Nothing matches these filters." :
+        (d.lists.length ? "No calls here." : "No list uploaded yet. Press Upload weekly sheet and pick this week's Service Due Report.")) +
+      "</td></tr>";
+    $("sdc-more").innerHTML = rows.length > sdc.shown
+      ? '<div style="text-align:center; margin:12px 0;"><button class="btn btn-sm" id="btn-sdc-more" type="button">Show ' +
+        Math.min(SDC_PAGE, rows.length - sdc.shown) + " more of " + (rows.length - sdc.shown) + "</button></div>" : "";
+    if ($("btn-sdc-more")) {
+      $("btn-sdc-more").addEventListener("click", function () { sdc.shown += SDC_PAGE; renderServiceDue(); });
+    }
+    // Only what the filters leave stays ticked, so Assign never touches a call nobody can see.
+    var inView = {};
+    rows.forEach(function (c) { inView[c.id] = true; });
+    Object.keys(sdc.selected).forEach(function (id) { if (!inView[id]) delete sdc.selected[id]; });
+    renderServiceDueBulk();
+  }
+
+  /** The count of calls in each status, above the list; pressing one filters to it. */
+  function renderServiceDueTiles() {
+    var d = sdc.data;
     var counts = {};
     d.calls.forEach(function (c) { counts[c.status] = (counts[c.status] || 0) + 1; });
     var active = $("sdc-status").value;
@@ -6694,51 +6745,177 @@
         renderServiceDue();
       });
     });
+  }
 
-    var rows = serviceDueShown();
+  /** One call's row on the list. */
+  function sdcRowHtml(c) {
+    var d = sdc.data;
     var today = sdcToday();
     var limit = d.followUpLimit || 6;
-    var body = rows.slice(0, sdc.shown).map(function (c) {
-      var name = c.customerName || c.sdrCustomerName;
-      var dueNext = c.nextFollowUpDate && !c.outcome
-        ? '<div class="' + (c.nextFollowUpDate <= today ? "sdc-late" : "sdc-muted") + '">Next ' +
-          escapeHtml(sdcDate(c.nextFollowUpDate)) + "</div>" : "";
-      return '<tr data-sdc="' + escapeHtml(c.id) + '">' +
-        '<td><input type="checkbox" data-sdc-tick="' + escapeHtml(c.id) + '"' +
-          (sdc.selected[c.id] ? " checked" : "") + " /></td>" +
-        "<td><b>" + escapeHtml(name) + "</b>" +
-          (c.customerId ? "" : '<div class="sdc-warn">Not in Customers yet</div>') +
-          (c.previousOutcome ? '<div class="sdc-muted">Last time: ' + escapeHtml(c.previousOutcome) + "</div>" : "") +
-        "</td>" +
-        "<td>" + escapeHtml(c.productModel) + '<div class="mono sdc-muted">' + escapeHtml(c.fabNo) +
-          (Number(c.listedCount) > 1 ? " · listed " + c.listedCount + "×" : "") + "</div></td>" +
-        '<td class="sdc-due">' + sdcDueHtml(c.dueParts) + "</td>" +
-        "<td>" + escapeHtml(sdcPerson(c.ownerEmail)) + "</td>" +
-        "<td>" + (c.callDate ? escapeHtml(sdcDate(c.callDate)) + '<div class="sdc-muted">' +
-          escapeHtml(c.callResponse || "") + "</div>" : '<span class="sdc-muted">Not yet</span>') + "</td>" +
-        "<td>" + (c.quoteNo ? '<span class="mono">' + escapeHtml(c.quoteNo) + "</span>" +
-          '<div class="sdc-muted">' + (c.quoteValue !== "" ? fmt(c.quoteValue) : "") +
-          (c.sentDate ? " · sent " + escapeHtml(sdcDate(c.sentDate)) : "") + "</div>"
-          : '<span class="sdc-muted">—</span>') + "</td>" +
-        "<td>" + (Number(c.followUpCount) || 0) + " of " + limit + dueNext + "</td>" +
-        "<td>" + sdcBadge(c.status) + sdcReason(c) + "</td>" +
-        "</tr>";
-    }).join("");
-    $("sdc-tbody").innerHTML = body || '<tr><td colspan="9" class="empty">' +
-      (d.calls.length ? "Nothing matches these filters." :
-        (d.lists.length ? "No calls here." : "No list uploaded yet. Press Upload weekly sheet and pick this week's Service Due Report.")) +
-      "</td></tr>";
-    $("sdc-more").innerHTML = rows.length > sdc.shown
-      ? '<div style="text-align:center; margin:12px 0;"><button class="btn btn-sm" id="btn-sdc-more" type="button">Show ' +
-        Math.min(SDC_PAGE, rows.length - sdc.shown) + " more of " + (rows.length - sdc.shown) + "</button></div>" : "";
-    if ($("btn-sdc-more")) {
-      $("btn-sdc-more").addEventListener("click", function () { sdc.shown += SDC_PAGE; renderServiceDue(); });
+    var name = c.customerName || c.sdrCustomerName;
+    var dueNext = c.nextFollowUpDate && !c.outcome
+      ? '<div class="' + (c.nextFollowUpDate <= today ? "sdc-late" : "sdc-muted") + '">Next ' +
+        escapeHtml(sdcDate(c.nextFollowUpDate)) + "</div>" : "";
+    return '<tr data-sdc="' + escapeHtml(c.id) + '">' +
+      '<td><input type="checkbox" data-sdc-tick="' + escapeHtml(c.id) + '"' +
+        (sdc.selected[c.id] ? " checked" : "") + " /></td>" +
+      "<td><b>" + escapeHtml(name) + "</b>" +
+        (c.customerId ? "" : '<div class="sdc-warn">Not in Customers yet</div>') +
+        (c.previousOutcome ? '<div class="sdc-muted">Last time: ' + escapeHtml(c.previousOutcome) + "</div>" : "") +
+      "</td>" +
+      "<td>" + escapeHtml(c.productModel) + '<div class="mono sdc-muted">' + escapeHtml(c.fabNo) +
+        (Number(c.listedCount) > 1 ? " · listed " + c.listedCount + "×" : "") + "</div></td>" +
+      '<td class="sdc-due">' + sdcDueHtml(c.dueParts) + "</td>" +
+      "<td>" + escapeHtml(sdcPerson(c.ownerEmail)) + "</td>" +
+      (SDC_INLINE ? sdcInlineCells(c) :
+      "<td>" + (c.callDate ? escapeHtml(sdcDate(c.callDate)) + '<div class="sdc-muted">' +
+        escapeHtml(c.callResponse || "") + "</div>" : '<span class="sdc-muted">Not yet</span>') + "</td>" +
+      "<td>" + (c.quoteNo ? sdcQuoteHtml(c) : '<span class="sdc-muted">—</span>') + "</td>") +
+      "<td>" + (Number(c.followUpCount) || 0) + " of " + limit + dueNext + "</td>" +
+      "<td>" + sdcBadge(c.status) + sdcReason(c) + "</td>" +
+      "</tr>";
+  }
+
+  /** The quotation on a call: its number, value and when it went, and on 2.0 what it is for. */
+  function sdcQuoteHtml(c) {
+    return '<span class="mono">' + escapeHtml(c.quoteNo) + "</span>" +
+      '<div class="sdc-muted">' + (c.quoteValue !== "" ? fmt(c.quoteValue) : "") +
+      (c.sentDate ? " · sent " + escapeHtml(sdcDate(c.sentDate)) : "") + "</div>" +
+      (SDC_INLINE && c.enquiryType && c.enquiryType !== "Spares"
+        ? '<div class="sdc-type">' + escapeHtml(c.enquiryType) + "</div>" : "");
+  }
+
+  /**
+   * 2.0's row: what the customer said, a remark and the quotation, each worked where it is.
+   * A closed call, or someone who may only look, sees them as text.
+   */
+  function sdcInlineCells(c) {
+    var d = sdc.data;
+    var id = escapeHtml(c.id);
+    var live = d.canEdit && !c.outcome;
+    var said = live
+      ? '<select class="sdc-inline" data-sdc-resp="' + id + '" aria-label="What they said">' +
+          (c.callResponse ? "" : '<option value="">Not called yet</option>') +
+          (d.responses || []).map(function (r) {
+            return '<option value="' + escapeHtml(r) + '"' + (r === c.callResponse ? " selected" : "") + ">" +
+              escapeHtml(r) + "</option>";
+          }).join("") + "</select>" +
+        (c.callDate ? '<div class="sdc-muted">' + escapeHtml(sdcDate(c.callDate)) + "</div>" : "")
+      : (c.callDate ? escapeHtml(c.callResponse || "") + '<div class="sdc-muted">' + escapeHtml(sdcDate(c.callDate)) + "</div>"
+        : '<span class="sdc-muted">Not yet</span>');
+    var remark = live
+      ? '<input class="sdc-inline sdc-remark" data-sdc-remark="' + id + '" value="' + escapeHtml(c.callNotes || "") +
+        '" placeholder="Remark" aria-label="Remark" />'
+      : (c.callNotes ? escapeHtml(c.callNotes) : '<span class="sdc-muted">—</span>');
+    var quote = c.quoteNo ? sdcQuoteHtml(c)
+      : !live ? '<span class="sdc-muted">—</span>'
+      : !c.customerId ? '<span class="sdc-muted">Link the customer first</span>'
+      : '<select class="sdc-inline" data-sdc-quote="' + id + '" aria-label="Prepare a quotation">' +
+          '<option value="">Quote…</option>' + (d.quoteTypes || ["Spares"]).map(function (t) {
+            return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + "</option>";
+          }).join("") + "</select>";
+    return "<td>" + said + "</td><td>" + remark + "</td><td>" + quote + "</td>";
+  }
+
+  /** Puts one call back on the list as the server now has it, leaving the other rows be. */
+  function sdcPutRow(fresh) {
+    var calls = (sdc.data && sdc.data.calls) || [];
+    for (var i = 0; i < calls.length; i++) {
+      if (calls[i].id !== fresh.id) continue;
+      var keep = calls[i];
+      Object.keys(keep).forEach(function (k) { if (fresh[k] !== undefined) keep[k] = fresh[k]; });
+      var tr = document.querySelector('#sdc-tbody tr[data-sdc="' + String(fresh.id).replace(/"/g, "") + '"]');
+      if (tr) {
+        // A remark still being typed in this row survives the row being drawn again.
+        var typing = document.activeElement;
+        var draft = typing && tr.contains(typing) && typing.dataset && typing.dataset.sdcRemark
+          ? { value: typing.value, start: typing.selectionStart, end: typing.selectionEnd } : null;
+        var holder = document.createElement("tbody");
+        holder.innerHTML = sdcRowHtml(keep);
+        var row = holder.firstChild;
+        if (row) {
+          tr.parentNode.replaceChild(row, tr);
+          var box = draft && row.querySelector("[data-sdc-remark]");
+          if (box) {
+            box.value = draft.value;
+            box.focus();
+            try { box.setSelectionRange(draft.start, draft.end); } catch (e) { /* not a text box */ }
+          }
+        }
+      }
+      break;
     }
-    // Only what the filters leave stays ticked, so Assign never touches a call nobody can see.
-    var inView = {};
-    rows.forEach(function (c) { inView[c.id] = true; });
-    Object.keys(sdc.selected).forEach(function (id) { if (!inView[id]) delete sdc.selected[id]; });
-    renderServiceDueBulk();
+    renderServiceDueTiles();
+  }
+
+  function sdcRowSave(input, okText, revert) {
+    srv.withSuccessHandler(function (fresh) {
+      sdcPutRow(fresh);
+      showMsg(okText, "success");
+    }).withFailureHandler(function (err) {
+      if (revert) revert();
+      onServerError(err);
+    }).saveServiceDueCall(input);
+  }
+
+  if (SDC_INLINE) {
+    // The header follows the row: what they said and a remark in place of the one Call column.
+    (function () {
+      var head = $("sdc-tbody").parentNode.querySelector("thead tr");
+      var cells = head ? head.children : [];
+      if (cells.length === 9 && /Call/.test(cells[5].textContent)) {
+        cells[5].textContent = "What they said";
+        var th = document.createElement("th");
+        th.textContent = "Remark";
+        head.insertBefore(th, cells[6]);
+      }
+    })();
+
+    $("sdc-tbody").addEventListener("change", function (e) {
+      var t = e.target;
+      var c = function (id) { return ((sdc.data && sdc.data.calls) || []).filter(function (x) { return x.id === id; })[0]; };
+      if (t.dataset.sdcResp) {
+        var call = c(t.dataset.sdcResp);
+        if (!call || !t.value) return;
+        var remark = t.closest("tr").querySelector("[data-sdc-remark]");
+        var was = call.callResponse || "";
+        // A call logged from the row: today, unless one was already logged; the remark and the
+        // person spoken to as they are.
+        sdcRowSave({
+          id: call.id, callResponse: t.value, callDate: call.callDate || sdcToday(),
+          callNotes: remark ? remark.value : (call.callNotes || ""),
+          contactName: call.contactName || "", contactId: call.contactId || ""
+        }, "Saved: " + t.value + ".", function () { t.value = was; });
+        return;
+      }
+      if (t.dataset.sdcRemark) {
+        var rc = c(t.dataset.sdcRemark);
+        if (!rc || t.value.trim() === String(rc.callNotes || "").trim()) return;
+        var before = rc.callNotes || "";
+        sdcRowSave({ id: rc.id, callNotes: t.value }, "Remark saved.", function () { t.value = before; });
+        return;
+      }
+      if (t.dataset.sdcQuote) {
+        var qc = c(t.dataset.sdcQuote);
+        var type = t.value;
+        if (!qc || !type) return;
+        t.disabled = true;
+        srv.withSuccessHandler(function (r) {
+          loadServiceDue();
+          showMsg((r.existing ? "Opening " : (r.enquiryType && r.enquiryType !== "Spares" ? r.enquiryType + " quotation " : "Quotation ")) +
+            (r.quoteNo || "") + (r.existing ? "." : " raised for " + qc.fabNo + ". Add the lines, then e-mail it to the customer."), "success");
+          openQuotation(r.quotationId);
+        }).withFailureHandler(function (err) {
+          t.disabled = false;
+          t.value = "";
+          onServerError(err);
+        }).prepareServiceDueQuotation(qc.id, type);
+      }
+    });
+    // Enter in a remark keeps it, like leaving the box.
+    $("sdc-tbody").addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && e.target.dataset && e.target.dataset.sdcRemark) e.target.blur();
+    });
   }
 
   /** "Overdue: AF, OF · This month: AOS" with the overdue part in red. */
@@ -6785,6 +6962,7 @@
       renderServiceDueBulk();
       return;
     }
+    if (e.target.closest(".sdc-inline")) return;
     var row = e.target.closest("[data-sdc]");
     if (row) openServiceDueCall(row.dataset.sdc);
   });
@@ -6905,8 +7083,13 @@
     } else {
       $("sdc-quote").innerHTML = (closed ? '<span class="sdc-muted">No quotation was raised.</span>' :
         '<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">' +
+          // 2.0 says what the offer is for — spares, an AMC renewal or a service — and its heading follows.
+          (SDC_INLINE ? '<select id="sdc-quote-type" aria-label="Quotation for"' + (c.customerId ? "" : " disabled") + ">" +
+            ((sdc.data && sdc.data.quoteTypes) || ["Spares"]).map(function (t) {
+              return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + "</option>";
+            }).join("") + "</select>" : "") +
           '<button class="btn btn-sm btn-primary" id="btn-sdc-quote" type="button"' + (c.customerId ? "" : " disabled") +
-            ">Prepare spares quotation</button>" +
+            ">" + (SDC_INLINE ? "Prepare quotation" : "Prepare spares quotation") + "</button>" +
           '<span class="sdc-muted">' + (c.customerId ? "Raises it for this machine — fab number and model on it — and opens it to add the parts and e-mail it."
             : "Link the customer record first.") + "</span></div>" +
         '<div style="display:flex; gap:8px; margin-top:8px; align-items:center;">' +
@@ -7068,14 +7251,16 @@
     // Whatever was typed about the call is kept first, so the quotation goes to the person spoken to.
     var go = function () {
       var done = busyButton("btn-sdc-quote", "Preparing…");
-      srv.withSuccessHandler(function (r) {
+      var type = $("sdc-quote-type") ? $("sdc-quote-type").value : "";
+      var h = srv.withSuccessHandler(function (r) {
         done();
         $("sdc-modal-backdrop").classList.remove("show");
         loadServiceDue();
         showMsg((r.existing ? "Opening " : "Quotation ") + (r.quoteNo || "") + (r.existing ? "." :
           " raised for " + c.fabNo + ". Add the parts, then e-mail it to the customer."), "success");
         openQuotation(r.quotationId);
-      }).withFailureHandler(function (err) { done(); sdcMsg(err.message || String(err)); }).prepareServiceDueQuotation(c.id);
+      }).withFailureHandler(function (err) { done(); sdcMsg(err.message || String(err)); });
+      if (type) h.prepareServiceDueQuotation(c.id, type); else h.prepareServiceDueQuotation(c.id);
     };
     if (!c.callDate && $("sdc-call-response").value) {
       srv.withSuccessHandler(function (fresh) { sdc.open = fresh; go(); })
@@ -12291,7 +12476,9 @@
             "<td><b>" + escapeHtml(qtplSectionLabel(t.section)) + "</b></td>" +
             "<td>" + escapeHtml(t.businessStream || "Both streams") +
               (String(t.appliesTo || "").trim()
-                ? ' <span class="badge">' + escapeHtml(String(t.appliesTo).trim()) + " series</span>"
+                ? ' <span class="badge">' + escapeHtml(String(t.appliesTo).trim()) +
+                  // EG, EQ, EN are series; RECIP, DRYER, AMC, SERVICE are kinds of offer.
+                  (/^(\s*E[GQN]\s*[,;\/]?)+$/i.test(String(t.appliesTo)) ? " series" : " only") + "</span>"
                 : "") + "</td>" +
             "<td>" + escapeHtml(t.title || "—") + "</td>" +
             '<td class="num">' + lines + "</td>" +

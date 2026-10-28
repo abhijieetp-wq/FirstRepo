@@ -30,6 +30,23 @@ full. The nineteen custom-property names `JavaScript.html` reads keep their name
 Service Due Calls screen **SDR** (menu, heading, breadcrumb, browser tab, command palette),
 marks the app's name "2.0", and adds the way back.
 
+**`src/JavaScript.html`, behind `FACE_V2`** — the few ways of working only 2.0 has, where
+going through the DOM alone would not do. The server marks the page `<html data-face="v2">`
+(`server/page.js`); Apps Script and the other faces carry no such mark and keep ERP 1's screen.
+Today:
+
+- **SDR rows worked in place.** Each open call's row has *What they said* (picking an answer
+  logs the call, dated today unless it was already logged), a *Remark* (kept on its own, before
+  or after the call) and *Quote…* with what the quotation is for: **Spares, AMC renewal or
+  Service**. The call window asks the same. A closed call, or a user who may only look, sees
+  text.
+- **The enquiry form asks what the quotation will be for**, the same three.
+
+The type is stored on the spare enquiry (`enquiryType`). On the printed offer an AMC renewal or
+a service takes its own heading and subject — rows with *Applies to* `AMC` or `SERVICE` in
+Settings → Quotation text, default wording PIE can change there — and everything else is the
+spares offer's, as before. An enquiry with no type reads as Spares.
+
 ## The rule for each screen that moves to 2.0
 
 A screen takes ERP 2's layout only when it keeps everything ERP 1's version of it does — the
@@ -39,5 +56,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 ## Tests
 
 - `tests/v2-ui-test.js` — what 2.0 adds, and that the bulk imports and every screen survive it.
+- `tests/sdr-rows-ui-test.js` — the SDR rows on 2.0, and ERP 1's row unchanged on the others.
+- `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
+  the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.
 - `tests/server-test.js` — `ERP_UI=v2`, `?look=`, and the cookie.
