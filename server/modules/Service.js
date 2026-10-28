@@ -421,6 +421,8 @@ async function listServiceJobs(options) {
     j.partCount = counts[String(j.id)] || 0;
     j.jobType = String(j.jobType || 'Installation');
     j.urgency = String(j.urgency || 'Normal');
+    // ERP 2.0's name for where it stands (ServiceDesk.gs); ERP 1 reads `status` as before.
+    j.deskStatus = serviceDeskStatus_(j);
   });
 
   return rows.sort(function (a, b) {
@@ -435,6 +437,7 @@ async function getServiceJob(id) {
   var row = stripRow_(job);
   row.jobType = String(row.jobType || 'Installation');
   row.urgency = String(row.urgency || 'Normal');
+  row.deskStatus = serviceDeskStatus_(row);
   row.items = (await findRowsByColumn_('ServiceJobItems', 'serviceJobId', [String(id)]))
     .map(stripRow_)
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });

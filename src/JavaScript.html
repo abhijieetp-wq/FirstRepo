@@ -5220,8 +5220,10 @@
         '<td class="num">' + (j.partCount === undefined ? "" : j.partCount) + "</td>" +
         "<td>" + escapeHtml(j.engineerEmail || "—") + "</td>" +
         "<td>" + escapeHtml(j.scheduledDate || "—") + "</td>" +
-        '<td><span class="badge ' + (SERVICE_BADGE[j.status] || "badge-draft") + '">' +
-          escapeHtml(j.status) + "</span></td>" +
+        (FACE_V2 && j.deskStatus
+          ? '<td><span class="badge ' + (SD_BADGE[j.deskStatus] || "badge-draft") + '">' + escapeHtml(j.deskStatus) + "</span></td>"
+          : '<td><span class="badge ' + (SERVICE_BADGE[j.status] || "badge-draft") + '">' +
+            escapeHtml(j.status) + "</span></td>") +
         '<td class="center"><button class="btn btn-sm" data-open-job="' + escapeHtml(j.id) +
           '">Open</button></td>' +
         "</tr>";
@@ -5291,6 +5293,7 @@
   function openServiceJobModal(id) {
     srv.withSuccessHandler(function (job) {
       openServiceJob = job;
+      sdWriting = false;
       renderServiceJobModal();
       $("service-modal-backdrop").classList.add("show");
     }).withFailureHandler(onServerError).getServiceJob(id);
@@ -5367,6 +5370,143 @@
     // A closed job's photographs are part of its report and stay with it.
     var closed = ["Completed", "Cancelled"].indexOf(j.status) !== -1;
     $("sj-proof-add").style.display = closed ? "none" : "flex";
+
+    if (FACE_V2) {
+      $("sj-status").closest(".field").style.display = "none";
+      sdRender(j);
+    }
+  }
+
+  // ---- 2.0's service desk (ServiceDesk.gs) ----
+  // ERP 2's statuses — New, Assigned, In progress, Report submitted, Closed, Cancelled — shown
+  // over ERP 1's, which the server keeps as they were. On the 2.0 face the job window steps
+  // through them with buttons, and the engineer writes the report here; ERP 1's own status list
+  // is put away so there is one way to move a job, not two.
+  var SD_STEPS = ["New", "Assigned", "In progress", "Report submitted", "Closed"];
+  var SD_BADGE = {
+    "New": "badge-overdue", "Assigned": "badge-new", "In progress": "badge-quoted",
+    "Report submitted": "badge-sent", "Closed": "badge-won", "Cancelled": "badge-lost"
+  };
+  var sdWriting = false;
+
+  function sdMayAssign() { return ["Service Coordinator", "Management", "ERP Admin"].indexOf(currentUser.role) !== -1; }
+  function sdOnJob(j) {
+    return sdMayAssign() || (currentUser.role === "Service Engineer" &&
+      String(j.engineerEmail || "").toLowerCase() === String(currentUser.email || "").toLowerCase());
+  }
+
+  function sdPanel() {
+    if ($("sj-desk")) return $("sj-desk");
+    var panel = document.createElement("div");
+    panel.id = "sj-desk";
+    panel.className = "sd-panel";
+    $("sj-items-title").parentNode.insertBefore(panel, $("sj-items-title"));
+    panel.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-sd]");
+      if (!b) return;
+      var j = openServiceJob;
+      var done = function (job, text) {
+        openServiceJob = job;
+        sdWriting = false;
+        renderServiceJobModal();
+        loadServiceJobs();
+        showMsg(text, "success");
+      };
+      var act = b.dataset.sd;
+      if (act === "start") {
+        srv.withSuccessHandler(function (job) { done(job, job.jobNo + " is in progress."); })
+          .withFailureHandler(onServerError).setServiceJobStatus(j.id, "In Progress", $("sj-notes").value);
+      } else if (act === "write") {
+        sdWriting = true;
+        sdRender(j);
+      } else if (act === "cancel-write") {
+        sdWriting = false;
+        sdRender(j);
+      } else if (act === "submit") {
+        srv.withSuccessHandler(function (job) { done(job, "Report submitted for " + job.jobNo + ". The coordinator closes it from here."); })
+          .withFailureHandler(onServerError).submitServiceReport(j.id, {
+            visitDate: $("sd-visit").value, hoursSpent: $("sd-hours").value, runningHours: $("sd-running").value,
+            workDone: $("sd-work").value, rootCause: $("sd-cause").value, customerRemarks: $("sd-remarks").value,
+            handedOverRunning: $("sd-running-over").value
+          });
+      } else if (act === "close") {
+        srv.withSuccessHandler(function (job) { done(job, job.jobNo + " closed."); })
+          .withFailureHandler(onServerError).closeServiceJob(j.id, $("sj-notes").value);
+      } else if (act === "cancel") {
+        askDialog({
+          title: "Cancel " + j.jobNo + "?",
+          message: "Say why, so whoever the customer rings next can tell them.",
+          input: true, inputLabel: "Why is it cancelled?", placeholder: "e.g. Customer fixed it themselves; machine sold",
+          okLabel: "Cancel the job", danger: true,
+          validate: function (v) { return String(v || "").trim().length < 5 ? "A few words, please." : ""; }
+        }, function (why) {
+          if (why === null) return;
+          srv.withSuccessHandler(function (job) { done(job, job.jobNo + " cancelled."); })
+            .withFailureHandler(onServerError).cancelServiceJob(j.id, why);
+        });
+      }
+    });
+    return panel;
+  }
+
+  function sdRender(j) {
+    var panel = sdPanel();
+    var st = j.deskStatus || "New";
+    var at = SD_STEPS.indexOf(st);
+    var html = '<div class="sd-top"><span class="badge ' + (SD_BADGE[st] || "badge-draft") + '">' + escapeHtml(st) + "</span>" +
+      (st === "Cancelled" ? "" : '<ol class="sd-steps">' + SD_STEPS.map(function (s, i) {
+        return '<li class="' + (i < at ? "done" : i === at ? "now" : "") + '"><i></i>' + escapeHtml(s) + "</li>";
+      }).join("") + "</ol>") + "</div>";
+    if (st === "Cancelled") {
+      html += '<div class="sd-band bad"><b>Cancelled</b>' + (j.cancelReason ? ": " + escapeHtml(j.cancelReason) : "") +
+        (j.cancelledAt ? ' <span class="sd-muted">· ' + escapeHtml(ebDate(String(j.cancelledAt).slice(0, 10))) + "</span>" : "") + "</div>";
+    }
+    var reported = !!String(j.reportSubmittedAt || "").trim();
+    if (reported && !sdWriting) {
+      var row = function (k, v) { return String(v === undefined || v === null ? "" : v).trim() ? "<dt>" + escapeHtml(k) + "</dt><dd>" + escapeHtml(v) + "</dd>" : ""; };
+      html += '<div class="sd-report"><div class="sd-h">Engineer’s report</div><dl>' +
+        row("Visit date", ebDate(j.visitDate)) + row("Hours spent", j.hoursSpent) + row("Running hours", j.runningHours) +
+        row("Work done", j.workDone) + row("Root cause", j.rootCause) + row("Customer’s remarks", j.customerRemarks) +
+        row("Handed over running", j.handedOverRunning) +
+        row("Submitted", ebDate(String(j.reportSubmittedAt).slice(0, 10)) + (j.reportSubmittedBy ? " by " + j.reportSubmittedBy : "")) + "</dl></div>";
+    }
+    if (sdWriting) {
+      var breakdown = j.jobType === "Breakdown";
+      var today = new Date().toISOString().slice(0, 10);
+      html += '<div class="sd-form"><div class="sd-h">' + (reported ? "Correct the report" : "The engineer’s report") + "</div>" +
+        '<div class="grid grid-3">' +
+          '<div class="field"><label>Visit date *</label><input id="sd-visit" type="date" value="' + escapeHtml(j.visitDate || today) + '" /></div>' +
+          '<div class="field"><label>Hours spent on site *</label><input id="sd-hours" type="number" min="0" step="0.5" value="' + escapeHtml(j.hoursSpent) + '" /></div>' +
+          '<div class="field"><label>Machine running hours</label><input id="sd-running" type="number" min="0" value="' + escapeHtml(j.runningHours) + '" /></div>' +
+        "</div>" +
+        '<div class="field"><label>Work done *</label><textarea id="sd-work" rows="3" placeholder="What was done, part by part">' + escapeHtml(j.workDone || "") + "</textarea></div>" +
+        '<div class="field"><label>Root cause' + (breakdown ? " *" : "") + '</label><textarea id="sd-cause" rows="2" placeholder="' +
+          (breakdown ? "What made it stop" : "Anything found that needs attention") + '">' + escapeHtml(j.rootCause || "") + "</textarea></div>" +
+        '<div class="grid grid-3">' +
+          '<div class="field" style="grid-column:span 2;"><label>Customer’s remarks</label><input id="sd-remarks" value="' + escapeHtml(j.customerRemarks || "") + '" /></div>' +
+          '<div class="field"><label>Handed over running? *</label><select id="sd-running-over"><option value="">— pick —</option>' +
+            ["Yes", "No"].map(function (x) { return '<option' + (j.handedOverRunning === x ? " selected" : "") + ">" + x + "</option>"; }).join("") + "</select></div>" +
+        "</div>" +
+        '<div class="sd-actions"><button type="button" class="btn btn-sm" data-sd="cancel-write">Not now</button>' +
+          '<button type="button" class="btn btn-sm btn-primary" data-sd="submit">Submit report</button></div></div>';
+    } else {
+      var acts = [];
+      var live = ["Closed", "Cancelled"].indexOf(st) === -1;
+      if (st === "Assigned" && sdOnJob(j)) acts.push('<button type="button" class="btn btn-sm" data-sd="start">Start work</button>');
+      if (["Assigned", "In progress", "Report submitted"].indexOf(st) !== -1 && sdOnJob(j)) {
+        acts.push('<button type="button" class="btn btn-sm' + (st === "In progress" ? " btn-primary" : "") + '" data-sd="write">' +
+          (reported ? "Correct the report" : "Write the report") + "</button>");
+      }
+      if (st === "Report submitted" && sdMayAssign()) acts.push('<button type="button" class="btn btn-sm btn-primary" data-sd="close">Close the job</button>');
+      if (live && sdMayAssign()) acts.push('<button type="button" class="btn btn-sm sd-danger" data-sd="cancel">Cancel…</button>');
+      var say = st === "New" ? "Name the engineer and the date below, then Save."
+        : st === "Assigned" ? "When the engineer is on site, start the work; the report follows the visit."
+        : st === "In progress" ? "Once the work is done, the engineer writes the report."
+        : st === "Report submitted" ? (sdMayAssign() ? "The report is in. Close the job once the customer’s photograph is attached." : "The report is in. The coordinator closes the job.")
+        : "";
+      if (acts.length || say) html += '<div class="sd-actions">' + (say ? '<span class="sd-muted">' + escapeHtml(say) + "</span>" : "") + acts.join("") + "</div>";
+    }
+    panel.innerHTML = html;
   }
 
   function renderServiceProofs() {

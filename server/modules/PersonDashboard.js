@@ -268,7 +268,7 @@ function pdJobOpen_(j) { return ['Completed', 'Cancelled'].indexOf(String(j.stat
 function pdJobRow_(j, ctx, showEngineer) {
   return pdRow_(String(j.customerName || ''), String(j.jobNo || '') + ' · ' + (j.jobType || 'Installation') + ' · ' +
       [j.machineModel, j.serialNo].filter(Boolean).join(' '),
-    showEngineer ? (j.engineerEmail ? personLine_(j.engineerEmail, ctx.people) : 'Not assigned') : String(j.status || ''),
+    showEngineer ? (j.engineerEmail ? personLine_(j.engineerEmail, ctx.people) : 'Not assigned') : serviceDeskStatus_(j),
     j.scheduledDate ? ddmmyyyy_(String(j.scheduledDate).slice(0, 10)) : String(j.urgency || ''),
     String(j.urgency) === 'Immediate' || (!j.engineerEmail && showEngineer) ? 'bad' : '',
     { kind: 'job', id: String(j.id) });
@@ -284,14 +284,19 @@ async function pdServiceCoordinator_(ctx, out) {
   }).sort(function (a, b) { return String(a.scheduledDate).localeCompare(String(b.scheduledDate)); });
   var breakdowns = open.filter(function (j) { return String(j.jobType) === 'Breakdown'; });
   var done = jobs.filter(function (j) { return String(j.status) === 'Completed' && String(j.completedDate || '').slice(0, 7) === ctx.month; });
+  // The engineer has written the job up; it waits on the coordinator (ServiceDesk.gs).
+  var reports = open.filter(function (j) { return serviceDeskStatus_(j) === 'Report submitted'; });
   out.tiles = [
-    { key: 'open', label: 'Open jobs', value: String(open.length), sub: done.length + ' completed this month', go: 'service' },
+    { key: 'open', label: 'Open jobs', value: String(open.length), sub: done.length + ' closed this month', go: 'service' },
     { key: 'fresh', label: 'Waiting for an engineer', value: String(fresh.length), sub: 'assign them', tone: fresh.length ? 'warn' : '', go: 'service' },
+    { key: 'reports', label: 'Reports in, to close', value: String(reports.length), sub: 'you close these', tone: reports.length ? 'warn' : '', go: 'service' },
     { key: 'soon', label: 'Visits today and tomorrow', value: String(soon.length), sub: pdEngineerCount_(soon) + ' engineers out', go: 'service' },
     { key: 'breakdowns', label: 'Breakdowns open', value: String(breakdowns.length), sub: 'machines stopped', tone: breakdowns.length ? 'bad' : '', go: 'service' }
   ];
   out.lists.push({ key: 'fresh', title: 'New jobs to assign', count: fresh.length, empty: 'Every job has an engineer.',
     rows: fresh.slice(0, 8).map(function (j) { return pdJobRow_(j, ctx, true); }) });
+  out.lists.push({ key: 'reports', title: 'Reports in, to close', count: reports.length, empty: 'No reports waiting.',
+    rows: reports.slice(0, 8).map(function (j) { return pdJobRow_(j, ctx, true); }) });
   out.lists.push({ key: 'soon', title: 'Visits today and tomorrow', count: soon.length, empty: 'Nothing scheduled.',
     rows: soon.slice(0, 8).map(function (j) { return pdJobRow_(j, ctx, true); }) });
   out.lists.push({ key: 'breakdowns', title: 'Breakdowns open', count: breakdowns.length, empty: 'No machine is down.',
@@ -316,9 +321,12 @@ async function pdServiceEngineer_(ctx, out) {
   var passed = (await readTable_('Leads')).filter(function (l) {
     return pdSame_(l.serviceEngineerEmail, ctx.email) && String(l.date || '').slice(0, 7) === ctx.month;
   });
+  // Visited, not yet written up: the report is what lets the coordinator close the job.
+  var toWrite = open.filter(function (j) { return serviceDeskStatus_(j) === 'In progress'; });
   out.tiles = [
     { key: 'today', label: 'Visits today', value: String(today.length), sub: tomorrow.length + ' tomorrow', go: 'service' },
-    { key: 'open', label: 'My open jobs', value: String(open.length), sub: done.length + ' completed this month', go: 'service' },
+    { key: 'open', label: 'My open jobs', value: String(open.length), sub: done.length + ' closed this month', go: 'service' },
+    { key: 'write', label: 'Reports to write', value: String(toWrite.length), sub: 'jobs in progress', tone: toWrite.length ? 'warn' : '', go: 'service' },
     { key: 'raised', label: 'Spare enquiries I raised', value: String(raised.length), sub: 'this month' },
     { key: 'passed', label: 'Compressor leads I passed on', value: String(passed.length), sub: 'this month' }
   ];

@@ -72,6 +72,10 @@ run_ui "enquiry-board-ui-test.js (2.0)" tests/enquiry-board-ui-test.js "$tmp/bas
 run_ui "person-dashboard-ui-test.js (classic)" tests/person-dashboard-ui-test.js "$tmp/base.html"
 run_ui "person-dashboard-ui-test.js (new design)" tests/person-dashboard-ui-test.js "$tmp/base-web.html"
 run_ui "person-dashboard-ui-test.js (2.0)" tests/person-dashboard-ui-test.js "$tmp/base-v2.html" "$tmp/show-v2.html"
+# And the service desk's statuses; the other faces keep ERP 1's job window.
+run_ui "service-desk-ui-test.js (classic)" tests/service-desk-ui-test.js "$tmp/base.html"
+run_ui "service-desk-ui-test.js (new design)" tests/service-desk-ui-test.js "$tmp/base-web.html"
+run_ui "service-desk-ui-test.js (2.0)" tests/service-desk-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

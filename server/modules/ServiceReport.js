@@ -100,6 +100,15 @@ async function buildServiceReportHtml(serviceJobId) {
     push(srRow_('Reported by', job.reportedBy));
     push(srRow_('Urgency', job.urgency));
   }
+  // The engineer's report, when one was written (ServiceDesk.gs, 2.0). A job without one prints
+  // exactly as it always did.
+  var reported = String(job.reportSubmittedAt || '').trim() !== '';
+  if (reported) {
+    push(srRow_('Visit date', job.visitDate));
+    push(srRow_('Hours spent', job.hoursSpent));
+    if (String(job.runningHours) !== '') push(srRow_('Machine running hours', job.runningHours));
+    push(srRow_('Handed over running', job.handedOverRunning));
+  }
   push('</table>');
 
   push('<div class="sr-head">' + esc_(breakdown ? 'Fault reported' : 'Scope') + '</div>');
@@ -117,8 +126,17 @@ async function buildServiceReportHtml(serviceJobId) {
   }
 
   push('<div class="sr-head">Work carried out</div>');
-  push('<div class="sr-body">' + (String(job.notes || '').trim()
-    ? esc_(job.notes) : '&nbsp;<br/>&nbsp;<br/>&nbsp;') + '</div>');
+  var work = reported ? [job.workDone, job.notes].map(function (t) { return String(t || '').trim(); })
+    .filter(Boolean).join('\n\n') : String(job.notes || '').trim();
+  push('<div class="sr-body">' + (work ? esc_(work) : '&nbsp;<br/>&nbsp;<br/>&nbsp;') + '</div>');
+  if (reported && String(job.rootCause || '').trim()) {
+    push('<div class="sr-head">Root cause</div>');
+    push('<div class="sr-body">' + esc_(job.rootCause) + '</div>');
+  }
+  if (reported && String(job.customerRemarks || '').trim()) {
+    push('<div class="sr-head">Customer’s remarks</div>');
+    push('<div class="sr-body">' + esc_(job.customerRemarks) + '</div>');
+  }
 
   if (proofs.length) {
     push('<div class="sr-head">Photographs on file</div>');

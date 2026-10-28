@@ -99,6 +99,8 @@ const plus = (n) => new Date(Date.parse(today + 'T00:00:00Z') + n * 86400000).to
   await job('J3', { status: 'Unassigned', engineerEmail: '' });
   await job('J4', { jobType: 'Breakdown', urgency: 'Immediate', engineerEmail: '', status: 'Unassigned' });
   await job('J5', { status: 'Completed', completedDate: today });
+  await job('J6', { status: 'In Progress', reportSubmittedAt: today + 'T10:00:00Z' });   // report in, to close
+  await job('J7', { status: 'In Progress' });                                            // visited, report to write
   await enquiry('E9', P.isha.email, { serviceEngineerEmail: P.tej.email, date: today });
 
   const as = (who) => { const p = loadPortal(db, who.email, { quiet: true }); p.CURRENT_USER_ = who; return p; };
@@ -127,13 +129,15 @@ const plus = (n) => new Date(Date.parse(today + 'T00:00:00Z') + n * 86400000).to
 
   console.log('\nSERVICE');
   d = await as(P.sona).getPersonDashboard({});
-  ok('the coordinator: open jobs and the ones to assign', d.kind === 'serviceCoordinator' && tile(d, 'open').value === '4' &&
+  ok('the coordinator: open jobs and the ones to assign', d.kind === 'serviceCoordinator' && tile(d, 'open').value === '6' &&
     tile(d, 'fresh').value === '2', d.tiles);
+  ok('and the reports in, waiting for them to close', tile(d, 'reports').value === '1' && list(d, 'reports').rows.length === 1, tile(d, 'reports'));
   ok('visits today and tomorrow, and the breakdown', tile(d, 'soon').value === '2' && tile(d, 'breakdowns').value === '1' && tile(d, 'breakdowns').tone === 'bad');
   ok('an unassigned job says so', list(d, 'fresh').rows.every((r) => r.right === 'Not assigned'));
   d = await as(P.tej).getPersonDashboard({});
   ok('the engineer: today and tomorrow', d.kind === 'serviceEngineer' && list(d, 'today').rows.length === 1 && list(d, 'tomorrow').rows.length === 1);
   ok('what he raised for sales, as counts', tile(d, 'raised').value === '1' && tile(d, 'passed').value === '0');
+  ok('and the report he still has to write', tile(d, 'write').value === '1', tile(d, 'write'));
   ok('and no money anywhere on it', !JSON.stringify(d).match(/"money"|grand|₹/));
 
   console.log('\nMANAGEMENT');

@@ -70,6 +70,18 @@ Today:
   - Management and ERP Admin: the team, one row a person; a name, or the "Dashboard of" list,
     opens that person's desk exactly as they see it.
   - Every figure and line opens the ERP 1 screen or record it is about.
+- **The service desk's statuses** (`src/ServiceDesk.gs`): New → Assigned → In progress →
+  Report submitted → Closed, or Cancelled with a reason. ERP 1's status column keeps ERP 1's
+  values (Unassigned, Assigned, Scheduled, In Progress, Completed, Cancelled), so its screens
+  read every job as before; the 2.0 name is worked out from it, plus whether the engineer's
+  report is in. On 2.0 the job window steps through them: Start work, the engineer's report
+  (visit date, hours spent, running hours, work done, root cause — required on a breakdown —
+  customer's remarks, handed over running), Close the job (coordinator, once the report and
+  the customer's photograph are in), Cancel (coordinator, with a reason). The printed service
+  report carries the engineer's report when there is one; a job without one prints as before.
+  New columns on ServiceJobs, all added, none changed: reportSubmittedAt, reportSubmittedBy,
+  visitDate, hoursSpent, runningHours, workDone, rootCause, customerRemarks,
+  handedOverRunning, closedBy, cancelReason, cancelledAt, cancelledBy.
 
 The type is stored on the spare enquiry (`enquiryType`). On the printed offer an AMC renewal or
 a service takes its own heading and subject — rows with *Applies to* `AMC` or `SERVICE` in
@@ -90,6 +102,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   the lists unchanged on the others), and every stage read correctly from the records.
 - `tests/person-dashboard-ui-test.js`, `tests/person-dashboard-sql-test.js` — each position's
   desk, Management's team and view of anybody's, and ERP 1's Dashboard unchanged elsewhere.
+- `tests/service-desk-ui-test.js`, `tests/service-desk-sql-test.js` — the statuses read from
+  ERP 1's, the report, closing, cancelling, and ERP 1's job window unchanged elsewhere.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

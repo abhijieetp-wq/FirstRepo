@@ -567,7 +567,13 @@ var SCHEMA = {
       // credit limits and pricing they have no business seeing.
       'contactName', 'contactPhone', 'contactEmail', 'handedOverBy',
       // The enquiry this visit raised, if the engineer found something that had to be quoted.
-      'spareEnquiryId']
+      'spareEnquiryId',
+      // ERP 2.0's service desk (ServiceDesk.gs). The engineer's report, which is what moves a
+      // job to "Report submitted" until the coordinator closes it; and who closed or cancelled
+      // it, and why it was cancelled. Empty on jobs from before, which read as they always did.
+      'reportSubmittedAt', 'reportSubmittedBy', 'visitDate', 'hoursSpent', 'runningHours',
+      'workDone', 'rootCause', 'customerRemarks', 'handedOverRunning',
+      'closedBy', 'cancelReason', 'cancelledAt', 'cancelledBy']
   },
   ServiceJobItems: {
     label: 'The parts a service job is to fit, carried from the dispatch',
