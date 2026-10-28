@@ -142,27 +142,64 @@ function spareIsDryerUnit_(s) {
   return DRYER_MODEL_.test(d) || /\bAIR\s+DR[IY]ER\b/i.test(d);
 }
 
-/** The machine's name as the screw wording carries it, and what replaces it for the others. */
-var MACHINE_NAMES_ = { RECIP: 'Reciprocating Air Compressor', DRYER: 'Air Dryer' };
+/**
+ * The machine's name as the screw wording carries it, and what replaces it for the others:
+ * the full name ("Rotary Screw Air Compressor"), the short one ("Screw compressors"), and for
+ * a dryer the bare word too ("Our compressors meet..." is "Our dryers meet...").
+ */
+var MACHINE_NAMES_ = {
+  RECIP: { full: 'Reciprocating Air Compressor', short: 'Reciprocating Compressor' },
+  DRYER: { full: 'Air Dryer', short: 'Air Dryer', bare: 'Dryer' }
+};
+
+/** A replacement written in the case of the words it replaces. */
+function inCaseOf_(was, now) {
+  if (was === was.toUpperCase()) return now.toUpperCase();
+  if (was === was.toLowerCase()) return now.toLowerCase();
+  var titleCase = was.split(/\s+/).every(function (w) { return w.charAt(0) === w.charAt(0).toUpperCase(); });
+  return titleCase ? now : now.charAt(0) + now.slice(1).toLowerCase();
+}
 
 /**
  * A line of offer text with the machine's name changed for the kind of machine quoted.
  *
- * PIE's rule (28 Oct 2026): in the heading and the subject only the machine changes and the
- * rest of the line stays as written — "Submission of Budgetary Offer for ELGi Rotary Screw Air
- * Compressor" becomes "...for ELGi Reciprocating Air Compressor", and "ELGi ELECTRIC POWERED
- * OIL SCREW AIR COMPRESSOR" becomes "...OIL AIR DRYER". Keeps the case the text was written in,
- * so an edit to the screw wording in Settings carries over to the others.
+ * PIE's rule (28 Oct 2026): only the machine changes and the rest stays as written —
+ * "Submission of Budgetary Offer for ELGi Rotary Screw Air Compressor" becomes "...for ELGi
+ * Reciprocating Air Compressor", "ELGi ELECTRIC POWERED OIL SCREW AIR COMPRESSOR" becomes
+ * "...OIL AIR DRYER", and in the letter "ELGi Screw compressors are precision designed" becomes
+ * "ELGi Reciprocating compressors..." or "ELGi Air dryers...". Keeps the case the text was
+ * written in, so an edit to the screw wording in Settings carries over to the others.
  */
 function swapMachineName_(text, kind) {
-  var name = MACHINE_NAMES_[kind];
-  if (!name) return String(text || '');
-  return String(text || '').replace(/(rotary\s+)?screw\s+air\s+compressor/gi, function (m) {
-    if (m === m.toUpperCase()) return name.toUpperCase();
-    if (m === m.toLowerCase()) return name.toLowerCase();
-    var titleCase = m.split(/\s+/).every(function (w) { return w.charAt(0) === w.charAt(0).toUpperCase(); });
-    return titleCase ? name : name.charAt(0) + name.slice(1).toLowerCase();
+  var w = MACHINE_NAMES_[kind];
+  var out = String(text || '');
+  if (!w) return out;
+  out = out.replace(/(rotary\s+)?screw\s+air\s+compressor(s?)/gi, function (m, rotary, s) {
+    return inCaseOf_(m.slice(0, m.length - s.length), w.full) + s;
   });
+  out = out.replace(/screw\s+compressor(s?)/gi, function (m, s) {
+    return inCaseOf_(m.slice(0, m.length - s.length), w.short) + s;
+  });
+  if (w.bare) {
+    out = out.replace(/\bcompressor(s?)\b/gi, function (m, s) {
+      return inCaseOf_(m.slice(0, m.length - s.length), w.bare) + s;
+    });
+  }
+  return out;
+}
+
+/**
+ * One paragraph of the compressor letter, for the kind of machine quoted: the machine's name
+ * changed, and any sentence about a screw series left out ("our EG series of screw compressors
+ * provide Report Generation options" is true of an EG and of nothing a reciprocating or dryer
+ * offer quotes). A paragraph left with nothing in it is dropped.
+ */
+function letterParagraph_(para, kind) {
+  if (!MACHINE_NAMES_[kind]) return para;
+  var sentences = String(para).match(/[^.!?]+(?:[.!?]+|$)/g) || [String(para)];
+  var kept = sentences.filter(function (x) { return !/\bE[GQN]\s+series\b/i.test(x); })
+    .map(function (x) { return x.trim(); }).filter(Boolean);
+  return swapMachineName_(kept.join(' '), kind);
 }
 
 /**
@@ -686,8 +723,8 @@ function buildQuotationHtml(quotationId) {
 
   var cover = quoteTemplate_('CoverLetter', stream, offerKeys);
   // The subject as well: "...for ELGi Rotary Screw Air Compressor" becomes "...for ELGi Air
-  // Dryer", the rest as written. On a compressor offer the letter's own mention of the machine
-  // follows; a row written for the kind is left exactly as it is.
+  // Dryer", the rest as written. On a compressor offer the letter follows (letterParagraph_);
+  // a row written for the kind is left exactly as it is.
   var subject = machineLine_('CoverLetter', stream, offerKeys, offerKind, cover);
   var swapBody = isCompressor && cover && templateSeries_(cover).indexOf(offerKind) === -1;
   if (cover) {
@@ -697,7 +734,8 @@ function buildQuotationHtml(quotationId) {
     }
     push('<div class="salut">' + esc_(co.salutation || 'Dear Sir/Madam,') + '</div>');
     String(cover.body).split('\n\n').forEach(function (para) {
-      if (para.trim()) push('<p>' + esc_(swapBody ? swapMachineName_(para.trim(), offerKind) : para.trim()) + '</p>');
+      var text = swapBody ? letterParagraph_(para.trim(), offerKind) : para.trim();
+      if (text) push('<p>' + esc_(text) + '</p>');
     });
   }
 

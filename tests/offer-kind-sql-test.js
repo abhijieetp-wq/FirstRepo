@@ -137,14 +137,25 @@ const letter = (html) => {
     p.swapMachineName_('the ELGi Rotary screw air compressor with', 'DRYER') === 'the ELGi Air dryer with' &&
     p.swapMachineName_('rotary screw air compressor', 'RECIP') === 'reciprocating air compressor');
   ok('and a screw offer is left exactly as written', p.swapMachineName_(SCREW_SUBJ, 'SCREW') === SCREW_SUBJ &&
-    p.swapMachineName_(SCREW_SUBJ, '') === SCREW_SUBJ);
+    p.swapMachineName_(SCREW_SUBJ, '') === SCREW_SUBJ && p.letterParagraph_('Our EG series of screw compressors.', 'SCREW') ===
+    'Our EG series of screw compressors.');
+  ok('short names and plurals follow', p.swapMachineName_('ELGi Screw compressors belong to a range of screw compressors', 'RECIP') ===
+    'ELGi Reciprocating compressors belong to a range of reciprocating compressors' &&
+    p.swapMachineName_('Our compressors meet', 'DRYER') === 'Our dryers meet' &&
+    p.swapMachineName_('Our compressors meet', 'RECIP') === 'Our compressors meet');
+  ok('a sentence about a screw series is left out of the others, the rest of the paragraph kept',
+    p.letterParagraph_('Low sound levels. In addition, our EQ series of screw compressors offer X.', 'RECIP') === 'Low sound levels.' &&
+    p.letterParagraph_('Our EN series only.', 'DRYER') === '');
 
   console.log('\nA SCREW OFFER IS AS IT WAS');
   let html = await offer([['Product', 'PR-EG']]);
   ok('screw heading', heading(html) === SCREW_HEAD, heading(html));
   ok('screw subject', subject(html) === SCREW_SUBJ, subject(html));
   ok('the letter names the screw', letter(html).indexOf('ELGi Rotary screw air compressor with its technical specification') !== -1);
-  const screwLetter = letter(html);
+  ok('and keeps every screw line, the EG series one included',
+    letter(html).indexOf('ELGi Screw compressors are precision designed') !== -1 &&
+    letter(html).indexOf('our EG series of screw compressors provide Report Generation options') !== -1 &&
+    letter(html).indexOf('range of screw compressors from ELGi') !== -1);
 
   console.log('\nA RECIPROCATING OFFER');
   html = await offer([['Product', 'PR-TS']]);
@@ -153,8 +164,15 @@ const letter = (html) => {
   ok('only the machine changed in the subject', subject(html).replace('Reciprocating Air Compressor', 'Rotary Screw Air Compressor') === SCREW_SUBJ);
   ok('the same TECHNICAL OFFER line under the heading', subLine(html) === 'TECHNICAL OFFER', subLine(html));
   ok('the specifications headed the same way', firstH1(html) === RECIP_HEAD, firstH1(html));
-  ok('the letter names the reciprocating compressor, the rest as written',
-    letter(html) === screwLetter.replace('ELGi Rotary screw air compressor', 'ELGi Reciprocating air compressor'));
+  const recipLetter = letter(html);
+  ok('the letter names the reciprocating compressor throughout',
+    recipLetter.indexOf('our offer for the ELGi Reciprocating air compressor with its technical specification') !== -1 &&
+    recipLetter.indexOf('ELGi Reciprocating compressors are precision designed') !== -1 &&
+    recipLetter.indexOf('Our compressors meet the international CE standard') !== -1 &&
+    recipLetter.indexOf('range of reciprocating compressors from ELGi') !== -1, recipLetter);
+  ok('with no screw left in it, and the EG series sentence left out',
+    !/screw/i.test(recipLetter) && recipLetter.indexOf('EG series') === -1 &&
+    recipLetter.indexOf('minimal sound levels.</p>') !== -1, recipLetter);
   ok('a family typed as screw does not make it one', heading(await offer([['Product', 'PR-SS']])) === RECIP_HEAD);
   ok('super pressure and PET units too', heading(await offer([['Product', 'PR-MS']])) === RECIP_HEAD);
 
@@ -166,7 +184,14 @@ const letter = (html) => {
   html = await offer([['Spare', 'SP-ELRD']]);
   ok('dryer heading, where it used to say screw', heading(html) === DRYER_HEAD, heading(html));
   ok('dryer subject', subject(html) === DRYER_SUBJ, subject(html));
-  ok('the letter names the dryer', letter(html).indexOf('ELGi Air dryer with its technical specification') !== -1);
+  const dryerLetter = letter(html);
+  ok('the letter names the dryer throughout',
+    dryerLetter.indexOf('ELGi Air dryer with its technical specification') !== -1 &&
+    dryerLetter.indexOf('ELGi Air dryers are precision designed') !== -1 &&
+    dryerLetter.indexOf('Our dryers meet the international CE standard') !== -1 &&
+    dryerLetter.indexOf('The dryer comes in aesthetically appealing packaging') !== -1 &&
+    dryerLetter.indexOf('range of air dryers from ELGi') !== -1, dryerLetter);
+  ok('with no screw or compressor left in it', !/screw|compressor/i.test(dryerLetter), dryerLetter);
   html = await offer([['Spare', 'SP-VAR'], ['Spare', 'SP-HLD']]);
   ok('a dryer anywhere on an offer with no unit makes it a dryer offer', heading(html) === DRYER_HEAD, heading(html));
   html = await offer([['Product', 'PR-EG'], ['Spare', 'SP-ELRD']]);
@@ -177,7 +202,8 @@ const letter = (html) => {
   ok('dryer heading, where it used to say spare parts', heading(html) === DRYER_HEAD, heading(html));
   ok('dryer subject', subject(html) === DRYER_SUBJ, subject(html));
   ok('the spares offer’s own line under the heading', subLine(html) === 'OFFER', subLine(html));
-  ok('and its own letter', letter(html).indexOf('We thank you very much for your enquiry.') !== -1);
+  ok('and its own letter, unchanged', letter(html).indexOf('We thank you very much for your enquiry.') !== -1 &&
+    letter(html).indexOf('offer for the spare parts') !== -1);
 
   console.log('\nPARTS STAY A SPARES OFFER');
   for (const [id, what] of [['SP-KIT', 'a dryer kit'], ['SP-F9', 'a dryer part filed with the compressor spares'],
