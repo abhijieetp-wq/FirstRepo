@@ -41,6 +41,22 @@ Today:
   Service**. The call window asks the same. A closed call, or a user who may only look, sees
   text.
 - **The enquiry form asks what the quotation will be for**, the same three.
+- **The enquiry board** (`src/EnquiryBoard.gs`). Spare Sales and Compressor Sales open on ERP 2's
+  ten stages — Enquiry received, Requirement understood, Quotation prepared, Quotation sent,
+  In negotiation, Approved by customer, PO received, Sales order (WON), Material procurement,
+  Dispatched — plus Rejected / Lost with its reason. A Board / List switch (Spare Sales) or a
+  Board tab (Compressor Sales) brings ERP 1's lists back; each browser remembers its choice.
+  - Every stage is read off ERP 1's own records: the enquiry or lead, its newest live
+    quotation, the order that quotation became (credit hold → PO received; credit check passed →
+    Sales order; material short or reserved → Material procurement), and the dispatch.
+  - Three stages are set by hand, from the card, and each writes a field ERP 1 already has:
+    Enquiry received ⇄ Requirement understood is the enquiry's status (New / Identifying) or the
+    lead's (New / Qualified); In negotiation is the quotation's status Negotiating, which ERP 1
+    shows as Sent, and needs a note on what is being discussed (kept against the quotation).
+  - Cards: spare enquiries, leads, opportunities without a lead, and quotations raised with no
+    enquiry behind them. Dispatched and closed cards stay for 90 days.
+  - Management and ERP Admin can rename the stages (both desks; stored in ConfigLists as
+    `BoardStage`). Stages cannot be added.
 
 The type is stored on the spare enquiry (`enquiryType`). On the printed offer an AMC renewal or
 a service takes its own heading and subject — rows with *Applies to* `AMC` or `SERVICE` in
@@ -57,6 +73,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 
 - `tests/v2-ui-test.js` — what 2.0 adds, and that the bulk imports and every screen survive it.
 - `tests/sdr-rows-ui-test.js` — the SDR rows on 2.0, and ERP 1's row unchanged on the others.
+- `tests/enquiry-board-ui-test.js`, `tests/enquiry-board-sql-test.js` — the board on 2.0 (and
+  the lists unchanged on the others), and every stage read correctly from the records.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

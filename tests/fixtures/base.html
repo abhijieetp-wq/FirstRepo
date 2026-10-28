@@ -44,7 +44,62 @@
     subtotal: 0, discountAmt: 0, taxAmt: 0, grand: 0, items: [], specGaps: []
   };
 
+  // ERP 2.0's enquiry board (EnquiryBoard.gs), a few cards on each desk. Invented.
+  var BOARD_STAGES = [
+    { key: "enquiry", label: "Enquiry received", how: "hand" },
+    { key: "requirement", label: "Requirement understood", how: "hand" },
+    { key: "quoted", label: "Quotation prepared", how: "auto", when: "a quotation is prepared" },
+    { key: "sent", label: "Quotation sent", how: "auto", when: "the quotation is sent" },
+    { key: "negotiation", label: "In negotiation", how: "hand", when: "the customer is discussing the offer" },
+    { key: "approved", label: "Approved by customer", how: "auto", when: "the quotation is marked won" },
+    { key: "po", label: "PO received", how: "auto", when: "an order is raised on the PO" },
+    { key: "won", label: "Sales order (WON)", how: "auto", when: "the order clears the credit check" },
+    { key: "procurement", label: "Material procurement", how: "auto", when: "material is reserved, short or ready" },
+    { key: "dispatched", label: "Dispatched", how: "auto", when: "the goods leave" }
+  ];
+  function boardCard(ref, stage, extra) {
+    return Object.assign({ ref: ref, kind: ref.indexOf("LD:") === 0 ? "lead" : ref.indexOf("QT:") === 0 ? "quotation" : "enquiry",
+      id: ref.slice(3), no: ref.slice(3), date: "2026-10-20", lastDate: "2026-10-20", customerId: "CU-1",
+      customerName: "Topworth Urja", what: "EG 99 · FAB-1", detail: "", type: "Spares", urgency: "Normal",
+      source: "Phone", ownerEmail: "p@pie.in", ownerName: "Priya", followUp: "", followUpLabel: "Expected",
+      stage: stage, closedWhy: "", value: "", moves: [], opportunityId: "", quote: null, quoteCount: 0,
+      order: null, dispatch: null }, extra || {});
+  }
+  var BOARD_CARDS = {
+    spare: [
+      boardCard("SE:E1", "enquiry", { no: "SE2610-0001", moves: ["requirement"], followUp: "2026-10-01", urgency: "Breakdown" }),
+      boardCard("SE:E2", "requirement", { no: "SE2610-0002", moves: ["enquiry"], ownerEmail: "d@pie.in", ownerName: "Dhriti" }),
+      boardCard("SE:E3", "sent", { no: "SE2610-0003", value: 12500, moves: ["negotiation"], type: "AMC renewal",
+        quote: { id: "QT-3", quoteNo: "SPARE/26/0003", revision: "R0", status: "Submitted", date: "2026-10-21", sentDate: "2026-10-22" }, quoteCount: 1 }),
+      boardCard("SE:E4", "po", { no: "SE2610-0004", value: 20060,
+        quote: { id: "QT-4", quoteNo: "SPARE/26/0004", revision: "R0", status: "Won", date: "2026-10-10", sentDate: "2026-10-11" }, quoteCount: 1,
+        order: { id: "SO-4", orderNo: "SO/26/0004", status: "Credit Hold", poNo: "PO-4", creditHold: true } }),
+      boardCard("SE:E5", "lost", { no: "SE2610-0005", closedWhy: "Lost: Price too high" }),
+      boardCard("QT:Q6", "quoted", { no: "SPARE/26/0006", what: "", source: "No enquiry logged", value: 4100,
+        quote: { id: "QT-6", quoteNo: "SPARE/26/0006", revision: "R0", status: "Draft", date: "2026-10-25", sentDate: "" }, quoteCount: 1 })
+    ],
+    compressor: [
+      boardCard("LD:L1", "enquiry", { no: "LD2610-0001", what: "2 × 30 kW screw", followUpLabel: "Next action", moves: ["requirement"] }),
+      boardCard("LD:L2", "negotiation", { no: "LD2610-0002", what: "Dryer for line 2", value: 410000, moves: ["sent"],
+        quote: { id: "QT-7", quoteNo: "COMP/26/0007", revision: "R1", status: "Negotiating", date: "2026-10-12", sentDate: "2026-10-13" }, quoteCount: 1 })
+    ]
+  };
+
   window.__data = {
+    getEnquiryBoard: function (opts) {
+      var desk = opts && opts.stream === "Compressor Sales" ? "compressor" : "spare";
+      return { stream: opts && opts.stream, stages: BOARD_STAGES.map(function (s) { return Object.assign({ id: "" }, s); }),
+        closed: { key: "lost", label: "Rejected / Lost", id: "" }, cards: BOARD_CARDS[desk].map(function (c) { return Object.assign({}, c); }),
+        recentDays: 90, canMove: true, canRename: false, me: "p@pie.in" };
+    },
+    moveBoardCard: function (input) {
+      var all = BOARD_CARDS.spare.concat(BOARD_CARDS.compressor);
+      var c = all.filter(function (x) { return x.ref === input.ref; })[0];
+      var back = { requirement: ["enquiry"], enquiry: ["requirement"], negotiation: ["sent"], sent: ["negotiation"] };
+      c.stage = input.to;
+      c.moves = back[input.to] || [];
+      return Object.assign({}, c);
+    },
     bootstrap: { name: "Priya", email: "p@pie.in", role: "Sales Coordinator",
       businessStream: "Spare Sales", appName: "ELGi Sales ERP",
       appSubtitle: "Compressor & Spare Sales", appMark: "EL", build: "test" },

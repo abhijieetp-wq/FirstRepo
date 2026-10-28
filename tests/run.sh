@@ -64,6 +64,10 @@ run_ui "service-due-ui-test.js (2.0)" tests/service-due-ui-test.js "$tmp/base-v2
 run_ui "sdr-rows-ui-test.js (classic)" tests/sdr-rows-ui-test.js "$tmp/base.html"
 run_ui "sdr-rows-ui-test.js (new design)" tests/sdr-rows-ui-test.js "$tmp/base-web.html"
 run_ui "sdr-rows-ui-test.js (2.0)" tests/sdr-rows-ui-test.js "$tmp/base-v2.html"
+# The enquiry board is 2.0's too: the other faces keep the Spare and Compressor lists.
+run_ui "enquiry-board-ui-test.js (classic)" tests/enquiry-board-ui-test.js "$tmp/base.html"
+run_ui "enquiry-board-ui-test.js (new design)" tests/enquiry-board-ui-test.js "$tmp/base-web.html"
+run_ui "enquiry-board-ui-test.js (2.0)" tests/enquiry-board-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

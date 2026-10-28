@@ -2356,6 +2356,7 @@
    */
   function initEnquiriesView() {
     $("btn-new-enquiry").style.display = canEditEnquiries() ? "inline-flex" : "none";
+    if (FACE_V2) ebSpareInit();
     if (customersLoaded && lostReasonsCache.length) {
       fillCustomerDatalist();
       loadEnquiries();
@@ -2383,6 +2384,8 @@
   }
 
   function loadEnquiries() {
+    // 2.0's board follows the same saves and tick boxes as the list.
+    if (ebActive("spare")) ebLoad("spare");
     srv.withSuccessHandler(function (rows) {
       enquiriesCache = rows; renderEnquiries();
     }).withFailureHandler(onServerError).listSpareEnquiries({
@@ -5512,6 +5515,7 @@
   });
 
   // ================= COMPRESSOR SALES =================
+  // 2.0 opens on the enquiry board unless this browser last chose a list.
   var CS_MODE = "leads";
   var leadsCache = [];
   var opportunitiesCache = [];
@@ -5538,18 +5542,34 @@
     if (customersLoaded) fillCustomerDatalist();
     if (!configLists) loadConfigLists();
     ensureLeadFormData();
+    if (FACE_V2 && !$("subtab-board")) {
+      // 2.0's board of ERP 2's ten stages, beside ERP 1's Leads and Pipeline.
+      var tab = document.createElement("button");
+      tab.className = "btn btn-sm";
+      tab.id = "subtab-board";
+      tab.type = "button";
+      tab.textContent = "Board";
+      $("subtab-leads").parentNode.insertBefore(tab, $("subtab-leads"));
+      tab.addEventListener("click", function () { ebSetMode("compressor", "board"); switchCsMode("board"); });
+      if (ebActive("compressor")) CS_MODE = "board";
+    }
     switchCsMode(CS_MODE);
   }
 
   function switchCsMode(mode) {
     CS_MODE = mode;
+    if (FACE_V2 && mode !== "board") ebSetMode("compressor", "list");
+    if ($("subtab-board")) $("subtab-board").className = "btn btn-sm" + (mode === "board" ? " btn-primary" : "");
     $("subtab-leads").className = "btn btn-sm" + (mode === "leads" ? " btn-primary" : "");
     $("subtab-pipeline").className = "btn btn-sm" + (mode === "pipeline" ? " btn-primary" : "");
-    $("cs-search").placeholder = mode === "leads"
+    $("cs-search").placeholder = mode === "board"
+      ? "Search by number, customer, requirement or quotation…"
+      : mode === "leads"
       ? "Search by lead no., customer or requirement…"
       : "Search by opportunity no., customer or title…";
     $("pipeline-summary").style.display = mode === "pipeline" ? "" : "none";
-    $("btn-new-lead").style.display = (mode === "leads" && canEditLeads()) ? "inline-flex" : "none";
+    $("btn-new-lead").style.display = ((mode === "leads" || mode === "board") && canEditLeads()) ? "inline-flex" : "none";
+    if (FACE_V2) ebShowList("compressor", mode !== "board");
     loadCsRows();
   }
 
@@ -5561,6 +5581,7 @@
 
   function loadCsRows() {
     var opts = { mineOnly: $("cs-mine").checked, includeClosed: $("cs-closed").checked };
+    if (CS_MODE === "board") { ebLoad("compressor"); return; }
     if (CS_MODE === "leads") {
       srv.withSuccessHandler(function (rows) {
         leadsCache = rows; renderCsRows();
@@ -5573,6 +5594,7 @@
   }
 
   function renderCsRows() {
+    if (CS_MODE === "board") { ebRender("compressor"); return; }
     if (CS_MODE === "leads") renderLeads(); else renderPipeline();
   }
 
@@ -6569,6 +6591,348 @@
       onServerError(err);
     }).exportQuotationProgress();
   });
+
+  // ================= ENQUIRY BOARD (2.0) =================
+  // ERP 2's ten stages, as a board of cards, on the Spare Sales and Compressor Sales screens.
+  // 2.0 only (FACE_V2); the other faces keep ERP 1's lists. Every stage is read off ERP 1's own
+  // records by the server (EnquiryBoard.gs); the three set by hand write ERP 1's own fields.
+  var EB_DESKS = {
+    spare: { stream: "Spare Sales", view: "enquiries", search: "enquiry-search", mine: "enquiry-mine", closed: "enquiry-closed" },
+    compressor: { stream: "Compressor Sales", view: "compressor", search: "cs-search", mine: "cs-mine", closed: "cs-closed" }
+  };
+  var eb = { spare: { data: null, mode: "" }, compressor: { data: null, mode: "" }, open: null, renaming: false };
+  var EB_KIND = { enquiry: "Spare enquiry", lead: "Lead", opportunity: "Opportunity", quotation: "Quotation" };
+
+  function ebMode(desk) {
+    if (!FACE_V2) return "list";
+    if (!eb[desk].mode) {
+      var kept = "";
+      try { kept = window.localStorage.getItem("erp.board." + desk) || ""; } catch (e) { /* private window */ }
+      eb[desk].mode = kept === "list" ? "list" : "board";
+    }
+    return eb[desk].mode;
+  }
+  function ebActive(desk) { return FACE_V2 && ebMode(desk) === "board"; }
+  function ebSetMode(desk, mode) {
+    eb[desk].mode = mode;
+    try { window.localStorage.setItem("erp.board." + desk, mode); } catch (e) { /* private window */ }
+  }
+
+  function ebMoney(n) {
+    if (n === "" || n === null || n === undefined || isNaN(Number(n))) return "";
+    return "₹" + Math.round(Number(n)).toLocaleString("en-IN");
+  }
+  function ebDate(d) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ""));
+    return m ? m[3] + "-" + m[2] + "-" + m[1] : "";
+  }
+  /** "24-10" this year, "24-10-25" otherwise: a card is narrow. */
+  function ebShort(d) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ""));
+    if (!m) return "";
+    return m[3] + "-" + m[2] + (Number(m[1]) === new Date().getFullYear() ? "" : "-" + m[1].slice(2));
+  }
+  function ebInitials(name) {
+    return String(name || "").split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(function (w) { return w[0].toUpperCase(); }).join("") || "—";
+  }
+  function ebLabel(desk, key) {
+    var d = eb[desk].data;
+    if (!d) return key;
+    if (key === d.closed.key) return d.closed.label;
+    var s = d.stages.filter(function (x) { return x.key === key; })[0];
+    return s ? s.label : key;
+  }
+
+  /** The board's own box, under the screen's search bar; made once. */
+  function ebHost(desk) {
+    var id = "eb-" + desk;
+    if ($(id)) return $(id);
+    var view = $("view-" + EB_DESKS[desk].view);
+    var bar = view.querySelector(".search-bar");
+    var host = document.createElement("div");
+    host.id = id;
+    host.className = "eb-host";
+    bar.parentNode.insertBefore(host, bar.nextSibling);
+    return host;
+  }
+
+  /** The table ERP 1 draws, hidden while the board is up. */
+  function ebShowList(desk, on) {
+    var view = $("view-" + EB_DESKS[desk].view);
+    view.querySelectorAll(":scope > .card").forEach(function (c) { c.style.display = on ? "" : "none"; });
+    ebHost(desk).style.display = on ? "none" : "";
+    if (desk === "compressor" && !on) $("pipeline-summary").style.display = "none";
+  }
+
+  /** Spare Sales: a Board / List switch at the head of the search bar. */
+  function ebSpareInit() {
+    if (!FACE_V2) return;
+    var bar = $("view-enquiries").querySelector(".search-bar");
+    if (!$("eb-switch-spare")) {
+      var sw = document.createElement("div");
+      sw.id = "eb-switch-spare";
+      sw.className = "eb-switch";
+      sw.innerHTML = '<button type="button" data-eb-mode="board">Board</button><button type="button" data-eb-mode="list">List</button>';
+      bar.insertBefore(sw, bar.firstChild);
+      sw.addEventListener("click", function (e) {
+        var b = e.target.closest("[data-eb-mode]");
+        if (!b) return;
+        ebSetMode("spare", b.dataset.ebMode);
+        ebSpareInit();
+      });
+    }
+    var board = ebActive("spare");
+    $("eb-switch-spare").querySelectorAll("[data-eb-mode]").forEach(function (b) {
+      b.classList.toggle("on", (b.dataset.ebMode === "board") === board);
+    });
+    ebShowList("spare", !board);
+    if (board) ebLoad("spare");
+  }
+
+  function ebLoad(desk) {
+    var host = ebHost(desk);
+    if (!eb[desk].data) host.innerHTML = '<div class="empty">Loading the board…</div>';
+    srv.withSuccessHandler(function (d) {
+      eb[desk].data = d;
+      ebRender(desk);
+    }).withFailureHandler(function (err) {
+      host.innerHTML = '<div class="empty">' + escapeHtml(err && err.message ? err.message : String(err)) + "</div>";
+    }).getEnquiryBoard({ stream: EB_DESKS[desk].stream });
+  }
+
+  /** The cards the screen's own search and tick boxes leave. */
+  function ebShown(desk) {
+    var d = eb[desk].data;
+    var cfg = EB_DESKS[desk];
+    var q = ($(cfg.search).value || "").trim().toLowerCase();
+    var mine = $(cfg.mine).checked;
+    return d.cards.filter(function (c) {
+      if (mine && String(c.ownerEmail).toLowerCase() !== String(d.me).toLowerCase()) return false;
+      if (q) {
+        var hay = [c.no, c.customerName, c.what, c.detail, c.quote && c.quote.quoteNo, c.order && c.order.orderNo,
+          c.ownerName].join(" ").toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function ebRender(desk) {
+    var d = eb[desk].data;
+    var host = ebHost(desk);
+    if (!d) return;
+    var cards = ebShown(desk);
+    var showClosed = $(EB_DESKS[desk].closed).checked;
+    var cols = d.stages.concat(showClosed ? [{ key: d.closed.key, label: d.closed.label, how: "closed" }] : []);
+    var today = new Date().toISOString().slice(0, 10);
+    var open = cards.filter(function (c) { return c.stage !== "lost" && c.stage !== "dispatched"; });
+    var openValue = open.reduce(function (s, c) { return s + (Number(c.value) || 0); }, 0);
+    var late = open.filter(function (c) { return c.followUp && c.followUp < today; }).length;
+
+    var html = '<div class="eb-bar">' +
+      '<span class="eb-sum"><b>' + open.length + "</b> open · <b>" + escapeHtml(ebMoney(openValue) || "₹0") + "</b> in play" +
+        (late ? ' · <span class="eb-late">' + late + " past their date</span>" : "") + "</span>" +
+      '<span class="eb-legend"><span class="eb-chip">Set by hand</span><span class="eb-chip auto">Moves by itself</span></span>' +
+      (d.canRename ? '<button type="button" class="btn btn-sm" data-eb-rename="1">' + (eb.renaming ? "Done renaming" : "Rename stages") + "</button>" : "") +
+      "</div>";
+    if (eb.renaming && d.canRename) {
+      html += '<div class="eb-rename">' + d.stages.concat([d.closed]).map(function (s, i) {
+        return '<label class="field"><span>' + (s.key === d.closed.key ? "Closed" : (i + 1) + " · " + (s.how === "hand" ? "set by hand" : "moves by itself")) +
+          '</span><input data-eb-name="' + escapeHtml(s.key) + '" value="' + escapeHtml(s.label) + '" maxlength="40" /></label>';
+      }).join("") + '<p class="eb-note">Renaming changes the board on both desks. Stages cannot be added: the ones that move by themselves follow the quotations, orders and dispatch.</p></div>';
+    }
+    html += '<div class="eb-board">' + cols.map(function (s) {
+      var here = cards.filter(function (c) { return c.stage === s.key; });
+      var total = here.reduce(function (n, c) { return n + (Number(c.value) || 0); }, 0);
+      var rule = s.how === "hand" ? '<span class="eb-chip">Set by hand</span>'
+        : s.how === "closed" ? '<span class="eb-chip bad">With a reason</span>'
+        : '<span class="eb-chip auto" title="Moves here when ' + escapeHtml(s.when || "") + '">Moves by itself</span>';
+      return '<section class="eb-col' + (s.key === "negotiation" ? " neg" : "") + (s.how === "closed" ? " closed" : "") +
+        '" data-eb-stage="' + escapeHtml(s.key) + '">' +
+        '<header><span class="eb-name">' + escapeHtml(s.label) + '</span><span class="eb-count">' + here.length + "</span></header>" +
+        '<div class="eb-meta">' + rule + '<span class="eb-total">' + escapeHtml(total ? ebMoney(total) : "") + "</span></div>" +
+        '<div class="eb-cards">' + (here.length ? here.map(function (c) { return ebCard(c, today); }).join("")
+          : '<div class="eb-empty">Nothing here.</div>') + "</div></section>";
+    }).join("") + "</div>" +
+      '<p class="eb-note">Dispatched and closed cards stay for ' + d.recentDays + " days. " +
+      (showClosed ? "" : "Tick “Include closed” to see the closed ones. ") + "</p>";
+    host.innerHTML = html;
+  }
+
+  function ebCard(c, today) {
+    var doc = c.order ? c.order.orderNo + " · " + c.order.status + (c.order.creditHold ? " · credit hold" : "")
+      : c.quote ? c.quote.quoteNo + (c.quote.revision && c.quote.revision !== "R0" ? " " + c.quote.revision : "") +
+        (c.quote.sentDate ? " · sent " + ebShort(c.quote.sentDate) : " · " + c.quote.status)
+      : "";
+    var late = c.followUp && c.followUp < today;
+    return '<button type="button" class="eb-card' + (c.order && c.order.creditHold ? " hold" : "") + '" data-eb-card="' + escapeHtml(c.ref) + '">' +
+      '<span class="eb-top"><span class="mono">' + escapeHtml(c.no || "—") + "</span>" +
+        (c.kind === "quotation" ? '<span class="eb-chip">No enquiry</span>' : "") +
+        (c.type && c.type !== "Spares" ? '<span class="eb-chip type">' + escapeHtml(c.type) + "</span>" : "") +
+        (c.urgency && c.urgency !== "Normal" ? '<span class="eb-chip ' + (c.urgency === "Breakdown" ? "bad" : "warn") + '">' + escapeHtml(c.urgency) + "</span>" : "") +
+      "</span>" +
+      '<span class="eb-cust">' + escapeHtml(c.customerName || "—") + "</span>" +
+      (c.what ? '<span class="eb-what">' + escapeHtml(c.what) + "</span>" : "") +
+      (c.stage === "lost" && c.closedWhy ? '<span class="eb-why">' + escapeHtml(c.closedWhy) + "</span>" : "") +
+      (doc ? '<span class="eb-doc">' + escapeHtml(doc) + "</span>" : "") +
+      '<span class="eb-foot"><b>' + escapeHtml(ebMoney(c.value)) + "</b>" +
+        (c.followUp ? '<span class="eb-fu' + (late ? " late" : "") + '" title="' + escapeHtml(c.followUpLabel + " " + ebDate(c.followUp)) + '">' +
+          escapeHtml((c.followUpLabel === "Expected" ? "Due " : "Next ") + ebShort(c.followUp)) + "</span>" : "") +
+        '<span class="eb-av" title="' + escapeHtml(c.ownerName || "") + '">' + escapeHtml(ebInitials(c.ownerName)) + "</span></span>" +
+      "</button>";
+  }
+
+  // One handler per board, for the cards, the rename button and the name boxes.
+  ["spare", "compressor"].forEach(function (desk) {
+    if (!FACE_V2) return;
+    var host = ebHost(desk);
+    host.style.display = "none";
+    host.addEventListener("click", function (e) {
+      var card = e.target.closest("[data-eb-card]");
+      if (card) { ebOpenCard(desk, card.dataset.ebCard); return; }
+      if (e.target.closest("[data-eb-rename]")) { eb.renaming = !eb.renaming; ebRender(desk); }
+    });
+    host.addEventListener("change", function (e) {
+      var box = e.target.closest("[data-eb-name]");
+      if (!box) return;
+      var key = box.dataset.ebName;
+      srv.withSuccessHandler(function (names) {
+        names = names || {};
+        ["spare", "compressor"].forEach(function (k) {
+          var d = eb[k].data;
+          if (!d) return;
+          d.stages.forEach(function (s) { if (names[s.key]) s.label = names[s.key].label; });
+          if (names[d.closed.key]) d.closed.label = names[d.closed.key].label;
+        });
+        ebRender(desk);
+        showMsg("Stage renamed.", "success");
+      }).withFailureHandler(function (err) { ebRender(desk); onServerError(err); }).saveBoardStageName(key, box.value);
+    });
+    // The compressor screen's search already redraws through renderCsRows.
+    if (desk === "spare") $(EB_DESKS.spare.search).addEventListener("input", function () { if (ebActive("spare")) ebRender("spare"); });
+  });
+
+  // ---- one card, opened ----
+  function ebModal() {
+    if ($("eb-modal-backdrop")) return $("eb-modal-backdrop");
+    var back = document.createElement("div");
+    back.className = "modal-backdrop";
+    back.id = "eb-modal-backdrop";
+    back.innerHTML = '<div class="modal eb-modal" role="dialog" aria-modal="true" aria-labelledby="eb-m-title">' +
+      '<div class="eb-m-head"><div><div class="eb-m-kind" id="eb-m-kind"></div><h3 id="eb-m-title"></h3></div>' +
+      '<button type="button" class="btn btn-sm" id="eb-m-close">Close</button></div>' +
+      '<div id="eb-m-body"></div></div>';
+    document.body.appendChild(back);
+    $("eb-m-close").addEventListener("click", ebCloseCard);
+    back.addEventListener("click", function (e) {
+      if (e.target === back) { ebCloseCard(); return; }
+      var go = e.target.closest("[data-eb-go]");
+      if (go) { ebGo(go.dataset.ebGo, go.dataset.id); return; }
+      var mv = e.target.closest("[data-eb-move]");
+      if (mv) ebMove(mv.dataset.ebMove);
+    });
+    return back;
+  }
+  function ebCloseCard() { if ($("eb-modal-backdrop")) $("eb-modal-backdrop").classList.remove("show"); eb.open = null; }
+
+  function ebOpenCard(desk, ref) {
+    var c = eb[desk].data.cards.filter(function (x) { return x.ref === ref; })[0];
+    if (!c) return;
+    eb.open = { desk: desk, ref: ref };
+    ebModal().classList.add("show");
+    ebDrawCard(desk, c);
+  }
+
+  function ebDrawCard(desk, c) {
+    var d = eb[desk].data;
+    $("eb-m-kind").textContent = EB_KIND[c.kind] + (c.no ? " · " + c.no : "") + (c.date ? " · " + ebDate(c.date) : "");
+    $("eb-m-title").textContent = c.customerName || "—";
+    var at = d.stages.map(function (s) { return s.key; }).indexOf(c.stage);
+    var steps = c.stage === "lost"
+      ? '<div class="eb-lost"><b>' + escapeHtml(d.closed.label) + ":</b> " + escapeHtml(c.closedWhy || "closed") + "</div>"
+      : '<ol class="eb-steps">' + d.stages.map(function (s, i) {
+          return '<li class="' + (i < at ? "done" : i === at ? "now" : "") + '"><i></i><span>' + escapeHtml(s.label) + "</span></li>";
+        }).join("") + "</ol>";
+    var fact = function (k, v) { return v ? "<dt>" + escapeHtml(k) + "</dt><dd>" + v + "</dd>" : ""; };
+    var links = [];
+    if (c.kind === "enquiry") links.push(["enquiry", c.id, "Open enquiry " + (c.no || "")]);
+    if (c.kind === "lead") links.push(["lead", c.id, "Open lead " + (c.no || "")]);
+    if (c.opportunityId) links.push(["opportunity", c.opportunityId, "Open opportunity"]);
+    if (c.kind === "opportunity") links.push(["opportunity", c.id, "Open opportunity " + (c.no || "")]);
+    if (c.quote) links.push(["quotation", c.quote.id, "Open quotation " + c.quote.quoteNo + (c.quoteCount > 1 ? " (newest of " + c.quoteCount + ")" : "")]);
+    if (c.order) links.push(["order", c.order.id, "Open order " + c.order.orderNo]);
+    var moves = d.canMove ? c.moves : [];
+    $("eb-m-body").innerHTML = steps +
+      '<dl class="eb-facts">' +
+        fact(c.kind === "lead" || c.kind === "opportunity" ? "Requirement" : "Machine", escapeHtml(c.what || "")) +
+        fact("Asked for", c.detail && c.detail !== c.what ? escapeHtml(c.detail) : "") +
+        fact("Quotation for", c.type && c.type !== "Spares" ? escapeHtml(c.type) : "") +
+        fact("Source", escapeHtml(c.source || "")) +
+        fact("Owner", escapeHtml(c.ownerName || "")) +
+        fact(c.followUpLabel || "Date", c.followUp ? escapeHtml(ebDate(c.followUp)) : "") +
+        fact("Value", escapeHtml(ebMoney(c.value))) +
+        fact("Quotation", c.quote ? escapeHtml(c.quote.quoteNo + " · " + (c.quote.status === "Submitted" ? "Sent" : c.quote.status) +
+          (c.quote.sentDate ? " on " + ebDate(c.quote.sentDate) : "")) : "") +
+        fact("Order", c.order ? escapeHtml(c.order.orderNo + " · " + c.order.status + (c.order.poNo ? " · PO " + c.order.poNo : "")) : "") +
+        fact("Dispatch", c.dispatch ? escapeHtml(c.dispatch.dispatchNo + " · " + c.dispatch.status + " · " + ebDate(c.dispatch.date)) : "") +
+      "</dl>" +
+      (moves.length ? '<div class="eb-moves"><span>' + (c.stage === "sent" ? "Is the customer discussing the offer?"
+          : c.stage === "negotiation" ? "Discussion over, waiting on the customer?" : "Moved by hand:") + "</span>" + moves.map(function (k) {
+        return '<button type="button" class="btn btn-sm btn-primary" data-eb-move="' + escapeHtml(k) + '">' +
+          (k === "negotiation" ? "Move to " + escapeHtml(ebLabel(desk, k)) + "…" : "Move to " + escapeHtml(ebLabel(desk, k))) + "</button>";
+      }).join("") + "</div>" : "") +
+      '<div class="eb-links">' + links.map(function (l) {
+        return '<button type="button" class="btn btn-sm" data-eb-go="' + l[0] + '" data-id="' + escapeHtml(l[1]) + '">' + escapeHtml(l[2]) + "</button>";
+      }).join("") + "</div>";
+  }
+
+  /** Opens the ERP 1 record behind a card, where it is worked as it always was. */
+  function ebGo(kind, id) {
+    ebCloseCard();
+    if (kind === "quotation") { openQuotation(id); return; }
+    if (kind === "order") { openOrderModal(id); return; }
+    if (kind === "opportunity") { openOpportunityModal(id); return; }
+    if (kind === "enquiry") {
+      if (enquiriesCache.some(function (x) { return x.id === id; })) { openEnquiryModal(id); return; }
+      srv.withSuccessHandler(function (rows) { enquiriesCache = rows; openEnquiryModal(id); })
+        .withFailureHandler(onServerError).listSpareEnquiries({ includeClosed: true });
+      return;
+    }
+    if (kind === "lead") {
+      var show = function () {
+        if (leadsCache.some(function (x) { return x.id === id; })) { openLeadModal(id); return; }
+        srv.withSuccessHandler(function (rows) { leadsCache = rows; openLeadModal(id); })
+          .withFailureHandler(onServerError).listLeads({ includeClosed: true });
+      };
+      ensureLeadFormData();
+      show();
+    }
+  }
+
+  function ebMove(to) {
+    var o = eb.open;
+    if (!o) return;
+    var run = function (note) {
+      srv.withSuccessHandler(function (card) {
+        var d = eb[o.desk].data;
+        d.cards = d.cards.map(function (c) { return c.ref === card.ref ? card : c; });
+        ebRender(o.desk);
+        if (eb.open && eb.open.ref === card.ref) ebDrawCard(o.desk, card);
+        showMsg("Moved to " + ebLabel(o.desk, card.stage) + ".", "success");
+      }).withFailureHandler(onServerError).moveBoardCard({ ref: o.ref, to: to, note: note || "" });
+    };
+    if (to === "negotiation") {
+      askDialog({
+        title: "The customer is negotiating",
+        message: "Say what they are discussing, so whoever picks it up knows. The quotation stays sent; ERP 1 shows it as Sent.",
+        input: true, inputLabel: "What are they discussing?", placeholder: "e.g. Wants 5% off; asking for 30 days credit",
+        okLabel: "Move to " + ebLabel(o.desk, "negotiation"),
+        validate: function (v) { return String(v || "").trim().length < 5 ? "A few words, please." : ""; }
+      }, function (note) { if (note !== null) run(note); });
+      return;
+    }
+    run("");
+  }
 
   // ================= SERVICE DUE CALLS =================
   // ELGi's weekly Service Due Report, worked machine by machine: the call, the spares

@@ -92,6 +92,14 @@ const REPORT = {
   const go = async (view) => {
     await page.evaluate((v) => document.querySelector('[data-view="' + v + '"]').click(), view);
     await page.waitForTimeout(500);
+    // ERP 1's lists are what this checks; on 2.0 the sales screens open on the enquiry board.
+    await page.evaluate(() => {
+      const list = document.querySelector('.view.active #eb-switch-spare [data-eb-mode="list"]');
+      if (list) list.click();
+      const leads = document.querySelector('.view.active #subtab-board.btn-primary') && document.getElementById('subtab-leads');
+      if (leads) leads.click();
+    });
+    await page.waitForTimeout(300);
   };
   const options = (sel) => page.$$eval(sel + ' option', (os) => os.map((o) => o.textContent.trim()));
 

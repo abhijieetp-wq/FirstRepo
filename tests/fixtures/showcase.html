@@ -204,6 +204,56 @@
     spareSalesScreen: function () {
       return { enquiries: ENQUIRIES, customers: CUSTOMERS, lostReasons: [], knownModels: [] };
     },
+    // ERP 2.0's enquiry board (EnquiryBoard.gs): a desk's worth of invented cards on every stage.
+    getEnquiryBoard: function (opts) {
+      var compressor = opts && opts.stream === "Compressor Sales";
+      var stages = [["enquiry", "Enquiry received", "hand"], ["requirement", "Requirement understood", "hand"],
+        ["quoted", "Quotation prepared", "auto"], ["sent", "Quotation sent", "auto"], ["negotiation", "In negotiation", "hand"],
+        ["approved", "Approved by customer", "auto"], ["po", "PO received", "auto"], ["won", "Sales order (WON)", "auto"],
+        ["procurement", "Material procurement", "auto"], ["dispatched", "Dispatched", "auto"]];
+      var people = [["kiran@pie.in", "Kiran Patil"], ["neha@pie.in", "Neha Rao"], ["anil@pie.in", "Anil Mehta"]];
+      var plan = compressor
+        ? [["enquiry", 0, "2 × EG 37 for a new line", 0], ["enquiry", 3, "Replace old piston unit", 0], ["requirement", 1, "EG 75 with dryer and receiver", 0],
+           ["quoted", 2, "EG 22-8", 682000], ["sent", 4, "EG 55 VFD", 1294000], ["sent", 5, "TS 10 LB-12", 182500],
+           ["negotiation", 0, "2 × EG 30 + dryer", 2210000], ["approved", 3, "EG 15", 498000], ["po", 1, "EG 45", 1086000],
+           ["procurement", 2, "EG 90 PM", 2840000], ["dispatched", 5, "EG 18", 552000]]
+        : [["enquiry", 0, "EG 37 · EG37-21874", 0], ["enquiry", 4, "EG 22 · EG22-11203", 0], ["enquiry", 2, "TS 10 · TS10-7720", 0],
+           ["requirement", 1, "EG 55 · EG55-90311", 0], ["requirement", 5, "EG 11 · EG11-4410", 0],
+           ["quoted", 3, "EG 75 · EG75-1188", 186420], ["quoted", 0, "EG 30 · EG30-6612", 41250],
+           ["sent", 2, "EG 45 · EG45-2219", 92800], ["sent", 4, "EG 18 · EG18-3301", 18650], ["sent", 1, "EG 90 · EG90-0077", 264300],
+           ["negotiation", 5, "EG 37 · EG37-5519", 112400], ["approved", 3, "EG 22 · EG22-8804", 38900],
+           ["po", 0, "EG 55 · EG55-4471", 154200], ["won", 2, "EG 15 · EG15-2290", 27600],
+           ["procurement", 4, "EG 30 · EG30-1160", 68450], ["procurement", 1, "EG 75 · EG75-3093", 201900],
+           ["dispatched", 5, "EG 11 · EG11-7712", 21300]];
+      var cards = plan.map(function (p, i) {
+        var who = people[i % 3];
+        var quoted = ["enquiry", "requirement"].indexOf(p[0]) === -1;
+        var ordered = ["po", "won", "procurement", "dispatched"].indexOf(p[0]) !== -1;
+        var no = (compressor ? "LD2610-00" : "SE2610-00") + (40 + i);
+        return { ref: (compressor ? "LD:" : "SE:") + i, kind: compressor ? "lead" : "enquiry", id: String(i), no: no,
+          date: "2026-10-" + (10 + i), lastDate: "2026-10-" + (10 + i), customerId: C[p[1]].id, customerName: C[p[1]].name,
+          what: p[2], detail: "", type: !compressor && i === 7 ? "AMC renewal" : !compressor && i === 12 ? "Service" : "Spares",
+          urgency: !compressor && i === 1 ? "Breakdown" : "Normal", source: "Phone", ownerEmail: who[0], ownerName: who[1],
+          followUp: ordered || p[0] === "dispatched" ? "" : "2026-10-" + (24 + (i % 7)), followUpLabel: compressor ? "Next action" : "Expected",
+          stage: p[0], closedWhy: "", value: p[3] || "", moves: p[0] === "enquiry" ? ["requirement"] : p[0] === "sent" ? ["negotiation"] : [],
+          opportunityId: "", quoteCount: quoted ? 1 : 0,
+          quote: quoted ? { id: "QT-" + i, quoteNo: (compressor ? "COMP/26/0" : "SPARE/26/0") + (300 + i), revision: "R0",
+            status: p[0] === "quoted" ? "Draft" : p[0] === "negotiation" ? "Negotiating" : ordered || p[0] === "approved" ? "Won" : "Submitted",
+            date: "2026-10-" + (11 + i), sentDate: p[0] === "quoted" ? "" : "2026-10-" + (12 + i) } : null,
+          order: ordered ? { id: "SO-" + i, orderNo: "SO2610-00" + (50 + i), status: p[0] === "po" ? "Credit Hold" : p[0] === "won" ? "Draft"
+            : p[0] === "procurement" ? "Material Pending" : "Dispatched", poNo: "PO-" + i, creditHold: p[0] === "po" } : null,
+          dispatch: null };
+      });
+      cards.push({ ref: "XX:lost", kind: compressor ? "lead" : "enquiry", id: "lost", no: compressor ? "LD2610-0031" : "SE2610-0031",
+        date: "2026-10-05", lastDate: "2026-10-09", customerId: C[3].id, customerName: C[3].name, what: compressor ? "EG 22" : "EG 22 · EG22-0091",
+        detail: "", type: "Spares", urgency: "Normal", source: "Phone", ownerEmail: "neha@pie.in", ownerName: "Neha Rao", followUp: "",
+        followUpLabel: "", stage: "lost", closedWhy: "Lost: Price too high", value: 64000, moves: [], opportunityId: "", quoteCount: 1,
+        quote: null, order: null, dispatch: null });
+      return { stream: opts && opts.stream,
+        stages: stages.map(function (s) { return { key: s[0], label: s[1], how: s[2], when: "", id: "" }; }),
+        closed: { key: "lost", label: "Rejected / Lost", id: "" }, cards: cards, recentDays: 90,
+        canMove: true, canRename: true, me: "anil@pie.in" };
+    },
     listSpareEnquiries: function () { return ENQUIRIES; },
     // The SDR screen, with no week uploaded yet — enough for it to open.
     getServiceDueScreen: { lists: [], calls: [], coordinators: [], me: "anil@pie.in", canEdit: true,
