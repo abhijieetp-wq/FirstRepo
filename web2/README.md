@@ -253,7 +253,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   order tab, a lead's area, and ERP 1's lead form unchanged on the other faces.
 - `tests/dashboard-extras-ui-test.js`, `tests/dashboard-extras-sql-test.js` — the period, the
   enquiries raised by service engineers, today's visits, and the SDR totals.
-- `tests/ai-commands-ui-test.js`, `tests/ai-commands-sql-test.js`, `tests/ai-service-test.js` — the
+- `tests/ai-commands-ui-test.js`, `tests/ai-commands-sql-test.js`, `tests/ai-service-test.js`,
+  `tests/ai-server-test.js` (end to end through the server) — the
   Ask bar and its window, speech, the proposal and its tick boxes, only the ticked actions done,
   each through its own save; what each role may ask; what is and is not sent to Claude; names
   matched here; the request to Claude, its fallback and its errors; off without the key.
