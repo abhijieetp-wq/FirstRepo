@@ -336,6 +336,18 @@ function platformFor(opts) {
 
     // Tally and the Google token endpoint. Synchronous, like the two above and for the same
     // reason — see server/fetch.js.
+    // ERP 2.0's AI commands (server/ai.js, AiCommands.gs). Off, and saying why, unless the
+    // server hands in the service — which it does only with ANTHROPIC_API_KEY set.
+    claudeStatus_: () => {
+      const ai = o.ai;
+      return ai && ai.enabled ? { enabled: true, reason: '' }
+        : { enabled: false, reason: (ai && ai.reason) || 'AI commands are off on this server.' };
+    },
+    claudePropose_: async (req) => {
+      if (!o.ai || !o.ai.enabled) throw new Error((o.ai && o.ai.reason) || 'AI commands are off on this server.');
+      return o.ai.propose(req);
+    },
+
     UrlFetchApp: o.fetch || notMigrated('UrlFetchApp',
       'This server cannot make outbound HTTP requests.'),
 

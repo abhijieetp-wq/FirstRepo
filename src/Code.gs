@@ -6,7 +6,7 @@
  * a stale deployment from a broken feature except by hunting for the feature. This is shown in
  * the footer of every screen and on Settings → System. Bump it with anything worth deploying.
  */
-var APP_BUILD = '2026-10-29.8';
+var APP_BUILD = '2026-10-29.9';
 
 function doGet(e) {
   // Which Google account, if the office has asked for one. This either says "carry on", or
@@ -55,6 +55,8 @@ function bootstrap() {
     user.appMark = 'ER';
   }
   user.build = APP_BUILD;
+  // ERP 2.0's Ask bar (AiCommands.gs) shows when the server can read requests.
+  try { user.aiCommands = aiCommandsOn_(); } catch (err) { user.aiCommands = false; }
   // Standard quotation text that is new in this build is installed on the first load after a
   // deployment. A Sheet not yet set up has no QuoteTemplates tab, and that must not be what
   // stops the app opening.

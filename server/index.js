@@ -38,6 +38,7 @@ const { fileStore } = require('./files.js');
 const { mailer, settings: mailSettings } = require('./mail.js');
 const { gmailConnection } = require('./gmail.js');
 const { urlFetchApp } = require('./fetch.js');
+const { aiService } = require('./ai.js');
 const { settingsStore } = require('./settings.js');
 const { syncSchema } = require('./schema-sync.js');
 const { Cache } = require('./platform.js');
@@ -153,6 +154,9 @@ function build(options) {
     env: process.env });
   const mail = mailer({ settings: o.smtp, gmail });
   const http_ = urlFetchApp({});
+  // The Ask bar's reader, once for the process: off without ANTHROPIC_API_KEY. A test hands in
+  // its own stand-in rather than reaching the network.
+  const ai = o.ai || aiService();
   const smtpReady = (() => { const c = o.smtp || mailSettings();
     return !!(c.url && c.user && c.password); })();
 
@@ -531,7 +535,8 @@ function statusFor(message) {
           tally: tally ? { state: 'ok', endpoint: properties.TALLY_ENDPOINT }
             : { state: 'unconfigured — set it in Settings \u2192 Tally Connection' },
           googleGate: String(properties.GOOGLE_GATE || '').toLowerCase() === 'on'
-            ? 'demanded' : 'off'
+            ? 'demanded' : 'off',
+          ai: ai.enabled ? { state: 'ok', model: ai.model } : { state: 'off — set ANTHROPIC_API_KEY to turn on the 2.0 Ask bar' }
         });
       }
 
@@ -548,7 +553,7 @@ function statusFor(message) {
         const args = Array.isArray(payload.args) ? payload.args : [];
         const token = payload.token || null;
 
-        const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_ });
+        const portal = loadPortal(db, 'anonymous', { cache, userCaches, properties, propertyStore: durable && durable.store(''), quiet: true, drive: files.DriveApp, mail, fetch: http_, ai });
         try {
           // `call` is the portal's own door: it resolves the token to a user, refuses the
           // names on CALL_DENY_, and sets CURRENT_USER_ for everything downstream. The web

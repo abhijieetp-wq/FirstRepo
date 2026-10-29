@@ -465,6 +465,39 @@
     .xf-row-h{ display:none; }
   }
 
+  /* ---- AI commands: the Ask button and its window (JavaScript.html, 2.0 only) ---- */
+  .ai-btn{ display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 14px; border:1px solid var(--brand-200); border-radius:10px;
+    background:var(--brand-50); color:var(--brand-800); font:600 13.5px/1 var(--font-sans); cursor:pointer; }
+  .ai-btn:hover{ border-color:var(--brand-400); background:#fff; }
+  .ai-modal{ max-width:720px; }
+  .ai-modal h3{ display:flex; align-items:center; gap:8px; }
+  .ai-ask{ display:flex; gap:8px; align-items:stretch; }
+  .ai-ask textarea{ flex:1; min-height:76px; padding:10px 12px; border:1px solid var(--gray-200); border-radius:var(--r-sm); font:inherit; font-size:14.5px; resize:vertical; }
+  .ai-ask textarea:focus{ outline:none; border-color:var(--brand-500); box-shadow:0 0 0 3px var(--brand-50); }
+  .ai-mic{ width:48px; padding:0; display:flex; align-items:center; justify-content:center; }
+  .ai-mic.on{ color:#fff; background:var(--bad-600); border-color:var(--bad-600); animation:ai-pulse 1.2s ease-in-out infinite; }
+  @keyframes ai-pulse{ 50%{ box-shadow:0 0 0 6px rgba(200,40,40,.15); } }
+  .ai-off{ margin-top:12px; padding:10px 12px; border-radius:var(--r-sm); background:var(--warn-50); color:var(--warn-700); font-size:13px; }
+  .ai-examples{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:12px; font-size:12.5px; }
+  .ai-example{ padding:5px 10px; border:1px solid var(--gray-200); border-radius:999px; background:var(--gray-0); font:inherit; font-size:12.5px;
+    color:var(--gray-700); text-align:left; cursor:pointer; }
+  .ai-example:hover{ border-color:var(--brand-400); color:var(--brand-800); }
+  .ai-reply{ margin-top:14px; padding:10px 12px; border-radius:var(--r-sm); background:var(--gray-50); font-size:13.5px; color:var(--gray-800); }
+  .ai-list{ display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+  .ai-card{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--gray-200); border-radius:10px; background:var(--gray-0); cursor:pointer; }
+  .ai-card:has(input:checked){ border-color:var(--brand-300); background:var(--brand-50); }
+  .ai-card.bad{ cursor:default; background:var(--gray-50); }
+  .ai-card input{ margin-top:3px; width:18px; height:18px; flex:none; accent-color:var(--brand-600); }
+  .ai-body{ display:flex; flex-direction:column; gap:4px; min-width:0; font-size:13.5px; }
+  .ai-lines{ display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12.5px; color:var(--gray-700); }
+  .ai-lines i{ font-style:normal; color:var(--gray-500); }
+  .ai-problem{ font-size:12.5px; color:var(--bad-600); }
+  .ai-result{ padding:8px 12px; border-radius:var(--r-sm); font-size:13.5px; }
+  .ai-result.ok{ background:var(--brand-50); color:var(--brand-800); }
+  .ai-result.bad{ background:var(--bad-50, #FDECEC); color:var(--bad-600); }
+  .ai-note{ font-size:11.5px; max-width:300px; }
+  @media (max-width:900px){ .ai-btn span{ display:none; } .ai-note{ display:none; } }
+
   /* ---- what 2.0 adds to the shell (web2/Shell.html) ---- */
   .brand-text h1#app-name{ display:flex; align-items:center; min-width:0; }
   .brand-text h1 .v2-name{ display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;

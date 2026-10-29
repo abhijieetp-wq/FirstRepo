@@ -7870,6 +7870,205 @@
       }).join("") + "</div>" : "";
   }
 
+  // ================= AI COMMANDS (2.0) =================
+  // ERP 2's command bar (AiCommands.gs): a request typed or spoken, read by Claude into actions —
+  // a task, a visit, a lead, a spare enquiry, a service call, a screen to open. Each is shown with
+  // a tick box and nothing is done until Do; then each goes through its own form's save on the
+  // server, with its own checks. Speech is the browser's own (SpeechRecognition), where it has it.
+  var ai = { status: null, proposal: null, rec: null, busy: false };
+  var AI_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>';
+  var AI_MIC = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/></svg>';
+  var AI_SPEECH = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+  /** The Ask button, once signed in: for everybody when the server has its key, for Management to see why not otherwise. */
+  function aiMount(user) {
+    if (!FACE_V2 || $("ai-open")) return;
+    var boss = ["Management", "ERP Admin"].indexOf(String(user.role)) !== -1;
+    if (!user.aiCommands && !boss) return;
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "ai-btn";
+    b.id = "ai-open";
+    b.innerHTML = AI_ICON + "<span>Ask</span>";
+    b.title = "Tell the ERP what to do, in your own words";
+    // Beside the search in the shell's top bar, which the shell may still be building.
+    var tries = 0;
+    (function place() {
+      var tools = document.querySelector(".ws-tools");
+      if (tools) { tools.insertBefore(b, tools.firstChild); return; }
+      if (!b.parentNode) (document.querySelector(".topbar") || document.body).appendChild(b);
+      if (tries++ < 30) setTimeout(place, 100);
+    })();
+    b.addEventListener("click", aiOpen);
+
+    var back = document.createElement("div");
+    back.className = "modal-backdrop modal-stacked";
+    back.id = "ai-backdrop";
+    back.innerHTML = '<div class="modal ai-modal" role="dialog" aria-label="Ask the ERP"><h3>' + AI_ICON + " Ask the ERP</h3>" +
+      '<p class="tk-m-sub">Type or say what you want done. Nothing happens until you tick it and press Do.</p>' +
+      '<div class="ai-ask"><textarea id="ai-text" rows="3" maxlength="1000" placeholder="e.g. Remind Priya to send the revised offer to Topworth by Friday"></textarea>' +
+        (AI_SPEECH ? '<button type="button" class="btn ai-mic" id="ai-mic" aria-label="Speak" title="Speak">' + AI_MIC + "</button>" : "") + "</div>" +
+      '<div id="ai-off" class="ai-off" style="display:none;"></div>' +
+      '<div id="ai-examples" class="ai-examples"></div>' +
+      '<div id="ai-reply" class="ai-reply" style="display:none;"></div>' +
+      '<div id="ai-list" class="ai-list"></div>' +
+      '<div class="amc-m-foot"><span class="sdc-muted ai-note">Read by Claude (Anthropic): your words go to Anthropic, your records do not.</span><span style="flex:1"></span>' +
+        '<button type="button" class="btn" id="btn-ai-close">Close</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-ai-ask">Prepare</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-ai-do" style="display:none;">Do these</button></div></div>';
+    document.body.appendChild(back);
+    $("btn-ai-close").addEventListener("click", aiClose);
+    $("btn-ai-ask").addEventListener("click", aiAsk);
+    $("btn-ai-do").addEventListener("click", aiDo);
+    $("ai-text").addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); aiAsk(); }
+    });
+    $("ai-text").addEventListener("input", function () { if (ai.proposal) aiReset(); });
+    $("ai-examples").addEventListener("click", function (e) {
+      var x = e.target.closest("[data-ai-example]");
+      if (!x) return;
+      $("ai-text").value = x.textContent;
+      $("ai-text").focus();
+    });
+    $("ai-list").addEventListener("change", aiCount);
+    if ($("ai-mic")) $("ai-mic").addEventListener("click", aiListen);
+  }
+
+  function aiOpen() {
+    aiReset();
+    $("ai-backdrop").classList.add("show");
+    $("ai-text").focus();
+    if (ai.status) { aiShowStatus(); return; }
+    srv.withSuccessHandler(function (s) { ai.status = s || { enabled: false, reason: "", kinds: [], examples: [] }; aiShowStatus(); })
+      .withFailureHandler(onServerError).getAiStatus();
+  }
+
+  function aiClose() {
+    if (ai.rec) { try { ai.rec.stop(); } catch (err) { /* already stopped */ } }
+    $("ai-backdrop").classList.remove("show");
+  }
+
+  function aiShowStatus() {
+    var s = ai.status;
+    $("ai-off").style.display = s.enabled ? "none" : "";
+    $("ai-off").textContent = s.enabled ? "" : s.reason;
+    $("btn-ai-ask").disabled = !s.enabled;
+    $("ai-examples").innerHTML = s.enabled && s.examples.length ? '<span class="sdc-muted">For example:</span>' + s.examples.map(function (x) {
+      return '<button type="button" class="ai-example" data-ai-example="1">' + escapeHtml(x) + "</button>";
+    }).join("") : "";
+  }
+
+  function aiReset() {
+    ai.proposal = null;
+    $("ai-reply").style.display = "none";
+    $("ai-list").innerHTML = "";
+    $("btn-ai-do").style.display = "none";
+    $("btn-ai-ask").style.display = "";
+    if (ai.status) $("ai-examples").style.display = "";
+  }
+
+  function aiAsk() {
+    var text = $("ai-text").value.trim();
+    if (!text) { showMsg("Say what you want done.", "error"); $("ai-text").focus(); return; }
+    if (ai.busy) return;
+    ai.busy = true;
+    var done = busyButton("btn-ai-ask", "Reading…");
+    srv.withSuccessHandler(function (p) {
+      ai.busy = false;
+      done();
+      ai.proposal = p;
+      aiDraw();
+    }).withFailureHandler(function (err) { ai.busy = false; done(); onServerError(err); }).proposeAiCommand(text);
+  }
+
+  function aiDraw() {
+    var p = ai.proposal;
+    $("ai-examples").style.display = "none";
+    $("ai-reply").style.display = p.reply ? "" : "none";
+    $("ai-reply").textContent = p.reply || "";
+    $("ai-list").innerHTML = p.actions.length ? p.actions.map(function (a, i) {
+      return '<label class="ai-card' + (a.problem ? " bad" : "") + '"><input type="checkbox" data-ai-i="' + i + '"' + (a.problem ? " disabled" : " checked") + " />" +
+        '<span class="ai-body"><b>' + escapeHtml(a.label) + "</b>" +
+        (a.lines.length ? '<span class="ai-lines">' + a.lines.map(function (l) {
+          return "<span><i>" + escapeHtml(l[0]) + "</i> " + escapeHtml(l[1]) + "</span>";
+        }).join("") + "</span>" : "") +
+        (a.problem ? '<span class="ai-problem">' + escapeHtml(a.problem) + "</span>" : "") + "</span></label>";
+    }).join("") : '<p class="sdc-muted">Nothing to do from that. Try saying it another way.</p>';
+    $("btn-ai-ask").style.display = "none";
+    $("btn-ai-do").style.display = "";
+    aiCount();
+  }
+
+  function aiCount() {
+    var n = $("ai-list").querySelectorAll("[data-ai-i]:checked").length;
+    $("btn-ai-do").disabled = !n;
+    $("btn-ai-do").textContent = n ? "Do " + (n === 1 ? "this" : "these " + n) : "Do these";
+  }
+
+  function aiDo() {
+    var p = ai.proposal;
+    if (!p) return;
+    var picked = [].slice.call($("ai-list").querySelectorAll("[data-ai-i]:checked")).map(function (c) {
+      var a = p.actions[Number(c.dataset.aiI)];
+      return { kind: a.kind, input: a.input };
+    });
+    if (!picked.length) return;
+    var done = busyButton("btn-ai-do", "Doing…");
+    srv.withSuccessHandler(function (results) {
+      done();
+      ai.proposal = null;
+      $("btn-ai-do").style.display = "none";
+      $("btn-ai-ask").style.display = "";
+      $("ai-text").value = "";
+      $("ai-list").innerHTML = results.map(function (r) {
+        return '<div class="ai-result ' + (r.ok ? "ok" : "bad") + '">' + (r.ok ? "✓ " : "✗ ") + escapeHtml(r.text) + "</div>";
+      }).join("");
+      var open = results.filter(function (r) { return r.ok && r.view; })[0];
+      var made = results.some(function (r) { return r.ok && !r.view; });
+      if (open) {
+        var tab = document.querySelector('#tabs [data-view="' + open.view + '"]');
+        if (tab) { aiClose(); tab.click(); return; }
+        showMsg("That screen is not on your menu.", "error");
+      }
+      if (made) aiRefresh();
+    }).withFailureHandler(function (err) { done(); onServerError(err); }).applyAiActions(picked);
+  }
+
+  /** The screen behind the window, drawn again so what was just made shows. */
+  function aiRefresh() {
+    var v = document.querySelector(".view.active");
+    var key = v ? v.id.replace(/^view-/, "") : "";
+    if (key && VIEW_INIT[key]) { try { VIEW_INIT[key](); } catch (err) { /* the screen reloads on its next visit */ } }
+  }
+
+  /** The browser's own speech-to-text, Indian English, into the box as it is heard. */
+  function aiListen() {
+    if (!AI_SPEECH) return;
+    if (ai.rec) { try { ai.rec.stop(); } catch (err) { /* already stopped */ } return; }
+    var rec = new AI_SPEECH();
+    rec.lang = "en-IN";
+    rec.interimResults = true;
+    rec.continuous = false;
+    var before = $("ai-text").value.trim();
+    rec.onresult = function (e) {
+      var heard = "";
+      for (var i = 0; i < e.results.length; i++) heard += e.results[i][0].transcript;
+      $("ai-text").value = (before ? before + " " : "") + heard.trim();
+      if (ai.proposal) aiReset();
+    };
+    rec.onerror = function (e) {
+      var why = e && e.error === "not-allowed" ? "The browser was not allowed to use the microphone." :
+        e && e.error === "no-speech" ? "Nothing was heard. Press the microphone and speak." : "Speech could not be read. Type it instead.";
+      showMsg(why, "error");
+    };
+    rec.onend = function () { ai.rec = null; $("ai-mic").classList.remove("on"); };
+    ai.rec = rec;
+    $("ai-mic").classList.add("on");
+    try { rec.start(); } catch (err) { ai.rec = null; $("ai-mic").classList.remove("on"); }
+  }
+
   // ================= COMPRESSOR SALES =================
   // 2.0 opens on the enquiry board unless this browser last chose a list.
   var CS_MODE = "leads";
@@ -16141,6 +16340,8 @@
       '<button class="btn-signout" id="btn-signout" type="button" ' +
         'title="Sign out of the portal">Sign out</button>';
     renderTabs();
+    // ERP 2.0's Ask bar (AiCommands.gs), in the top bar once there is somebody to ask for.
+    if (FACE_V2) aiMount(user);
     $("boot-screen").style.display = "none";
     $("signin-screen").style.display = "none";
     $("app").style.display = "block";

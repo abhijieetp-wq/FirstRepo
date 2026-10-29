@@ -203,6 +203,17 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   line on an enquiry-board card). Who sees and fills them follows the record. Taking a field off
   keeps its values; adding one back under the same name brings them back. A choice since taken off
   a dropdown, or a value from before a field's type changed, stays on the records that had it.
+- **Ask** (`src/AiCommands.gs`, `server/ai.js`), in the top bar: a request typed, or spoken through
+  the browser's microphone, read by Claude (Anthropic's current Opus) into actions — give a task,
+  plan a visit, log a compressor lead, log a spare enquiry, log a service call, open a screen. Each
+  is shown with a tick box; nothing happens until Do, and then each goes through its own form's
+  save, with that form's checks and the person's permissions — so the bar can do nothing the person
+  could not do by hand. Names are matched to staff and customers on PIE's server; one that matches
+  nobody, or more than one, is shown and cannot be ticked. Claude is sent the words, who is asking,
+  today's date and the ERP's short lists — never the customer list or any record. Needs
+  `ANTHROPIC_API_KEY` on the server (never stored in the database or the browser); without it the
+  bar is off, and Management is told why. Speech uses the browser's own recognition (Chrome sends
+  the audio to Google to turn it into text).
 
 ## The rule for each screen that moves to 2.0
 
@@ -242,6 +253,10 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   order tab, a lead's area, and ERP 1's lead form unchanged on the other faces.
 - `tests/dashboard-extras-ui-test.js`, `tests/dashboard-extras-sql-test.js` — the period, the
   enquiries raised by service engineers, today's visits, and the SDR totals.
+- `tests/ai-commands-ui-test.js`, `tests/ai-commands-sql-test.js`, `tests/ai-service-test.js` — the
+  Ask bar and its window, speech, the proposal and its tick boxes, only the ticked actions done,
+  each through its own save; what each role may ask; what is and is not sent to Claude; names
+  matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/form-fields-ui-test.js`, `tests/form-fields-sql-test.js` — building a form's fields,
   each type and its checks, required fields stopping the save, values after the record, list
   columns, who sees and fills them, removing and adding back, and none of it on the other faces.

@@ -116,6 +116,10 @@ run_ui "dashboard-extras-ui-test.js (2.0)" tests/dashboard-extras-ui-test.js "$t
 run_ui "form-fields-ui-test.js (classic)" tests/form-fields-ui-test.js "$tmp/base.html"
 run_ui "form-fields-ui-test.js (new design)" tests/form-fields-ui-test.js "$tmp/base-web.html"
 run_ui "form-fields-ui-test.js (2.0)" tests/form-fields-ui-test.js "$tmp/base-v2.html"
+# And the Ask bar: a request in plain words, read by Claude, done only once ticked.
+run_ui "ai-commands-ui-test.js (classic)" tests/ai-commands-ui-test.js "$tmp/base.html"
+run_ui "ai-commands-ui-test.js (new design)" tests/ai-commands-ui-test.js "$tmp/base-web.html"
+run_ui "ai-commands-ui-test.js (2.0)" tests/ai-commands-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

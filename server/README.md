@@ -24,6 +24,8 @@ variable until it is set — nothing fails silently.
 | `SMTP_FROM` | what the customer sees; defaults to `SMTP_USER` |
 | `ERP_FILE_SECRET` | signs attachment links; derived from `DATABASE_URL` when unset |
 | `ERP_PROPERTIES` | JSON seeding settings the database does not have yet |
+| `ANTHROPIC_API_KEY` | turns on 2.0's Ask bar (`server/ai.js`); never stored anywhere but the environment |
+| `ERP_AI_MODEL` | the Claude model the Ask bar uses; default `claude-opus-5-5` |
 
 ## The four outside things, and what each one needs
 

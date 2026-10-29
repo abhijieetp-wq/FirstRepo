@@ -70,7 +70,12 @@ function querySeeds() {
 }
 
 const QUERY_SEEDS = querySeeds();
-const ASYNC_SEEDS = DB_SEEDS.concat(QUERY_SEEDS.filter((n) => DB_SEEDS.indexOf(n) === -1));
+/**
+ * Asynchronous services the server's platform hands the modules by a plain name. Claude is read
+ * over the network (server/ai.js), so whoever asks it has to wait for the answer.
+ */
+const PLATFORM_SEEDS = ['claudePropose_'];
+const ASYNC_SEEDS = DB_SEEDS.concat(QUERY_SEEDS.filter((n) => DB_SEEDS.indexOf(n) === -1), PLATFORM_SEEDS);
 
 /**
  * Functions that exist only because the storage was a spreadsheet.

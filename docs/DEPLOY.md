@@ -72,6 +72,13 @@ is lost on each deployment, and nothing will warn you until somebody looks for a
 | `TENANT_ID` | `pie` |
 | `ERP_FILE_SECRET` | any long random string; generate one and keep it. Changing it later invalidates attachment links that are already open on somebody's screen. |
 
+Optional — ERP 2.0's **Ask** bar (a request in plain words, read by Claude):
+
+| Variable | Value |
+|---|---|
+| `ANTHROPIC_API_KEY` | a key from console.anthropic.com → API keys. Paste it only into Railway's variable box — never into chat, WhatsApp, the repo or the ERP's settings. Without it the bar is off. `/health` shows `ai: ok` once it is read. |
+| `ERP_AI_MODEL` | leave unset; it uses Anthropic's current Opus. |
+
 `PORT`, `ERP_FILES_DIR` and `ERP_CHROMIUM` are already set correctly by the Dockerfile.
 Do not override them.
 
