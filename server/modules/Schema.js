@@ -258,7 +258,9 @@ var SCHEMA = {
       // The service engineer who passed the lead on, when one did — they are at the
       // customer's machines more than anybody in sales. Blank when it came another way.
       // Read by the Leads by Engineer report (EngineerLeads.gs).
-      'serviceEngineerEmail']
+      'serviceEngineerEmail',
+      // 2.0: the area, Local or Outstation, from the areas list (VisitPlans.gs).
+      'area']
   },
   LeadRequirements: {
     label: 'What the prospect wants, per compressor type — a lead may want both',

@@ -5821,6 +5821,20 @@
     })();
   }
 
+  // A compressor lead's area, Local or Outstation, on the 2.0 lead form (ERP 2's enquiry area).
+  var ldAreaList = null;
+  function ldAreas(then) {
+    if (ldAreaList) { then(ldAreaList); return; }
+    srv.withSuccessHandler(function (a) { ldAreaList = a || []; then(ldAreaList); }).withFailureHandler(onServerError).getAreas();
+  }
+  if (FACE_V2 && $("lm-city") && !$("lm-area")) {
+    var lmCity = $("lm-city").closest(".field");
+    var lmArea = document.createElement("div");
+    lmArea.className = "field";
+    lmArea.innerHTML = '<label>Area</label><select id="lm-area"></select>';
+    lmCity.parentNode.insertBefore(lmArea, lmCity.nextSibling);
+  }
+
   /** The visit part of the 2.0 job window: area, day, instruction, and every reschedule. */
   function sclVisitHtml(j, live) {
     var moves = j.reschedules || [];
@@ -7637,6 +7651,10 @@
     $("lm-phone").value = l ? (l.contactPhone || "") : "";
     $("lm-email").value = l ? (l.contactEmail || "") : "";
     $("lm-city").value = l ? (l.prospectCity || "") : "";
+    if ($("lm-area")) {
+      var areaNow = l ? (l.area || "") : "";
+      ldAreas(function (areas) { $("lm-area").innerHTML = sclAreaOpts(areas, areaNow); });
+    }
 
     leadReqs = l && l.requirements ? l.requirements.map(function (r) {
       return { compressorType: r.compressorType, quantity: r.quantity,
@@ -7832,6 +7850,8 @@
       contactPhone: $("lm-phone").value.trim(),
       contactEmail: $("lm-email").value.trim(),
       prospectCity: $("lm-city").value.trim(),
+      // 2.0's area, Local or Outstation; ERP 1's form has none and keeps the lead's.
+      area: $("lm-area") ? $("lm-area").value : undefined,
       requirements: leadReqs,
       source: $("lm-source").value.trim(),
       industry: $("lm-industry").value.trim(),
@@ -8595,8 +8615,11 @@
     var cfg = EB_DESKS[desk];
     var q = ($(cfg.search).value || "").trim().toLowerCase();
     var mine = $(cfg.mine).checked;
+    var owner = eb[desk].owner || "";
     return d.cards.filter(function (c) {
       if (mine && String(c.ownerEmail).toLowerCase() !== String(d.me).toLowerCase()) return false;
+      // ERP 2's board filters: one owner, or one stage (ebRender shows only that column).
+      if (owner && String(c.ownerEmail).toLowerCase() !== owner) return false;
       if (q) {
         var hay = [c.no, c.customerName, c.what, c.detail, c.quote && c.quote.quoteNo, c.order && c.order.orderNo,
           c.ownerName].join(" ").toLowerCase();
@@ -8612,15 +8635,34 @@
     if (!d) return;
     var cards = ebShown(desk);
     var showClosed = $(EB_DESKS[desk].closed).checked;
-    var cols = d.stages.concat(showClosed ? [{ key: d.closed.key, label: d.closed.label, how: "closed" }] : []);
+    var allCols = d.stages.concat(showClosed ? [{ key: d.closed.key, label: d.closed.label, how: "closed" }] : []);
+    var stage = eb[desk].stage || "";
+    var cols = stage ? allCols.filter(function (c) { return c.key === stage; }) : allCols;
     var today = new Date().toISOString().slice(0, 10);
     var open = cards.filter(function (c) { return c.stage !== "lost" && c.stage !== "dispatched"; });
     var openValue = open.reduce(function (s, c) { return s + (Number(c.value) || 0); }, 0);
     var late = open.filter(function (c) { return c.followUp && c.followUp < today; }).length;
+    // Won this month: an order booked this month that cleared to a sales order (ERP 2's total).
+    var month = today.slice(0, 7);
+    var won = cards.filter(function (c) {
+      return c.order && String(c.order.date || "").slice(0, 7) === month && ["won", "procurement", "dispatched"].indexOf(c.stage) !== -1;
+    });
+    var wonValue = won.reduce(function (s, c) { return s + (Number(c.value) || 0); }, 0);
+    var owners = {};
+    d.cards.forEach(function (c) { if (c.ownerEmail) owners[String(c.ownerEmail).toLowerCase()] = c.ownerName || c.ownerEmail; });
 
     var html = '<div class="eb-bar">' +
-      '<span class="eb-sum"><b>' + open.length + "</b> open · <b>" + escapeHtml(ebMoney(openValue) || "₹0") + "</b> in play" +
-        (late ? ' · <span class="eb-late">' + late + " past their date</span>" : "") + "</span>" +
+      '<span class="eb-sum"><b>' + open.length + "</b> open · <b>" + escapeHtml(ebMoney(openValue) || "₹0") + "</b> in play · <b>" +
+        won.length + "</b> won this month" + (wonValue ? " (" + escapeHtml(ebMoney(wonValue)) + ")" : "") +
+        (late ? ' · <span class="eb-late">' + late + " follow-ups past their date</span>" : "") + "</span>" +
+      '<select class="eb-filter" data-eb-filter="stage" aria-label="Stage"><option value="">All stages</option>' + allCols.map(function (c) {
+        return '<option value="' + escapeHtml(c.key) + '"' + (c.key === stage ? " selected" : "") + ">" + escapeHtml(c.label) + "</option>";
+      }).join("") + "</select>" +
+      '<select class="eb-filter" data-eb-filter="owner" aria-label="Owner"><option value="">Everybody</option>' + Object.keys(owners).sort(function (a, b) {
+        return String(owners[a]).localeCompare(String(owners[b]));
+      }).map(function (k) {
+        return '<option value="' + escapeHtml(k) + '"' + (k === (eb[desk].owner || "") ? " selected" : "") + ">" + escapeHtml(owners[k]) + "</option>";
+      }).join("") + "</select>" +
       '<span class="eb-legend"><span class="eb-chip">Set by hand</span><span class="eb-chip auto">Moves by itself</span></span>' +
       (d.canRename ? '<button type="button" class="btn btn-sm" data-eb-rename="1">' + (eb.renaming ? "Done renaming" : "Rename stages") + "</button>" : "") +
       "</div>";
@@ -8630,7 +8672,7 @@
           '</span><input data-eb-name="' + escapeHtml(s.key) + '" value="' + escapeHtml(s.label) + '" maxlength="40" /></label>';
       }).join("") + '<p class="eb-note">Renaming changes the board on both desks. Stages cannot be added: the ones that move by themselves follow the quotations, orders and dispatch.</p></div>';
     }
-    html += '<div class="eb-board">' + cols.map(function (s) {
+    html += '<div class="eb-board' + (stage ? " one" : "") + '">' + cols.map(function (s) {
       var here = cards.filter(function (c) { return c.stage === s.key; });
       var total = here.reduce(function (n, c) { return n + (Number(c.value) || 0); }, 0);
       var rule = s.how === "hand" ? '<span class="eb-chip">Set by hand</span>'
@@ -8658,6 +8700,7 @@
       '<span class="eb-top"><span class="mono">' + escapeHtml(c.no || "—") + "</span>" +
         (c.kind === "quotation" ? '<span class="eb-chip">No enquiry</span>' : "") +
         (c.escalation ? '<span class="eb-chip esc" title="With ' + escapeHtml(c.escalation.toName) + ' for a decision">Escalated</span>' : "") +
+        (c.area ? '<span class="eb-chip' + (c.areaType === "Outstation" ? " warn" : "") + '" title="' + escapeHtml(c.areaType) + '">' + escapeHtml(c.area) + "</span>" : "") +
         (c.type && c.type !== "Spares" ? '<span class="eb-chip type">' + escapeHtml(c.type) + "</span>" : "") +
         (c.urgency && c.urgency !== "Normal" ? '<span class="eb-chip ' + (c.urgency === "Breakdown" ? "bad" : "warn") + '">' + escapeHtml(c.urgency) + "</span>" : "") +
       "</span>" +
@@ -8677,6 +8720,12 @@
     if (!FACE_V2) return;
     var host = ebHost(desk);
     host.style.display = "none";
+    host.addEventListener("change", function (e) {
+      var f = e.target.closest("[data-eb-filter]");
+      if (!f) return;
+      eb[desk][f.dataset.ebFilter] = f.value;
+      ebRender(desk);
+    });
     host.addEventListener("click", function (e) {
       var card = e.target.closest("[data-eb-card]");
       if (card) { ebOpenCard(desk, card.dataset.ebCard); return; }
@@ -8786,12 +8835,17 @@
         fact("Quotation for", c.type && c.type !== "Spares" ? escapeHtml(c.type) : "") +
         fact("Source", escapeHtml(c.source || "")) +
         fact("Owner", escapeHtml(c.ownerName || "")) +
+        fact("Area", c.area ? escapeHtml(c.area + " · " + c.areaType) : "") +
         fact(c.followUpLabel || "Date", c.followUp ? escapeHtml(ebDate(c.followUp)) : "") +
         fact("Value", escapeHtml(ebMoney(c.value))) +
         fact("Quotation", c.quote ? escapeHtml(c.quote.quoteNo + " · " + (c.quote.status === "Submitted" ? "Sent" : c.quote.status) +
           (c.quote.sentDate ? " on " + ebDate(c.quote.sentDate) : "")) : "") +
-        fact("Order", c.order ? escapeHtml(c.order.orderNo + " · " + c.order.status + (c.order.poNo ? " · PO " + c.order.poNo : "")) : "") +
+        fact("Order", c.order ? escapeHtml(c.order.orderNo + " · " + c.order.status + (c.order.poNo ? " · PO " + c.order.poNo : "") +
+          (c.order.date ? " · " + ebDate(c.order.date) : "")) : "") +
         fact("Dispatch", c.dispatch ? escapeHtml(c.dispatch.dispatchNo + " · " + c.dispatch.status + " · " + ebDate(c.dispatch.date)) : "") +
+        fact("Transporter", c.dispatch && (c.dispatch.transporter || c.dispatch.lrNumber) ? escapeHtml([c.dispatch.transporter, c.dispatch.vehicleNo,
+          c.dispatch.lrNumber ? "LR " + c.dispatch.lrNumber + (c.dispatch.lrDate ? " of " + ebDate(c.dispatch.lrDate) : "") : ""].filter(Boolean).join(" · ")) : "") +
+        fact("Invoice", c.invoice ? escapeHtml(c.invoice.invoiceNo + (c.invoice.date ? " · " + ebDate(c.invoice.date) : "")) : "") +
       "</dl>" +
       (moves.length ? '<div class="eb-moves"><span>' + (c.stage === "sent" ? "Is the customer discussing the offer?"
           : c.stage === "negotiation" ? "Discussion over, waiting on the customer?" : "Moved by hand:") + "</span>" + moves.map(function (k) {

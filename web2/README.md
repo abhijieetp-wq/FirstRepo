@@ -179,6 +179,13 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   spare enquiries and compressor leads passed on (with their value for those who see money).
   Download as CSV. A service engineer sees their own line.
 - **Downloads**: the visit report and the task scorecard download as CSV too.
+- **Board additions** (`src/EnquiryBoard.gs`): the totals add "won this month" (orders booked this
+  month that cleared to a sales order); a stage filter shows one column, an owner filter one
+  person's cards. A card's window shows ERP 2's order tab: the order with its date, the lorry
+  (transporter, vehicle, LR) and the first invoice.
+- **A compressor lead's area**, Local or Outstation, on the 2.0 lead form, on its card and in its
+  window, saved through ERP 1's own lead save; ERP 1's form sends none and keeps the lead's. A
+  lead made from a visit carries the visit's area.
 
 ## The rule for each screen that moves to 2.0
 
@@ -214,6 +221,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   instruction, reschedules with reasons, and ERP 1's breakdown form unchanged on the other faces.
 - `tests/service-engineer-report-ui-test.js`, `tests/service-engineer-report-sql-test.js` — each
   column for a period, who sees what and money, the CSV, and no report on the other faces.
+- `tests/board-extras-ui-test.js`, `tests/board-extras-sql-test.js` — the totals and filters, the
+  order tab, a lead's area, and ERP 1's lead form unchanged on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

@@ -311,6 +311,8 @@ function createVisitEnquiry(id) {
     date: today, customerId: String(v.customerId || ''), customerName: String(v.customerName || ''),
     contactName: String(v.contactMet || ''), contactPhone: String(v.phone || ''), prospectCity: String(v.area || ''),
     source: 'Field Visit', industry: String(v.industry || ''),
+    // The visit's area, while it is still on the list.
+    area: visitAreas_(visitConfig_()).some(function (a) { return a.name === String(v.area || ''); }) ? String(v.area || '') : '',
     requirementSummary: (String(v.requirement || '').trim() || String(v.discussion || '').trim() || 'From a customer visit') +
       (inUse ? ' (in use: ' + inUse + ')' : ''),
     budget: v.potentialValue === '' || v.potentialValue === null || v.potentialValue === undefined ? '' : Number(v.potentialValue),
@@ -374,4 +376,10 @@ function visitSummary_(email, everyone) {
     today: week.filter(function (v) { return String(v.visitDate).slice(0, 10) === today && String(v.status || 'Planned') === 'Planned'; }).length,
     enquiries: week.filter(function (v) { return String(v.leadId || ''); }).length
   };
+}
+
+/** The areas, each Local or Outstation, for any form that asks for one. */
+function getAreas() {
+  getCurrentUser();
+  return visitAreas_(visitConfig_());
 }

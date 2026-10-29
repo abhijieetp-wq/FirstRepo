@@ -204,7 +204,7 @@ function getEnquiryBoard(options) {
         if (String(o.stage) !== 'Lost' && boardRank_(oppFloor(o)) > boardRank_(floor)) floor = oppFloor(o);
       });
       cards.push(boardCard_({
-        ref: 'LD:' + l.id, kind: 'lead', id: String(l.id), no: String(l.leadNo || ''),
+        ref: 'LD:' + l.id, kind: 'lead', id: String(l.id), no: String(l.leadNo || ''), area: String(l.area || ''),
         date: String(l.date || '').slice(0, 10),
         customerId: String(l.customerId || ''),
         customerName: customers[String(l.customerId)] || String(l.customerName || ''),
@@ -254,7 +254,10 @@ function getEnquiryBoard(options) {
 
   // The escalations on each card (Escalations.gs): the one waiting, and the earlier ones.
   var escs = escForCards_(user);
+  var areas = serviceAreas_();
   cards.forEach(function (c) {
+    // A lead's area as Local or Outstation (VisitPlans.gs), as on ERP 2's enquiry.
+    c.areaType = visitAreaType_(c.area, areas);
     var x = escs[c.ref];
     c.escalation = x ? x.open : null;
     c.escalations = x ? x.history : [];
@@ -323,8 +326,9 @@ function boardCard_(base, quotes, idx, checked, lostReasons, people) {
     dispatch && dispatch.dispatchDate].filter(Boolean).map(function (d) { return String(d).slice(0, 10); })
     .sort().pop() || '';
 
+  var invoice = order ? idx.invoiceByOrder[String(order.id)] || null : null;
   return {
-    ref: base.ref, kind: base.kind, id: base.id, no: base.no, date: base.date, lastDate: lastDate,
+    ref: base.ref, kind: base.kind, id: base.id, no: base.no, date: base.date, lastDate: lastDate, area: base.area || '',
     customerId: base.customerId, customerName: base.customerName,
     what: base.what, detail: base.detail, type: base.type, urgency: base.urgency, source: base.source,
     ownerEmail: base.ownerEmail, ownerName: personLine_(base.ownerEmail, people),
@@ -342,12 +346,15 @@ function boardCard_(base, quotes, idx, checked, lostReasons, people) {
     quoteCount: quotes.length,
     order: order ? {
       id: String(order.id), orderNo: String(order.orderNo || ''), status: String(order.orderStatus || ''),
-      poNo: String(order.poNo || ''), creditHold: isTrue_(order.creditHold)
+      poNo: String(order.poNo || ''), creditHold: isTrue_(order.creditHold), date: String(order.date || '').slice(0, 10)
     } : null,
+    // ERP 2's order tab: the lorry and the first invoice too.
     dispatch: dispatch ? {
       dispatchNo: String(dispatch.dispatchNo || ''), date: String(dispatch.dispatchDate || '').slice(0, 10),
-      status: String(dispatch.status || '')
-    } : null
+      status: String(dispatch.status || ''), transporter: String(dispatch.transporterName || ''), vehicleNo: String(dispatch.vehicleNo || ''),
+      lrNumber: String(dispatch.lrNumber || ''), lrDate: String(dispatch.lrDate || '').slice(0, 10)
+    } : null,
+    invoice: invoice ? { invoiceNo: String(invoice.invoiceNo || ''), date: String(invoice.invoiceDate || '').slice(0, 10) } : null
   };
 }
 

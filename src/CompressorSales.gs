@@ -113,6 +113,12 @@ function saveLead(input) {
     ? engineerWas
     : serviceEngineerFor_(input.serviceEngineerEmail, engineerWas);
 
+  // ERP 2.0's area, Local or Outstation (VisitPlans.gs). ERP 1's form sends none, and an edit
+  // from it keeps the one already there.
+  var areaWas = input.id ? String((findRowById_('Leads', input.id) || {}).area || '') : '';
+  var area = input.area === undefined ? areaWas : String(input.area || '').trim();
+  if (area && area !== areaWas) serviceAreaCheck_(area);
+
   var record = {
     date: String(input.date || todayIso_()).slice(0, 10),
     customerId: String(input.customerId || ''),
@@ -138,7 +144,8 @@ function saveLead(input) {
     nextActionDate: String(input.nextActionDate || '').slice(0, 10),
     lostReasonId: String(input.lostReasonId || '').trim(),
     businessStream: STREAM_COMPRESSOR,
-    brand: String(input.brand || defaultBrand_()).trim()
+    brand: String(input.brand || defaultBrand_()).trim(),
+    area: area
   };
 
   if (input.id) {
