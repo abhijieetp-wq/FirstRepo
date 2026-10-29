@@ -161,6 +161,16 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   - A sales engineer sees and plans their own; coordinators and Management everybody's. Service
     sees none of it. ERP 1's site visit report under an opportunity is unchanged. One new table,
     SalesVisits.
+- **Service calls** (`src/ServiceDesk.gs`, ERP 1's `createServiceJob`):
+  - The log-a-call form on 2.0 takes ERP 2's call types — Breakdown, Regular service, Spare
+    change, Commissioning, Installation (AMC visits come from AMC) — an area and an instruction
+    to the engineer. ERP 1's form sends no type and still logs a breakdown.
+  - Each call's area is Local or Outstation, from the same list as visit plans; Service Jobs
+    filters by it. The coordinator sets the area and instruction later from the job window.
+  - Reschedule moves an assigned visit to another day with one of ERP 2's reasons (and a note),
+    kept as history on the job (table ServiceJobReschedules); the time of day is cleared. On 2.0
+    the job window's date, once given, moves only this way.
+  - The next-day plan's message carries the instruction.
 
 ## The rule for each screen that moves to 2.0
 
@@ -192,6 +202,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/visit-plans-ui-test.js`, `tests/visit-plans-sql-test.js` — planning, who sees whose, the
   visit report, areas, copying last week, a visit made into a lead through ERP 1's lead save, the
   dashboard tile, and no visit plans on the other faces.
+- `tests/service-calls-ui-test.js`, `tests/service-calls-sql-test.js` — call types, areas, the
+  instruction, reschedules with reasons, and ERP 1's breakdown form unchanged on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

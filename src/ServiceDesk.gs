@@ -22,6 +22,12 @@
 
 var SERVICE_DESK_STATUSES = ['New', 'Assigned', 'In progress', 'Report submitted', 'Closed', 'Cancelled'];
 
+/** ERP 2's call types. ERP 1 logs Breakdown and raises Installation from a delivery. */
+var SERVICE_CALL_TYPES = ['Breakdown', 'AMC visit', 'Regular service', 'Spare change', 'Installation', 'Commissioning'];
+/** ERP 2's reasons for moving a visit to another day. */
+var SERVICE_RESCHEDULE_REASONS = ['Customer not available', 'Engineer on another breakdown', 'Spares not available',
+  'Travel / weather', 'Customer asked for new date', 'Other'];
+
 /** The 2.0 name for a job's state. */
 function serviceDeskStatus_(job) {
   var s = String(job && job.status || '');
@@ -128,5 +134,85 @@ function cancelServiceJob(id, reason) {
   updateRowById_('ServiceJobs', 'id', id, {
     status: 'Cancelled', cancelReason: why, cancelledAt: nowIso_(), cancelledBy: user.email
   }, 'Service job cancelled: ' + why);
+  return getServiceJob(id);
+}
+
+// ------------------------------------------------------------------ calls: area, instruction, reschedules (2.0)
+
+/** The areas, each Local or Outstation — the same list as the sales visit plans (VisitPlans.gs). */
+function serviceAreas_() { return visitAreas_(visitConfig_()); }
+
+function serviceAreaCheck_(area) {
+  if (!serviceAreas_().some(function (a) { return a.name.toLowerCase() === String(area).toLowerCase(); })) {
+    throw new Error('Pick the area from the list. Management keeps the list on Visit plans → Areas.');
+  }
+}
+
+function serviceRescheduleRows_() {
+  try { return readTable_('ServiceJobReschedules'); } catch (err) { return []; }
+}
+
+function serviceRescheduleCounts_() {
+  var out = {};
+  serviceRescheduleRows_().forEach(function (r) { var k = String(r.serviceJobId); out[k] = (out[k] || 0) + 1; });
+  return out;
+}
+
+function serviceReschedulesFor_(id) {
+  var people = userNameMap_();
+  return serviceRescheduleRows_().filter(function (r) { return String(r.serviceJobId) === String(id); })
+    .sort(function (a, b) { return String(a.createdAt).localeCompare(String(b.createdAt)); })
+    .map(function (r) {
+      return { fromDate: String(r.fromDate || '').slice(0, 10), toDate: String(r.toDate || '').slice(0, 10), reason: String(r.reason || ''),
+        note: String(r.note || ''), byName: personLine_(r.createdBy, people), day: taskDay_(r.createdAt) };
+    });
+}
+
+/** What the 2.0 call form and job window offer: call types, areas, reschedule reasons. */
+function getServiceCallLists() {
+  var user = getCurrentUser();
+  requireRole_(user, SERVICE_ROLES.concat([ROLES.SERVICE_ENGINEER]));
+  return { callTypes: SERVICE_CALL_TYPES, areas: serviceAreas_(), reasons: SERVICE_RESCHEDULE_REASONS,
+    canAssign: SERVICE_ASSIGNERS.indexOf(user.role) !== -1 };
+}
+
+/** The call's area and the instruction to the engineer. Whoever allocates the work. */
+function setServiceJobDetails(id, input) {
+  var user = getCurrentUser();
+  requireRole_(user, SERVICE_ASSIGNERS);
+  var job = findRowById_('ServiceJobs', id);
+  if (!job) throw new Error('Service job not found.');
+  var i = input || {};
+  var area = String(i.area || '').trim();
+  if (area) serviceAreaCheck_(area);
+  var instruction = String(i.instruction || '').trim();
+  if (instruction.length > 500) throw new Error('Keep the instruction under 500 characters.');
+  updateRowById_('ServiceJobs', 'id', id, { area: area, instruction: instruction }, 'Area and instruction set');
+  return getServiceJob(id);
+}
+
+/**
+ * Moves an assigned visit to another day, with the reason, kept as history: ERP 2's
+ * reschedule. The time of day is cleared, since it was for the old day.
+ */
+function rescheduleServiceJob(id, toDate, reason, note) {
+  var user = getCurrentUser();
+  requireRole_(user, SERVICE_ASSIGNERS);
+  var job = findRowById_('ServiceJobs', id);
+  if (!job) throw new Error('Service job not found.');
+  if (['Completed', 'Cancelled'].indexOf(String(job.status)) !== -1) throw new Error('A closed or cancelled job is not rescheduled.');
+  var from = String(job.scheduledDate || '').slice(0, 10);
+  if (!from) throw new Error('This job has no day yet. Give it one by assigning it.');
+  var to = String(toDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) throw new Error('Give the new date.');
+  if (to === from) throw new Error('That is the day it is already on.');
+  if (to < todayIso_()) throw new Error('Move it to today or later.');
+  var why = String(reason || '').trim();
+  if (SERVICE_RESCHEDULE_REASONS.indexOf(why) === -1) throw new Error('Pick the reason it is moving.');
+  var more = String(note || '').trim();
+  if (why === 'Other' && more.length < 5) throw new Error('Say what the other reason is.');
+  appendRow_('ServiceJobReschedules', { id: generateId_('RS-'), serviceJobId: String(id), fromDate: from, toDate: to,
+    reason: why, note: more, createdAt: nowIso_(), createdBy: user.email }, 'Visit rescheduled');
+  updateRowById_('ServiceJobs', 'id', id, { scheduledDate: to, scheduledTime: '' }, 'Rescheduled from ' + from + ' to ' + to + ': ' + why);
   return getServiceJob(id);
 }

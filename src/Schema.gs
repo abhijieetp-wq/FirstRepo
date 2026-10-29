@@ -564,7 +564,14 @@ var SCHEMA = {
       'closedBy', 'cancelReason', 'cancelledAt', 'cancelledBy',
       // The time of the visit on its day, HH:MM, set on 2.0's next-day plan (ServicePlan.gs).
       // Blank is "some time that day", which is all ERP 1 ever said.
-      'scheduledTime']
+      'scheduledTime',
+      // 2.0: the call's area (Local or Outstation, from the areas list) and the coordinator's
+      // instruction to the engineer (ServiceDesk.gs).
+      'area', 'instruction']
+  },
+  ServiceJobReschedules: {
+    label: 'Every time a service visit moved to another day, and why (2.0)',
+    columns: ['id', 'serviceJobId', 'fromDate', 'toDate', 'reason', 'note', 'createdAt', 'createdBy']
   },
   ServiceJobItems: {
     label: 'The parts a service job is to fit, carried from the dispatch',

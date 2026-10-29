@@ -247,6 +247,14 @@ async function createServiceJob(input) {
   if (SERVICE_URGENCIES.indexOf(urgency) === -1) {
     throw new Error('Urgency must be one of: ' + SERVICE_URGENCIES.join(', ') + '.');
   }
+  // ERP 2.0 logs other calls through the same form (ServiceDesk.gs): a regular service, a
+  // spare change, a commissioning. ERP 1's form sends no type, and gets a breakdown as always.
+  var callType = String((input && input.jobType) || 'Breakdown').trim();
+  if (SERVICE_CALL_TYPES.indexOf(callType) === -1) {
+    throw new Error('A call is one of: ' + SERVICE_CALL_TYPES.join(', ') + '.');
+  }
+  var area = String((input && input.area) || '').trim();
+  if (area) await serviceAreaCheck_(area);
 
   var job = {
     id: generateId_('SVJ-'),
@@ -261,7 +269,7 @@ async function createServiceJob(input) {
     siteAddressId: String((input && input.siteAddressId) || '').trim(),
     engineerEmail: '',
     status: 'Unassigned',
-    jobType: 'Breakdown',
+    jobType: callType,
     urgency: urgency,
     reportedBy: String((input && input.reportedBy) || '').trim(),
     contactName: String((input && input.contactName) || '').trim(),
@@ -271,9 +279,11 @@ async function createServiceJob(input) {
     scopeText: scope,
     scheduledDate: '',
     completedDate: '',
-    notes: ''
+    notes: '',
+    area: area,
+    instruction: String((input && input.instruction) || '').trim()
   };
-  await appendRow_('ServiceJobs', job, 'Breakdown call logged');
+  await appendRow_('ServiceJobs', job, callType + ' call logged');
   return await getServiceJob(job.id);
 }
 
@@ -416,8 +426,13 @@ async function listServiceJobs(options) {
     var k = String(i.serviceJobId);
     counts[k] = (counts[k] || 0) + 1;
   });
+  // ERP 2.0: each call's area as Local or Outstation, and how often it was rescheduled.
+  var areas = await serviceAreas_();
+  var moved = await serviceRescheduleCounts_();
   // Rows raised before breakdown calls existed are installations; that is what they were.
   rows.forEach(function (j) {
+    j.areaType = visitAreaType_(j.area, areas);
+    j.rescheduleCount = moved[String(j.id)] || 0;
     j.partCount = counts[String(j.id)] || 0;
     j.jobType = String(j.jobType || 'Installation');
     j.urgency = String(j.urgency || 'Normal');
@@ -438,6 +453,9 @@ async function getServiceJob(id) {
   row.jobType = String(row.jobType || 'Installation');
   row.urgency = String(row.urgency || 'Normal');
   row.deskStatus = serviceDeskStatus_(row);
+  // ERP 2.0: the area as Local or Outstation, and every reschedule with its reason.
+  row.areaType = visitAreaType_(row.area, await serviceAreas_());
+  row.reschedules = await serviceReschedulesFor_(id);
   row.items = (await findRowsByColumn_('ServiceJobItems', 'serviceJobId', [String(id)]))
     .map(stripRow_)
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });

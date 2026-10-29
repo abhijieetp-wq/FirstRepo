@@ -51,7 +51,7 @@ const TABLES = Object.keys(loadSchema()).length;
   ok('every declared table is created', first.tables.length === TABLES, first.tables.length);
   ok('and they are in the database', (await count('tables')) === TABLES, await count('tables'));
   const indexes = await count('indexes');
-  ok('with their indexes', indexes === 243, indexes);
+  ok('with their indexes', indexes === 245, indexes);
 
   console.log('\nA SECOND START CHANGES NOTHING');
   said.length = 0;

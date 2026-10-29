@@ -5213,9 +5213,11 @@
 
   function renderServiceJobs() {
     var q = ($("service-search").value || "").toLowerCase();
+    var areaType = $("service-area-type") ? $("service-area-type").value : "";
     var rows = serviceCache.filter(function (j) {
+      if (areaType && j.areaType !== areaType) return false;
       return [j.jobNo, j.customerName, j.machineModel, j.serialNo, j.engineerEmail,
-        j.jobType, j.reportedBy, j.scopeText]
+        j.jobType, j.reportedBy, j.scopeText, j.area]
         .join(" ").toLowerCase().indexOf(q) !== -1;
     });
 
@@ -5234,13 +5236,15 @@
         '<td class="mono">' + escapeHtml(j.jobNo) + "</td>" +
         "<td>" + jobTypeBadge(j) + "</td>" +
         "<td>" + escapeHtml(j.date) + "</td>" +
-        "<td>" + escapeHtml(j.customerName || "—") + "</td>" +
+        "<td>" + escapeHtml(j.customerName || "—") +
+          (FACE_V2 && j.area ? '<br><span class="sdc-muted">' + escapeHtml(j.area + " · " + j.areaType) + "</span>" : "") + "</td>" +
         "<td>" + escapeHtml(j.machineModel || "—") +
           (j.serialNo ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
             escapeHtml(j.serialNo) + "</span>" : "") + "</td>" +
         '<td class="num">' + (j.partCount === undefined ? "" : j.partCount) + "</td>" +
         "<td>" + escapeHtml(j.engineerEmail || "—") + "</td>" +
-        "<td>" + escapeHtml(j.scheduledDate || "—") + "</td>" +
+        "<td>" + escapeHtml(j.scheduledDate || "—") +
+          (FACE_V2 && j.rescheduleCount ? '<br><span class="sdc-muted">moved ' + j.rescheduleCount + "×</span>" : "") + "</td>" +
         (FACE_V2 && j.deskStatus
           ? '<td><span class="badge ' + (SD_BADGE[j.deskStatus] || "badge-draft") + '">' + escapeHtml(j.deskStatus) + "</span></td>"
           : '<td><span class="badge ' + (SERVICE_BADGE[j.status] || "badge-draft") + '">' +
@@ -5294,7 +5298,7 @@
       btn.disabled = false;
       $("breakdown-modal-backdrop").classList.remove("show");
       loadServiceJobs();
-      showMsg(job.jobNo + " logged. It is waiting for the service coordinator to send " +
+      showMsg(job.jobNo + " logged" + (FACE_V2 ? " as " + job.jobType : "") + ". It is waiting for the service coordinator to send " +
         "somebody.", "success");
     }).withFailureHandler(function (err) {
       btn.disabled = false;
@@ -5307,7 +5311,11 @@
       machineModel: $("bd-model").value,
       serialNo: $("bd-serial").value,
       urgency: $("bd-urgency").value,
-      scopeText: $("bd-scope").value
+      scopeText: $("bd-scope").value,
+      // 2.0's call type, area and instruction (ServiceDesk.gs); ERP 1's form has none of them.
+      jobType: $("bd-type") ? $("bd-type").value : undefined,
+      area: $("bd-area") ? $("bd-area").value : undefined,
+      instruction: $("bd-instruction") ? $("bd-instruction").value : undefined
     });
   });
 
@@ -5346,9 +5354,11 @@
     var mayAllocate = ["Service Coordinator", "Management", "ERP Admin"]
       .indexOf(currentUser.role) !== -1;
     $("sj-engineer").disabled = !mayAllocate;
-    $("sj-scheduled").disabled = !mayAllocate;
+    // On 2.0 a day once given moves only with a reason: Reschedule… in the panel above.
+    var dayLocked = FACE_V2 && !!j.scheduledDate && ["Completed", "Cancelled"].indexOf(j.status) === -1;
+    $("sj-scheduled").disabled = !mayAllocate || dayLocked;
     $("sj-allocation-note").textContent = mayAllocate
-      ? ""
+      ? (dayLocked ? "To move the visit to another day, use Reschedule… above; it asks for the reason." : "")
       : "The service coordinator allocates the engineer.";
 
     withPeople(function (p) {
@@ -5438,6 +5448,26 @@
         tkNew({ kind: "service", id: j.id, label: j.jobNo + (j.customerName ? " · " + j.customerName : "") });
         return;
       }
+      if (act === "details") {
+        sclLists(function (l) {
+          $("sd-det-area").innerHTML = sclAreaOpts(l.areas, j.area || "");
+          $("sd-det-instr").value = j.instruction || "";
+          $("sd-det-backdrop").classList.add("show");
+        });
+        return;
+      }
+      if (act === "resched") {
+        sclLists(function (l) {
+          $("sd-rs-sub").textContent = j.jobNo + " is on " + ebDate(j.scheduledDate) + ". The reason is kept with the job.";
+          $("sd-rs-date").value = "";
+          $("sd-rs-reason").innerHTML = '<option value="">— pick —</option>' + l.reasons.map(function (r) {
+            return '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + "</option>";
+          }).join("");
+          $("sd-rs-note").value = "";
+          $("sd-rs-backdrop").classList.add("show");
+        });
+        return;
+      }
       if (act === "start") {
         srv.withSuccessHandler(function (job) { done(job, job.jobNo + " is in progress."); })
           .withFailureHandler(onServerError).setServiceJobStatus(j.id, "In Progress", $("sj-notes").value);
@@ -5486,6 +5516,7 @@
       html += '<div class="sd-band bad"><b>Cancelled</b>' + (j.cancelReason ? ": " + escapeHtml(j.cancelReason) : "") +
         (j.cancelledAt ? ' <span class="sd-muted">· ' + escapeHtml(ebDate(String(j.cancelledAt).slice(0, 10))) + "</span>" : "") + "</div>";
     }
+    html += sclVisitHtml(j, ["Closed", "Cancelled"].indexOf(st) === -1);
     var reported = !!String(j.reportSubmittedAt || "").trim();
     if (reported && !sdWriting) {
       var row = function (k, v) { return String(v === undefined || v === null ? "" : v).trim() ? "<dt>" + escapeHtml(k) + "</dt><dd>" + escapeHtml(v) + "</dd>" : ""; };
@@ -5682,6 +5713,124 @@
       thenStatus();
     }
   });
+
+  // ================= SERVICE CALLS (2.0) =================
+  // ERP 2's call types on the log-a-call form, each call's area (Local or Outstation) with a
+  // filter, the instruction to the engineer, and rescheduling with a reason (ServiceDesk.gs).
+  // The classic and new-design faces keep ERP 1's breakdown form and job window.
+  var scl = { lists: null };
+  function sclLists(then) {
+    if (scl.lists) { then(scl.lists); return; }
+    srv.withSuccessHandler(function (l) { scl.lists = l; then(l); }).withFailureHandler(onServerError).getServiceCallLists();
+  }
+  function sclAreaOpts(areas, sel) {
+    var group = function (type) {
+      var items = areas.filter(function (a) { return a.type === type; });
+      return items.length ? '<optgroup label="' + type + '">' + items.map(function (a) {
+        return '<option value="' + escapeHtml(a.name) + '"' + (a.name === sel ? " selected" : "") + ">" + escapeHtml(a.name) + "</option>";
+      }).join("") + "</optgroup>" : "";
+    };
+    var known = !sel || areas.some(function (a) { return a.name === sel; });
+    return '<option value="">— none —</option>' + group("Local") + group("Outstation") +
+      (known ? "" : '<option value="' + escapeHtml(sel) + '" selected>' + escapeHtml(sel) + " (no longer listed)</option>");
+  }
+
+  if (FACE_V2 && $("breakdown-modal-backdrop") && !$("bd-type")) {
+    (function () {
+      var modal = $("breakdown-modal-backdrop").querySelector(".modal");
+      modal.querySelector("h3").textContent = "Log a Service Call";
+      modal.querySelector("p").textContent = "A call from a customer: a breakdown, a regular service, a spare change, a commissioning. " +
+        "The service coordinator sends an engineer once it is logged — record what the caller said, not a diagnosis.";
+      var row = document.createElement("div");
+      row.className = "grid grid-3";
+      row.style.marginBottom = "12px";
+      row.innerHTML = '<div class="field"><label>Call type *</label><select id="bd-type"></select></div>' +
+        '<div class="field"><label>Area</label><select id="bd-area"></select></div>' +
+        '<div class="field"><label>Instruction to the engineer</label><input id="bd-instruction" placeholder="e.g. Carry an AOS kit" /></div>';
+      var first = modal.querySelector(".grid");
+      first.parentNode.insertBefore(row, first);
+      $("btn-new-breakdown").textContent = "+ Log Service Call";
+      ["Regular service", "Spare change", "Commissioning"].forEach(function (t) {
+        if ($("service-type") && !$("service-type").querySelector('option[value="' + t + '"]')) {
+          var o = document.createElement("option");
+          o.value = t;
+          o.textContent = t + " calls";
+          $("service-type").appendChild(o);
+        }
+      });
+      var at = document.createElement("select");
+      at.id = "service-area-type";
+      at.style.maxWidth = "170px";
+      at.setAttribute("aria-label", "Local or Outstation");
+      at.innerHTML = '<option value="">Local and outstation</option><option value="Local">Local</option><option value="Outstation">Outstation</option>';
+      $("service-type").parentNode.insertBefore(at, $("service-type").nextSibling);
+      at.addEventListener("change", function () { renderServiceJobs(); });
+      $("btn-new-breakdown").addEventListener("click", function () {
+        sclLists(function (l) {
+          $("bd-type").innerHTML = l.callTypes.filter(function (t) { return t !== "AMC visit" && t !== "Installation"; }).concat(["Installation"]).map(function (t) {
+            return '<option value="' + escapeHtml(t) + '"' + (t === "Breakdown" ? " selected" : "") + ">" + escapeHtml(t) + "</option>";
+          }).join("");
+          $("bd-area").innerHTML = sclAreaOpts(l.areas, "");
+          $("bd-instruction").value = "";
+        });
+      });
+
+      var det = document.createElement("div");
+      det.className = "modal-backdrop modal-stacked";
+      det.id = "sd-det-backdrop";
+      det.innerHTML = '<div class="modal" style="max-width:520px;"><h3>Area and instruction</h3>' +
+        '<div class="field"><label>Area</label><select id="sd-det-area"></select></div>' +
+        '<div class="field" style="margin-top:12px;"><label>Instruction to the engineer</label><textarea id="sd-det-instr" rows="3" maxlength="500" ' +
+          'placeholder="What the engineer should know before going"></textarea></div>' +
+        '<div class="amc-m-foot"><span style="flex:1"></span><button type="button" class="btn" id="btn-sd-det-close">Close</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-sd-det-save">Save</button></div></div>';
+      document.body.appendChild(det);
+      var rs = document.createElement("div");
+      rs.className = "modal-backdrop modal-stacked";
+      rs.id = "sd-rs-backdrop";
+      rs.innerHTML = '<div class="modal" style="max-width:520px;"><h3>Reschedule the visit</h3><p id="sd-rs-sub" class="tk-m-sub"></p>' +
+        '<div class="grid grid-2"><div class="field"><label>New date *</label><input id="sd-rs-date" type="date" /></div>' +
+          '<div class="field"><label>Reason *</label><select id="sd-rs-reason"></select></div></div>' +
+        '<div class="field" style="margin-top:12px;"><label>Note</label><input id="sd-rs-note" placeholder="Anything the engineer or customer said" /></div>' +
+        '<div class="amc-m-foot"><span style="flex:1"></span><button type="button" class="btn" id="btn-sd-rs-close">Close</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-sd-rs-save">Reschedule</button></div></div>';
+      document.body.appendChild(rs);
+
+      var after = function (job, text) {
+        openServiceJob = job;
+        renderServiceJobModal();
+        loadServiceJobs();
+        showMsg(text, "success");
+      };
+      $("btn-sd-det-close").addEventListener("click", function () { det.classList.remove("show"); });
+      $("btn-sd-rs-close").addEventListener("click", function () { rs.classList.remove("show"); });
+      $("btn-sd-det-save").addEventListener("click", function () {
+        var j = openServiceJob;
+        srv.withSuccessHandler(function (job) { det.classList.remove("show"); after(job, "Area and instruction saved for " + job.jobNo + "."); })
+          .withFailureHandler(onServerError).setServiceJobDetails(j.id, { area: $("sd-det-area").value, instruction: $("sd-det-instr").value.trim() });
+      });
+      $("btn-sd-rs-save").addEventListener("click", function () {
+        var j = openServiceJob;
+        srv.withSuccessHandler(function (job) { rs.classList.remove("show"); after(job, job.jobNo + " moved to " + ebDate(job.scheduledDate) + "."); })
+          .withFailureHandler(onServerError).rescheduleServiceJob(j.id, $("sd-rs-date").value, $("sd-rs-reason").value, $("sd-rs-note").value.trim());
+      });
+    })();
+  }
+
+  /** The visit part of the 2.0 job window: area, day, instruction, and every reschedule. */
+  function sclVisitHtml(j, live) {
+    var moves = j.reschedules || [];
+    return '<div class="sd-visit"><div class="sd-visit-top"><span class="sd-h">Visit</span>' +
+      "<span>" + escapeHtml(j.area ? j.area + " · " + j.areaType : "No area set") + "</span>" +
+      (j.scheduledDate ? "<span>" + escapeHtml(ebDate(j.scheduledDate) + (j.scheduledTime ? " " + j.scheduledTime : "")) + "</span>" : "") +
+      (live && sdMayAssign() ? '<span class="sd-visit-acts"><button type="button" class="btn btn-sm" data-sd="details">Area &amp; instruction…</button>' +
+        (j.scheduledDate ? '<button type="button" class="btn btn-sm" data-sd="resched">Reschedule…</button>' : "") + "</span>" : "") + "</div>" +
+      (j.instruction ? '<div class="sd-instr"><b>Instruction to the engineer:</b> ' + escapeHtml(j.instruction) + "</div>" : "") +
+      (moves.length ? '<div class="sd-moves">' + moves.map(function (m) {
+        return "<div>" + escapeHtml("Moved " + ebDate(m.fromDate) + " → " + ebDate(m.toDate) + ": " + m.reason + (m.note ? " — " + m.note : "") +
+          " (" + m.byName + ", " + ebDate(m.day) + ")") + "</div>";
+      }).join("") + "</div>" : "") + "</div>";
+  }
 
   // ================= AMC (2.0) =================
   // ERP 2.0's AMC contracts and the visits they promise (Amc.gs). A screen of its own, on the
@@ -6006,7 +6155,8 @@
   function npLine(v) {
     return (v.scheduledTime || "Any time") + " " + v.customerName + (v.city ? ", " + v.city : "") + " – " + v.jobType +
       (v.scopeText ? ": " + v.scopeText : "") + " (" + v.jobNo + ")" +
-      (v.contactName || v.contactPhone ? "\n    " + [v.contactName, v.contactPhone].filter(Boolean).join(" ") : "");
+      (v.contactName || v.contactPhone ? "\n    " + [v.contactName, v.contactPhone].filter(Boolean).join(" ") : "") +
+      (v.instruction ? "\n    Note: " + v.instruction : "");
   }
   function npMessage(people) {
     var d = np.data;
@@ -6033,7 +6183,8 @@
               (d.canAssign ? '<input type="time" class="np-time" data-np-time="' + escapeHtml(v.id) + '" value="' + escapeHtml(v.scheduledTime) + '" aria-label="Time" />'
                 : '<span class="np-time-text">' + escapeHtml(v.scheduledTime || "—") + "</span>") +
               '<span class="np-main"><span><b>' + escapeHtml(v.customerName) + "</b>" + (v.city ? ", " + escapeHtml(v.city) : "") + "</span>" +
-                '<span class="sdc-muted">' + escapeHtml(v.jobType + " · " + v.jobNo + (v.scopeText ? " · " + v.scopeText : "")) + "</span></span>" +
+                '<span class="sdc-muted">' + escapeHtml(v.jobType + " · " + v.jobNo + (v.areaType === "Outstation" ? " · Outstation" : "") +
+                (v.scopeText ? " · " + v.scopeText : "") + (v.instruction ? " · Note: " + v.instruction : "")) + "</span></span>" +
               '<span class="np-serial mono">' + escapeHtml(v.serialNo) + "</span></div>";
           }).join("") + "</div>";
       }).join("") : '<div class="pd-empty">No service engineers in Users yet.</div>');

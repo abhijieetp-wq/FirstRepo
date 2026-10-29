@@ -31,6 +31,7 @@ function planCities_(jobs) {
     var a = byId[String(j.siteAddressId || '')] || billing[String(j.customerId || '')];
     out[String(j.id)] = a ? String(a.city || '') : '';
   });
+  out.__areas = serviceAreas_();
   return out;
 }
 
@@ -42,7 +43,9 @@ function planJob_(j, cities, people) {
     contactName: String(j.contactName || ''), contactPhone: String(j.contactPhone || ''),
     engineerEmail: String(j.engineerEmail || ''), engineerName: j.engineerEmail ? personLine_(j.engineerEmail, people) : '',
     scheduledDate: String(j.scheduledDate || '').slice(0, 10), scheduledTime: String(j.scheduledTime || ''),
-    deskStatus: serviceDeskStatus_(j), date: String(j.date || '').slice(0, 10)
+    deskStatus: serviceDeskStatus_(j), date: String(j.date || '').slice(0, 10),
+    // The call's area and the coordinator's instruction (ServiceDesk.gs), for the message.
+    area: String(j.area || ''), areaType: visitAreaType_(j.area, cities.__areas || []), instruction: String(j.instruction || '')
   };
 }
 
