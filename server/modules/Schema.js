@@ -260,7 +260,9 @@ var SCHEMA = {
       // Read by the Leads by Engineer report (EngineerLeads.gs).
       'serviceEngineerEmail',
       // 2.0: the area, Local or Outstation, from the areas list (VisitPlans.gs).
-      'area']
+      'area',
+      // 2.0's board: how warm it is (Hot, Warm, Cold, Price issue…).
+      'flag']
   },
   LeadRequirements: {
     label: 'What the prospect wants, per compressor type — a lead may want both',
@@ -297,7 +299,9 @@ var SCHEMA = {
       // was being written without a column to write it into, and silently dropped.
       'salesEngineerEmail',
       'lostNotes', 'ownerEmail', 'nextActionDate', 'businessStream', 'brand',
-      'createdAt', 'createdBy']
+      'createdAt', 'createdBy',
+      // 2.0's board: how warm it is (Hot, Warm, Cold, Price issue…).
+      'flag']
   },
 
   // ---------------------------------------------------------------- Spare front office
@@ -333,7 +337,10 @@ var SCHEMA = {
       // What the offer is for: Spares, AMC renewal or Service (SPARE_ENQUIRY_TYPES). Empty on
       // enquiries logged before it existed, which read as Spares. The quotation's heading and
       // subject follow it.
-      'enquiryType']
+      'enquiryType',
+      // 2.0's board: how warm it is (Hot, Warm, Cold, Price issue…) and the next chase — a
+      // date of its own, not the old nextActionDate whose values meant something else.
+      'flag', 'nextFollowUpDate']
   },
   SpareEnquiryItems: {
     label: 'Identified parts against an enquiry (FR-023, D011)',

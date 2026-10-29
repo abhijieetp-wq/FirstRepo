@@ -73,35 +73,39 @@ const ok = (label, cond, detail) => {
     ok('each card in its stage', (await column('SE:E1')) === 'enquiry' && (await column('SE:E3')) === 'sent' &&
       (await column('SE:E4')) === 'po' && (await column('QT:Q6')) === 'quoted');
     ok('a closed card only when closed ones are asked for', (await column('SE:E5')) === null);
-    ok('which stages are set by hand', await page.$eval('#eb-spare [data-eb-stage="enquiry"] .eb-chip', (e) => e.textContent) === 'Set by hand' &&
-      await page.$eval('#eb-spare [data-eb-stage="sent"] .eb-chip', (e) => e.textContent) === 'Moves by itself');
+    ok('which stages are set by hand', await page.$eval('#eb-spare [data-eb-stage="enquiry"] .eb-chip', (e) => e.textContent) === 'set by hand' &&
+      await page.$eval('#eb-spare [data-eb-stage="sent"] .eb-chip', (e) => e.textContent) === 'moves by itself' &&
+      await page.$eval('#eb-spare [data-eb-stage="negotiation"] .eb-chip', (e) => e.textContent) === 'goes to the owner');
+    ok('ERP 1’s list toolbar is put away for the board’s own', !(await shown('#enquiry-search')) && await shown('#eb-spare [data-eb-q]'));
     ok('a column adds up what is in it', await page.$eval('#eb-spare [data-eb-stage="sent"] .eb-total', (e) => e.textContent) === '₹12,500');
     ok('an AMC renewal says so on its card', /AMC renewal/.test(await page.textContent('[data-eb-card="SE:E3"]')));
     ok('a held order shows on its card', await page.$eval('[data-eb-card="SE:E4"]', (e) => e.classList.contains('hold')) &&
       /credit hold/.test(await page.textContent('[data-eb-card="SE:E4"]')));
     ok('a quotation with no enquiry says so', /No enquiry/.test(await page.textContent('[data-eb-card="QT:Q6"]')));
     ok('a date gone by stands out', await page.$eval('[data-eb-card="SE:E1"] .eb-fu', (e) => e.classList.contains('late')));
-    await page.check('#enquiry-closed');
+    ok('Show lost counts them', /Show lost \(1\)/.test(await page.textContent('#eb-spare .eb2-tools')));
+    await page.check('#eb-spare [data-eb-lost]');
     await page.waitForTimeout(300);
-    ok('Include closed adds the closed column, with the reason', (await column('SE:E5')) === 'lost' &&
+    ok('and adds the closed column, with the reason', (await column('SE:E5')) === 'lost' &&
       /Price too high/.test(await page.textContent('[data-eb-card="SE:E5"]')));
-    await page.uncheck('#enquiry-closed');
+    await page.uncheck('#eb-spare [data-eb-lost]');
     await page.waitForTimeout(300);
-    await page.check('#enquiry-mine');
+    await page.selectOption('#eb-spare [data-eb-filter="owner"]', '__mine');
     await page.waitForTimeout(300);
-    ok('Only mine leaves my cards', (await column('SE:E2')) === null && (await column('SE:E1')) === 'enquiry');
-    await page.uncheck('#enquiry-mine');
+    ok('Mine leaves my cards', (await column('SE:E2')) === null && (await column('SE:E1')) === 'enquiry');
+    await page.selectOption('#eb-spare [data-eb-filter="owner"]', '');
     await page.waitForTimeout(300);
-    await page.fill('#enquiry-search', 'SPARE/26/0006');
+    await page.fill('#eb-spare [data-eb-q]', 'SPARE/26/0006');
     await page.waitForTimeout(150);
-    ok('the search finds by quotation number too', (await page.$$('#eb-spare [data-eb-card]')).length === 1 && (await column('QT:Q6')) === 'quoted');
-    await page.fill('#enquiry-search', '');
+    ok('the search finds by quotation number too, and keeps the box', (await page.$$('#eb-spare [data-eb-card]')).length === 1 && (await column('QT:Q6')) === 'quoted' &&
+      await page.evaluate(() => document.activeElement && document.activeElement.matches('[data-eb-q]')));
+    await page.fill('#eb-spare [data-eb-q]', '');
     await page.waitForTimeout(150);
 
     console.log('\nBOARD OR LIST, REMEMBERED');
-    await page.click('#eb-switch-spare [data-eb-mode="list"]');
+    await page.click('#eb-spare [data-eb-view="list"]');
     await page.waitForTimeout(400);
-    ok('List brings ERP 1’s table back', await shown('#enquiries-tbody') && !(await shown('#eb-spare')));
+    ok('List brings ERP 1’s table back, with its toolbar', await shown('#enquiries-tbody') && !(await shown('#eb-spare')) && await shown('#enquiry-search'));
     await page.reload();
     await page.waitForTimeout(1200);
     await go('enquiries');
@@ -157,9 +161,9 @@ const ok = (label, cond, detail) => {
       await shown('#eb-compressor') && !(await shown('#cs-tbody')));
     ok('with its own cards', (await column('LD:L1')) === 'enquiry' && (await column('LD:L2')) === 'negotiation' &&
       !(await page.$('#eb-compressor [data-eb-card="SE:E1"]')));
-    await page.click('#subtab-leads');
+    await page.click('#eb-compressor [data-eb-view="list"]');
     await page.waitForTimeout(400);
-    ok('Leads is ERP 1’s list, as it was', await shown('#cs-tbody') && !(await shown('#eb-compressor')));
+    ok('List is ERP 1’s Leads, as it was', await shown('#cs-tbody') && !(await shown('#eb-compressor')));
     await page.click('#subtab-board');
     await page.waitForTimeout(400);
     ok('and Board comes back', await shown('#eb-compressor') && (await column('LD:L1')) === 'enquiry');

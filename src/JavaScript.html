@@ -9225,7 +9225,19 @@
     var view = $("view-" + EB_DESKS[desk].view);
     view.querySelectorAll(":scope > .card").forEach(function (c) { c.style.display = on ? "" : "none"; });
     ebHost(desk).style.display = on ? "none" : "";
+    // The board has its own toolbar (search, owner, stage, lost); ERP 1's list keeps its own.
+    var bar = view.querySelector(".search-bar");
+    if (bar) bar.style.display = on ? "" : "none";
+    if (desk === "compressor" && $("subtab-leads")) $("subtab-leads").parentNode.style.display = on ? "" : "none";
     if (desk === "compressor" && !on) $("pipeline-summary").style.display = "none";
+    // ERP 2's heading for the board; ERP 1's words for its list.
+    var p = view.querySelector(".page-head p");
+    if (p) {
+      if (!p.dataset.erp1) p.dataset.erp1 = p.textContent;
+      p.textContent = on ? p.dataset.erp1 : EB_DESC[desk];
+    }
+    var add = $(desk === "spare" ? "btn-new-enquiry" : "btn-new-lead");
+    if (add) add.textContent = desk === "spare" ? "+ Spare enquiry" : "+ Compressor enquiry";
   }
 
   /** Spare Sales: a Board / List switch at the head of the search bar. */
@@ -9264,19 +9276,64 @@
     }).getEnquiryBoard({ stream: EB_DESKS[desk].stream });
   }
 
-  /** The cards the screen's own search and tick boxes leave. */
+  // ---- ERP 2's board, as the 2.0 demo draws it: a toolbar, ten stage columns, cards with the
+  // flag, the town, the document, the value, the follow-up and the owner; one card opens a
+  // drawer from the right with the stages, the dropdowns, the follow-ups and the documents.
+  var EB_DESC = {
+    compressor: "Every compressor enquiry from first call to dispatch, on ERP 2’s one board of ten stages. Enquiry and Requirement are set by hand; " +
+      "the rest move by themselves from quotations, orders and dispatch. In negotiation means it is with management.",
+    spare: "Spare, AMC renewal and service enquiries from customers, engineers and the SDR list, on ERP 2’s one board of ten stages. " +
+      "Enquiry and Requirement are set by hand; the rest move by themselves from quotations, orders and dispatch. In negotiation means it is with management."
+  };
+  var EB_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  /** ₹14.00 L from a lakh up, ₹58,200 below: what fits on a card. */
+  function ebLakh(n) {
+    if (n === "" || n === null || n === undefined || isNaN(Number(n))) return "";
+    var v = Number(n);
+    return v >= 100000 ? "₹" + (v / 100000).toFixed(2) + " L" : "₹" + Math.round(v).toLocaleString("en-IN");
+  }
+  function ebDay(d, year) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ""));
+    return m ? Number(m[3]) + " " + EB_MONTHS[Number(m[2]) - 1] + (year ? " " + m[1] : "") : "";
+  }
+  function ebToday() {
+    var t = new Date();
+    return t.getFullYear() + "-" + ("0" + (t.getMonth() + 1)).slice(-2) + "-" + ("0" + t.getDate()).slice(-2);
+  }
+  function ebFlagTone(f) { return /Hot/.test(f) ? "bad" : f === "Cold" ? "acc" : "sig"; }
+  function ebChip(text, tone, title) {
+    return '<span class="eb-chip' + (tone ? " " + tone : "") + '"' + (title ? ' title="' + escapeHtml(title) + '"' : "") + ">" + escapeHtml(text) + "</span>";
+  }
+  function ebOpenRecord(c) { return c.stage !== "lost" && c.stage !== "dispatched"; }
+
+  /** The toolbar, made once per desk so the search box keeps its focus while the board redraws. */
+  function ebTools(desk) {
+    var host = ebHost(desk);
+    if (host.querySelector(".eb2-tools")) return;
+    host.innerHTML = '<div class="eb2-tools">' +
+      '<div class="eb2-seg" role="group" aria-label="Board or list"><button type="button" data-eb-view="board" aria-pressed="true">Board</button>' +
+        '<button type="button" data-eb-view="list" aria-pressed="false">List</button></div>' +
+      '<input type="search" class="eb2-search" data-eb-q="1" placeholder="Search number, customer, serial" aria-label="Search enquiries" />' +
+      '<select class="eb-filter" data-eb-filter="owner" aria-label="Owner"></select>' +
+      '<select class="eb-filter" data-eb-filter="stage" aria-label="Stage"></select>' +
+      '<label class="eb2-chk"><input type="checkbox" data-eb-lost="1" /> <span class="eb2-lostn">Show lost</span></label>' +
+      '<span class="eb2-legend">' + ebChip("set by hand") + ebChip("moves by itself", "auto") + ebChip("goes to the owner", "sig") + "</span>" +
+      '<span class="eb2-rename-slot"></span></div>' +
+      '<div class="eb-sum"></div><div class="eb2-body"></div>';
+  }
+
+  /** The cards the toolbar's search, owner and lost box leave. */
   function ebShown(desk) {
     var d = eb[desk].data;
-    var cfg = EB_DESKS[desk];
-    var q = ($(cfg.search).value || "").trim().toLowerCase();
-    var mine = $(cfg.mine).checked;
+    var q = String(eb[desk].q || "").trim().toLowerCase();
     var owner = eb[desk].owner || "";
+    var me = String(d.me).toLowerCase();
     return d.cards.filter(function (c) {
-      if (mine && String(c.ownerEmail).toLowerCase() !== String(d.me).toLowerCase()) return false;
-      // ERP 2's board filters: one owner, or one stage (ebRender shows only that column).
-      if (owner && String(c.ownerEmail).toLowerCase() !== owner) return false;
+      var who = String(c.ownerEmail).toLowerCase();
+      if (owner === "__mine" && who !== me) return false;
+      if (owner && owner !== "__mine" && who !== owner) return false;
       if (q) {
-        var hay = [c.no, c.customerName, c.what, c.detail, c.quote && c.quote.quoteNo, c.order && c.order.orderNo,
+        var hay = [c.no, c.customerName, c.what, c.detail, c.place, c.contactName, c.quote && c.quote.quoteNo, c.order && c.order.orderNo,
           c.ownerName].join(" ").toLowerCase();
         if (hay.indexOf(q) === -1) return false;
       }
@@ -9288,231 +9345,438 @@
     var d = eb[desk].data;
     var host = ebHost(desk);
     if (!d) return;
+    ebTools(desk);
     var cards = ebShown(desk);
-    var showClosed = $(EB_DESKS[desk].closed).checked;
-    var allCols = d.stages.concat(showClosed ? [{ key: d.closed.key, label: d.closed.label, how: "closed" }] : []);
+    var showLost = !!eb[desk].lost;
+    var allCols = d.stages.concat(showLost ? [{ key: d.closed.key, label: d.closed.label, how: "closed" }] : []);
     var stage = eb[desk].stage || "";
     var cols = stage ? allCols.filter(function (c) { return c.key === stage; }) : allCols;
-    var today = new Date().toISOString().slice(0, 10);
-    var open = cards.filter(function (c) { return c.stage !== "lost" && c.stage !== "dispatched"; });
+    var today = ebToday();
+    var open = cards.filter(function (c) { return ebOpenRecord(c); });
     var openValue = open.reduce(function (s, c) { return s + (Number(c.value) || 0); }, 0);
     var late = open.filter(function (c) { return c.followUp && c.followUp < today; }).length;
-    // Won this month: an order booked this month that cleared to a sales order (ERP 2's total).
     var month = today.slice(0, 7);
     var won = cards.filter(function (c) {
       return c.order && String(c.order.date || "").slice(0, 7) === month && ["won", "procurement", "dispatched"].indexOf(c.stage) !== -1;
     });
     var wonValue = won.reduce(function (s, c) { return s + (Number(c.value) || 0); }, 0);
-    var owners = {};
-    d.cards.forEach(function (c) { if (c.ownerEmail) owners[String(c.ownerEmail).toLowerCase()] = c.ownerName || c.ownerEmail; });
+    var lostCount = cards.filter(function (c) { return c.stage === "lost"; }).length;
 
-    var html = '<div class="eb-bar">' +
-      '<span class="eb-sum"><b>' + open.length + "</b> open · <b>" + escapeHtml(ebMoney(openValue) || "₹0") + "</b> in play · <b>" +
-        won.length + "</b> won this month" + (wonValue ? " (" + escapeHtml(ebMoney(wonValue)) + ")" : "") +
-        (late ? ' · <span class="eb-late">' + late + " follow-ups past their date</span>" : "") + "</span>" +
-      '<select class="eb-filter" data-eb-filter="stage" aria-label="Stage"><option value="">All stages</option>' + allCols.map(function (c) {
-        return '<option value="' + escapeHtml(c.key) + '"' + (c.key === stage ? " selected" : "") + ">" + escapeHtml(c.label) + "</option>";
-      }).join("") + "</select>" +
-      '<select class="eb-filter" data-eb-filter="owner" aria-label="Owner"><option value="">Everybody</option>' + Object.keys(owners).sort(function (a, b) {
-        return String(owners[a]).localeCompare(String(owners[b]));
-      }).map(function (k) {
-        return '<option value="' + escapeHtml(k) + '"' + (k === (eb[desk].owner || "") ? " selected" : "") + ">" + escapeHtml(owners[k]) + "</option>";
-      }).join("") + "</select>" +
-      '<span class="eb-legend"><span class="eb-chip">Set by hand</span><span class="eb-chip auto">Moves by itself</span></span>' +
-      (d.canRename ? '<button type="button" class="btn btn-sm" data-eb-rename="1">' + (eb.renaming ? "Done renaming" : "Rename stages") + "</button>" : "") +
-      "</div>";
+    // The toolbar's moving parts.
+    var tools = host.querySelector(".eb2-tools");
+    var people = {};
+    (d.owners || []).forEach(function (p) { people[String(p.email).toLowerCase()] = p.name; });
+    d.cards.forEach(function (c) { if (c.ownerEmail && !people[String(c.ownerEmail).toLowerCase()]) people[String(c.ownerEmail).toLowerCase()] = c.ownerName || c.ownerEmail; });
+    var ownerSel = tools.querySelector('[data-eb-filter="owner"]');
+    ownerSel.innerHTML = '<option value="">Everyone</option><option value="__mine">Mine</option>' + Object.keys(people).sort(function (a, b) {
+      return String(people[a]).localeCompare(String(people[b]));
+    }).map(function (k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(people[k]) + "</option>"; }).join("");
+    ownerSel.value = eb[desk].owner || "";
+    var stageSel = tools.querySelector('[data-eb-filter="stage"]');
+    stageSel.innerHTML = '<option value="">All stages</option>' + d.stages.concat([{ key: d.closed.key, label: d.closed.label }]).map(function (c) {
+      return '<option value="' + escapeHtml(c.key) + '">' + escapeHtml(c.label) + "</option>";
+    }).join("");
+    stageSel.value = stage;
+    tools.querySelector("[data-eb-lost]").checked = showLost;
+    tools.querySelector(".eb2-lostn").textContent = "Show lost (" + lostCount + ")";
+    tools.querySelector(".eb2-rename-slot").innerHTML = d.canRename
+      ? '<button type="button" class="btn btn-sm" data-eb-rename="1">' + (eb.renaming ? "Done renaming" : "Rename stages") + "</button>" : "";
+    host.querySelector(".eb-sum").innerHTML = "<b>" + open.length + "</b> open · <b>" + escapeHtml(ebLakh(openValue) || "₹0") + "</b> in play · <b>" +
+      won.length + "</b> won this month" + (wonValue ? " (" + escapeHtml(ebMoney(wonValue)) + ")" : "") +
+      (late ? ' · <span class="eb-late">' + late + " follow-ups past their date</span>" : "");
+
+    var html = "";
     if (eb.renaming && d.canRename) {
       html += '<div class="eb-rename">' + d.stages.concat([d.closed]).map(function (s, i) {
         return '<label class="field"><span>' + (s.key === d.closed.key ? "Closed" : (i + 1) + " · " + (s.how === "hand" ? "set by hand" : "moves by itself")) +
           '</span><input data-eb-name="' + escapeHtml(s.key) + '" value="' + escapeHtml(s.label) + '" maxlength="40" /></label>';
       }).join("") + '<p class="eb-note">Renaming changes the board on both desks. Stages cannot be added: the ones that move by themselves follow the quotations, orders and dispatch.</p></div>';
     }
-    html += '<div class="eb-board' + (stage ? " one" : "") + '">' + cols.map(function (s) {
+    html += '<div class="eb2-board' + (stage ? " one" : "") + '">' + cols.map(function (s) {
       var here = cards.filter(function (c) { return c.stage === s.key; });
       var total = here.reduce(function (n, c) { return n + (Number(c.value) || 0); }, 0);
-      var rule = s.how === "hand" ? '<span class="eb-chip">Set by hand</span>'
-        : s.how === "closed" ? '<span class="eb-chip bad">With a reason</span>'
-        : '<span class="eb-chip auto" title="Moves here when ' + escapeHtml(s.when || "") + '">Moves by itself</span>';
-      return '<section class="eb-col' + (s.key === "negotiation" ? " neg" : "") + (s.how === "closed" ? " closed" : "") +
-        '" data-eb-stage="' + escapeHtml(s.key) + '">' +
-        '<header><span class="eb-name">' + escapeHtml(s.label) + '</span><span class="eb-count">' + here.length + "</span></header>" +
-        '<div class="eb-meta">' + rule + '<span class="eb-total">' + escapeHtml(total ? ebMoney(total) : "") + "</span></div>" +
-        '<div class="eb-cards">' + (here.length ? here.map(function (c) { return ebCard(c, today); }).join("")
-          : '<div class="eb-empty">Nothing here.</div>') + "</div></section>";
+      var rule = s.key === "negotiation" ? ebChip("goes to the owner", "sig", "With management for a decision")
+        : s.how === "hand" ? ebChip("set by hand")
+        : s.how === "closed" ? ebChip("reason needed", "bad")
+        : ebChip("moves by itself", "auto", s.when ? "Moves here when " + s.when : "");
+      return '<section class="eb2-col' + (s.key === "negotiation" ? " neg" : "") + (s.how === "closed" ? " closed" : "") + '" data-eb-stage="' + escapeHtml(s.key) + '">' +
+        '<h3><span class="eb-name">' + escapeHtml(s.label) + '</span><span class="eb-count">' + here.length + "</span></h3>" +
+        '<div class="eb2-rule">' + rule + "</div>" +
+        '<div class="eb2-tot eb-total">' + escapeHtml(ebLakh(total) || "₹0") + "</div>" +
+        (here.length ? here.map(function (c) { return ebCard(c, today, desk); }).join("") : '<div class="eb2-empty">Nothing here.</div>') + "</section>";
     }).join("") + "</div>" +
-      '<p class="eb-note">Dispatched and closed cards stay for ' + d.recentDays + " days. " +
-      (showClosed ? "" : "Tick “Include closed” to see the closed ones. ") + "</p>";
-    host.innerHTML = html;
+      '<p class="eb-note">Dispatched and closed cards stay for ' + d.recentDays + " days." + (showLost ? "" : " Tick “Show lost” to see the closed ones.") + "</p>";
+    host.querySelector(".eb2-body").innerHTML = html;
     xfCards(host);
   }
 
-  function ebCard(c, today) {
+  function ebCard(c, today, desk) {
     var doc = c.order ? c.order.orderNo + " · " + c.order.status + (c.order.creditHold ? " · credit hold" : "")
       : c.quote ? c.quote.quoteNo + (c.quote.revision && c.quote.revision !== "R0" ? " " + c.quote.revision : "") +
-        (c.quote.sentDate ? " · sent " + ebShort(c.quote.sentDate) : " · " + c.quote.status)
+        (c.quote.sentDate ? " · Sent " + ebDay(c.quote.sentDate) : " · " + (c.quote.status === "Submitted" ? "Sent" : c.quote.status))
       : "";
-    var late = c.followUp && c.followUp < today;
-    return '<button type="button" class="eb-card' + (c.order && c.order.creditHold ? " hold" : "") + '" data-eb-card="' + escapeHtml(c.ref) + '">' +
-      '<span class="eb-top"><span class="mono">' + escapeHtml(c.no || "—") + "</span>" +
-        (c.kind === "quotation" ? '<span class="eb-chip">No enquiry</span>' : "") +
-        (c.escalation ? '<span class="eb-chip esc" title="With ' + escapeHtml(c.escalation.toName) + ' for a decision">Escalated</span>' : "") +
-        (c.area ? '<span class="eb-chip' + (c.areaType === "Outstation" ? " warn" : "") + '" title="' + escapeHtml(c.areaType) + '">' + escapeHtml(c.area) + "</span>" : "") +
-        (c.type && c.type !== "Spares" ? '<span class="eb-chip type">' + escapeHtml(c.type) + "</span>" : "") +
-        (c.urgency && c.urgency !== "Normal" ? '<span class="eb-chip ' + (c.urgency === "Breakdown" ? "bad" : "warn") + '">' + escapeHtml(c.urgency) + "</span>" : "") +
-      "</span>" +
+    var late = c.followUp && c.followUp < today && ebOpenRecord(c);
+    var sub = [c.place, c.kind === "lead" || c.kind === "opportunity" ? c.source : (c.what || c.source)].filter(Boolean).join(" · ");
+    var chips = (c.kind === "quotation" ? ebChip("No enquiry") : "") +
+      (c.escalation ? ebChip("Escalated", "esc", "With " + c.escalation.toName + " for a decision") : "") +
+      (c.areaType === "Outstation" ? ebChip(c.area || "Outstation", "warn", "Outstation") : "") +
+      (c.type && c.type !== "Spares" ? ebChip(c.type, "type") : "") +
+      (c.urgency && c.urgency !== "Normal" ? ebChip(c.urgency, c.urgency === "Breakdown" ? "bad" : "warn") : "");
+    return '<button type="button" class="eb-card eb2-card' + (desk === "spare" ? " d-spare" : "") + (c.escalation ? " esc" : "") +
+      (c.order && c.order.creditHold ? " hold" : "") + '" data-eb-card="' + escapeHtml(c.ref) + '">' +
+      '<span class="eb2-t"><span class="mono">' + escapeHtml(c.no || "—") + "</span>" + (c.flag ? ebChip(c.flag, ebFlagTone(c.flag)) : "") + "</span>" +
       '<span class="eb-cust">' + escapeHtml(c.customerName || "—") + "</span>" +
-      (c.what ? '<span class="eb-what">' + escapeHtml(c.what) + "</span>" : "") +
+      (sub ? '<span class="eb-what">' + escapeHtml(sub) + "</span>" : "") +
+      (chips ? '<span class="eb2-chips">' + chips + "</span>" : "") +
       (c.stage === "lost" && c.closedWhy ? '<span class="eb-why">' + escapeHtml(c.closedWhy) + "</span>" : "") +
       (doc ? '<span class="eb-doc">' + escapeHtml(doc) + "</span>" : "") +
-      '<span class="eb-foot"><b>' + escapeHtml(ebMoney(c.value)) + "</b>" +
-        (c.followUp ? '<span class="eb-fu' + (late ? " late" : "") + '" title="' + escapeHtml(c.followUpLabel + " " + ebDate(c.followUp)) + '">' +
-          escapeHtml((c.followUpLabel === "Expected" ? "Due " : "Next ") + ebShort(c.followUp)) + "</span>" : "") +
+      '<span class="eb2-foot"><b>' + escapeHtml(ebLakh(c.value) || "₹0") + "</b>" +
+        (c.followUp && ebOpenRecord(c) ? '<span class="eb-fu' + (late ? " late" : "") + '" title="' + escapeHtml(c.followUpLabel + " " + ebDate(c.followUp)) + '">' +
+          (c.followUpLabel === "Expected" ? "Due " : "FU ") + escapeHtml(ebDay(c.followUp)) + "</span>" : "") +
         '<span class="eb-av" title="' + escapeHtml(c.ownerName || "") + '">' + escapeHtml(ebInitials(c.ownerName)) + "</span></span>" +
       "</button>";
   }
 
-  // One handler per board, for the cards, the rename button and the name boxes.
+  // One handler per board: the toolbar, the cards, the rename boxes.
   ["spare", "compressor"].forEach(function (desk) {
     if (!FACE_V2) return;
     var host = ebHost(desk);
     host.style.display = "none";
+    host.addEventListener("input", function (e) {
+      if (!e.target.closest("[data-eb-q]")) return;
+      eb[desk].q = e.target.value;
+      ebRender(desk);
+    });
     host.addEventListener("change", function (e) {
       var f = e.target.closest("[data-eb-filter]");
-      if (!f) return;
-      eb[desk][f.dataset.ebFilter] = f.value;
-      ebRender(desk);
+      if (f) { eb[desk][f.dataset.ebFilter] = f.value; ebRender(desk); return; }
+      if (e.target.closest("[data-eb-lost]")) { eb[desk].lost = e.target.checked; ebRender(desk); return; }
+      var box = e.target.closest("[data-eb-name]");
+      if (!box) return;
+      srv.withSuccessHandler(function (names) {
+        names = names || {};
+        ["spare", "compressor"].forEach(function (k) {
+          var dd = eb[k].data;
+          if (!dd) return;
+          dd.stages.forEach(function (s) { if (names[s.key]) s.label = names[s.key].label; });
+          if (names[dd.closed.key]) dd.closed.label = names[dd.closed.key].label;
+        });
+        ebRender(desk);
+        showMsg("Stage renamed.", "success");
+      }).withFailureHandler(function (err) { ebRender(desk); onServerError(err); }).saveBoardStageName(box.dataset.ebName, box.value);
     });
     host.addEventListener("click", function (e) {
       var card = e.target.closest("[data-eb-card]");
       if (card) { ebOpenCard(desk, card.dataset.ebCard); return; }
-      if (e.target.closest("[data-eb-rename]")) { eb.renaming = !eb.renaming; ebRender(desk); }
+      if (e.target.closest("[data-eb-rename]")) { eb.renaming = !eb.renaming; ebRender(desk); return; }
+      var v = e.target.closest("[data-eb-view]");
+      if (v && v.dataset.ebView === "list") {
+        if (desk === "spare") { ebSetMode("spare", "list"); ebSpareInit(); }
+        else switchCsMode("leads");
+      }
     });
-    host.addEventListener("change", function (e) {
-      var box = e.target.closest("[data-eb-name]");
-      if (!box) return;
-      var key = box.dataset.ebName;
-      srv.withSuccessHandler(function (names) {
-        names = names || {};
-        ["spare", "compressor"].forEach(function (k) {
-          var d = eb[k].data;
-          if (!d) return;
-          d.stages.forEach(function (s) { if (names[s.key]) s.label = names[s.key].label; });
-          if (names[d.closed.key]) d.closed.label = names[d.closed.key].label;
-        });
-        ebRender(desk);
-        showMsg("Stage renamed.", "success");
-      }).withFailureHandler(function (err) { ebRender(desk); onServerError(err); }).saveBoardStageName(key, box.value);
-    });
-    // The compressor screen's search already redraws through renderCsRows.
-    if (desk === "spare") $(EB_DESKS.spare.search).addEventListener("input", function () { if (ebActive("spare")) ebRender("spare"); });
   });
 
-  // ---- one card, opened ----
+  // ---- one card, opened: a drawer from the right ----
   function ebModal() {
     if ($("eb-modal-backdrop")) return $("eb-modal-backdrop");
     var back = document.createElement("div");
-    back.className = "modal-backdrop";
+    back.className = "eb2-ov";
     back.id = "eb-modal-backdrop";
-    back.innerHTML = '<div class="modal eb-modal" role="dialog" aria-modal="true" aria-labelledby="eb-m-title">' +
-      '<div class="eb-m-head"><div><div class="eb-m-kind" id="eb-m-kind"></div><h3 id="eb-m-title"></h3></div>' +
-      '<button type="button" class="btn btn-sm" id="eb-m-close">Close</button></div>' +
-      '<div id="eb-m-body"></div></div>';
+    back.innerHTML = '<aside class="eb2-drawer" role="dialog" aria-modal="true" aria-labelledby="eb-m-title"><header>' +
+      '<div class="eb2-dtop"><div class="eb2-dhead"><span class="eb2-eyebrow" id="eb-m-kind"></span><h2 id="eb-m-title"></h2><div class="eb2-chips" id="eb-m-chips"></div></div>' +
+        '<div class="eb2-acts" id="eb-m-acts"></div>' +
+        '<button type="button" class="eb2-x" id="eb-m-close" aria-label="Close">×</button></div>' +
+      '<div id="eb-m-steps"></div><div class="eb2-tabs" role="tablist" id="eb-m-tabs"></div></header>' +
+      '<div class="eb2-dbody" id="eb-m-body"></div></aside>';
     document.body.appendChild(back);
     $("eb-m-close").addEventListener("click", ebCloseCard);
     back.addEventListener("click", function (e) {
       if (e.target === back) { ebCloseCard(); return; }
+      var tab = e.target.closest("[data-eb-tab]");
+      if (tab) { eb.tab = tab.dataset.ebTab; ebRedraw(); return; }
       var go = e.target.closest("[data-eb-go]");
       if (go) { ebGo(go.dataset.ebGo, go.dataset.id); return; }
-      // Escalating the card, or answering the escalation waiting on it (Escalations.gs).
-      if ((e.target.closest("[data-eb-escalate]") || e.target.closest("[data-eb-esc-open]")) && eb.open) {
-        var d0 = eb[eb.open.desk].data;
-        var c0 = d0.cards.filter(function (y) { return y.ref === eb.open.ref; })[0];
-        if (!c0) return;
-        if (e.target.closest("[data-eb-esc-open]") && c0.escalation) escShow(c0.escalation);
-        else escRaise(c0, d0.escalateTo);
-        return;
-      }
-      // A task about this card's record (Tasks.gs).
-      if (e.target.closest("[data-eb-task]") && eb.open) {
-        var card = eb[eb.open.desk].data.cards.filter(function (x) { return x.ref === eb.open.ref; })[0];
-        if (card) tkNew({ kind: card.kind, id: card.id, label: (card.no ? card.no + " · " : "") + (card.customerName || "") });
-        return;
-      }
+      var c0 = ebOpenCardData();
+      if (!c0) return;
+      var d0 = eb[eb.open.desk].data;
+      if (e.target.closest("[data-eb-esc-open]")) { if (c0.escalation) escShow(c0.escalation); return; }
+      if (e.target.closest("[data-eb-escalate]")) { escRaise(c0, d0.escalateTo); return; }
+      if (e.target.closest("[data-eb-task]")) { tkNew({ kind: c0.kind, id: c0.id, label: (c0.no ? c0.no + " · " : "") + (c0.customerName || "") }); return; }
+      var act = e.target.closest("[data-eb-act]");
+      if (act) { ebAct(act.dataset.ebAct, act); return; }
       var mv = e.target.closest("[data-eb-move]");
       if (mv) ebMove(mv.dataset.ebMove);
+    });
+    back.addEventListener("change", function (e) {
+      var f = e.target.closest("[data-eb-field]");
+      if (f) ebSetField(f.dataset.ebField, f.value, f);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && back.classList.contains("show") && !document.querySelector(".modal-backdrop.show")) ebCloseCard();
     });
     return back;
   }
   function ebCloseCard() { if ($("eb-modal-backdrop")) $("eb-modal-backdrop").classList.remove("show"); eb.open = null; }
+  function ebOpenCardData() {
+    if (!eb.open) return null;
+    var d = eb[eb.open.desk].data;
+    return d ? d.cards.filter(function (x) { return x.ref === eb.open.ref; })[0] || null : null;
+  }
+  function ebRedraw() { var c = ebOpenCardData(); if (c) ebDrawCard(eb.open.desk, c); }
+  /** A card the server sent back, in place on the board and in the drawer. */
+  function ebPut(desk, card) {
+    var d = eb[desk].data;
+    if (!d || !card) return;
+    d.cards = d.cards.map(function (c) { return c.ref === card.ref ? card : c; });
+    ebRender(desk);
+    if (eb.open && eb.open.ref === card.ref) ebDrawCard(desk, card);
+  }
 
   function ebOpenCard(desk, ref) {
     var c = eb[desk].data.cards.filter(function (x) { return x.ref === ref; })[0];
     if (!c) return;
     eb.open = { desk: desk, ref: ref };
+    eb.tab = "overview";
     ebModal().classList.add("show");
     ebDrawCard(desk, c);
   }
 
+  var EB_KIND_LONG = { enquiry: "Spare enquiry", lead: "Compressor enquiry", opportunity: "Opportunity", quotation: "Quotation" };
+
   function ebDrawCard(desk, c) {
     var d = eb[desk].data;
-    $("eb-m-kind").textContent = EB_KIND[c.kind] + (c.no ? " · " + c.no : "") + (c.date ? " · " + ebDate(c.date) : "");
+    var open = ebOpenRecord(c);
+    var edit = d.canMove && open && c.kind !== "quotation";
+    var stageName = c.stage === "lost" ? d.closed.label : ebLabel(desk, c.stage);
+    $("eb-m-kind").innerHTML = escapeHtml(EB_KIND_LONG[c.kind] || "Enquiry") + (c.no ? ' · <span class="mono">' + escapeHtml(c.no) + "</span>" : "");
     $("eb-m-title").textContent = c.customerName || "—";
+    $("eb-m-chips").innerHTML = ebChip(stageName, c.stage === "lost" ? "bad" : c.stage === "negotiation" ? "sig" : "acc") +
+      (c.flag ? ebChip(c.flag, ebFlagTone(c.flag)) : "") + (c.escalation ? ebChip("Escalated to " + c.escalation.toName, "sig") : "");
+
+    var acts = "";
+    if (open) {
+      if (edit) acts += '<button type="button" class="btn btn-sm" data-eb-act="note">Add follow-up</button>';
+      if (c.quote) acts += '<button type="button" class="btn btn-sm" data-eb-go="quotation" data-id="' + escapeHtml(c.quote.id) + '">Open quotation</button>';
+      else if ((c.kind === "enquiry" || c.kind === "opportunity") && canEditQuotes()) acts += '<button type="button" class="btn btn-sm btn-primary" data-eb-act="quote">Prepare quotation</button>';
+      else if (c.kind === "lead") acts += '<button type="button" class="btn btn-sm btn-primary" data-eb-go="lead" data-id="' + escapeHtml(c.id) + '" title="A lead is quoted once it is an opportunity">Open lead to quote</button>';
+      if (!c.escalation && (d.escalateTo || []).length) acts += '<button type="button" class="btn btn-sm" data-eb-escalate="1">Escalate to owner</button>';
+      acts += '<button type="button" class="btn btn-sm" data-eb-task="1">+ Task</button>';
+      if (edit) acts += '<button type="button" class="btn btn-sm eb2-danger" data-eb-act="lost">Mark lost</button>';
+    } else {
+      acts += '<button type="button" class="btn btn-sm" data-eb-task="1">+ Task</button>';
+    }
+    $("eb-m-acts").innerHTML = acts;
+
     var at = d.stages.map(function (s) { return s.key; }).indexOf(c.stage);
-    var steps = c.stage === "lost"
-      ? '<div class="eb-lost"><b>' + escapeHtml(d.closed.label) + ":</b> " + escapeHtml(c.closedWhy || "closed") + "</div>"
+    $("eb-m-steps").innerHTML = c.stage === "lost"
+      ? '<div class="eb-lost">' + escapeHtml(d.closed.label) + ": " + escapeHtml(c.closedWhy || "closed") + "</div>"
       : '<ol class="eb-steps">' + d.stages.map(function (s, i) {
-          return '<li class="' + (i < at ? "done" : i === at ? "now" : "") + '"><i></i><span>' + escapeHtml(s.label) + "</span></li>";
+          return '<li class="' + (i < at ? "done" : i === at ? "now" + (s.key === "negotiation" ? " neg" : "") : "") + '"><i></i><span>' + escapeHtml(s.label) + "</span></li>";
         }).join("") + "</ol>";
-    var fact = function (k, v) { return v ? "<dt>" + escapeHtml(k) + "</dt><dd>" + v + "</dd>" : ""; };
-    var links = [];
-    if (c.kind === "enquiry") links.push(["enquiry", c.id, "Open enquiry " + (c.no || "")]);
-    if (c.kind === "lead") links.push(["lead", c.id, "Open lead " + (c.no || "")]);
-    if (c.opportunityId) links.push(["opportunity", c.opportunityId, "Open opportunity"]);
-    if (c.kind === "opportunity") links.push(["opportunity", c.id, "Open opportunity " + (c.no || "")]);
-    if (c.quote) links.push(["quotation", c.quote.id, "Open quotation " + c.quote.quoteNo + (c.quoteCount > 1 ? " (newest of " + c.quoteCount + ")" : "")]);
-    if (c.order) links.push(["order", c.order.id, "Open order " + c.order.orderNo]);
-    var moves = d.canMove ? c.moves : [];
-    // The escalation waiting on this card, if any, and the earlier ones (Escalations.gs).
+    var tab = eb.tab || "overview";
+    $("eb-m-tabs").innerHTML = [["overview", "Overview"], ["log", "Follow-ups (" + (c.logCount || 0) + ")"], ["docs", "Quotations and orders"]].map(function (t) {
+      return '<button type="button" role="tab" data-eb-tab="' + t[0] + '" aria-selected="' + (tab === t[0]) + '">' + escapeHtml(t[1]) + "</button>";
+    }).join("");
+
+    var body = "";
+    if (tab === "overview") body = ebOverview(desk, c, d, edit);
+    else if (tab === "log") body = ebLogTab(c, edit);
+    else body = ebDocs(c, true);
+    $("eb-m-body").innerHTML = body;
+    if (tab === "log") ebLoadLog(c);
+  }
+
+  function ebOverview(desk, c, d, edit) {
+    var h = "";
     var x = c.escalation;
-    var escHtml = (x ? '<div class="eb-esc"><div><b>With ' + escapeHtml(x.toName) + " for a decision</b>" +
+    if (x) {
+      h += '<div class="eb-esc"><div><b>With ' + escapeHtml(x.toName) + " for a decision</b>" +
         '<span class="sdc-muted"> · escalated by ' + escapeHtml(x.raisedByName) + " on " + escapeHtml(ebDate(x.raisedDay)) + ", " +
         x.waitingDays + (x.waitingDays === 1 ? " day" : " days") + "</span></div><p>" + escapeHtml(x.note) + "</p>" +
-        '<button type="button" class="btn btn-sm' + (x.outcomes.length ? " btn-primary" : "") + '" data-eb-esc-open="1">' +
-        (x.outcomes.length ? "Answer…" : "Open") + "</button></div>" : "") +
-      ((c.escalations || []).length ? '<div class="eb-esc-hist"><div class="sd-h">Escalated before</div>' + c.escalations.map(function (h) {
-        return '<div class="eb-esc-row"><span class="sdc-muted">' + escapeHtml(ebDate(h.raisedDay)) + "</span> " + escapeHtml(h.raisedByName + " → " + h.toName + ": " + h.note) +
-          '<div><span class="badge ' + (ESC_BADGE[h.outcome] || "badge-draft") + '">' + escapeHtml(h.outcome) + "</span> " +
-          escapeHtml((h.decidedByName ? h.decidedByName : "") + (h.decisionNote ? ": " + h.decisionNote : "")) + "</div></div>";
-      }).join("") + "</div>" : "");
-    $("eb-m-body").innerHTML = steps + escHtml +
-      '<dl class="eb-facts">' +
-        fact(c.kind === "lead" || c.kind === "opportunity" ? "Requirement" : "Machine", escapeHtml(c.what || "")) +
-        fact("Asked for", c.detail && c.detail !== c.what ? escapeHtml(c.detail) : "") +
-        fact("Quotation for", c.type && c.type !== "Spares" ? escapeHtml(c.type) : "") +
-        fact("Source", escapeHtml(c.source || "")) +
-        fact("Owner", escapeHtml(c.ownerName || "")) +
-        fact("Area", c.area ? escapeHtml(c.area + " · " + c.areaType) : "") +
-        fact(c.followUpLabel || "Date", c.followUp ? escapeHtml(ebDate(c.followUp)) : "") +
-        fact("Value", escapeHtml(ebMoney(c.value))) +
-        fact("Quotation", c.quote ? escapeHtml(c.quote.quoteNo + " · " + (c.quote.status === "Submitted" ? "Sent" : c.quote.status) +
-          (c.quote.sentDate ? " on " + ebDate(c.quote.sentDate) : "")) : "") +
-        fact("Order", c.order ? escapeHtml(c.order.orderNo + " · " + c.order.status + (c.order.poNo ? " · PO " + c.order.poNo : "") +
-          (c.order.date ? " · " + ebDate(c.order.date) : "")) : "") +
-        fact("Dispatch", c.dispatch ? escapeHtml(c.dispatch.dispatchNo + " · " + c.dispatch.status + " · " + ebDate(c.dispatch.date)) : "") +
-        fact("Transporter", c.dispatch && (c.dispatch.transporter || c.dispatch.lrNumber) ? escapeHtml([c.dispatch.transporter, c.dispatch.vehicleNo,
-          c.dispatch.lrNumber ? "LR " + c.dispatch.lrNumber + (c.dispatch.lrDate ? " of " + ebDate(c.dispatch.lrDate) : "") : ""].filter(Boolean).join(" · ")) : "") +
-        fact("Invoice", c.invoice ? escapeHtml(c.invoice.invoiceNo + (c.invoice.date ? " · " + ebDate(c.invoice.date) : "")) : "") +
-      "</dl>" +
-      (moves.length ? '<div class="eb-moves"><span>' + (c.stage === "sent" ? "Is the customer discussing the offer?"
-          : c.stage === "negotiation" ? "Discussion over, waiting on the customer?" : "Moved by hand:") + "</span>" + moves.map(function (k) {
-        return '<button type="button" class="btn btn-sm btn-primary" data-eb-move="' + escapeHtml(k) + '">' +
-          (k === "negotiation" ? "Move to " + escapeHtml(ebLabel(desk, k)) + "…" : "Move to " + escapeHtml(ebLabel(desk, k))) + "</button>";
-      }).join("") + "</div>" : "") +
-      '<div class="eb-links">' + links.map(function (l) {
-        return '<button type="button" class="btn btn-sm" data-eb-go="' + l[0] + '" data-id="' + escapeHtml(l[1]) + '">' + escapeHtml(l[2]) + "</button>";
-      }).join("") + '<button type="button" class="btn btn-sm" data-eb-task="1">+ Task</button>' +
-      (!x && c.stage !== "lost" && c.stage !== "dispatched" && (d.escalateTo || []).length
-        ? '<button type="button" class="btn btn-sm" data-eb-escalate="1">Escalate…</button>' : "") + "</div>";
+        '<button type="button" class="btn btn-sm' + (x.outcomes.length ? " btn-primary" : "") + '" data-eb-esc-open="1">' + (x.outcomes.length ? "Answer…" : "Open") + "</button></div>";
+    }
+    if ((c.escalations || []).length) {
+      h += '<div class="eb-esc-hist"><div class="sd-h">Escalated before</div>' + c.escalations.map(function (e) {
+        return '<div class="eb-esc-row"><span class="sdc-muted">' + escapeHtml(ebDate(e.raisedDay)) + "</span> " + escapeHtml(e.raisedByName + " → " + e.toName + ": " + e.note) +
+          '<div><span class="badge ' + (ESC_BADGE[e.outcome] || "badge-draft") + '">' + escapeHtml(e.outcome) + "</span> " +
+          escapeHtml((e.decidedByName ? e.decidedByName : "") + (e.decisionNote ? ": " + e.decisionNote : "")) + "</div></div>";
+      }).join("") + "</div>";
+    }
+    var moves = d.canMove ? c.moves : [];
+    if (c.stage === "enquiry" || c.stage === "requirement") {
+      h += '<div class="eb2-callout acc"><span><b>This stage is set by hand.</b> ' + (c.stage === "enquiry" ? "Move it on when you know what the customer needs."
+        : "The next stage starts by itself once a quotation is prepared.") + "</span>" +
+        (moves.length ? "<div>" + moves.map(function (k) {
+          return '<button type="button" class="btn btn-sm ' + (k === "requirement" ? "btn-primary" : "") + '" data-eb-move="' + escapeHtml(k) + '">' +
+            (k === "enquiry" ? "Back to " : "Move to ") + escapeHtml(ebLabel(desk, k)) + "</button>";
+        }).join(" ") + "</div>" : "") + "</div>";
+    } else if (moves.length) {
+      h += '<div class="eb2-callout' + (c.stage === "negotiation" ? "" : " acc") + '"><span><b>' + (c.stage === "sent" ? "Is the customer discussing the offer?"
+        : "Discussion over, waiting on the customer?") + "</b> " + (c.stage === "sent" ? "In negotiation means it is with management." : "") + "</span><div>" + moves.map(function (k) {
+          return '<button type="button" class="btn btn-sm btn-primary" data-eb-move="' + escapeHtml(k) + '">' + (k === "negotiation" ? "Move to " + escapeHtml(ebLabel(desk, k)) + "…"
+            : "Back to " + escapeHtml(ebLabel(desk, k))) + "</button>";
+        }).join(" ") + "</div></div>";
+    }
+    var fact = function (k, v) { return v ? "<dt>" + escapeHtml(k) + "</dt><dd>" + v + "</dd>" : ""; };
+    var lead = c.kind === "lead" || c.kind === "opportunity";
+    h += '<div class="eb2-split"><dl class="eb-facts">' +
+      fact("Customer", "<b>" + escapeHtml(c.customerName || "—") + "</b>" + (c.place ? " · " + escapeHtml(c.place) : "")) +
+      fact("Contact", c.contactName || c.contactPhone ? escapeHtml(c.contactName || "") + (c.contactName && c.contactPhone ? " · " : "") + '<span class="mono">' + escapeHtml(c.contactPhone || "") + "</span>" : "") +
+      fact("Source", escapeHtml(c.source || "")) +
+      fact(lead ? "Requirement" : "Needs", escapeHtml(c.detail || (lead ? c.what : "") || "")) +
+      fact("Machine", !lead && c.what && c.what !== c.detail ? escapeHtml(c.what + (c.urgency && c.urgency !== "Normal" ? " · " + c.urgency : "")) : "") +
+      fact("Quotation for", c.type && c.type !== "Spares" ? escapeHtml(c.type) : "") +
+      fact("Area", c.area ? escapeHtml(c.area + " · " + c.areaType) : "") +
+      fact("Value", '<span class="mono">' + escapeHtml(ebLakh(c.value) || "₹0") + "</span>") +
+      fact("Owner", escapeHtml(c.ownerName || "")) +
+      fact("Received", escapeHtml(ebDay(c.date, true))) +
+      fact("Quotation", c.quote ? escapeHtml(c.quote.quoteNo + " · " + (c.quote.status === "Submitted" ? "Sent" : c.quote.status) +
+        (c.quote.sentDate ? " on " + ebDate(c.quote.sentDate) : "")) : "") +
+      fact("Order", c.order ? escapeHtml(c.order.orderNo + " · " + c.order.status + (c.order.poNo ? " · PO " + c.order.poNo : "") +
+        (c.order.date ? " · " + ebDate(c.order.date) : "")) : "") +
+      fact("Dispatch", c.dispatch ? escapeHtml(c.dispatch.dispatchNo + " · " + c.dispatch.status + " · " + ebDate(c.dispatch.date)) : "") +
+      fact("Transporter", c.dispatch && (c.dispatch.transporter || c.dispatch.lrNumber) ? escapeHtml([c.dispatch.transporter, c.dispatch.vehicleNo,
+        c.dispatch.lrNumber ? "LR " + c.dispatch.lrNumber + (c.dispatch.lrDate ? " of " + ebDate(c.dispatch.lrDate) : "") : ""].filter(Boolean).join(" · ")) : "") +
+      fact("Invoice", c.invoice ? escapeHtml(c.invoice.invoiceNo + (c.invoice.date ? " · " + ebDate(c.invoice.date) : "")) : "") +
+      "</dl>";
+    // ERP 2's dropdowns: the next follow-up, the flag, the owner — each saved as it changes.
+    var dis = function (on) { return on ? "" : " disabled"; };
+    var noRec = c.kind === "quotation";
+    h += '<div class="eb2-fields">' +
+      '<label class="eb2-f"><span>' + escapeHtml(c.followUpLabel === "Expected" ? "Next follow-up" : "Next follow-up") + '</span><input type="date" id="eb-d-fu" data-eb-field="followUp" value="' +
+        escapeHtml(c.followUpLabel === "Expected" ? "" : c.followUp || "") + '"' + dis(edit && !noRec) + " />" +
+        (c.followUpLabel === "Expected" && c.followUp ? '<small class="sdc-muted">Parts expected ' + escapeHtml(ebDay(c.followUp, true)) + "</small>" : "") + "</label>" +
+      '<label class="eb2-f"><span>Flag</span><select id="eb-d-flag" data-eb-field="flag"' + dis(edit && !noRec) + '><option value="">—</option>' +
+        (d.flags || []).map(function (f) { return '<option value="' + escapeHtml(f) + '"' + (f === c.flag ? " selected" : "") + ">" + escapeHtml(f) + "</option>"; }).join("") + "</select></label>" +
+      '<label class="eb2-f"><span>Owner</span><select id="eb-d-owner" data-eb-field="owner"' + dis(d.canOwner && ebOpenRecord(c) && !noRec) + ">" +
+        ((d.owners || []).some(function (p) { return String(p.email).toLowerCase() === String(c.ownerEmail).toLowerCase(); }) ? "" :
+          '<option value="' + escapeHtml(c.ownerEmail || "") + '" selected>' + escapeHtml(c.ownerName || "Unassigned") + "</option>") +
+        (d.owners || []).map(function (p) {
+          return '<option value="' + escapeHtml(p.email) + '"' + (String(p.email).toLowerCase() === String(c.ownerEmail).toLowerCase() ? " selected" : "") + ">" + escapeHtml(p.name) + "</option>";
+        }).join("") + "</select></label></div></div>";
+    h += '<div class="eb2-subh">Linked records</div>' + ebDocs(c, false);
+    return h;
+  }
+
+  /** The record behind the card and its quotations, order, dispatch and invoice, each opening where ERP 1 works it. */
+  function ebDocs(c, full) {
+    var rows = [];
+    var row = function (kind, id, title, sub, right) {
+      return '<button type="button" class="eb2-lrow"' + (kind ? ' data-eb-go="' + kind + '" data-id="' + escapeHtml(id) + '"' : " disabled") + '><span class="eb2-lt mono">' + escapeHtml(title) +
+        '</span><span class="eb2-ls">' + escapeHtml(sub) + '</span><span class="eb2-lr">' + right + "</span></button>";
+    };
+    if (full || c.kind !== "quotation") {
+      if (c.kind === "enquiry") rows.push(row("enquiry", c.id, c.no || "Enquiry", "Spare enquiry · " + ebDay(c.date, true), ebChip("Open")));
+      if (c.kind === "lead") rows.push(row("lead", c.id, c.no || "Lead", "Compressor lead · " + ebDay(c.date, true), ebChip("Open")));
+      if (c.opportunityId) rows.push(row("opportunity", c.opportunityId, "Opportunity", "From the lead", ebChip("Open")));
+      if (c.kind === "opportunity") rows.push(row("opportunity", c.id, c.no || "Opportunity", ebDay(c.date, true), ebChip("Open")));
+    }
+    if (c.quote) rows.push(row("quotation", c.quote.id, c.quote.quoteNo + (c.quote.revision && c.quote.revision !== "R0" ? " " + c.quote.revision : ""),
+      ebDay(c.quote.date, true) + (c.quoteCount > 1 ? " · newest of " + c.quoteCount : ""),
+      ebChip(c.quote.status === "Submitted" ? "Sent" : c.quote.status, c.quote.status === "Won" ? "acc" : "") + '<br><span class="mono">' + escapeHtml(ebLakh(c.value)) + "</span>"));
+    if (c.order) rows.push(row("order", c.order.id, c.order.orderNo, "Order" + (c.order.poNo ? " · PO " + c.order.poNo : "") + (c.order.date ? " · " + ebDay(c.order.date) : ""),
+      ebChip(c.order.status, c.order.creditHold ? "bad" : "acc")));
+    if (c.dispatch) rows.push(row("", "", c.dispatch.dispatchNo, "Dispatched " + ebDay(c.dispatch.date) + (c.dispatch.transporter ? " · " + c.dispatch.transporter : ""),
+      c.invoice ? ebChip("Invoiced", "acc") : ebChip("Not invoiced", "sig")));
+    if (!c.quote) rows.push('<p class="eb-note">No quotation yet.' + (ebOpenRecord(c) && canEditQuotes() ? " Use Prepare quotation above." : "") + "</p>");
+    return '<div class="eb2-lrows">' + rows.join("") + "</div>";
+  }
+
+  function ebLogTab(c, edit) {
+    var next = (function () { var t = new Date(); t.setDate(t.getDate() + 2); return t.getFullYear() + "-" + ("0" + (t.getMonth() + 1)).slice(-2) + "-" + ("0" + t.getDate()).slice(-2); })();
+    return (edit ? '<div class="eb2-noteform"><label class="eb2-f"><span>What happened</span><textarea id="eb-n-text" rows="3" placeholder="Called, visited, sent the quotation again…"></textarea></label>' +
+        '<div class="eb2-noterow"><label class="eb2-f"><span>How</span><select id="eb-n-mode">' + ["Call", "Visit", "WhatsApp", "E-mail"].map(function (m) { return "<option>" + m + "</option>"; }).join("") + "</select></label>" +
+        '<label class="eb2-f"><span>Next follow-up</span><input type="date" id="eb-n-next" value="' + next + '" /></label>' +
+        '<button type="button" class="btn btn-primary" id="btn-eb-note" data-eb-act="note-save">Save follow-up</button></div></div>' : "") +
+      '<div class="eb2-timeline" id="eb-log"><p class="eb-note">Loading…</p></div>';
+  }
+
+  function ebLoadLog(c) {
+    var ref = c.ref;
+    srv.withSuccessHandler(function (log) {
+      if (!eb.open || eb.open.ref !== ref || !$("eb-log")) return;
+      $("eb-log").innerHTML = (log || []).map(function (e) {
+        return '<div class="eb2-tl"><span class="eb-av">' + escapeHtml(ebInitials(e.by)) + '</span><div><div class="eb2-meta"><b>' + escapeHtml(e.by) + "</b><span>" + escapeHtml(ebDay(e.at, true)) + "</span>" +
+          (e.mode ? ebChip(e.mode) : "") + (e.next ? '<span class="sdc-muted">next ' + escapeHtml(ebDay(e.next)) + "</span>" : "") + "</div><p>" + escapeHtml(e.text) + "</p></div></div>";
+      }).join("") + '<div class="eb2-tl"><span class="eb-av">+</span><div><div class="eb2-meta"><b>' + escapeHtml(c.ownerName || "") + "</b><span>" + escapeHtml(ebDay(c.date, true)) + "</span></div><p>" +
+        escapeHtml((c.kind === "quotation" ? "Quotation prepared" : "Enquiry received") + (c.detail ? ": " + c.detail : "")) + "</p></div></div>";
+    }).withFailureHandler(function (err) { if ($("eb-log")) $("eb-log").innerHTML = '<p class="eb-note">' + escapeHtml(err && err.message ? err.message : String(err)) + "</p>"; })
+      .getBoardCardLog(ref);
+  }
+
+  function ebSetField(field, value, el) {
+    var o = eb.open;
+    if (!o) return;
+    srv.withSuccessHandler(function (card) {
+      ebPut(o.desk, card);
+      showMsg(field === "flag" ? "Flag saved." : field === "owner" ? "Owner changed." : "Next follow-up saved.", "success");
+    }).withFailureHandler(function (err) { ebRedraw(); onServerError(err); }).setBoardCardDetail({ ref: o.ref, field: field, value: value });
+  }
+
+  function ebAct(what) {
+    var o = eb.open;
+    var c = ebOpenCardData();
+    if (!o || !c) return;
+    if (what === "note") {
+      eb.tab = "log";
+      ebDrawCard(o.desk, c);
+      if ($("eb-n-text")) $("eb-n-text").focus();
+    } else if (what === "note-save") {
+      var text = $("eb-n-text").value.trim();
+      if (!text) { showMsg("Write what happened first.", "error"); $("eb-n-text").focus(); return; }
+      var done = busyButton("btn-eb-note", "Saving…");
+      srv.withSuccessHandler(function (r) {
+        done();
+        ebPut(o.desk, r.card);
+        showMsg("Follow-up saved.", "success");
+      }).withFailureHandler(function (err) { done(); onServerError(err); })
+        .addBoardFollowUp({ ref: o.ref, mode: $("eb-n-mode").value, text: text, nextDate: $("eb-n-next").value });
+    } else if (what === "quote") {
+      var finish = function () { /* the quotation builder opens */ };
+      ebCloseCard();
+      if (c.kind === "opportunity") { quoteFromOpportunity(c.id, finish); return; }
+      quoteFromEnquiry({ id: c.id, enquiryNo: c.no }, finish);
+    } else if (what === "lost") {
+      ebLostAsk(o, c);
+    }
+  }
+
+  /** Mark lost: why, from the desk's list, and a note. */
+  function ebLostAsk(o, c) {
+    var d = eb[o.desk].data;
+    if (!$("eb-lost-backdrop")) {
+      var m = document.createElement("div");
+      m.className = "modal-backdrop modal-stacked";
+      m.id = "eb-lost-backdrop";
+      m.innerHTML = '<div class="modal" style="max-width:520px;"><h3 id="eb-l-title">Mark as lost</h3><p class="tk-m-sub">It leaves the board’s open stages and shows under “Show lost”, with the reason.</p>' +
+        '<div class="field"><label for="eb-l-reason">Why was it lost? *</label><select id="eb-l-reason"></select></div>' +
+        '<div class="field" style="margin-top:12px;"><label for="eb-l-note">Notes</label><textarea id="eb-l-note" rows="2" placeholder="e.g. Went with a local supplier at 8% less"></textarea></div>' +
+        '<div class="amc-m-foot"><span style="flex:1"></span><button type="button" class="btn" id="btn-eb-l-cancel">Cancel</button>' +
+        '<button type="button" class="btn btn-danger" id="btn-eb-l-save">Mark lost</button></div></div>';
+      document.body.appendChild(m);
+      $("btn-eb-l-cancel").addEventListener("click", function () { m.classList.remove("show"); });
+      $("btn-eb-l-save").addEventListener("click", function () {
+        var oo = eb.open;
+        if (!oo) { m.classList.remove("show"); return; }
+        if (!$("eb-l-reason").value) { showMsg("Pick why it was lost.", "error"); return; }
+        var done = busyButton("btn-eb-l-save", "Saving…");
+        srv.withSuccessHandler(function (card) {
+          done();
+          m.classList.remove("show");
+          eb[oo.desk].lost = true;
+          ebPut(oo.desk, card);
+          showMsg("Marked lost.", "success");
+        }).withFailureHandler(function (err) { done(); onServerError(err); })
+          .markBoardCardLost({ ref: oo.ref, reasonId: $("eb-l-reason").value, note: $("eb-l-note").value.trim() });
+      });
+    }
+    $("eb-l-title").textContent = "Mark " + (c.no || "this enquiry") + " as lost";
+    $("eb-l-reason").innerHTML = '<option value="">— pick —</option>' + (d.lostReasons || []).map(function (r) {
+      return '<option value="' + escapeHtml(r.id) + '">' + escapeHtml(r.text) + "</option>";
+    }).join("");
+    $("eb-l-note").value = "";
+    $("eb-lost-backdrop").classList.add("show");
   }
 
   /** Opens the ERP 1 record behind a card, where it is worked as it always was. */

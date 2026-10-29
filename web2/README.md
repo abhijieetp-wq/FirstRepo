@@ -193,6 +193,17 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   waiting; a sales engineer's desk opens with today's visits.
 - **SDR totals** on 2.0, above ERP 1's count by status: customers in the list, called, quotations
   raised (with their value), converted (with the PO value).
+- **The enquiry board as the 2.0 demo draws it** (Compressor Sales and Spare Sales): the board's
+  own toolbar (Board / List, search, owner, stage, Show lost with its count, the three rules), ten
+  coloured stage columns with their totals, and cards with the flag, the town, the machine or
+  source, the quotation or order, the value in lakhs, the follow-up and the owner. A card opens a
+  drawer from the right: the stage strip, Add follow-up / Prepare quotation / Escalate to owner /
+  + Task / Mark lost, and three tabs — Overview (the hand-set stage's button, the facts, and three
+  dropdowns: Next follow-up, Flag, Owner, each saved as it changes), Follow-ups (logged with how and
+  when next) and Quotations and orders (`src/BoardDetails.gs`). Everything writes ERP 1's own
+  records: a lead's next-action date and owner, a spare enquiry's owner and its own follow-up date,
+  follow-ups in Activities, lost as the record's Lost / Disqualified status with a reason. The flag
+  is a new column on spare enquiries, leads and opportunities.
 - **Form fields** (`src/FormFields.gs`), Masters → Form fields, for Management: fields of PIE's
   own on a form — text, number, date, dropdown, long text, yes / no — each optionally required and
   a list column, in the order set, with a preview. The forms: spare enquiries, compressor leads,
@@ -258,6 +269,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   Ask bar and its window, speech, the proposal and its tick boxes, only the ticked actions done,
   each through its own save; what each role may ask; what is and is not sent to Claude; names
   matched here; the request to Claude, its fallback and its errors; off without the key.
+- `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
+  dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
 - `tests/form-fields-ui-test.js`, `tests/form-fields-sql-test.js` — building a form's fields,
   each type and its checks, required fields stopping the save, values after the record, list
   columns, who sees and fills them, removing and adding back, and none of it on the other faces.

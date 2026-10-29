@@ -291,7 +291,10 @@
             date: "2026-10-" + (11 + i), sentDate: p[0] === "quoted" ? "" : "2026-10-" + (12 + i) } : null,
           order: ordered ? { id: "SO-" + i, orderNo: "SO2610-00" + (50 + i), status: p[0] === "po" ? "Credit Hold" : p[0] === "won" ? "Draft"
             : p[0] === "procurement" ? "Material Pending" : "Dispatched", poNo: "PO-" + i, creditHold: p[0] === "po" } : null,
-          dispatch: null };
+          dispatch: null,
+          // 2.0's drawer: the flag, who to ring, the town.
+          flag: ["Hot", "Warm", "Cold", "Price issue", "Competitor in play", "Warm"][i % 6], contactName: ["R. Joshi", "V. Kore", "S. Patil", "A. Deshmukh"][i % 4],
+          contactPhone: "98220 4" + (1000 + i), place: ["Butibori MIDC", "Hingna MIDC", "Nagpur City", "Kamptee", "Wardha", "Amravati"][i % 6], logCount: i % 3 };
       });
       cards.push({ ref: "XX:lost", kind: compressor ? "lead" : "enquiry", id: "lost", no: compressor ? "LD2610-0031" : "SE2610-0031",
         date: "2026-10-05", lastDate: "2026-10-09", customerId: C[3].id, customerName: C[3].name, what: compressor ? "EG 22" : "EG 22 · EG22-0091",
@@ -301,7 +304,11 @@
       return { stream: opts && opts.stream,
         stages: stages.map(function (s) { return { key: s[0], label: s[1], how: s[2], when: "", id: "" }; }),
         closed: { key: "lost", label: "Rejected / Lost", id: "" }, cards: cards, recentDays: 90,
-        canMove: true, canRename: true, me: "anil@pie.in" };
+        canMove: true, canRename: true, me: "anil@pie.in",
+        flags: ["Hot", "Warm", "Cold", "Price issue", "Competitor in play", "Budget pending"],
+        owners: people.map(function (p) { return { email: p[0], name: p[1] }; }), canOwner: true,
+        lostReasons: [{ id: "LR-1", text: "Price too high" }, { id: "LR-2", text: "Competitor selected" }],
+        escalateTo: [{ email: "anil@pie.in", name: "Anil Mehta", role: "Management" }] };
     },
     listSpareEnquiries: function () { return ENQUIRIES; },
     // The SDR screen, with no week uploaded yet — enough for it to open.

@@ -111,7 +111,10 @@
       var desk = opts && opts.stream === "Compressor Sales" ? "compressor" : "spare";
       return { stream: opts && opts.stream, stages: BOARD_STAGES.map(function (s) { return Object.assign({ id: "" }, s); }),
         closed: { key: "lost", label: "Rejected / Lost", id: "" }, cards: BOARD_CARDS[desk].map(function (c) { return Object.assign({}, c); }),
-        recentDays: 90, canMove: true, canRename: false, me: "p@pie.in" };
+        recentDays: 90, canMove: true, canRename: false, me: "p@pie.in",
+        flags: ["Hot", "Warm", "Cold", "Price issue", "Competitor in play", "Budget pending"],
+        owners: [{ email: "d@pie.in", name: "Dhriti" }, { email: "p@pie.in", name: "Priya" }], canOwner: true,
+        lostReasons: [{ id: "LR-1", text: "Price too high" }, { id: "LR-2", text: "Competitor selected" }] };
     },
     moveBoardCard: function (input) {
       var all = BOARD_CARDS.spare.concat(BOARD_CARDS.compressor);

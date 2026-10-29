@@ -122,6 +122,15 @@ function getEnquiryBoard(options) {
   var people = userNameMap_();
   var customers = {};
   readTable_('Customers').forEach(function (c) { customers[String(c.id)] = String(c.name || ''); });
+  // The town on the card (2.0): the customer's default address, else their first.
+  var cities = {};
+  try {
+    readTable_('CustomerAddresses').forEach(function (a) {
+      var k = String(a.customerId || '');
+      if (!k || !String(a.city || '').trim() || String(a.active).toUpperCase() === 'FALSE') return;
+      if (!cities[k] || isTrue_(a.isDefault)) cities[k] = String(a.city).trim();
+    });
+  } catch (err) { /* the town is a courtesy on the card */ }
   var lostReasons = {};
   try {
     readTable_('LostReasons').forEach(function (r) { lostReasons[String(r.id)] = String(r.reasonText || ''); });
@@ -163,8 +172,11 @@ function getEnquiryBoard(options) {
         urgency: String(e.urgency || ''),
         source: String(e.source || ''),
         ownerEmail: String(e.ownerEmail || ''),
-        followUp: String(e.expectedDeliveryDate || '').slice(0, 10),
-        followUpLabel: 'Expected',
+        // 2.0's next follow-up when one is set; else the date the customer expects the parts.
+        followUp: String(e.nextFollowUpDate || e.expectedDeliveryDate || '').slice(0, 10),
+        followUpLabel: String(e.nextFollowUpDate || '') ? 'Next follow-up' : 'Expected',
+        flag: String(e.flag || ''), contactName: String(e.contactName || ''), contactPhone: String(e.contactPhone || ''),
+        place: String(e.area || '') || cities[String(e.customerId)] || '',
         floor: status === 'Identifying' || status === 'Quoted' || status === 'Won' ? 'requirement' : 'enquiry',
         closed: ['Lost', 'Dropped'].indexOf(status) !== -1
           ? status + (lostReasons[String(e.lostReasonId)] ? ': ' + lostReasons[String(e.lostReasonId)] : '') : '',
@@ -172,7 +184,7 @@ function getEnquiryBoard(options) {
       }, quotesByEnquiry[String(e.id)] || [], idx, checked, lostReasons, people));
     });
     quotes.filter(function (q) { return !String(q.spareEnquiryId || ''); }).forEach(function (q) {
-      cards.push(boardQuoteCard_(q, idx, checked, customers, lostReasons, people));
+      cards.push(boardQuoteCard_(q, idx, checked, customers, lostReasons, people, cities));
     });
   } else {
     var quotesByOpp = byKey('opportunityId');
@@ -214,6 +226,8 @@ function getEnquiryBoard(options) {
         ownerEmail: String(l.ownerEmail || ''),
         followUp: String(l.nextActionDate || '').slice(0, 10),
         followUpLabel: 'Next action',
+        flag: String(l.flag || ''), contactName: String(l.contactName || ''), contactPhone: String(l.contactPhone || ''),
+        place: String(l.area || '') || String(l.prospectCity || '') || cities[String(l.customerId)] || '',
         floor: floor,
         closed: status === 'Disqualified'
           ? 'Disqualified' + (lostReasons[String(l.lostReasonId)] ? ': ' + lostReasons[String(l.lostReasonId)] : '')
@@ -232,6 +246,7 @@ function getEnquiryBoard(options) {
         type: '', urgency: '', source: '',
         ownerEmail: String(o.ownerEmail || ''),
         followUp: String(o.nextActionDate || '').slice(0, 10), followUpLabel: 'Next action',
+        flag: String(o.flag || ''), place: cities[String(o.customerId)] || '',
         floor: String(o.stage) === 'Lost' ? 'requirement' : oppFloor(o),
         closed: String(o.stage) === 'Lost'
           ? 'Lost' + (lostReasons[String(o.lostReasonId)] ? ': ' + lostReasons[String(o.lostReasonId)] : '') : '',
@@ -240,7 +255,7 @@ function getEnquiryBoard(options) {
       }, quotesByOpp[String(o.id)] || [], idx, checked, lostReasons, people));
     });
     quotes.filter(function (q) { return !String(q.opportunityId || ''); }).forEach(function (q) {
-      cards.push(boardQuoteCard_(q, idx, checked, customers, lostReasons, people));
+      cards.push(boardQuoteCard_(q, idx, checked, customers, lostReasons, people, cities));
     });
   }
 
@@ -255,7 +270,10 @@ function getEnquiryBoard(options) {
   // The escalations on each card (Escalations.gs): the one waiting, and the earlier ones.
   var escs = escForCards_(user);
   var areas = serviceAreas_();
+  var logs = boardLogCounts_();
   cards.forEach(function (c) {
+    // How many follow-ups are logged against the card's record (BoardDetails.gs).
+    c.logCount = logs[boardLogKey_(c.ref)] || 0;
     // A lead's area as Local or Outstation (VisitPlans.gs), as on ERP 2's enquiry.
     c.areaType = visitAreaType_(c.area, areas);
     var x = escs[c.ref];
@@ -277,6 +295,11 @@ function getEnquiryBoard(options) {
     canRename: MASTER_EDITORS.indexOf(user.role) !== -1,
     // Who a card can be escalated to.
     escalateTo: escTargets_(user),
+    // 2.0's drawer: its dropdowns, and who may change the owner (BoardDetails.gs).
+    flags: BOARD_FLAGS,
+    owners: boardOwners_(stream),
+    lostReasons: boardLostReasons_(stream),
+    canOwner: BOARD_OWNER_SETTERS.indexOf(user.role) !== -1,
     me: user.email
   };
 }
@@ -330,6 +353,8 @@ function boardCard_(base, quotes, idx, checked, lostReasons, people) {
   return {
     ref: base.ref, kind: base.kind, id: base.id, no: base.no, date: base.date, lastDate: lastDate, area: base.area || '',
     customerId: base.customerId, customerName: base.customerName,
+    // 2.0's card and drawer: the flag, who to ring, and the town.
+    flag: base.flag || '', contactName: base.contactName || '', contactPhone: base.contactPhone || '', place: base.place || '',
     what: base.what, detail: base.detail, type: base.type, urgency: base.urgency, source: base.source,
     ownerEmail: base.ownerEmail, ownerName: personLine_(base.ownerEmail, people),
     followUp: stage === 'lost' || stage === 'dispatched' ? '' : base.followUp,
@@ -367,14 +392,15 @@ function boardMoves_(stage, base, best) {
 }
 
 /** A quotation raised with no enquiry, lead or opportunity behind it, as a card of its own. */
-function boardQuoteCard_(q, idx, checked, customers, lostReasons, people) {
+function boardQuoteCard_(q, idx, checked, customers, lostReasons, people, cities) {
+  cities = cities || {};
   return boardCard_({
     ref: 'QT:' + q.id, kind: 'quotation', id: String(q.id), no: String(q.quoteNo || ''),
     date: String(q.date || '').slice(0, 10),
     customerId: String(q.customerId || ''), customerName: customers[String(q.customerId)] || '',
     what: [q.machineModel, q.serialNo].filter(Boolean).join(' · '),
     detail: '', type: '', urgency: '', source: 'No enquiry logged',
-    ownerEmail: String(q.preparedBy || ''), followUp: '', followUpLabel: '',
+    ownerEmail: String(q.preparedBy || ''), followUp: '', followUpLabel: '', place: cities[String(q.customerId)] || '',
     floor: 'quoted', closed: '', handMoves: false
   }, [q], idx, checked, lostReasons, people);
 }
