@@ -603,6 +603,18 @@ var SCHEMA = {
       'doneAt', 'doneBy', 'cancelledAt', 'cancelledBy',
       'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
   },
+  Escalations: {
+    label: 'A deal handed to a named person for a decision, and their answer (2.0)',
+    columns: ['id',
+      // The enquiry board card (SE:, LD:, OP: or QT: and the record's id), what the record is,
+      // its number, desk, customer and owner, and its value when it was escalated.
+      'cardRef', 'recordKind', 'recordId', 'recordLabel', 'stream', 'customerName', 'ownerEmail', 'raisedValue',
+      // Who it went to and what needs deciding.
+      'toEmail', 'note',
+      // Open, Decided or Withdrawn; Sent back, Approved, Won, Lost, Replied or Withdrawn.
+      'status', 'outcome', 'decisionNote', 'decidedAt', 'decidedBy',
+      'createdAt', 'createdBy']
+  },
 
   Invoices: {
     label: 'Invoice from order + actual dispatch, with Tally sync status (FR-048, FR-050)',

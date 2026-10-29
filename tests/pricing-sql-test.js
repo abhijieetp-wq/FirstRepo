@@ -171,7 +171,7 @@ const PRICES = [
     ok(fn + ' now comes from the query file', portal.__overridden.indexOf(fn) !== -1,
       portal.__overridden);
   });
-  ok('and all 50 modules loaded', portal.__loaded.length === 50, portal.__loaded.length);
+  ok('and all 51 modules loaded', portal.__loaded.length === 51, portal.__loaded.length);
 
   console.log('\nTHE WHOLE MAP, ON A DAY THAT EXERCISES EVERY CASE');
   const ON = '2026-10-15';

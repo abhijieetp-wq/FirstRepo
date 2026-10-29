@@ -30,6 +30,8 @@
  *     by picking them.
  *   - Everybody: a tile for their tasks, open and overdue, and their score this month
  *     (Tasks.gs). Management's counts everybody's.
+ *   - Management and the sales side: a tile for escalated deals waiting for a decision
+ *     (Escalations.gs).
  *
  * Nothing here writes. A figure is a count, a value and where to go to act on it.
  */
@@ -87,6 +89,7 @@ async function getPersonDashboard(options) {
   else if (kind === 'serviceEngineer') await pdServiceEngineer_(ctx, out);
   else await pdBoss_(ctx, out);
   await pdTasks_(ctx, out, kind === 'boss');
+  if (kind === 'boss' || kind === 'coordinator' || kind === 'salesEngineer') await pdEscalations_(ctx, out, kind === 'boss');
 
   if (boss) {
     out.canViewAs = true;
@@ -112,6 +115,22 @@ async function pdTasks_(ctx, out, everyone) {
       tone: t.overdue ? 'bad' : '', go: 'tasks' }
     : { key: 'tasks', label: 'My tasks', value: String(t.open), sub: t.overdue + ' overdue · ' + score + ' this month',
       tone: t.overdue ? 'bad' : '', go: 'tasks' });
+}
+
+/**
+ * The escalations tile (Escalations.gs). Management: every deal waiting for a decision. The
+ * sales side: what was escalated to them, shown only when something waits on them or theirs
+ * waits on somebody.
+ */
+async function pdEscalations_(ctx, out, everyone) {
+  var x = await escSummary_(ctx.email, everyone);
+  if (everyone) {
+    out.tiles.push({ key: 'escalations', label: 'Waiting for a decision', value: String(x.toThem),
+      sub: x.waitingLong ? x.waitingLong + ' waiting over 3 days' : 'escalated deals', tone: x.waitingLong ? 'warn' : '', go: 'escalations' });
+  } else if (x.toThem || x.theirs) {
+    out.tiles.push({ key: 'escalations', label: 'Escalated to you', value: String(x.toThem),
+      sub: x.theirs + ' of yours waiting for a decision', tone: x.toThem ? 'warn' : '', go: 'escalations' });
+  }
 }
 
 // ------------------------------------------------------------------ shared readings

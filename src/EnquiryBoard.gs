@@ -252,6 +252,14 @@ function getEnquiryBoard(options) {
   });
   cards.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
 
+  // The escalations on each card (Escalations.gs): the one waiting, and the earlier ones.
+  var escs = escForCards_(user);
+  cards.forEach(function (c) {
+    var x = escs[c.ref];
+    c.escalation = x ? x.open : null;
+    c.escalations = x ? x.history : [];
+  });
+
   var names = boardStageNames_();
   var editors = stream === STREAM_SPARE ? ENQUIRY_EDITORS : LEAD_EDITORS;
   return {
@@ -264,6 +272,8 @@ function getEnquiryBoard(options) {
     recentDays: BOARD_RECENT_DAYS,
     canMove: editors.indexOf(user.role) !== -1,
     canRename: MASTER_EDITORS.indexOf(user.role) !== -1,
+    // Who a card can be escalated to.
+    escalateTo: escTargets_(user),
     me: user.email
   };
 }

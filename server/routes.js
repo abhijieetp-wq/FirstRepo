@@ -18,6 +18,7 @@
 const PAGES = [
   '/dashboard',
   '/tasks',
+  '/escalations',
   '/compressor-sales',
   '/spare-sales',
   '/service-due-calls',

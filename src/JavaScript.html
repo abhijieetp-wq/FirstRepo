@@ -209,6 +209,8 @@
     { view: "dashboard", label: "Dashboard", roles: ALL_ROLES },
     // ERP 2.0's tasks with the scorecard (Tasks.gs). Everybody has tasks; only the 2.0 face.
     { view: "tasks", label: "Tasks", roles: ALL_ROLES, v2: true },
+    // ERP 2.0's escalations: deals handed to a named person for a decision (Escalations.gs).
+    { view: "escalations", label: "Escalations", roles: SALES_SIDE, v2: true },
     // The two streams are the two front offices (D2) and sit at the same level as each other,
     // never inside a shared "Sales" heading — a stream and a document are different kinds of
     // thing, and putting them in one list is what made the old grouping read wrong.
@@ -291,6 +293,7 @@
   var ROUTES = {
     dashboard: "/dashboard",
     tasks: "/tasks",
+    escalations: "/escalations",
     compressor: "/compressor-sales",
     enquiries: "/spare-sales",
     servicedue: "/service-due-calls",
@@ -579,6 +582,7 @@
     amc: initAmcView,
     plan: initPlanView,
     tasks: initTasksView,
+    escalations: initEscalationsView,
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
@@ -6468,6 +6472,203 @@
     });
   }
 
+  // ================= ESCALATIONS (2.0) =================
+  // A deal handed to a named person for a decision (Escalations.gs): raised from an enquiry
+  // board card, answered here or on the card. The answer is recorded and goes back; it does
+  // not mark any quotation won or lost — the coordinator still does that, as in ERP 1.
+  var esc = { data: null, open: null, raise: null };
+  var ESC_BUTTONS = { "Sent back": ["Send back to coordinator", "btn"], "Approved": ["Approve", "btn btn-primary"],
+    "Won": ["Won", "btn btn-primary"], "Lost": ["Lost", "btn sd-danger"], "Replied": ["Reply & send back", "btn btn-primary"] };
+  var ESC_BADGE = { "Approved": "badge-won", "Won": "badge-won", "Lost": "badge-lost", "Sent back": "badge-sent",
+    "Replied": "badge-quoted", "Withdrawn": "badge-draft" };
+
+  if (FACE_V2 && !$("view-escalations")) {
+    (function () {
+      var view = document.createElement("div");
+      view.className = "view";
+      view.id = "view-escalations";
+      view.innerHTML = '<div class="page-head"><div><h2>Escalations</h2><p>Deals handed to a named person for a decision. Read what needs deciding, ' +
+        "then answer: Management sends it back, approves, or says won or lost; a coordinator it was sent to replies. " +
+        "The coordinator still marks the quotation won or lost, as before.</p></div></div>" +
+        '<div id="esc-kpis" class="amc-kpis"></div>' +
+        '<div class="card" style="padding:0; overflow-x:auto;"><div id="esc-open"></div></div>' +
+        '<h3 class="esc-h">Answered lately</h3>' +
+        '<div class="card" style="padding:0; overflow-x:auto;"><div id="esc-recent"></div></div>';
+      var after = $("view-tasks") || $("view-dashboard");
+      after.parentNode.insertBefore(view, after.nextSibling);
+
+      var back = document.createElement("div");
+      back.className = "modal-backdrop modal-stacked";
+      back.id = "esc-modal-backdrop";
+      back.innerHTML = '<div class="modal" style="max-width:620px;"><h3 id="esc-m-title">Escalation</h3>' +
+        '<p id="esc-m-sub" class="tk-m-sub"></p><div id="esc-m-body"></div>' +
+        '<div class="amc-m-foot"><button type="button" class="btn sd-danger" id="btn-esc-withdraw">Withdraw</button>' +
+        '<span style="flex:1"></span><button type="button" class="btn" id="btn-esc-go">Open the record</button>' +
+        '<button type="button" class="btn" id="btn-esc-close">Close</button></div></div>';
+      document.body.appendChild(back);
+
+      var raise = document.createElement("div");
+      raise.className = "modal-backdrop modal-stacked";
+      raise.id = "esc-raise-backdrop";
+      raise.innerHTML = '<div class="modal" style="max-width:560px;"><h3 id="esc-r-title">Escalate</h3>' +
+        '<p class="tk-m-sub">It goes to the person you name, with your note, and waits on their Escalations and dashboard until they answer.</p>' +
+        '<div class="field"><label>Escalate to *</label><select id="esc-r-to"></select></div>' +
+        '<div class="field" style="margin-top:12px;"><label>What needs deciding *</label><textarea id="esc-r-note" rows="4" maxlength="1000" ' +
+          'placeholder="e.g. Customer wants 5% more off to close this week. Can we give 4%?"></textarea></div>' +
+        '<div class="amc-m-foot"><span style="flex:1"></span><button type="button" class="btn" id="btn-esc-r-close">Close</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-esc-raise">Escalate</button></div></div>';
+      document.body.appendChild(raise);
+    })();
+  }
+
+  function initEscalationsView() {
+    if (!FACE_V2) return;
+    loadEscalations();
+  }
+
+  function loadEscalations() {
+    srv.withSuccessHandler(function (d) {
+      esc.data = d;
+      renderEscalations();
+    }).withFailureHandler(onServerError).getEscalations();
+  }
+
+  function renderEscalations() {
+    var d = esc.data;
+    if (!d || !$("view-escalations")) return;
+    var k = d.kpis;
+    $("esc-kpis").innerHTML = [
+      ["Waiting for a decision", k.waiting, k.toMe ? k.toMe + " for you to answer" : "oldest first below", k.waiting ? "warn" : ""],
+      ["Compressor deals", k.compressor, "waiting", ""],
+      ["Spares deals", k.spares, "waiting", ""],
+      ["Decided this month", k.decidedThisMonth, "answered", ""]
+    ].map(function (t) {
+      return '<div class="pd-tile' + (t[3] ? " " + t[3] : "") + '"><span class="pd-label">' + escapeHtml(t[0]) + '</span><span class="pd-value">' +
+        t[1] + '</span><span class="pd-sub">' + escapeHtml(t[2]) + "</span></div>";
+    }).join("");
+    $("esc-open").innerHTML = '<table class="tk-table esc-table"><thead><tr><th>Enquiry</th><th>Customer</th><th>Desk</th><th>Coordinator</th>' +
+      '<th>Escalated</th><th>Waiting</th><th class="num">Value</th><th>What needs deciding</th></tr></thead><tbody>' +
+      (d.open.length ? d.open.map(function (x) {
+        return '<tr data-esc-id="' + escapeHtml(x.id) + '"><td class="mono">' + escapeHtml(x.label) + '<div class="sdc-muted">' + escapeHtml(x.word) + "</div></td>" +
+          "<td><b>" + escapeHtml(x.customerName) + "</b></td>" +
+          '<td><span class="eb-chip">' + escapeHtml(x.desk) + "</span></td>" +
+          "<td>" + escapeHtml(x.ownerName || "—") + "</td>" +
+          "<td>" + escapeHtml(x.raisedByName) + " → <b>" + escapeHtml(x.toName) + "</b>" + (x.outcomes.length ? ' <span class="eb-chip esc">Yours to answer</span>' : "") + "</td>" +
+          '<td class="' + (x.waitingDays > 3 ? "sdc-late" : "") + '" style="white-space:nowrap;">' + x.waitingDays + (x.waitingDays === 1 ? " day" : " days") + "</td>" +
+          '<td class="num">' + escapeHtml(x.value === "" ? "—" : ebMoney(x.value)) + "</td>" +
+          '<td class="esc-text">' + escapeHtml(x.note) + "</td></tr>";
+      }).join("") : '<tr><td colspan="8" class="empty">Nothing waiting for a decision.</td></tr>') + "</tbody></table>";
+    $("esc-recent").innerHTML = '<table class="tk-table esc-table"><thead><tr><th>Enquiry</th><th>Customer</th><th>Answered</th><th>By</th>' +
+      "<th>Outcome</th><th>Instruction or reply</th></tr></thead><tbody>" +
+      (d.recent.length ? d.recent.map(function (x) {
+        return '<tr data-esc-id="' + escapeHtml(x.id) + '"><td class="mono">' + escapeHtml(x.label) + "</td><td>" + escapeHtml(x.customerName) + "</td>" +
+          '<td style="white-space:nowrap;">' + escapeHtml(ebDate(x.decidedDay)) + "</td><td>" + escapeHtml(x.decidedByName) + "</td>" +
+          '<td><span class="badge ' + (ESC_BADGE[x.outcome] || "badge-draft") + '">' + escapeHtml(x.outcome) + "</span></td>" +
+          '<td class="esc-text">' + escapeHtml(x.decisionNote || "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="6" class="empty">Nothing answered in the last 60 days.</td></tr>') + "</tbody></table>";
+  }
+
+  function escDeskOf(x) { return x.stream === "Compressor Sales" ? "compressor" : "spare"; }
+
+  /** One escalation, with the answer buttons this person has. */
+  function escShow(x) {
+    esc.open = x;
+    var open = x.status === "Open";
+    var decides = x.outcomes.indexOf("Won") !== -1;
+    $("esc-m-title").textContent = x.label + " · " + x.customerName;
+    $("esc-m-sub").textContent = x.word + " · " + x.desk + " · escalated by " + x.raisedByName + " to " + x.toName + " on " + ebDate(x.raisedDay) +
+      (open ? " · " + x.waitingDays + (x.waitingDays === 1 ? " day" : " days") + " waiting" : "");
+    $("esc-m-body").innerHTML =
+      '<div class="esc-note"><span>What needs deciding</span><p>' + escapeHtml(x.note) + "</p></div>" +
+      (!open ? '<div class="esc-answer"><span class="badge ' + (ESC_BADGE[x.outcome] || "badge-draft") + '">' + escapeHtml(x.outcome) + "</span> " +
+        escapeHtml("by " + x.decidedByName + " on " + ebDate(x.decidedDay)) + (x.decisionNote ? "<p>" + escapeHtml(x.decisionNote) + "</p>" : "") + "</div>" : "") +
+      (x.outcomes.length
+        ? '<div class="field" style="margin-top:14px;"><label>' + (decides ? "Your decision or instruction *" : "Your reply *") + '</label>' +
+            '<textarea id="esc-m-text" rows="3" placeholder="' + (decides ? "e.g. Give 4%, close at ₹92,000" : "e.g. Yes, two in stock") + '"></textarea></div>' +
+          '<div class="esc-acts">' + x.outcomes.map(function (o) {
+            return '<button type="button" class="' + ESC_BUTTONS[o][1] + ' btn-sm" data-esc-outcome="' + escapeHtml(o) + '">' + escapeHtml(ESC_BUTTONS[o][0]) + "</button>";
+          }).join("") + "</div>" +
+          (decides ? '<p class="eb-note">Your answer goes to ' + escapeHtml(x.ownerName || x.raisedByName) +
+            ". Won and Lost are your word to them; they mark the quotation won or lost themselves, with its PO or lost reason, as now.</p>" : "")
+        : open ? '<p class="sdc-muted" style="margin-top:12px;">With ' + escapeHtml(x.toName) + " for a decision.</p>" : "");
+    $("btn-esc-withdraw").style.display = x.canWithdraw ? "" : "none";
+    $("esc-modal-backdrop").classList.add("show");
+  }
+
+  /** After an answer, a withdrawal or a new escalation: the lists and the board read again. */
+  function escAfter(x, text) {
+    $("esc-modal-backdrop").classList.remove("show");
+    $("esc-raise-backdrop").classList.remove("show");
+    showMsg(text, "success");
+    if (esc.data) loadEscalations();
+    var desk = escDeskOf(x);
+    if (eb[desk] && eb[desk].data) {
+      ebCloseCard();
+      ebLoad(desk);
+    }
+  }
+
+  /** The escalate form, for a board card. */
+  function escRaise(card, targets) {
+    esc.raise = card;
+    $("esc-r-title").textContent = "Escalate " + (card.no || EB_KIND[card.kind]) + " · " + (card.customerName || "");
+    $("esc-r-to").innerHTML = '<option value="">— pick —</option>' + (targets || []).map(function (p) {
+      return '<option value="' + escapeHtml(p.email) + '">' + escapeHtml(p.name + " · " + p.role) + "</option>";
+    }).join("");
+    $("esc-r-note").value = "";
+    $("esc-raise-backdrop").classList.add("show");
+    $("esc-r-note").focus();
+  }
+
+  if (FACE_V2) {
+    ["esc-open", "esc-recent"].forEach(function (id) {
+      $(id).addEventListener("click", function (e) {
+        var row = e.target.closest("[data-esc-id]");
+        if (!row) return;
+        var x = esc.data.open.concat(esc.data.recent).filter(function (y) { return y.id === row.dataset.escId; })[0];
+        if (x) escShow(x);
+      });
+    });
+    $("esc-m-body").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-esc-outcome]");
+      if (!b || !esc.open) return;
+      var text = ($("esc-m-text").value || "").trim();
+      if (!text) { showMsg("Write your decision or instruction first.", "error"); $("esc-m-text").focus(); return; }
+      var o = b.dataset.escOutcome;
+      b.disabled = true;
+      srv.withSuccessHandler(function (r) {
+        escAfter(r, o === "Replied" ? "Reply sent back to " + r.raisedByName + "." : "Decision sent to " + (r.ownerName || r.raisedByName) + ": " + o + ".");
+      }).withFailureHandler(function (err) { b.disabled = false; onServerError(err); }).decideEscalation(esc.open.id, o, text);
+    });
+    $("btn-esc-withdraw").addEventListener("click", function () {
+      var x = esc.open;
+      if (!x) return;
+      askDialog({ title: "Withdraw this escalation?", message: "It stops waiting on " + x.toName + ". You can escalate the deal again later.",
+        okLabel: "Withdraw", danger: true }, function (yes) {
+        if (yes === null) return;
+        srv.withSuccessHandler(function (r) { escAfter(r, "Escalation withdrawn."); }).withFailureHandler(onServerError).withdrawEscalation(x.id);
+      });
+    });
+    $("btn-esc-go").addEventListener("click", function () {
+      var x = esc.open;
+      if (!x) return;
+      $("esc-modal-backdrop").classList.remove("show");
+      ebGo(x.kind, x.recordId);
+    });
+    $("btn-esc-close").addEventListener("click", function () { $("esc-modal-backdrop").classList.remove("show"); });
+    $("btn-esc-r-close").addEventListener("click", function () { $("esc-raise-backdrop").classList.remove("show"); });
+    $("btn-esc-raise").addEventListener("click", function () {
+      var card = esc.raise;
+      if (!card) return;
+      var done = busyButton("btn-esc-raise", "Sending…");
+      srv.withSuccessHandler(function (r) {
+        done();
+        escAfter(r, "Escalated to " + r.toName + ".");
+      }).withFailureHandler(function (err) { done(); onServerError(err); })
+        .escalateCard({ ref: card.ref, toEmail: $("esc-r-to").value, note: $("esc-r-note").value.trim() });
+    });
+  }
+
   // ================= COMPRESSOR SALES =================
   // 2.0 opens on the enquiry board unless this browser last chose a list.
   var CS_MODE = "leads";
@@ -7722,6 +7923,7 @@
     return '<button type="button" class="eb-card' + (c.order && c.order.creditHold ? " hold" : "") + '" data-eb-card="' + escapeHtml(c.ref) + '">' +
       '<span class="eb-top"><span class="mono">' + escapeHtml(c.no || "—") + "</span>" +
         (c.kind === "quotation" ? '<span class="eb-chip">No enquiry</span>' : "") +
+        (c.escalation ? '<span class="eb-chip esc" title="With ' + escapeHtml(c.escalation.toName) + ' for a decision">Escalated</span>' : "") +
         (c.type && c.type !== "Spares" ? '<span class="eb-chip type">' + escapeHtml(c.type) + "</span>" : "") +
         (c.urgency && c.urgency !== "Normal" ? '<span class="eb-chip ' + (c.urgency === "Breakdown" ? "bad" : "warn") + '">' + escapeHtml(c.urgency) + "</span>" : "") +
       "</span>" +
@@ -7782,6 +7984,15 @@
       if (e.target === back) { ebCloseCard(); return; }
       var go = e.target.closest("[data-eb-go]");
       if (go) { ebGo(go.dataset.ebGo, go.dataset.id); return; }
+      // Escalating the card, or answering the escalation waiting on it (Escalations.gs).
+      if ((e.target.closest("[data-eb-escalate]") || e.target.closest("[data-eb-esc-open]")) && eb.open) {
+        var d0 = eb[eb.open.desk].data;
+        var c0 = d0.cards.filter(function (y) { return y.ref === eb.open.ref; })[0];
+        if (!c0) return;
+        if (e.target.closest("[data-eb-esc-open]") && c0.escalation) escShow(c0.escalation);
+        else escRaise(c0, d0.escalateTo);
+        return;
+      }
       // A task about this card's record (Tasks.gs).
       if (e.target.closest("[data-eb-task]") && eb.open) {
         var card = eb[eb.open.desk].data.cards.filter(function (x) { return x.ref === eb.open.ref; })[0];
@@ -7822,7 +8033,19 @@
     if (c.quote) links.push(["quotation", c.quote.id, "Open quotation " + c.quote.quoteNo + (c.quoteCount > 1 ? " (newest of " + c.quoteCount + ")" : "")]);
     if (c.order) links.push(["order", c.order.id, "Open order " + c.order.orderNo]);
     var moves = d.canMove ? c.moves : [];
-    $("eb-m-body").innerHTML = steps +
+    // The escalation waiting on this card, if any, and the earlier ones (Escalations.gs).
+    var x = c.escalation;
+    var escHtml = (x ? '<div class="eb-esc"><div><b>With ' + escapeHtml(x.toName) + " for a decision</b>" +
+        '<span class="sdc-muted"> · escalated by ' + escapeHtml(x.raisedByName) + " on " + escapeHtml(ebDate(x.raisedDay)) + ", " +
+        x.waitingDays + (x.waitingDays === 1 ? " day" : " days") + "</span></div><p>" + escapeHtml(x.note) + "</p>" +
+        '<button type="button" class="btn btn-sm' + (x.outcomes.length ? " btn-primary" : "") + '" data-eb-esc-open="1">' +
+        (x.outcomes.length ? "Answer…" : "Open") + "</button></div>" : "") +
+      ((c.escalations || []).length ? '<div class="eb-esc-hist"><div class="sd-h">Escalated before</div>' + c.escalations.map(function (h) {
+        return '<div class="eb-esc-row"><span class="sdc-muted">' + escapeHtml(ebDate(h.raisedDay)) + "</span> " + escapeHtml(h.raisedByName + " → " + h.toName + ": " + h.note) +
+          '<div><span class="badge ' + (ESC_BADGE[h.outcome] || "badge-draft") + '">' + escapeHtml(h.outcome) + "</span> " +
+          escapeHtml((h.decidedByName ? h.decidedByName : "") + (h.decisionNote ? ": " + h.decisionNote : "")) + "</div></div>";
+      }).join("") + "</div>" : "");
+    $("eb-m-body").innerHTML = steps + escHtml +
       '<dl class="eb-facts">' +
         fact(c.kind === "lead" || c.kind === "opportunity" ? "Requirement" : "Machine", escapeHtml(c.what || "")) +
         fact("Asked for", c.detail && c.detail !== c.what ? escapeHtml(c.detail) : "") +
@@ -7843,7 +8066,9 @@
       }).join("") + "</div>" : "") +
       '<div class="eb-links">' + links.map(function (l) {
         return '<button type="button" class="btn btn-sm" data-eb-go="' + l[0] + '" data-id="' + escapeHtml(l[1]) + '">' + escapeHtml(l[2]) + "</button>";
-      }).join("") + '<button type="button" class="btn btn-sm" data-eb-task="1">+ Task</button></div>';
+      }).join("") + '<button type="button" class="btn btn-sm" data-eb-task="1">+ Task</button>' +
+      (!x && c.stage !== "lost" && c.stage !== "dispatched" && (d.escalateTo || []).length
+        ? '<button type="button" class="btn btn-sm" data-eb-escalate="1">Escalate…</button>' : "") + "</div>";
   }
 
   /** Opens the ERP 1 record behind a card, where it is worked as it always was. */

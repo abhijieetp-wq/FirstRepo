@@ -131,6 +131,17 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   - Management sees everybody's tasks and the whole scorecard; everybody else the tasks given
     to them or by them, and their own line. Each person's dashboard has a tasks tile.
   - One new table, Tasks. Nothing in ERP 1 reads it.
+- **Escalations** (`src/Escalations.gs`), at `/escalations`, after Tasks — only in a 2.0 menu.
+  - "Escalate…" on an enquiry board card sends the deal to a Sales Coordinator or to Management,
+    by name, with a note saying what needs deciding. One waits on a card at a time; the card shows
+    "Escalated" and keeps the earlier ones.
+  - Management answers: send back, approve, won or lost, with an instruction. A coordinator it was
+    sent to replies and sends it back. Whoever raised it can withdraw it while it waits.
+  - Left out of ERP 2 on purpose: moving a deal to "In negotiation" escalates nothing by itself and
+    does not stop the coordinator closing it; and an answer changes no quotation — the coordinator
+    still marks it won or lost, with ERP 1's own steps.
+  - Sales work only; service sees none of it. A tile on Management's and the sales side's
+    dashboards counts what waits. One new table, Escalations.
 
 ## The rule for each screen that moves to 2.0
 
@@ -156,6 +167,9 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/tasks-ui-test.js`, `tests/tasks-sql-test.js` — giving and changing tasks and who may,
   the scoring and its rules, the periods, the dashboard tile, tasks about a service job and an
   enquiry, and no tasks on the other faces.
+- `tests/escalations-ui-test.js`, `tests/escalations-sql-test.js` — escalating a card, who answers
+  and how, withdrawing, who sees what, the board and dashboard, nothing escalating by itself, no
+  quotation changed, and no escalations on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.
