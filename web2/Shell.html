@@ -20,7 +20,13 @@
   "use strict";
 
   /** Screens 2.0 names differently. The screen, its server calls and its address are unchanged. */
-  var RENAME = { servicedue: { from: "Service Due Calls", to: "SDR" } };
+  var RENAME = {
+    servicedue: { from: "Service Due Calls", to: "SDR" },
+    // The demo's names for these screens, on their headings too (JavaScript.html names them in the menu).
+    service: { from: "Service Jobs", to: "Service Desk" },
+    amc: { from: "AMC", to: "AMC & Dues" },
+    catalog: { from: "Catalog", to: "Catalogue" }
+  };
 
   function $(id) { return document.getElementById(id); }
   function safely(what, fn) {
@@ -60,7 +66,7 @@
   function renameTitle() {
     var t = document.title;
     Object.keys(RENAME).forEach(function (view) {
-      if (t.indexOf(RENAME[view].from) === 0) t = RENAME[view].to + t.slice(RENAME[view].from.length);
+      if (t.indexOf(RENAME[view].from) === 0 && t.indexOf(RENAME[view].to) !== 0) t = RENAME[view].to + t.slice(RENAME[view].from.length);
     });
     if (t !== document.title) document.title = t;
   }

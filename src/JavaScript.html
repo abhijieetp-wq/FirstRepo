@@ -258,6 +258,31 @@
     { view: "settings", label: "Settings", roles: ["Management", "ERP Admin"] }
   ];
 
+  /**
+   * ERP 2.0's menu, laid out as the 2.0 demo has it: Sales, Quotations, Service, Orders & money,
+   * Management, Setup. The same screens and the same rules for who sees them; only the order,
+   * the headings and a few of the names differ. The other faces keep the menu above.
+   */
+  if (FACE_V2) NAV = (function () {
+    var by = {};
+    NAV.forEach(function (n) { (n.children || [n]).forEach(function (c) { by[c.view] = c; }); });
+    var names = { servicedue: "SDR", visits: "Visit Plans", service: "Service Desk", amc: "AMC & Dues", catalog: "Catalogue",
+      engineers: "Leads by Engineer", engreport: "Service Engineers", formfields: "Form Fields", plan: "Next-day Plan" };
+    Object.keys(names).forEach(function (v) { if (by[v]) by[v].label = names[v]; });
+    var group = function (label, views) {
+      return { label: label, children: views.map(function (v) { return by[v]; }).filter(Boolean) };
+    };
+    return [
+      by.dashboard,
+      group("Sales", ["compressor", "enquiries", "servicedue", "visits"]),
+      group("Quotations", ["quote", "quotations", "progress"]),
+      group("Service", ["service", "amc", "plan"]),
+      group("Orders & money", ["orders", "dispatch", "collections", "inventory"]),
+      group("Management", ["tasks", "escalations", "engineers", "engreport"]),
+      group("Setup", ["customers", "catalog", "formfields", "settings"])
+    ];
+  })();
+
   /** Every leaf screen, flattened — used for role checks and for the default landing tab. */
   function navLeaves() {
     var out = [];

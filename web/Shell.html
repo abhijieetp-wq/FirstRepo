@@ -95,6 +95,17 @@
     orders: "Orders", dispatch: "Orders", service: "Orders", amc: "Orders", plan: "Orders", collections: "Orders",
     inventory: "Stock", customers: "Masters", catalog: "Masters", formfields: "Masters", settings: "Admin"
   };
+  // ERP 2.0 groups its menu as the 2.0 demo does (JavaScript.html's NAV on that face).
+  if (document.documentElement.getAttribute("data-face") === "v2") {
+    SECTION = {
+      dashboard: "Overview", compressor: "Sales", enquiries: "Sales", servicedue: "Sales", visits: "Sales",
+      quote: "Quotations", quotations: "Quotations", progress: "Quotations",
+      service: "Service", amc: "Service", plan: "Service",
+      orders: "Orders & money", dispatch: "Orders & money", collections: "Orders & money", inventory: "Orders & money",
+      tasks: "Management", escalations: "Management", engineers: "Management", engreport: "Management",
+      customers: "Setup", catalog: "Setup", formfields: "Setup", settings: "Setup"
+    };
+  }
 
   /** The jobs worth starting from anywhere. Each is a button that already exists on its screen. */
   var ACTIONS = [

@@ -107,7 +107,7 @@ const ok = (label, cond, detail) => {
 
     console.log('TASKS IN THE MENU, ON THEIR OWN SCREEN');
     const menu = await page.$$eval('#tabs [data-view]', (b) => b.map((x) => x.dataset.view));
-    ok('in the menu, next to the Dashboard', menu.indexOf('tasks') === menu.indexOf('dashboard') + 1, menu);
+    ok('in the menu under Management, with Escalations, as the 2.0 demo has it', menu.indexOf('tasks') !== -1 && menu.indexOf('escalations') === menu.indexOf('tasks') + 1 && menu.indexOf('tasks') > menu.indexOf('inventory'), menu);
     await reset();
     await page.evaluate(() => document.querySelector('#tabs [data-view="tasks"]').click());
     await page.waitForTimeout(500);
