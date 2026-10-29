@@ -103,16 +103,35 @@ const ok = (label, cond, detail) => {
     await page.waitForTimeout(150);
 
     console.log('\nBOARD OR LIST, REMEMBERED');
+    await page.selectOption('#eb-spare [data-eb-filter="owner"]', '__mine');
     await page.click('#eb-spare [data-eb-view="list"]');
     await page.waitForTimeout(400);
-    ok('List brings ERP 1’s table back, with its toolbar', await shown('#enquiries-tbody') && !(await shown('#eb-spare')) && await shown('#enquiry-search'));
+    ok('List is the same cards as a table, the toolbar and its dropdowns kept', await shown('#eb-spare .eb2-list') && !(await shown('#eb-spare .eb2-board')) &&
+      !(await shown('#enquiries-tbody')) && await shown('#eb-spare [data-eb-filter="owner"]') && await shown('#eb-spare [data-eb-filter="stage"]') &&
+      await page.$eval('#eb-spare [data-eb-filter="owner"]', (s) => s.value) === '__mine' &&
+      await page.$eval('#eb-spare [data-eb-view="list"]', (b) => b.getAttribute('aria-pressed')) === 'true');
+    await page.selectOption('#eb-spare [data-eb-filter="owner"]', '');
+    await page.waitForTimeout(200);
+    const listRows = await page.$$eval('#eb-spare .eb2-list tbody tr[data-eb-card]', (r) => r.map((x) => x.dataset.ebCard));
+    ok('a row per card', listRows.length === (await page.evaluate(() => window.__data.getEnquiryBoard({ stream: 'Spare Sales' }).cards.filter((c) => c.stage !== 'lost').length)) &&
+      listRows.indexOf('SE:E1') !== -1, listRows);
+    await page.selectOption('#eb-spare [data-eb-filter="stage"]', 'enquiry');
+    await page.waitForTimeout(200);
+    ok('the stage dropdown filters the table', (await page.$$eval('#eb-spare .eb2-list tbody tr[data-eb-card]', (r) => r.length)) >= 1 &&
+      (await page.$$eval('#eb-spare .eb2-list tbody tr[data-eb-card]', (r) => r.map((x) => x.dataset.ebCard))).indexOf('SE:E1') !== -1);
+    await page.selectOption('#eb-spare [data-eb-filter="stage"]', '');
+    await page.click('#eb-spare .eb2-list tr[data-eb-card="SE:E1"]');
+    await page.waitForTimeout(300);
+    ok('a row opens the same drawer', await page.evaluate(() => document.getElementById('eb-modal-backdrop').classList.contains('show')));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
     await page.reload();
     await page.waitForTimeout(1200);
     await go('enquiries');
-    ok('and this browser keeps the list next time', await shown('#enquiries-tbody') && !(await shown('#eb-spare')));
-    await page.click('#eb-switch-spare [data-eb-mode="board"]');
+    ok('and this browser keeps the list next time, still in 2.0', await shown('#eb-spare .eb2-list') && !(await shown('#enquiries-tbody')));
+    await page.click('#eb-spare [data-eb-view="board"]');
     await page.waitForTimeout(500);
-    ok('Board brings it back', await shown('#eb-spare') && (await column('SE:E1')) === 'enquiry');
+    ok('Board brings it back', await shown('#eb-spare .eb2-board') && (await column('SE:E1')) === 'enquiry');
 
     console.log('\nA CARD, OPENED');
     await page.click('[data-eb-card="SE:E1"]');
@@ -163,10 +182,12 @@ const ok = (label, cond, detail) => {
       !(await page.$('#eb-compressor [data-eb-card="SE:E1"]')));
     await page.click('#eb-compressor [data-eb-view="list"]');
     await page.waitForTimeout(400);
-    ok('List is ERP 1’s Leads, as it was', await shown('#cs-tbody') && !(await shown('#eb-compressor')));
-    await page.click('#subtab-board');
+    const crow = await page.$$eval('#eb-compressor .eb2-list tbody tr[data-eb-card]', (r) => r.map((x) => x.dataset.ebCard));
+    ok('List is the board’s own enquiries as a table, not ERP 1’s Leads', await shown('#eb-compressor .eb2-list') && !(await shown('#cs-tbody')) &&
+      crow.indexOf('LD:L1') !== -1 && crow.indexOf('LD:L2') !== -1 && await shown('#eb-compressor [data-eb-filter="owner"]'), crow);
+    await page.click('#eb-compressor [data-eb-view="board"]');
     await page.waitForTimeout(400);
-    ok('and Board comes back', await shown('#eb-compressor') && (await column('LD:L1')) === 'enquiry');
+    ok('and Board comes back', await shown('#eb-compressor .eb2-board') && (await column('LD:L1')) === 'enquiry');
   }
   ok('with no script errors', errors.length === 0, errors);
 

@@ -289,6 +289,13 @@
   .qv-row:hover td{ background:color-mix(in srgb, var(--eb-accent-soft) 50%, transparent); }
   .qv-table .mono{ font-family:var(--font-mono, ui-monospace, monospace); white-space:nowrap; }
   .qv-item{ font-size:12.5px; max-width:260px; }
+  .eb2-list{ margin-top:4px; }
+  .eb2-list td:nth-child(2), .eb2-list td:nth-child(5), .eb2-list td:nth-child(6), .eb2-list td:nth-child(7), .eb2-list td:nth-child(8){ white-space:nowrap; }
+  .eb2-list td.qv-late{ color:var(--eb-bad); }
+  .eb2-list td:nth-child(3){ min-width:170px; }
+  .eb2-list .eb2-kind{ font-size:12px; color:var(--eb-muted); }
+  .eb2-list .eb2-doc{ font-size:12px; color:var(--eb-ink2); }
+  .eb2-list td.eb2-empty{ text-align:center; color:var(--eb-muted); padding:24px; }
   .qv-late{ color:var(--eb-bad); font-weight:600; }
   .qv-desk{ display:inline-block; margin-top:3px; padding:1px 8px; border-radius:10px; font:600 11.5px/1.5 var(--font-sans); }
   .qv-desk.un{ background:var(--eb-unit-s); color:var(--eb-unit); }

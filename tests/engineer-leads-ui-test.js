@@ -80,6 +80,8 @@ const REPORT = {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto('file://' + copy);
+  // ERP 1's lists are what this checks; on 2.0 they open only on purpose.
+  await page.evaluate(() => { try { localStorage.setItem('erp.board.spare', 'erp1'); localStorage.setItem('erp.board.compressor', 'erp1'); } catch (e) { /* none */ } });
   await page.waitForTimeout(1200);
 
   const shown = (sel) => page.$eval(sel, (e) => getComputedStyle(e).display !== 'none');

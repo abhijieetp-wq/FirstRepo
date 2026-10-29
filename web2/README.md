@@ -204,6 +204,10 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   records: a lead's next-action date and owner, a spare enquiry's owner and its own follow-up date,
   follow-ups in Activities, lost as the record's Lost / Disqualified status with a reason. The flag
   is a new column on spare enquiries, leads and opportunities.
+  Board / List switches inside the 2.0 page: List shows the same cards as a table (number, date,
+  customer, need, stage, flag, value, follow-up, owner, quotation or order) with the same toolbar
+  and dropdowns, a row opening the same drawer; the choice is kept per browser. ERP 1's own Leads,
+  Pipeline and enquiry lists come up on 2.0 only from ERP 1's own steps (Convert to opportunity).
 - **All Quotations and Quotation Progress as the 2.0 demo draws them**: six totals (drafts,
   approved not sent yet, sent with no answer, won and lost this month, past validity; a click
   filters), Both desks / Compressor / Spares, search, status and who prepared it, and a table with

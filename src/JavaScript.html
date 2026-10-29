@@ -9442,14 +9442,28 @@
     if (!eb[desk].mode) {
       var kept = "";
       try { kept = window.localStorage.getItem("erp.board." + desk) || ""; } catch (e) { /* private window */ }
-      eb[desk].mode = kept === "list" ? "list" : "board";
+      // The 2.0 desks open on the board; Board / List switch inside it. ERP 1's own lists
+      // come back only when one of ERP 1's steps asks (Convert to opportunity → Pipeline).
+      eb[desk].mode = kept === "erp1" ? "list" : "board";
     }
     return eb[desk].mode;
   }
   function ebActive(desk) { return FACE_V2 && ebMode(desk) === "board"; }
   function ebSetMode(desk, mode) {
     eb[desk].mode = mode;
-    try { window.localStorage.setItem("erp.board." + desk, mode); } catch (e) { /* private window */ }
+  }
+  /** Board or List inside the 2.0 desk, kept by this browser. */
+  function ebView(desk) {
+    if (!eb[desk].view) {
+      var kept = "";
+      try { kept = window.localStorage.getItem("erp.board.view." + desk) || ""; } catch (e) { /* private window */ }
+      eb[desk].view = kept === "list" ? "list" : "board";
+    }
+    return eb[desk].view;
+  }
+  function ebSetView(desk, view) {
+    eb[desk].view = view;
+    try { window.localStorage.setItem("erp.board.view." + desk, view); } catch (e) { /* private window */ }
   }
 
   function ebMoney(n) {
@@ -9648,6 +9662,8 @@
     }).join("");
     stageSel.value = stage;
     tools.querySelector("[data-eb-lost]").checked = showLost;
+    var asList = ebView(desk) === "list";
+    tools.querySelectorAll("[data-eb-view]").forEach(function (b) { b.setAttribute("aria-pressed", String((b.dataset.ebView === "list") === asList)); });
     tools.querySelector(".eb2-lostn").textContent = "Show lost (" + lostCount + ")";
     tools.querySelector(".eb2-rename-slot").innerHTML = d.canRename
       ? '<button type="button" class="btn btn-sm" data-eb-rename="1">' + (eb.renaming ? "Done renaming" : "Rename stages") + "</button>" : "";
@@ -9661,6 +9677,10 @@
         return '<label class="field"><span>' + (s.key === d.closed.key ? "Closed" : (i + 1) + " · " + (s.how === "hand" ? "set by hand" : "moves by itself")) +
           '</span><input data-eb-name="' + escapeHtml(s.key) + '" value="' + escapeHtml(s.label) + '" maxlength="40" /></label>';
       }).join("") + '<p class="eb-note">Renaming changes the board on both desks. Stages cannot be added: the ones that move by themselves follow the quotations, orders and dispatch.</p></div>';
+    }
+    if (asList) {
+      host.querySelector(".eb2-body").innerHTML = html + ebTable(desk, cards, cols, today, showLost);
+      return;
     }
     html += '<div class="eb2-board' + (stage ? " one" : "") + '">' + cols.map(function (s) {
       var here = cards.filter(function (c) { return c.stage === s.key; });
@@ -9678,6 +9698,40 @@
       '<p class="eb-note">Dispatched and closed cards stay for ' + d.recentDays + " days." + (showLost ? "" : " Tick “Show lost” to see the closed ones.") + "</p>";
     host.querySelector(".eb2-body").innerHTML = html;
     xfCards(host);
+  }
+
+  /** The same cards as a table: one row each, in stage order, the row opening the same drawer. */
+  function ebTable(desk, cards, cols, today, showLost) {
+    var order = {};
+    cols.forEach(function (s, i) { order[s.key] = i; });
+    var rows = cards.filter(function (c) { return order[c.stage] !== undefined; }).sort(function (a, b) {
+      return (order[a.stage] - order[b.stage]) || String(a.followUp || "9").localeCompare(String(b.followUp || "9")) ||
+        String(b.date || "").localeCompare(String(a.date || ""));
+    });
+    var kindWord = { enquiry: "Enquiry", lead: "Lead", opportunity: "Opportunity", quotation: "Quotation only" };
+    var body = rows.map(function (c) {
+      var doc = c.order ? c.order.orderNo + " · " + c.order.status
+        : c.quote ? c.quote.quoteNo + (c.quote.revision && c.quote.revision !== "R0" ? " " + c.quote.revision : "") + " · " +
+          (c.quote.status === "Submitted" ? "Sent" : c.quote.status) : "";
+      var late = c.followUp && c.followUp < today && ebOpenRecord(c);
+      var what = c.kind === "lead" || c.kind === "opportunity" ? [c.detail || c.what, c.source].filter(Boolean).join(" · ") : (c.what || c.detail || c.source || "");
+      var stageChip = c.stage === "negotiation" ? ebChip(ebLabel(desk, c.stage), "sig") : c.stage === "lost" ? ebChip(ebLabel(desk, c.stage), "bad") : ebChip(ebLabel(desk, c.stage), "auto");
+      return '<tr class="qv-row" data-eb-card="' + escapeHtml(c.ref) + '">' +
+        '<td><span class="mono">' + escapeHtml(c.no || "—") + '</span><br><span class="eb2-kind">' + escapeHtml(kindWord[c.kind] || c.kind || "") + "</span></td>" +
+        "<td>" + escapeHtml(ebDay(c.date)) + "</td>" +
+        "<td><b>" + escapeHtml(c.customerName || "—") + "</b>" + (c.place ? '<br><span class="eb2-kind">' + escapeHtml(c.place) + "</span>" : "") + "</td>" +
+        '<td class="qv-item">' + escapeHtml(what) + (c.stage === "lost" && c.closedWhy ? '<br><span class="eb-why">' + escapeHtml(c.closedWhy) + "</span>" : "") + "</td>" +
+        "<td>" + stageChip + (c.escalation ? " " + ebChip("Escalated", "esc", "With " + c.escalation.toName) : "") + "</td>" +
+        "<td>" + (c.flag ? ebChip(c.flag, ebFlagTone(c.flag)) : "") + "</td>" +
+        '<td class="num"><b>' + escapeHtml(ebLakh(c.value) || "₹0") + "</b></td>" +
+        "<td" + (late ? ' class="qv-late"' : "") + ">" + (c.followUp && ebOpenRecord(c) ? escapeHtml(ebDay(c.followUp)) : "—") + "</td>" +
+        "<td>" + escapeHtml(c.ownerName || "—") + "</td>" +
+        '<td><span class="mono eb2-doc">' + escapeHtml(doc || "—") + "</span></td></tr>";
+    }).join("");
+    return '<div class="qv-table eb2-list"><table><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th>What they need</th><th>Stage</th>' +
+      '<th>Flag</th><th class="num">Value</th><th>Follow-up</th><th>Owner</th><th>Quote / order</th></tr></thead><tbody>' +
+      (body || '<tr><td colspan="10" class="eb2-empty">Nothing matches.</td></tr>') + "</tbody></table></div>" +
+      '<p class="eb-note">' + rows.length + " shown. Click a row to open it." + (showLost ? "" : " Tick “Show lost” to see the closed ones.") + "</p>";
   }
 
   function ebCard(c, today, desk) {
@@ -9740,10 +9794,7 @@
       if (card) { ebOpenCard(desk, card.dataset.ebCard); return; }
       if (e.target.closest("[data-eb-rename]")) { eb.renaming = !eb.renaming; ebRender(desk); return; }
       var v = e.target.closest("[data-eb-view]");
-      if (v && v.dataset.ebView === "list") {
-        if (desk === "spare") { ebSetMode("spare", "list"); ebSpareInit(); }
-        else switchCsMode("leads");
-      }
+      if (v) { ebSetView(desk, v.dataset.ebView); ebRender(desk); }
     });
   });
 
