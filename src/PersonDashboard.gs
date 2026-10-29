@@ -35,6 +35,12 @@ var PD_KIND = {
   'ERP Admin': 'boss'
 };
 
+/** How each period reads in a tile: "My orders this month", "Won last month". */
+var PD_PERIOD_WORDS = { month: 'this month', lastmonth: 'last month', quarter: 'this quarter', fy: 'this financial year', custom: 'in the range' };
+
+/** A day inside the dashboard's period. */
+function pdIn_(day, ctx) { var d = String(day || '').slice(0, 10); return !!d && d >= ctx.period.from && d <= ctx.period.to; }
+
 /** Offers out with the customer, by ERP 1's statuses (Negotiating reads as sent). */
 var PD_OUT_STATUSES = ['Submitted', 'Negotiating'];
 
@@ -60,9 +66,12 @@ function getPersonDashboard(options) {
 
   var kind = PD_KIND[person.role] || 'coordinator';
   var today = todayIso_();
+  // ERP 2's period selector: what "this month" means on the desk (Tasks.gs's periods).
+  var period = taskPeriod_(opts, today);
   var ctx = {
     viewer: user, person: person, email: String(person.email || '').toLowerCase(),
     today: today, tomorrow: addDays_(today, 1), month: today.slice(0, 7),
+    period: period, word: PD_PERIOD_WORDS[period.key] || 'in the period',
     people: userNameMap_()
   };
 
@@ -70,7 +79,8 @@ function getPersonDashboard(options) {
     person: { email: String(person.email || ''), name: String(person.name || person.email || ''),
       role: String(person.role || ''), stream: String(person.businessStream || '') },
     self: ctx.email === String(user.email).toLowerCase(),
-    kind: kind, today: today, tiles: [], lists: []
+    kind: kind, today: today, tiles: [], lists: [],
+    period: period, periods: TASK_PERIODS, periodWord: ctx.word
   };
   if (kind === 'coordinator') pdCoordinator_(ctx, out);
   else if (kind === 'salesEngineer') pdSalesEngineer_(ctx, out);
@@ -97,13 +107,13 @@ function getPersonDashboard(options) {
  * this month. For Management, everybody's overdue tasks and the team's score.
  */
 function pdTasks_(ctx, out, everyone) {
-  var t = taskSummary_(ctx.email, everyone);
+  var t = taskSummary_(ctx.email, everyone, ctx.period);
   if (!t) return;
   var score = t.score === null ? 'no score yet' : 'score ' + t.score + '%';
   out.tiles.push(everyone
-    ? { key: 'tasks', label: 'Tasks overdue', value: String(t.overdue), sub: t.open + ' open · team ' + score + ' this month',
+    ? { key: 'tasks', label: 'Tasks overdue', value: String(t.overdue), sub: t.open + ' open · team ' + score + ' ' + ctx.word,
       tone: t.overdue ? 'bad' : '', go: 'tasks' }
-    : { key: 'tasks', label: 'My tasks', value: String(t.open), sub: t.overdue + ' overdue · ' + score + ' this month',
+    : { key: 'tasks', label: 'My tasks', value: String(t.open), sub: t.overdue + ' overdue · ' + score + ' ' + ctx.word,
       tone: t.overdue ? 'bad' : '', go: 'tasks' });
 }
 
@@ -180,7 +190,7 @@ function pdCustomerNames_() {
 /** Orders this month, cancelled ones aside, with the quotation each came from. */
 function pdOrdersThisMonth_(ctx) {
   return readTable_('SalesOrders').filter(function (o) {
-    return String(o.date || '').slice(0, 7) === ctx.month && String(o.orderStatus) !== 'Cancelled';
+    return pdIn_(o.date, ctx) && String(o.orderStatus) !== 'Cancelled';
   });
 }
 
@@ -243,14 +253,40 @@ function pdCoordinator_(ctx, out) {
     { key: 'due', label: 'Follow-ups due', value: String(due.length), sub: late.length ? late.length + ' past their date' : 'today and tomorrow', tone: late.length ? 'bad' : due.length ? 'warn' : '' },
     { key: 'waiting', label: 'Waiting for the customer’s answer', value: String(waiting.length), money: pdSum_(waiting, function (q) { return q.grand; }), sub: 'offered', go: 'quotations' },
     { key: 'approve', label: 'Drafts to approve and send', value: String(toApprove.length), sub: 'customers I look after', tone: toApprove.length ? 'warn' : '', go: 'quotations' },
-    { key: 'orders', label: 'My orders this month', value: String(orders.length), money: pdSum_(orders, function (o) { return o.grand; }), sub: 'booked', go: 'orders' }
+    { key: 'orders', label: 'My orders ' + ctx.word, value: String(orders.length), money: pdSum_(orders, function (o) { return o.grand; }), sub: 'booked', go: 'orders' }
   ];
   if (sdr.length || sdrDue.length) {
     out.tiles.push({ key: 'sdr', label: 'SDR calls to make', value: String(sdr.length), sub: sdrDue.length + ' follow-ups due', tone: sdrDue.length ? 'warn' : '', go: 'servicedue' });
   }
 
+  // ERP 2: the spare enquiries a service engineer raised, still waiting for this coordinator
+  // to work them — nothing quoted yet.
+  var fromEngineers = [];
+  if (pdDesks_(ctx.person).indexOf(STREAM_SPARE) !== -1 && streamAllowed_(ctx.viewer, STREAM_SPARE)) {
+    var quoted = {};
+    quotes.forEach(function (q) { if (q.spareEnquiryId) quoted[String(q.spareEnquiryId)] = true; });
+    fromEngineers = readTable_('SpareEnquiries').filter(function (e) {
+      return String(e.serviceEngineerEmail || '') && pdSame_(e.ownerEmail, ctx.email) && !quoted[String(e.id)] &&
+        ['New', 'Identifying', ''].indexOf(String(e.status || '')) !== -1;
+    }).sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+  }
+  if (fromEngineers.length) {
+    out.tiles.push({ key: 'engineer', label: 'Raised by service engineers', value: String(fromEngineers.length), sub: 'waiting for you',
+      tone: 'warn', go: 'enquiries' });
+  }
+
   out.lists.push({ key: 'due', title: 'Follow-ups due', count: due.length, empty: 'Nothing due today or tomorrow.',
     rows: due.slice(0, 8).map(function (c) { return pdCardRow_(c, ctx); }) });
+  if (fromEngineers.length) {
+    out.lists.push({ key: 'engineer', title: 'Raised by service engineers, waiting for you', count: fromEngineers.length, empty: '',
+      rows: fromEngineers.slice(0, 8).map(function (e) {
+        var c = customers[String(e.customerId)] || {};
+        var waitDays = daysBetween_(String(e.date || '').slice(0, 10), ctx.today);
+        return pdRow_(c.name || e.customerName, String(e.enquiryNo || '') + ' · from ' + personLine_(e.serviceEngineerEmail, ctx.people) +
+          (e.productModel ? ' · ' + e.productModel : ''), '', waitDays + (waitDays === 1 ? ' day' : ' days') + ' waiting',
+          waitDays > 2 ? 'bad' : 'warn', { kind: 'enquiry', id: String(e.id) });
+      }) });
+  }
   out.lists.push({ key: 'approve', title: 'Drafts to approve and send', count: toApprove.length,
     empty: 'No drafts waiting on you.',
     rows: toApprove.slice(0, 8).map(function (q) { return pdQuoteRow_(q, customers, ctx, 'approve'); }) });
@@ -288,7 +324,7 @@ function pdSalesEngineer_(ctx, out) {
     { key: 'leads', label: 'Leads I found, still open', value: String(openLeads.length + openOpps.length), sub: openOpps.length + ' in the pipeline', go: 'compressor' },
     { key: 'due', label: 'Follow-ups due', value: String(due.length), sub: 'today and tomorrow', tone: due.some(function (l) { return String(l.nextActionDate) < ctx.today; }) ? 'bad' : due.length ? 'warn' : '' },
     { key: 'waiting', label: 'Offers out with customers', value: String(waiting.length), money: pdSum_(waiting, function (q) { return q.grand; }), sub: 'offered', go: 'quotations' },
-    { key: 'won', label: 'Won this month', value: String(won.length), money: pdSum_(won, function (o) { return o.grand; }), sub: 'from my leads and offers' }
+    { key: 'won', label: 'Won ' + ctx.word, value: String(won.length), money: pdSum_(won, function (o) { return o.grand; }), sub: 'from my leads and offers' }
   ];
   out.lists.push({ key: 'due', title: 'Follow-ups due', count: due.length, empty: 'Nothing due today or tomorrow.',
     rows: due.slice(0, 8).map(function (l) {
@@ -299,6 +335,21 @@ function pdSalesEngineer_(ctx, out) {
     }) });
   out.lists.push({ key: 'waiting', title: 'Offers out with customers', count: waiting.length, empty: 'No offers out.',
     rows: waiting.slice(0, 8).map(function (q) { return pdQuoteRow_(q, customers, ctx, 'waiting'); }) });
+  // ERP 2: today's sales visits (VisitPlans.gs).
+  var visits = [];
+  try {
+    visits = readTable_('SalesVisits').filter(function (v) {
+      return String(v.active).toUpperCase() !== 'FALSE' && pdSame_(v.engineerEmail, ctx.email) && String(v.visitDate || '').slice(0, 10) === ctx.today;
+    });
+  } catch (err) { visits = []; }
+  var areas = visitAreas_(visitConfig_());
+  out.lists.unshift({ key: 'visits', title: 'Today’s visits', count: visits.length, empty: 'No visits planned today.',
+    rows: visits.map(function (v) {
+      var type = visitAreaType_(v.area, areas);
+      return pdRow_(String(v.customerName || ''), [v.purpose, v.area ? v.area + (type ? ' (' + type + ')' : '') : ''].filter(Boolean).join(' · '),
+        '', String(v.status || 'Planned'), String(v.status) === 'Not visited' ? 'bad' : String(v.status || 'Planned') === 'Planned' ? 'warn' : '',
+        { kind: 'visits', id: String(v.id) });
+    }) });
 }
 
 function pdJobs_() {
@@ -323,11 +374,11 @@ function pdServiceCoordinator_(ctx, out) {
     return d === ctx.today || d === ctx.tomorrow;
   }).sort(function (a, b) { return String(a.scheduledDate).localeCompare(String(b.scheduledDate)); });
   var breakdowns = open.filter(function (j) { return String(j.jobType) === 'Breakdown'; });
-  var done = jobs.filter(function (j) { return String(j.status) === 'Completed' && String(j.completedDate || '').slice(0, 7) === ctx.month; });
+  var done = jobs.filter(function (j) { return String(j.status) === 'Completed' && pdIn_(j.completedDate, ctx); });
   // The engineer has written the job up; it waits on the coordinator (ServiceDesk.gs).
   var reports = open.filter(function (j) { return serviceDeskStatus_(j) === 'Report submitted'; });
   out.tiles = [
-    { key: 'open', label: 'Open jobs', value: String(open.length), sub: done.length + ' closed this month', go: 'service' },
+    { key: 'open', label: 'Open jobs', value: String(open.length), sub: done.length + ' closed ' + ctx.word, go: 'service' },
     { key: 'fresh', label: 'Waiting for an engineer', value: String(fresh.length), sub: 'assign them', tone: fresh.length ? 'warn' : '', go: 'service' },
     { key: 'reports', label: 'Reports in, to close', value: String(reports.length), sub: 'you close these', tone: reports.length ? 'warn' : '', go: 'service' },
     { key: 'soon', label: 'Visits today and tomorrow', value: String(soon.length), sub: pdEngineerCount_(soon) + ' engineers out', go: 'service' },
@@ -359,21 +410,21 @@ function pdServiceEngineer_(ctx, out) {
   var open = mine.filter(pdJobOpen_);
   var today = open.filter(function (j) { return String(j.scheduledDate || '').slice(0, 10) === ctx.today; });
   var tomorrow = open.filter(function (j) { return String(j.scheduledDate || '').slice(0, 10) === ctx.tomorrow; });
-  var done = mine.filter(function (j) { return String(j.status) === 'Completed' && String(j.completedDate || '').slice(0, 7) === ctx.month; });
+  var done = mine.filter(function (j) { return String(j.status) === 'Completed' && pdIn_(j.completedDate, ctx); });
   var raised = readTable_('SpareEnquiries').filter(function (e) {
-    return pdSame_(e.serviceEngineerEmail, ctx.email) && String(e.date || '').slice(0, 7) === ctx.month;
+    return pdSame_(e.serviceEngineerEmail, ctx.email) && pdIn_(e.date, ctx);
   });
   var passed = readTable_('Leads').filter(function (l) {
-    return pdSame_(l.serviceEngineerEmail, ctx.email) && String(l.date || '').slice(0, 7) === ctx.month;
+    return pdSame_(l.serviceEngineerEmail, ctx.email) && pdIn_(l.date, ctx);
   });
   // Visited, not yet written up: the report is what lets the coordinator close the job.
   var toWrite = open.filter(function (j) { return serviceDeskStatus_(j) === 'In progress'; });
   out.tiles = [
     { key: 'today', label: 'Visits today', value: String(today.length), sub: tomorrow.length + ' tomorrow', go: 'service' },
-    { key: 'open', label: 'My open jobs', value: String(open.length), sub: done.length + ' closed this month', go: 'service' },
+    { key: 'open', label: 'My open jobs', value: String(open.length), sub: done.length + ' closed ' + ctx.word, go: 'service' },
     { key: 'write', label: 'Reports to write', value: String(toWrite.length), sub: 'jobs in progress', tone: toWrite.length ? 'warn' : '', go: 'service' },
-    { key: 'raised', label: 'Spare enquiries I raised', value: String(raised.length), sub: 'this month' },
-    { key: 'passed', label: 'Compressor leads I passed on', value: String(passed.length), sub: 'this month' }
+    { key: 'raised', label: 'Spare enquiries I raised', value: String(raised.length), sub: ctx.word },
+    { key: 'passed', label: 'Compressor leads I passed on', value: String(passed.length), sub: ctx.word }
   ];
   out.lists.push({ key: 'today', title: 'Today', count: today.length, empty: 'No visits today.',
     rows: today.map(function (j) { return pdJobRow_(j, ctx, false); }) });
@@ -433,6 +484,6 @@ function pdBoss_(ctx, out) {
     { key: 'open', label: 'Open enquiries', value: String(open.length), money: pdSum_(open, function (c) { return c.value; }), sub: 'in play, both desks', go: 'enquiries' },
     { key: 'late', label: 'Follow-ups past their date', value: String(late.length), sub: 'across the team', tone: late.length ? 'bad' : '' },
     { key: 'waiting', label: 'Waiting for customers’ answers', value: String(waiting.length), money: pdSum_(waiting, function (q) { return q.grand; }), sub: 'offered', go: 'quotations' },
-    { key: 'orders', label: 'Orders this month', value: String(orders.length), money: pdSum_(orders, function (o) { return o.grand; }), sub: 'booked', go: 'orders' }
+    { key: 'orders', label: 'Orders ' + ctx.word, value: String(orders.length), money: pdSum_(orders, function (o) { return o.grand; }), sub: 'booked', go: 'orders' }
   ];
 }

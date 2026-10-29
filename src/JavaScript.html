@@ -9065,7 +9065,31 @@
     var counts = {};
     d.calls.forEach(function (c) { counts[c.status] = (counts[c.status] || 0) + 1; });
     var active = $("sdc-status").value;
-    $("sdc-summary").innerHTML = '<div class="sdc-tiles">' +
+    // ERP 2's totals for the list on 2.0: customers in it, called, quotations raised, converted.
+    var strip = "";
+    if (FACE_V2) {
+      var custs = {};
+      var called = 0;
+      var quoted = [];
+      var won = [];
+      d.calls.forEach(function (c) {
+        custs[String(c.customerId || c.customerName || c.id).toLowerCase()] = true;
+        if (c.status !== "To call") called++;
+        if (c.quoteNo || c.quotationId) quoted.push(c);
+        if (c.status === "PO received") won.push(c);
+      });
+      var sum = function (list, k) { return list.reduce(function (n, c) { return n + (Number(c[k]) || 0); }, 0); };
+      strip = '<div class="sdc-totals">' + [
+        ["Customers in the list", Object.keys(custs).length, ""],
+        ["Called", called, d.calls.length ? Math.round(called / d.calls.length * 100) + "% of the list" : ""],
+        ["Quotations raised", quoted.length, sum(quoted, "quoteValue") ? fmtShort(sum(quoted, "quoteValue")) : ""],
+        ["Converted", won.length, sum(won, "poValue") ? fmtShort(sum(won, "poValue")) + " won" : ""]
+      ].map(function (t) {
+        return '<div class="pd-tile"><span class="pd-label">' + escapeHtml(t[0]) + '</span><span class="pd-value">' + t[1] +
+          '</span><span class="pd-sub">' + escapeHtml(t[2]) + "</span></div>";
+      }).join("") + "</div>";
+    }
+    $("sdc-summary").innerHTML = strip + '<div class="sdc-tiles">' +
       '<button type="button" class="kpi-card sdc-tile' + (active ? "" : " on") + '" data-sdc-tile="">' +
         '<div class="kpi-label">All</div><div class="kpi-value">' + d.calls.length + "</div></button>" +
       d.statuses.map(function (s) {
@@ -13182,7 +13206,7 @@
   // ================= MY DASHBOARD (2.0) =================
   // ERP 2.0's dashboard per person (PersonDashboard.gs), above ERP 1's control tower, which is
   // unchanged under it. Management can open anybody's, exactly as they see it.
-  var pd = { data: null, as: "" };
+  var pd = { data: null, as: "", period: "month", from: "", to: "" };
   var PD_SAY = {
     coordinator: "Your desk for today: follow-ups, drafts to approve, offers waiting for an answer and SDR calls.",
     salesEngineer: "The leads you found, what is due on them, and your offers out with customers.",
@@ -13208,6 +13232,16 @@
     });
     host.addEventListener("change", function (e) {
       if (e.target.id === "pd-as") { pd.as = e.target.value; pdLoad(); }
+      if (e.target.id === "pd-period") {
+        pd.period = e.target.value;
+        if (pd.period === "custom" && pd.data) { pd.from = pd.data.period.from; pd.to = pd.data.period.to; }
+        pdLoad();
+      }
+      if ((e.target.id === "pd-from" || e.target.id === "pd-to") && $("pd-from").value && $("pd-to").value) {
+        pd.from = $("pd-from").value;
+        pd.to = $("pd-to").value;
+        pdLoad();
+      }
     });
     return host;
   }
@@ -13220,7 +13254,7 @@
       pdRender();
     }).withFailureHandler(function (err) {
       host.innerHTML = '<div class="empty">' + escapeHtml(err && err.message ? err.message : String(err)) + "</div>";
-    }).getPersonDashboard({ as: pd.as });
+    }).getPersonDashboard(pd.period === "custom" ? { as: pd.as, period: "custom", from: pd.from, to: pd.to } : { as: pd.as, period: pd.period });
   }
 
   function pdGreeting(name) {
@@ -13246,6 +13280,14 @@
             escapeHtml(mine ? "Me (" + p.name + ")" : p.name + " · " + p.role) + "</option>";
         }).join("") + "</select>" +
         (d.self ? "" : '<button type="button" class="btn btn-sm" data-pd-as="">Back to mine</button>') + "</div>";
+    }
+    // ERP 2's period selector: what the "this month" figures cover.
+    if (d.periods) {
+      html += '<div class="pd-period"><label for="pd-period">Figures for</label><select id="pd-period">' + d.periods.map(function (p) {
+        return '<option value="' + p.key + '"' + (p.key === d.period.key ? " selected" : "") + ">" + escapeHtml(p.label) + "</option>";
+      }).join("") + "</select>" +
+        (d.period.key === "custom" ? '<input type="date" id="pd-from" value="' + escapeHtml(d.period.from) + '" aria-label="From" />' +
+          '<input type="date" id="pd-to" value="' + escapeHtml(d.period.to) + '" aria-label="To" />' : "") + "</div>";
     }
     html += "</div>";
 
@@ -13293,6 +13335,7 @@
 
   /** Opens the ERP 1 record a line is about. */
   function pdOpen(kind, id) {
+    if (kind === "visits") { goToTab("visits"); return; }
     if (kind === "quotation") { openQuotation(id); return; }
     if (kind === "job") { openServiceJobModal(id); return; }
     ebGo(kind, id);

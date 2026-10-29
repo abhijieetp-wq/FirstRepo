@@ -367,10 +367,11 @@ function saveTaskScoring(input) {
 }
 
 /**
- * The person's tasks in a line, for their dashboard: open, overdue, and their score this
- * month. For Management, everybody's overdue tasks and the team's score.
+ * The person's tasks in a line, for their dashboard: open, overdue, and their score in the
+ * dashboard's period (this month unless asked). For Management, everybody's overdue tasks and
+ * the team's score.
  */
-function taskSummary_(email, everyone) {
+function taskSummary_(email, everyone, period) {
   var ctx = { today: todayIso_(), scoring: taskScoring_() };
   var all = [];
   try { all = readTable_('Tasks').filter(taskLive_); } catch (err) { return null; }
@@ -384,7 +385,7 @@ function taskSummary_(email, everyone) {
     open++;
     if (taskState_(t, ctx.scoring, ctx.today).state === 'overdue') overdue++;
   });
-  var rows = taskScorecard_(theirs, taskPeriod_({ period: 'month' }, ctx.today), ctx, everyone ? '' : e);
+  var rows = taskScorecard_(theirs, period || taskPeriod_({ period: 'month' }, ctx.today), ctx, everyone ? '' : e);
   var earned = rows.reduce(function (s, r) { return s + r.earned; }, 0);
   var possible = rows.reduce(function (s, r) { return s + r.possible; }, 0);
   return { open: open, overdue: overdue, score: possible ? Math.max(0, Math.round(earned / possible * 100)) : null };

@@ -108,6 +108,10 @@ run_ui "service-engineer-report-ui-test.js (2.0)" tests/service-engineer-report-
 run_ui "board-extras-ui-test.js (classic)" tests/board-extras-ui-test.js "$tmp/base.html"
 run_ui "board-extras-ui-test.js (new design)" tests/board-extras-ui-test.js "$tmp/base-web.html"
 run_ui "board-extras-ui-test.js (2.0)" tests/board-extras-ui-test.js "$tmp/base-v2.html"
+# And the dashboard's period, today's visits and the SDR totals.
+run_ui "dashboard-extras-ui-test.js (classic)" tests/dashboard-extras-ui-test.js "$tmp/base.html"
+run_ui "dashboard-extras-ui-test.js (new design)" tests/dashboard-extras-ui-test.js "$tmp/base-web.html"
+run_ui "dashboard-extras-ui-test.js (2.0)" tests/dashboard-extras-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

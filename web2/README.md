@@ -186,6 +186,13 @@ spares offer's, as before. An enquiry with no type reads as Spares.
 - **A compressor lead's area**, Local or Outstation, on the 2.0 lead form, on its card and in its
   window, saved through ERP 1's own lead save; ERP 1's form sends none and keeps the lead's. A
   lead made from a visit carries the visit's area.
+- **Dashboard additions** (`src/PersonDashboard.gs`): a period selector — this month, last month,
+  this quarter, this financial year or a range — behind every "this month" figure, named in the
+  tile ("My orders last month"); the tasks tile follows it. A coordinator sees the spare enquiries
+  a service engineer raised that are still waiting for them, nothing quoted, with the days
+  waiting; a sales engineer's desk opens with today's visits.
+- **SDR totals** on 2.0, above ERP 1's count by status: customers in the list, called, quotations
+  raised (with their value), converted (with the PO value).
 
 ## The rule for each screen that moves to 2.0
 
@@ -223,6 +230,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   column for a period, who sees what and money, the CSV, and no report on the other faces.
 - `tests/board-extras-ui-test.js`, `tests/board-extras-sql-test.js` — the totals and filters, the
   order tab, a lead's area, and ERP 1's lead form unchanged on the other faces.
+- `tests/dashboard-extras-ui-test.js`, `tests/dashboard-extras-sql-test.js` — the period, the
+  enquiries raised by service engineers, today's visits, and the SDR totals.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.
