@@ -84,6 +84,10 @@ run_ui "amc-ui-test.js (2.0)" tests/amc-ui-test.js "$tmp/base-v2.html"
 run_ui "next-day-plan-ui-test.js (classic)" tests/next-day-plan-ui-test.js "$tmp/base.html"
 run_ui "next-day-plan-ui-test.js (new design)" tests/next-day-plan-ui-test.js "$tmp/base-web.html"
 run_ui "next-day-plan-ui-test.js (2.0)" tests/next-day-plan-ui-test.js "$tmp/base-v2.html"
+# And tasks with the scorecard.
+run_ui "tasks-ui-test.js (classic)" tests/tasks-ui-test.js "$tmp/base.html"
+run_ui "tasks-ui-test.js (new design)" tests/tasks-ui-test.js "$tmp/base-web.html"
+run_ui "tasks-ui-test.js (2.0)" tests/tasks-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

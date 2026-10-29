@@ -93,7 +93,8 @@ const ok = (label, cond, detail) => {
     await openJob('J2');
     ok('ERP 1’s status list is put away', await page.evaluate(() => document.getElementById('sj-status').closest('.field').offsetParent === null));
     ok('it stands at Assigned', (await now()) === 'Assigned' && await page.$eval('.sd-steps li.now', (e) => e.textContent) === 'Assigned');
-    ok('with Start work, Write the report and Cancel', (await page.$$eval('#sj-desk [data-sd]', (b) => b.map((x) => x.dataset.sd))).join() === 'start,write,cancel');
+    // "+ Task" (Tasks.gs) sits beside the job's own steps on every job, closed ones too.
+    ok('with Start work, Write the report and Cancel', (await page.$$eval('#sj-desk [data-sd]', (b) => b.map((x) => x.dataset.sd))).join() === 'start,write,cancel,task');
     await page.evaluate(() => { window.__calls = []; });
     await page.click('[data-sd="start"]');
     await page.waitForTimeout(400);
@@ -121,7 +122,7 @@ const ok = (label, cond, detail) => {
     await page.click('[data-sd="close"]');
     await page.waitForTimeout(400);
     ok('Close the job closes it', JSON.stringify((await lastCall('closeServiceJob')).slice(0, 1)) === '["J2"]' && (await now()) === 'Closed');
-    ok('a closed job offers nothing more', (await page.$$('#sj-desk [data-sd]')).length === 0);
+    ok('a closed job offers nothing more, but a task about it', (await page.$$eval('#sj-desk [data-sd]', (b) => b.map((x) => x.dataset.sd))).join() === 'task');
     await page.evaluate(() => document.getElementById('service-modal-backdrop').classList.remove('show'));
 
     console.log('\nCANCELLING ASKS WHY');

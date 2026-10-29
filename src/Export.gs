@@ -148,8 +148,28 @@ var EXPORT_BUILD_PROP_ = 'MIGRATION_EXPORT_BUILD';
 function exportDone_() {
   var raw = PropertiesService.getScriptProperties().getProperty(EXPORT_DONE_PROP_);
   if (!raw) return {};
-  try { return JSON.parse(raw); } catch (err) { return {}; }
+  var stored;
+  try { stored = JSON.parse(raw); } catch (err) { return {}; }
+  var out = {};
+  Object.keys(stored).forEach(function (tab) {
+    var s = stored[tab] || {};
+    var full = {};
+    Object.keys(EXPORT_DONE_KEYS_).forEach(function (k) {
+      if (s[EXPORT_DONE_KEYS_[k]] !== undefined) full[k] = s[EXPORT_DONE_KEYS_[k]];
+      else if (s[k] !== undefined) full[k] = s[k];  // a record written before the keys were shortened
+    });
+    out[tab] = full;
+  });
+  return out;
 }
+
+/**
+ * The progress record's keys, one letter each in the property and the full names everywhere
+ * else (exportDone_ turns them back). Spelled out, the names alone were about 60 bytes a tab,
+ * and at 58 tabs the record reached the 9,000 bytes noteExported_ allows.
+ */
+var EXPORT_DONE_KEYS_ = { rows: 'r', parts: 'p', digest: 'd', blankRowsSkipped: 'b', sheetLastRow: 'l', bytes: 'y',
+  columnCount: 'c', missing: 'm', empty: 'e' };
 
 /**
  * Refuses to continue an export that a different build started.
@@ -213,7 +233,15 @@ function noteExported_(tab, summary) {
     bytes: summary.bytes, columnCount: summary.columnCount,
     missing: summary.missing || undefined, empty: summary.empty || undefined
   };
-  var text = JSON.stringify(done);
+  var stored = {};
+  Object.keys(done).forEach(function (t) {
+    var short = {};
+    Object.keys(EXPORT_DONE_KEYS_).forEach(function (k) {
+      if (done[t][k] !== undefined) short[EXPORT_DONE_KEYS_[k]] = done[t][k];
+    });
+    stored[t] = short;
+  });
+  var text = JSON.stringify(stored);
   if (text.length > 9000) {
     throw new Error('The export progress record has reached ' + text.length + ' bytes and ' +
       'Apps Script allows 9,216 per property. This should not happen \u2014 it holds only ' +

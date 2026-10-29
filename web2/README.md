@@ -116,6 +116,21 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   an engineer but no day, and AMC visits due by then with no job — each put on the day from
   there, through ERP 1's assignment.
   - An engineer sees only their own day, and none of the planning lists.
+- **Tasks** (`src/Tasks.gs`), at `/tasks`, next to the Dashboard — only in a 2.0 menu.
+  - Anybody gives a task to anybody: what, details, who, due date, priority. "+ Task" on an
+    enquiry board card or a service job gives one about that record, and the task opens it.
+  - ERP 2's scoring: High 15 points, Normal 10, Low 5; done by the due day earns all of them,
+    done later earns 50%, not done after the due day loses 50% until it is done. A person's
+    score is points earned ÷ points possible over the tasks due in the period (this month, last
+    month, this quarter, this financial year, or a range), never below 0%. Management changes
+    the numbers (ConfigLists, category TaskScore). Points show as they are — 7.5, not 8.
+  - The person doing a task marks it in progress, done or open again. Only whoever gave it, or
+    Management, changes what it says, who does it, when it is due or its priority, or cancels or
+    deletes it — so nobody moves their own due date or cancels their own overdue task. A new task
+    cannot be due before today, nor a due date moved into the past.
+  - Management sees everybody's tasks and the whole scorecard; everybody else the tasks given
+    to them or by them, and their own line. Each person's dashboard has a tasks tile.
+  - One new table, Tasks. Nothing in ERP 1 reads it.
 
 ## The rule for each screen that moves to 2.0
 
@@ -138,6 +153,9 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/next-day-plan-ui-test.js`, `tests/next-day-plan-sql-test.js` — each engineer's day in
   time order, the time, the message, the jobs put on the day, an engineer's own view, and no
   plan on the other faces.
+- `tests/tasks-ui-test.js`, `tests/tasks-sql-test.js` — giving and changing tasks and who may,
+  the scoring and its rules, the periods, the dashboard tile, tasks about a service job and an
+  enquiry, and no tasks on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

@@ -318,6 +318,43 @@
   .np-act select{ height:32px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; font-size:13px; max-width:160px; }
   @media (max-width:900px){ .np-split{ grid-template-columns:1fr; } }
 
+  /* ---- tasks and the scorecard (JavaScript.html, 2.0 only) ---- */
+  .tk-period{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .tk-period select, .tk-period input[type=date], .tk-bar select{ height:38px; padding:0 10px; border:1px solid var(--gray-200); border-radius:var(--r-sm);
+    background:var(--gray-0); font:inherit; font-size:13.5px; }
+  #tk-score{ margin-bottom:14px; }
+  #tk-score .pd-panel-head{ flex-wrap:wrap; gap:8px; }
+  .tk-rules{ font-size:12px; color:var(--gray-500); margin-right:auto; }
+  .tk-bar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  .tk-bar input:not([type]){ flex:1; min-width:200px; height:38px; padding:0 12px; border:1px solid var(--gray-200); border-radius:var(--r-sm);
+    background:var(--gray-0); font:inherit; font-size:14px; }
+  .tk-table{ width:100%; font-size:13px; }
+  .tk-table td, .tk-table th{ padding:9px 10px; vertical-align:top; }
+  #tk-score tbody tr{ cursor:pointer; }
+  #tk-score tbody tr:hover{ background:var(--gray-50); }
+  .tk-score{ display:inline-flex; align-items:center; gap:8px; justify-content:flex-end; }
+  .tk-meter{ display:inline-block; width:84px; height:7px; border-radius:99px; background:var(--gray-100); overflow:hidden; }
+  .tk-meter i{ display:block; height:100%; border-radius:99px; background:var(--brand-500); }
+  .tk-meter.good i{ background:#1D8A4A; }
+  .tk-meter.warn i{ background:var(--warn-600); }
+  .tk-meter.bad i{ background:var(--bad-600); }
+  .tk-list td:first-child{ width:36px; }
+  .tk-list input[type=checkbox]{ width:17px; height:17px; accent-color:var(--brand-500); cursor:pointer; }
+  .tk-title{ min-width:220px; max-width:420px; }
+  .tk-open{ display:block; padding:0; border:0; background:none; font:inherit; color:var(--gray-900); text-align:left; cursor:pointer; }
+  .tk-open:hover b{ text-decoration:underline; }
+  .tk-link{ display:inline-block; margin-top:4px; padding:1px 8px; border:1px solid var(--brand-200); border-radius:99px; background:var(--brand-50);
+    font:500 11.5px/1.6 var(--font-sans); color:var(--brand-700); cursor:pointer; }
+  .tk-details{ margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tk-pr-high{ color:var(--bad-700); background:var(--bad-50); }
+  .tk-pr-normal{ color:var(--brand-700); background:var(--brand-50); }
+  .tk-pr-low{ color:var(--gray-600); background:var(--gray-100); }
+  .tk-m-sub{ font-size:12.5px; color:var(--ink-soft); margin:0 0 14px; }
+  .tk-stand{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-height:38px; font-size:13px; color:var(--gray-600); }
+  .tk-about{ display:flex; align-items:center; gap:10px; margin-top:14px; padding:10px 12px; border-radius:var(--r-sm); background:var(--gray-50);
+    font-size:13px; color:var(--gray-600); }
+  .tk-about b{ color:var(--gray-900); margin-right:auto; }
+
   /* ---- what 2.0 adds to the shell (web2/Shell.html) ---- */
   .brand-text h1#app-name{ display:flex; align-items:center; min-width:0; }
   .brand-text h1 .v2-name{ display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;

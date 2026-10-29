@@ -16,6 +16,8 @@
  *     (requireCommercial_), here or anywhere.
  *   - Management and ERP Admin: the team, one row a person, and any person's own dashboard
  *     by picking them.
+ *   - Everybody: a tile for their tasks, open and overdue, and their score this month
+ *     (Tasks.gs). Management's counts everybody's.
  *
  * Nothing here writes. A figure is a count, a value and where to go to act on it.
  */
@@ -72,6 +74,7 @@ function getPersonDashboard(options) {
   else if (kind === 'serviceCoordinator') pdServiceCoordinator_(ctx, out);
   else if (kind === 'serviceEngineer') pdServiceEngineer_(ctx, out);
   else pdBoss_(ctx, out);
+  pdTasks_(ctx, out, kind === 'boss');
 
   if (boss) {
     out.canViewAs = true;
@@ -82,6 +85,21 @@ function getPersonDashboard(options) {
     }).sort(function (a, b) { return a.name.localeCompare(b.name); });
   }
   return out;
+}
+
+/**
+ * The tasks tile (Tasks.gs): the person's open tasks, how many are overdue and their score
+ * this month. For Management, everybody's overdue tasks and the team's score.
+ */
+function pdTasks_(ctx, out, everyone) {
+  var t = taskSummary_(ctx.email, everyone);
+  if (!t) return;
+  var score = t.score === null ? 'no score yet' : 'score ' + t.score + '%';
+  out.tiles.push(everyone
+    ? { key: 'tasks', label: 'Tasks overdue', value: String(t.overdue), sub: t.open + ' open · team ' + score + ' this month',
+      tone: t.overdue ? 'bad' : '', go: 'tasks' }
+    : { key: 'tasks', label: 'My tasks', value: String(t.open), sub: t.overdue + ' overdue · ' + score + ' this month',
+      tone: t.overdue ? 'bad' : '', go: 'tasks' });
 }
 
 // ------------------------------------------------------------------ shared readings

@@ -207,6 +207,8 @@
    */
   var NAV = [
     { view: "dashboard", label: "Dashboard", roles: ALL_ROLES },
+    // ERP 2.0's tasks with the scorecard (Tasks.gs). Everybody has tasks; only the 2.0 face.
+    { view: "tasks", label: "Tasks", roles: ALL_ROLES, v2: true },
     // The two streams are the two front offices (D2) and sit at the same level as each other,
     // never inside a shared "Sales" heading — a stream and a document are different kinds of
     // thing, and putting them in one list is what made the old grouping read wrong.
@@ -288,6 +290,7 @@
    */
   var ROUTES = {
     dashboard: "/dashboard",
+    tasks: "/tasks",
     compressor: "/compressor-sales",
     enquiries: "/spare-sales",
     servicedue: "/service-due-calls",
@@ -575,6 +578,7 @@
     service: initServiceView,
     amc: initAmcView,
     plan: initPlanView,
+    tasks: initTasksView,
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
@@ -5422,6 +5426,10 @@
         showMsg(text, "success");
       };
       var act = b.dataset.sd;
+      if (act === "task") {
+        tkNew({ kind: "service", id: j.id, label: j.jobNo + (j.customerName ? " · " + j.customerName : "") });
+        return;
+      }
       if (act === "start") {
         srv.withSuccessHandler(function (job) { done(job, job.jobNo + " is in progress."); })
           .withFailureHandler(onServerError).setServiceJobStatus(j.id, "In Progress", $("sj-notes").value);
@@ -5508,6 +5516,8 @@
       }
       if (st === "Report submitted" && sdMayAssign()) acts.push('<button type="button" class="btn btn-sm btn-primary" data-sd="close">Close the job</button>');
       if (live && sdMayAssign()) acts.push('<button type="button" class="btn btn-sm sd-danger" data-sd="cancel">Cancel…</button>');
+      // A task about this job, for anybody (Tasks.gs).
+      acts.push('<button type="button" class="btn btn-sm" data-sd="task">+ Task</button>');
       var say = st === "New" ? "Name the engineer and the date below, then Save."
         : st === "Assigned" ? "When the engineer is on site, start the work; the report follows the visit."
         : st === "In progress" ? "Once the work is done, the engineer writes the report."
@@ -6128,6 +6138,333 @@
       if (e.target.closest(".np-time")) return;
       var visit = e.target.closest("[data-np-job]");
       if (visit) openServiceJobModal(visit.dataset.npJob);
+    });
+  }
+
+  // ================= TASKS (2.0) =================
+  // Work given to anybody, followed to the end, and the scorecard of finishing on time, by
+  // ERP 2's rules (Tasks.gs). A screen of its own on the 2.0 face only; "+ Task" on an
+  // enquiry board card or a service job gives a task about that record.
+  var tk = { data: null, show: "open", who: "", mine: false, period: "month", from: "", to: "", open: null, link: null };
+  var TK_BADGE = { ontime: "badge-won", late: "badge-sent", overdue: "badge-lost", today: "badge-quoted", progress: "badge-quoted",
+    open: "badge-draft", cancelled: "badge-draft" };
+
+  if (FACE_V2 && !$("view-tasks")) {
+    (function () {
+      var view = document.createElement("div");
+      view.className = "view";
+      view.id = "view-tasks";
+      view.innerHTML = '<div class="page-head"><div><h2>Tasks</h2><p>Give work to anybody, follow it to the end, and score people on finishing on time. ' +
+        "A task can be about an enquiry, a quotation or a service job.</p></div>" +
+        '<button class="btn btn-amber" id="btn-new-task" type="button">+ New task</button></div>' +
+        '<div class="tk-period"><select id="tk-period" aria-label="Period"></select>' +
+          '<input type="date" id="tk-from" aria-label="From" /><input type="date" id="tk-to" aria-label="To" />' +
+          '<span class="sdc-muted" id="tk-range"></span></div>' +
+        '<section class="pd-panel" id="tk-score"></section>' +
+        '<div class="tk-bar"><div class="eb-switch" id="tk-show">' +
+          [["open", "Open"], ["overdue", "Overdue"], ["done", "Done"], ["period", "Due in period"], ["all", "All"]].map(function (b) {
+            return '<button type="button" data-tk-show="' + b[0] + '">' + b[1] + "</button>";
+          }).join("") + "</div>" +
+          '<input id="tk-search" placeholder="Search tasks…" aria-label="Search tasks" />' +
+          '<select id="tk-who" aria-label="Assigned to"></select>' +
+          '<label class="check-line"><input type="checkbox" id="tk-mine" /> Mine only</label></div>' +
+        '<div class="card" style="padding:0; overflow-x:auto;"><div id="tk-body"></div></div>';
+      var after = $("view-dashboard");
+      after.parentNode.insertBefore(view, after.nextSibling);
+
+      var back = document.createElement("div");
+      // Stacked: a task is given from inside a board card or a service job, and opens above it.
+      back.className = "modal-backdrop modal-stacked";
+      back.id = "tk-modal-backdrop";
+      back.innerHTML = '<div class="modal" style="max-width:640px;"><h3 id="tk-m-title">Task</h3>' +
+        '<p id="tk-m-sub" class="tk-m-sub"></p><div id="tk-m-body"></div>' +
+        '<div class="amc-m-foot"><button type="button" class="btn sd-danger" id="btn-tk-delete">Delete</button>' +
+        '<span style="flex:1"></span><button type="button" class="btn" id="btn-tk-cancel">Close</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-tk-save">Save task</button></div></div>';
+      document.body.appendChild(back);
+
+      var sc = document.createElement("div");
+      sc.className = "modal-backdrop modal-stacked";
+      sc.id = "tk-scoring-backdrop";
+      sc.innerHTML = '<div class="modal" style="max-width:560px;"><h3>Task scoring</h3>' +
+        '<p class="tk-m-sub">Each task earns points by its priority. Finishing on time earns all of them, finishing late earns a share, ' +
+        "and a task still not done after its due day loses a share until it is done. A person’s score is the points earned ÷ the points possible.</p>" +
+        '<div class="grid grid-3"><div class="field"><label>High priority points</label><input id="tk-s-High" type="number" min="1" max="100" /></div>' +
+          '<div class="field"><label>Normal priority points</label><input id="tk-s-Normal" type="number" min="1" max="100" /></div>' +
+          '<div class="field"><label>Low priority points</label><input id="tk-s-Low" type="number" min="1" max="100" /></div></div>' +
+        '<div class="grid grid-2" style="margin-top:12px;"><div class="field"><label>Done late earns (% of the points)</label><input id="tk-s-latePct" type="number" min="0" max="100" /></div>' +
+          '<div class="field"><label>Overdue loses (% of the points)</label><input id="tk-s-overduePct" type="number" min="0" max="100" /></div></div>' +
+        '<div class="amc-m-foot"><span style="flex:1"></span><button type="button" class="btn" id="btn-tk-s-cancel">Close</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-tk-s-save">Save scoring</button></div></div>';
+      document.body.appendChild(sc);
+    })();
+  }
+
+  function initTasksView() {
+    if (!FACE_V2) return;
+    loadTasks();
+  }
+
+  function tkQuery() {
+    return tk.period === "custom" ? { period: "custom", from: tk.from, to: tk.to } : { period: tk.period };
+  }
+
+  function loadTasks(then) {
+    srv.withSuccessHandler(function (d) {
+      tk.data = d;
+      tk.from = d.period.from;
+      tk.to = d.period.to;
+      renderTasks();
+      if (then) then();
+    }).withFailureHandler(onServerError).getTasks(tkQuery());
+  }
+
+  /** The people and the rules, for a task given from another screen before Tasks was opened. */
+  function tkEnsure(then) {
+    if (tk.data) { then(); return; }
+    loadTasks(then);
+  }
+
+  function tkPct(r) { return r.score === null ? "—" : r.score + "%"; }
+  /** Points as they are: 15, 7.5, −2.5. Rounding a half point would tilt every score one way. */
+  function tkPts(n) { var x = Math.round(Number(n) * 10) / 10; return String(x); }
+
+  function renderTasks() {
+    var d = tk.data;
+    if (!d || !$("view-tasks")) return;
+    $("tk-period").innerHTML = d.periods.map(function (p) {
+      return '<option value="' + p.key + '"' + (p.key === d.period.key ? " selected" : "") + ">" + escapeHtml(p.label) + "</option>";
+    }).join("");
+    var custom = d.period.key === "custom";
+    $("tk-from").style.display = custom ? "" : "none";
+    $("tk-to").style.display = custom ? "" : "none";
+    $("tk-from").value = d.period.from;
+    $("tk-to").value = d.period.to;
+    $("tk-range").textContent = ebDate(d.period.from) + " to " + ebDate(d.period.to);
+
+    var s = d.scoring;
+    $("tk-score").innerHTML = '<div class="pd-panel-head"><h3>Task scorecard</h3><span class="tk-rules">On time = all the points · late = ' + s.latePct +
+      "% · overdue = −" + s.overduePct + "% · High " + s.High + ", Normal " + s.Normal + ", Low " + s.Low + "</span>" +
+      (d.canScore ? '<button type="button" class="btn btn-sm" id="btn-tk-scoring">Scoring…</button>' : "") + "</div>" +
+      (d.scorecard.length ? '<div style="overflow-x:auto;"><table class="tk-table"><thead><tr><th>Name</th><th class="num">Tasks</th><th class="num">On time</th>' +
+        '<th class="num">Late</th><th class="num">Overdue</th><th class="num">Open</th><th class="num">Points</th><th class="num">Score</th></tr></thead><tbody>' +
+        d.scorecard.map(function (r) {
+          var tone = r.score === null ? "" : r.score >= 90 ? "good" : r.score >= 60 ? "" : r.score >= 30 ? "warn" : "bad";
+          return '<tr data-tk-person="' + escapeHtml(r.email) + '"><td><b>' + escapeHtml(r.name) + '</b><div class="sdc-muted">' + escapeHtml(r.role) + "</div></td>" +
+            '<td class="num">' + r.tasks + '</td><td class="num">' + r.onTime + '</td><td class="num">' + r.late + "</td>" +
+            '<td class="num' + (r.overdue ? " sdc-late" : "") + '">' + r.overdue + '</td><td class="num">' + r.open + "</td>" +
+            '<td class="num">' + tkPts(r.earned) + " / " + r.possible + "</td>" +
+            '<td class="num"><span class="tk-score"><b>' + tkPct(r) + '</b><span class="tk-meter ' + tone + '"><i style="width:' +
+              Math.min(100, r.score || 0) + '%"></i></span></span></td></tr>';
+        }).join("") + "</tbody></table></div>"
+        : '<div class="pd-empty">No tasks due in this period' + (d.boss ? "." : " for you.") + "</div>");
+
+    $("tk-show").querySelectorAll("[data-tk-show]").forEach(function (b) { b.classList.toggle("on", b.dataset.tkShow === tk.show); });
+    $("tk-who").innerHTML = '<option value="">Everyone</option>' + d.people.map(function (p) {
+      return '<option value="' + escapeHtml(p.email) + '"' + (p.email === tk.who ? " selected" : "") + ">" + escapeHtml(p.name) + "</option>";
+    }).join("");
+    $("tk-mine").checked = tk.mine;
+
+    var q = ($("tk-search").value || "").trim().toLowerCase();
+    var me = String(d.me).toLowerCase();
+    var rows = d.tasks.filter(function (t) {
+      if (tk.show === "open" && (t.status === "Done" || t.status === "Cancelled")) return false;
+      if (tk.show === "overdue" && t.state !== "overdue") return false;
+      if (tk.show === "done" && t.status !== "Done") return false;
+      if (tk.show === "period" && (t.dueDate < d.period.from || t.dueDate > d.period.to)) return false;
+      if (tk.mine && t.assigneeEmail.toLowerCase() !== me) return false;
+      if (tk.who && t.assigneeEmail.toLowerCase() !== tk.who.toLowerCase()) return false;
+      if (q && [t.title, t.details, t.assigneeName, t.byName, t.link ? t.link.label : ""].join(" ").toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    });
+    $("tk-body").innerHTML = '<table class="tk-table tk-list"><thead><tr><th></th><th>Task</th><th>Assigned to</th><th>By</th><th>Due</th><th>Priority</th>' +
+      '<th>Status</th><th class="num">Points</th></tr></thead><tbody>' +
+      (rows.length ? rows.map(function (t) {
+        var due = t.status === "Done" || t.status === "Cancelled" ? ""
+          : t.state === "overdue" ? t.daysOver + (t.daysOver === 1 ? " day" : " days") + " overdue" : t.state === "today" ? "today" : "";
+        return '<tr data-tk-row="' + escapeHtml(t.id) + '"><td class="center"><input type="checkbox" data-tk-done="' + escapeHtml(t.id) + '"' +
+            (t.status === "Done" ? " checked" : "") + (!t.canTick || t.status === "Cancelled" ? " disabled" : "") + ' aria-label="Done" /></td>' +
+          '<td class="tk-title"><button type="button" class="tk-open" data-tk-open="' + escapeHtml(t.id) + '"><b>' + escapeHtml(t.title) + "</b></button>" +
+            (t.link ? '<button type="button" class="tk-link" data-tk-link="' + escapeHtml(t.link.kind) + '" data-id="' + escapeHtml(t.link.id) + '">' +
+              escapeHtml(t.link.label || t.link.word) + "</button>" : "") +
+            (t.details ? '<div class="sdc-muted tk-details">' + escapeHtml(t.details) + "</div>" : "") + "</td>" +
+          "<td>" + escapeHtml(t.assigneeName) + "</td>" +
+          '<td class="sdc-muted">' + escapeHtml(t.byName) + "</td>" +
+          '<td class="' + (t.state === "overdue" ? "sdc-late" : "") + '" style="white-space:nowrap;">' + escapeHtml(ebDate(t.dueDate)) +
+            (due ? '<div class="sdc-muted">' + escapeHtml(due) + "</div>" : "") + "</td>" +
+          '<td><span class="badge tk-pr-' + escapeHtml(t.priority.toLowerCase()) + '">' + escapeHtml(t.priority) + "</span></td>" +
+          '<td><span class="badge ' + (TK_BADGE[t.state] || "badge-draft") + '">' + escapeHtml(t.label) + "</span>" +
+            (t.doneDay ? '<div class="sdc-muted">' + escapeHtml(ebDate(t.doneDay)) + (t.daysLate ? " · " + t.daysLate + (t.daysLate === 1 ? " day" : " days") + " late" : "") + "</div>" : "") + "</td>" +
+          '<td class="num' + (t.earned < 0 ? " sdc-late" : "") + '">' + (t.possible ? tkPts(t.earned) : "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="8" class="empty">' + (d.tasks.length ? "No tasks here." : "No tasks yet — give the first with + New task.") + "</td></tr>") +
+      "</tbody></table>";
+  }
+
+  /** Opens the record a task is about, where it is worked as it always was. */
+  function tkGoLink(kind, id) {
+    $("tk-modal-backdrop").classList.remove("show");
+    if (kind === "service") { openServiceJobModal(id); return; }
+    ebGo(kind, id);
+  }
+
+  /** A new task; `link` is { kind, id, label } when it is given from a record. */
+  function tkNew(link) {
+    tkEnsure(function () { tkDraw({ id: "", status: "Open", priority: "Normal", canEdit: true, canTick: true, link: link || null }); });
+  }
+
+  function tkDraw(t) {
+    var d = tk.data;
+    tk.open = t;
+    var ro = !t.canEdit;
+    var tomorrow = (function () { var x = new Date(); x.setDate(x.getDate() + 1); return x.getFullYear() + "-" + ("0" + (x.getMonth() + 1)).slice(-2) + "-" + ("0" + x.getDate()).slice(-2); })();
+    var v = function (k) { return escapeHtml(t[k] === undefined || t[k] === null ? "" : t[k]); };
+    $("tk-m-title").textContent = t.id ? t.title : "New task";
+    $("tk-m-sub").textContent = t.id ? "Given by " + t.byName + (t.createdDay ? " on " + ebDate(t.createdDay) : "") + "." +
+      (ro && t.canTick ? " You can mark it in progress or done; whoever gave it changes the rest." : "")
+      : "The person it is given to sees it on their Tasks and their dashboard.";
+    var statuses = d.statuses.filter(function (s) { return s !== "Cancelled" || t.canEdit || t.status === "Cancelled"; });
+    $("tk-m-body").innerHTML =
+      '<div class="field"><label>Task *</label><input id="tk-f-title" maxlength="200" value="' + v("title") + '"' + (ro ? " disabled" : "") +
+        ' placeholder="e.g. Send the revised offer to the customer" /></div>' +
+      '<div class="field" style="margin-top:12px;"><label>Details</label><textarea id="tk-f-details" rows="3"' + (ro ? " disabled" : "") + ">" + v("details") + "</textarea></div>" +
+      '<div class="grid grid-3" style="margin-top:12px;">' +
+        '<div class="field"><label>Assign to *</label><select id="tk-f-who"' + (ro ? " disabled" : "") + '><option value="">— pick —</option>' +
+          d.people.map(function (p) {
+            return '<option value="' + escapeHtml(p.email) + '"' + (p.email.toLowerCase() === String(t.assigneeEmail || "").toLowerCase() ? " selected" : "") + ">" +
+              escapeHtml(p.name + (p.role ? " · " + p.role : "")) + "</option>";
+          }).join("") + "</select></div>" +
+        '<div class="field"><label>Due *</label><input id="tk-f-due" type="date" value="' + escapeHtml(t.dueDate || tomorrow) + '"' + (t.id ? "" : ' min="' + escapeHtml(d.today) + '"') + (ro ? " disabled" : "") + " /></div>" +
+        '<div class="field"><label>Priority</label><select id="tk-f-pr"' + (ro ? " disabled" : "") + ">" + d.priorities.map(function (p) {
+          return "<option" + (p === t.priority ? " selected" : "") + ">" + p + " · " + d.scoring[p] + " points</option>";
+        }).join("") + "</select></div>" +
+      "</div>" +
+      (t.id ? '<div class="grid grid-3" style="margin-top:12px;"><div class="field"><label>Status</label><select id="tk-f-status"' + (t.canTick ? "" : " disabled") + ">" +
+        statuses.map(function (s) { return "<option" + (s === t.status ? " selected" : "") + ">" + s + "</option>"; }).join("") + "</select></div>" +
+        '<div class="field" style="grid-column:span 2;"><label>Where it stands</label><div class="tk-stand"><span class="badge ' + (TK_BADGE[t.state] || "badge-draft") + '">' +
+          escapeHtml(t.label) + "</span> " + escapeHtml(t.possible ? tkPts(t.earned) + " of " + t.possible + " points" : "no points yet either way") +
+          (t.doneDay ? " · done " + escapeHtml(ebDate(t.doneDay)) + (t.doneByName ? " by " + escapeHtml(t.doneByName) : "") : "") + "</div></div></div>" : "") +
+      (t.link ? '<div class="tk-about">About <b>' + escapeHtml(t.link.label || t.link.word) + "</b>" +
+        (t.id ? ' <button type="button" class="btn btn-sm" data-tk-link="' + escapeHtml(t.link.kind) + '" data-id="' + escapeHtml(t.link.id) + '">Open</button>' : "") + "</div>" : "");
+    // Priority options carry their points; the value sent is the word.
+    $("tk-f-pr").querySelectorAll("option").forEach(function (o) { o.value = o.textContent.split(" · ")[0]; });
+    $("btn-tk-delete").style.display = t.id && t.canEdit ? "" : "none";
+    $("btn-tk-save").style.display = t.canEdit || t.canTick ? "" : "none";
+    $("btn-tk-save").textContent = t.id ? "Save" : "Give the task";
+    $("tk-modal-backdrop").classList.add("show");
+    if (!t.id) $("tk-f-title").focus();
+  }
+
+  function tkOpen(id) {
+    tkEnsure(function () {
+      var t = tk.data.tasks.filter(function (x) { return x.id === id; })[0];
+      if (t) { tkDraw(t); return; }
+      srv.withSuccessHandler(tkDraw).withFailureHandler(onServerError).getTask(id);
+    });
+  }
+
+  function tkSaid(t) {
+    return t.status === "Done" ? (t.state === "late" ? "Done, " + t.daysLate + (t.daysLate === 1 ? " day" : " days") + " late." : "Done on time.")
+      : t.status === "Cancelled" ? "Task cancelled." : t.status === "In progress" ? "Marked in progress." : "Opened again.";
+  }
+
+  function tkAfter(text) {
+    $("tk-modal-backdrop").classList.remove("show");
+    showMsg(text, "success");
+    if (tk.data) loadTasks();
+  }
+
+  function tkSave() {
+    var t = tk.open || {};
+    var input = {
+      id: t.id || "", title: $("tk-f-title").value.trim(), details: $("tk-f-details").value.trim(),
+      assigneeEmail: $("tk-f-who").value, dueDate: $("tk-f-due").value, priority: $("tk-f-pr").value
+    };
+    if (!t.id && t.link) { input.linkKind = t.link.kind; input.linkId = t.link.id; }
+    var status = $("tk-f-status") ? $("tk-f-status").value : t.status;
+    var changed = !t.id || (t.canEdit && (input.title !== t.title || input.details !== t.details || input.dueDate !== t.dueDate ||
+      input.priority !== t.priority || input.assigneeEmail.toLowerCase() !== String(t.assigneeEmail).toLowerCase()));
+    var done = busyButton("btn-tk-save", "Saving…");
+    var fail = function (err) { done(); onServerError(err); };
+    var then = function (saved) {
+      if (t.id && status !== t.status) {
+        srv.withSuccessHandler(function (s) { done(); tkAfter(tkSaid(s)); }).withFailureHandler(fail).setTaskStatus(t.id, status);
+        return;
+      }
+      done();
+      tkAfter(t.id ? "Task saved." : "Task given to " + saved.assigneeName + ".");
+    };
+    if (changed) srv.withSuccessHandler(then).withFailureHandler(fail).saveTask(input);
+    else then(t);
+  }
+
+  if (FACE_V2) {
+    $("btn-new-task").addEventListener("click", function () { tkNew(null); });
+    $("tk-period").addEventListener("change", function () { tk.period = $("tk-period").value; loadTasks(); });
+    var tkRange = function () {
+      if (!$("tk-from").value || !$("tk-to").value) return;
+      tk.from = $("tk-from").value;
+      tk.to = $("tk-to").value;
+      loadTasks();
+    };
+    $("tk-from").addEventListener("change", tkRange);
+    $("tk-to").addEventListener("change", tkRange);
+    $("tk-show").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-tk-show]");
+      if (b) { tk.show = b.dataset.tkShow; renderTasks(); }
+    });
+    $("tk-search").addEventListener("input", renderTasks);
+    $("tk-who").addEventListener("change", function () { tk.who = $("tk-who").value; renderTasks(); });
+    $("tk-mine").addEventListener("change", function () { tk.mine = $("tk-mine").checked; renderTasks(); });
+    $("tk-score").addEventListener("click", function (e) {
+      if (e.target.closest("#btn-tk-scoring")) {
+        var s = tk.data.scoring;
+        ["High", "Normal", "Low", "latePct", "overduePct"].forEach(function (k) { $("tk-s-" + k).value = s[k]; });
+        $("tk-scoring-backdrop").classList.add("show");
+        return;
+      }
+      var p = e.target.closest("[data-tk-person]");
+      if (p) { tk.who = p.dataset.tkPerson; tk.show = "period"; renderTasks(); }
+    });
+    $("view-tasks").addEventListener("change", function (e) {
+      var box = e.target.closest("[data-tk-done]");
+      if (!box) return;
+      box.disabled = true;
+      srv.withSuccessHandler(function (t) { showMsg(tkSaid(t), "success"); loadTasks(); })
+        .withFailureHandler(function (err) { box.disabled = false; box.checked = !box.checked; onServerError(err); })
+        .setTaskStatus(box.dataset.tkDone, box.checked ? "Done" : "Open");
+    });
+    $("tk-body").addEventListener("click", function (e) {
+      var link = e.target.closest("[data-tk-link]");
+      if (link) { tkGoLink(link.dataset.tkLink, link.dataset.id); return; }
+      var open = e.target.closest("[data-tk-open]");
+      if (open) tkOpen(open.dataset.tkOpen);
+    });
+    $("tk-m-body").addEventListener("click", function (e) {
+      var link = e.target.closest("[data-tk-link]");
+      if (link) tkGoLink(link.dataset.tkLink, link.dataset.id);
+    });
+    $("btn-tk-cancel").addEventListener("click", function () { $("tk-modal-backdrop").classList.remove("show"); });
+    $("btn-tk-save").addEventListener("click", tkSave);
+    $("btn-tk-delete").addEventListener("click", function () {
+      var t = tk.open;
+      if (!t || !t.id) return;
+      askDialog({ title: "Delete this task?", message: "“" + t.title + "” leaves the list and the scorecard. It stays on record.",
+        okLabel: "Delete", danger: true }, function (yes) {
+        if (yes === null) return;
+        srv.withSuccessHandler(function () { tkAfter("Task deleted."); }).withFailureHandler(onServerError).deleteTask(t.id);
+      });
+    });
+    $("btn-tk-s-cancel").addEventListener("click", function () { $("tk-scoring-backdrop").classList.remove("show"); });
+    $("btn-tk-s-save").addEventListener("click", function () {
+      var input = {};
+      ["High", "Normal", "Low", "latePct", "overduePct"].forEach(function (k) { input[k] = $("tk-s-" + k).value; });
+      var done = busyButton("btn-tk-s-save", "Saving…");
+      srv.withSuccessHandler(function () {
+        done();
+        $("tk-scoring-backdrop").classList.remove("show");
+        showMsg("Scoring saved. Every score now follows it.", "success");
+        loadTasks();
+      }).withFailureHandler(function (err) { done(); onServerError(err); }).saveTaskScoring(input);
     });
   }
 
@@ -7445,6 +7782,12 @@
       if (e.target === back) { ebCloseCard(); return; }
       var go = e.target.closest("[data-eb-go]");
       if (go) { ebGo(go.dataset.ebGo, go.dataset.id); return; }
+      // A task about this card's record (Tasks.gs).
+      if (e.target.closest("[data-eb-task]") && eb.open) {
+        var card = eb[eb.open.desk].data.cards.filter(function (x) { return x.ref === eb.open.ref; })[0];
+        if (card) tkNew({ kind: card.kind, id: card.id, label: (card.no ? card.no + " · " : "") + (card.customerName || "") });
+        return;
+      }
       var mv = e.target.closest("[data-eb-move]");
       if (mv) ebMove(mv.dataset.ebMove);
     });
@@ -7500,7 +7843,7 @@
       }).join("") + "</div>" : "") +
       '<div class="eb-links">' + links.map(function (l) {
         return '<button type="button" class="btn btn-sm" data-eb-go="' + l[0] + '" data-id="' + escapeHtml(l[1]) + '">' + escapeHtml(l[2]) + "</button>";
-      }).join("") + "</div>";
+      }).join("") + '<button type="button" class="btn btn-sm" data-eb-task="1">+ Task</button></div>';
   }
 
   /** Opens the ERP 1 record behind a card, where it is worked as it always was. */

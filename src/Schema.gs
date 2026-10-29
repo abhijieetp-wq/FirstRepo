@@ -590,6 +590,19 @@ var SCHEMA = {
     label: 'The visits an AMC contract promises, and the service job each became (2.0)',
     columns: ['id', 'contractId', 'visitNo', 'dueDate', 'serviceJobId', 'notes', 'createdAt']
   },
+  Tasks: {
+    label: 'Work given to a person, when it is due and how it ended, for the task scorecard (2.0)',
+    columns: ['id', 'title', 'details', 'assigneeEmail',
+      // High, Normal or Low: what the task is worth on the scorecard (Tasks.gs).
+      'priority', 'dueDate',
+      // Open, In progress, Done or Cancelled.
+      'status',
+      // The record the task is about, if any: enquiry, lead, opportunity, quotation or service,
+      // its id, and what it was called when the task was given.
+      'linkKind', 'linkId', 'linkLabel',
+      'doneAt', 'doneBy', 'cancelledAt', 'cancelledBy',
+      'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
+  },
 
   Invoices: {
     label: 'Invoice from order + actual dispatch, with Tally sync status (FR-048, FR-050)',

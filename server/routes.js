@@ -17,6 +17,7 @@
 /** One per screen. The browser's list maps each to the screen's internal name. */
 const PAGES = [
   '/dashboard',
+  '/tasks',
   '/compressor-sales',
   '/spare-sales',
   '/service-due-calls',
