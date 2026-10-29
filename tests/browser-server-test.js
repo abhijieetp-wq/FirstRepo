@@ -178,7 +178,9 @@ const ok = (label, cond, detail) => {
   // font that answers to the same name in a font-family list. This is the one check that
   // ties the file names in the stylesheet to the files on disk; rename one without the
   // other and everything else still passes.
-  const faces = await page.evaluate(() => ({
+  // Waits for any face still on its way: under a loaded machine the check could run before
+  // the file arrived, and fail on a font that was only late.
+  const faces = await page.evaluate(async () => (await document.fonts.ready, {
     inter: document.fonts.check('600 14px Inter'),
     jakarta: document.fonts.check('700 26px "Plus Jakarta Sans"'),
     plex: document.fonts.check('400 13px \"IBM Plex Mono\"')

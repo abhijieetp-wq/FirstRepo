@@ -102,16 +102,16 @@ const ok = (label, cond, detail) => {
       await boss.evaluate(() => { window.__calls = []; });
       await boss.click('.pd-team [data-pd-as="kiran@pie.in"]');
       await boss.waitForTimeout(500);
-      ok('a name opens their desk', JSON.stringify(await lastCall(boss, 'getPersonDashboard')) === JSON.stringify([{ as: 'kiran@pie.in' }]) &&
+      ok('a name opens their desk', JSON.stringify(await lastCall(boss, 'getPersonDashboard')) === JSON.stringify([{ as: 'kiran@pie.in', period: 'month' }]) &&
         (await boss.textContent('#pd-host h1')) === 'Kiran Patil’s desk');
       ok('as they see it', (await boss.$$('#pd-host [data-pd-tile]')).length === 6 && await boss.$eval('#pd-as', (s) => s.value) === 'kiran@pie.in');
       await boss.click('#pd-host [data-pd-as=""]');
       await boss.waitForTimeout(500);
       ok('and back to their own', /^Good (morning|afternoon|evening), Anil$/.test(await boss.textContent('#pd-host h1')) &&
-        JSON.stringify(await lastCall(boss, 'getPersonDashboard')) === JSON.stringify([{ as: '' }]));
+        JSON.stringify(await lastCall(boss, 'getPersonDashboard')) === JSON.stringify([{ as: '', period: 'month' }]));
       await boss.selectOption('#pd-as', 'neha@pie.in');
       await boss.waitForTimeout(500);
-      ok('or by picking from the list', JSON.stringify(await lastCall(boss, 'getPersonDashboard')) === JSON.stringify([{ as: 'neha@pie.in' }]));
+      ok('or by picking from the list', JSON.stringify(await lastCall(boss, 'getPersonDashboard')) === JSON.stringify([{ as: 'neha@pie.in', period: 'month' }]));
     }
   }
   ok('with no script errors', errors.length === 0, errors);
