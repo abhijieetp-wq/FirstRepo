@@ -80,6 +80,10 @@ run_ui "service-desk-ui-test.js (2.0)" tests/service-desk-ui-test.js "$tmp/base-
 run_ui "amc-ui-test.js (classic)" tests/amc-ui-test.js "$tmp/base.html"
 run_ui "amc-ui-test.js (new design)" tests/amc-ui-test.js "$tmp/base-web.html"
 run_ui "amc-ui-test.js (2.0)" tests/amc-ui-test.js "$tmp/base-v2.html"
+# So is the next-day plan.
+run_ui "next-day-plan-ui-test.js (classic)" tests/next-day-plan-ui-test.js "$tmp/base.html"
+run_ui "next-day-plan-ui-test.js (new design)" tests/next-day-plan-ui-test.js "$tmp/base-web.html"
+run_ui "next-day-plan-ui-test.js (2.0)" tests/next-day-plan-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

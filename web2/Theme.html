@@ -294,6 +294,30 @@
   .amc-visits{ width:100%; font-size:13px; }
   .amc-visits td, .amc-visits th{ padding:6px 8px; }
 
+  /* ---- next-day plan (JavaScript.html, 2.0 only) ---- */
+  .np-bar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .np-bar input[type=date]{ height:38px; padding:0 10px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; }
+  .np-sum{ font-size:13px; color:var(--gray-600); }
+  .np-split{ display:grid; grid-template-columns:minmax(0, 1.3fr) minmax(0, 1fr); gap:12px; margin-bottom:12px; align-items:start; }
+  .np-eng{ padding:10px 0; border-top:1px solid var(--gray-100); }
+  .np-eng-head{ display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .np-eng-head .eb-av{ margin-left:0; }
+  .np-eng-head .eb-chip{ margin-left:auto; }
+  .np-visit{ display:flex; align-items:center; gap:10px; padding:7px 6px 7px 32px; border-radius:var(--r-sm); cursor:pointer; }
+  .np-visit:hover{ background:var(--gray-50); }
+  .np-time{ width:124px; flex:none; height:32px; padding:0 6px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; font-size:13px; }
+  .np-time-text{ width:54px; font:600 13px/1 var(--font-mono, ui-monospace, monospace); color:var(--brand-600); }
+  .np-main{ display:flex; flex-direction:column; min-width:0; flex:1; font-size:13px; }
+  .np-main .sdc-muted{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .np-serial{ font-size:11.5px; color:var(--gray-500); }
+  .np-wa{ margin:0; padding:12px 14px; border-radius:10px; background:#E7F7DC; border:1px solid #C9E8B4; white-space:pre-wrap;
+    font:13px/1.5 var(--font-sans); color:#10240F; max-height:420px; overflow:auto; }
+  .np-row{ cursor:default; align-items:center; flex-wrap:wrap; row-gap:6px; }
+  .np-row .pd-row-main{ flex:1 1 200px; }
+  .np-act{ display:flex; align-items:center; gap:8px; flex:none; margin-left:auto; }
+  .np-act select{ height:32px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; font-size:13px; max-width:160px; }
+  @media (max-width:900px){ .np-split{ grid-template-columns:1fr; } }
+
   /* ---- what 2.0 adds to the shell (web2/Shell.html) ---- */
   .brand-text h1#app-name{ display:flex; align-items:center; min-width:0; }
   .brand-text h1 .v2-name{ display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;

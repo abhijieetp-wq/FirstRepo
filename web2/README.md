@@ -104,6 +104,18 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   - Service sees no contract values, as everywhere. Two new tables, AmcContracts and
     AmcVisits; nothing in ERP 1 reads them.
   - The service coordinator's dashboard counts the AMC visits due this week.
+- **Next-day plan** (`src/ServicePlan.gs`), under Orders, at `/next-day-plan` — only in a 2.0
+  menu. Tomorrow unless another day is picked.
+  - Each service engineer's visits for the day, read from the service jobs assigned to them
+  (engineer and scheduled date, ERP 1's own fields), in time order. The coordinator can give a
+  visit a time (`scheduledTime`, a new column on ServiceJobs); a visit opens its job.
+  - The message for the engineers' WhatsApp group: the day, then each engineer with their
+  visits — time, customer, town, type, scope, job number, contact. One message for the group
+  or one per engineer, copied with a button. The ERP sends nothing by itself.
+  - What is not on the plan yet: jobs nobody is going on (stopped machines first), jobs with
+  an engineer but no day, and AMC visits due by then with no job — each put on the day from
+  there, through ERP 1's assignment.
+  - An engineer sees only their own day, and none of the planning lists.
 
 ## The rule for each screen that moves to 2.0
 
@@ -123,6 +135,9 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   ERP 1's, the report, closing, cancelling, and ERP 1's job window unchanged elsewhere.
 - `tests/amc-ui-test.js`, `tests/amc-sql-test.js` — contracts, the visit schedule, visits made
   into jobs, renewals, no money for service, and no AMC on the other faces.
+- `tests/next-day-plan-ui-test.js`, `tests/next-day-plan-sql-test.js` — each engineer's day in
+  time order, the time, the message, the jobs put on the day, an engineer's own view, and no
+  plan on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

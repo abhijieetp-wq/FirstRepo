@@ -561,7 +561,10 @@ var SCHEMA = {
       // it, and why it was cancelled. Empty on jobs from before, which read as they always did.
       'reportSubmittedAt', 'reportSubmittedBy', 'visitDate', 'hoursSpent', 'runningHours',
       'workDone', 'rootCause', 'customerRemarks', 'handedOverRunning',
-      'closedBy', 'cancelReason', 'cancelledAt', 'cancelledBy']
+      'closedBy', 'cancelReason', 'cancelledAt', 'cancelledBy',
+      // The time of the visit on its day, HH:MM, set on 2.0's next-day plan (ServicePlan.gs).
+      // Blank is "some time that day", which is all ERP 1 ever said.
+      'scheduledTime']
   },
   ServiceJobItems: {
     label: 'The parts a service job is to fit, carried from the dispatch',

@@ -28,6 +28,7 @@ const PAGES = [
   '/dispatch-billing',
   '/service-jobs',
   '/amc',
+  '/next-day-plan',
   '/collections',
   '/inventory',
   '/customers',

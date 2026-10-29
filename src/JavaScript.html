@@ -234,6 +234,8 @@
       { view: "service", label: "Service Jobs", roles: SERVICE_VIEW },
       // ERP 2.0's AMC contracts and visits (Amc.gs). Only on the 2.0 face.
       { view: "amc", label: "AMC", roles: SERVICE_VIEW, v2: true },
+      // ERP 2.0's next-day plan for the engineers' WhatsApp group (ServicePlan.gs).
+      { view: "plan", label: "Next-day plan", roles: SERVICE_VIEW, v2: true },
       { view: "collections", label: "Collections", roles: COMMERCIAL_SIDE }
     ] },
     { view: "inventory", label: "Inventory", roles: COMMERCIAL_SIDE },
@@ -297,6 +299,7 @@
     dispatch: "/dispatch-billing",
     service: "/service-jobs",
     amc: "/amc",
+    plan: "/next-day-plan",
     collections: "/collections",
     inventory: "/inventory",
     customers: "/customers",
@@ -571,6 +574,7 @@
     engineers: initEngineersView,
     service: initServiceView,
     amc: initAmcView,
+    plan: initPlanView,
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
@@ -5931,6 +5935,200 @@
       showMsg(saved.contractNo + " saved, with " + (saved.visits || []).length + " visits.", "success");
       loadAmc();
     }).withFailureHandler(function (err) { done(); onServerError(err); }).saveAmcContract(input);
+  }
+
+  // ================= NEXT-DAY PLAN (2.0) =================
+  // Each engineer's visits for a day, from the assigned service jobs, with what is not on the
+  // plan yet, and the message for the engineers' WhatsApp group (ServicePlan.gs). The message
+  // is copied by hand: the ERP sends nothing by itself. 2.0 face only.
+  var np = { data: null, date: "", perEngineer: false };
+
+  if (FACE_V2 && !$("view-plan")) {
+    (function () {
+      var view = document.createElement("div");
+      view.className = "view";
+      view.id = "view-plan";
+      view.innerHTML = '<div class="page-head"><div><h2>Next-day plan</h2><p>Each engineer’s visits for the day, from the service jobs ' +
+        "assigned to them. Check it, then copy the message into the engineers’ WhatsApp group. The ERP never sends WhatsApp by itself.</p></div></div>" +
+        '<div class="np-bar"><div class="eb-switch" id="np-quick"><button type="button" data-np-plus="1">Tomorrow</button>' +
+        '<button type="button" data-np-plus="2">Day after</button><button type="button" data-np-plus="0">Today</button></div>' +
+        '<input type="date" id="np-date" aria-label="Day" /><span class="np-sum" id="np-sum"></span></div>' +
+        '<div class="np-split"><section class="pd-panel" id="np-plan"></section><section class="pd-panel" id="np-msg"></section></div>' +
+        '<div class="pd-lists" id="np-todo"></div>';
+      var after = $("view-amc") || $("view-service");
+      after.parentNode.insertBefore(view, after.nextSibling);
+    })();
+  }
+
+  function npPlus(n) {
+    var d = new Date();
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+  }
+  function npDayName(iso, long) {
+    var d = new Date(iso + "T00:00:00");
+    return d.toLocaleDateString("en-IN", long ? { weekday: "long", day: "numeric", month: "long", year: "numeric" } : { weekday: "short" }) +
+      (long ? "" : " " + ebDate(iso));
+  }
+
+  function initPlanView() {
+    if (!FACE_V2) return;
+    loadPlan();
+  }
+
+  function loadPlan() {
+    srv.withSuccessHandler(function (d) {
+      np.data = d;
+      np.date = d.date;
+      renderPlan();
+    }).withFailureHandler(onServerError).getNextDayPlan(np.date ? { date: np.date } : {});
+  }
+
+  /** One visit as a line of the WhatsApp message. */
+  function npLine(v) {
+    return (v.scheduledTime || "Any time") + " " + v.customerName + (v.city ? ", " + v.city : "") + " – " + v.jobType +
+      (v.scopeText ? ": " + v.scopeText : "") + " (" + v.jobNo + ")" +
+      (v.contactName || v.contactPhone ? "\n    " + [v.contactName, v.contactPhone].filter(Boolean).join(" ") : "");
+  }
+  function npMessage(people) {
+    var d = np.data;
+    return "*Service plan, " + npDayName(d.date, false) + "*\n\n" + people.map(function (p) {
+      return "*" + p.name + "*\n" + p.visits.map(npLine).join("\n");
+    }).join("\n\n") + "\n\nSend the report from the ERP after each visit.";
+  }
+
+  function renderPlan() {
+    var d = np.data;
+    $("np-date").value = d.date;
+    $("np-quick").querySelectorAll("[data-np-plus]").forEach(function (b) {
+      b.classList.toggle("on", npPlus(Number(b.dataset.npPlus)) === d.date);
+    });
+    var busy = d.plan.filter(function (p) { return p.visits.length; });
+    $("np-sum").textContent = busy.length + (busy.length === 1 ? " engineer · " : " engineers · ") + d.visits + (d.visits === 1 ? " visit" : " visits");
+
+    $("np-plan").innerHTML = '<div class="pd-panel-head"><h3>' + escapeHtml(npDayName(d.date, true)) + "</h3></div>" +
+      (d.plan.length ? d.plan.map(function (p) {
+        return '<div class="np-eng"><div class="np-eng-head"><span class="eb-av">' + escapeHtml(ebInitials(p.name)) + "</span><b>" + escapeHtml(p.name) + "</b>" +
+          '<span class="eb-chip' + (p.visits.length ? " auto" : "") + '">' + (p.visits.length ? p.visits.length + (p.visits.length === 1 ? " visit" : " visits") : "Free") + "</span></div>" +
+          p.visits.map(function (v) {
+            return '<div class="np-visit" data-np-job="' + escapeHtml(v.id) + '">' +
+              (d.canAssign ? '<input type="time" class="np-time" data-np-time="' + escapeHtml(v.id) + '" value="' + escapeHtml(v.scheduledTime) + '" aria-label="Time" />'
+                : '<span class="np-time-text">' + escapeHtml(v.scheduledTime || "—") + "</span>") +
+              '<span class="np-main"><span><b>' + escapeHtml(v.customerName) + "</b>" + (v.city ? ", " + escapeHtml(v.city) : "") + "</span>" +
+                '<span class="sdc-muted">' + escapeHtml(v.jobType + " · " + v.jobNo + (v.scopeText ? " · " + v.scopeText : "")) + "</span></span>" +
+              '<span class="np-serial mono">' + escapeHtml(v.serialNo) + "</span></div>";
+          }).join("") + "</div>";
+      }).join("") : '<div class="pd-empty">No service engineers in Users yet.</div>');
+
+    var msg;
+    if (!d.visits) {
+      msg = '<div class="pd-empty">Nothing planned for this day yet.' + (d.canAssign ? " Send somebody on the jobs below." : "") + "</div>";
+    } else if (!np.perEngineer) {
+      msg = '<pre class="np-wa" id="np-wa-all">' + escapeHtml(npMessage(busy)) + "</pre>" +
+        '<div class="sd-actions"><button type="button" class="btn btn-primary btn-sm" data-np-copy="np-wa-all">Copy message</button></div>';
+    } else {
+      msg = busy.map(function (p, i) {
+        return '<pre class="np-wa" id="np-wa-' + i + '">' + escapeHtml(npMessage([p])) + "</pre>" +
+          '<div class="sd-actions"><button type="button" class="btn btn-sm" data-np-copy="np-wa-' + i + '">Copy for ' +
+          escapeHtml(p.name.split(" ")[0]) + "</button></div>";
+      }).join("");
+    }
+    $("np-msg").innerHTML = '<div class="pd-panel-head"><h3>Message for WhatsApp</h3><label class="check-line"><input type="checkbox" id="np-per"' +
+      (np.perEngineer ? " checked" : "") + " /> One message per engineer</label></div>" + msg +
+      '<p class="eb-note">On a phone, paste it straight into the group. The ERP never sends WhatsApp messages by itself.</p>';
+
+    var todo = [];
+    if (d.canAssign) {
+      var engOpts = function () {
+        return '<option value="">— engineer —</option>' + d.engineers.map(function (e) {
+          return '<option value="' + escapeHtml(e.email) + '">' + escapeHtml(e.name) + "</option>";
+        }).join("");
+      };
+      var row = function (v, side) {
+        return '<div class="pd-row np-row"><span class="pd-row-main"><b>' + escapeHtml(v.customerName) + (v.city ? ", " + escapeHtml(v.city) : "") + "</b><span>" +
+          escapeHtml((v.jobNo ? v.jobNo + " · " : "") + (v.jobType || "") + (v.urgency && v.urgency !== "Normal" ? " · " + v.urgency : "") +
+            (v.scopeText ? " · " + v.scopeText : "")) + "</span></span>" + side + "</div>";
+      };
+      todo.push({ title: "Not assigned yet", count: d.unassigned.length, empty: "Every job has an engineer.", rows: d.unassigned.map(function (v) {
+        return row(v, '<span class="np-act"><select data-np-eng="' + escapeHtml(v.id) + '">' + engOpts() + '</select>' +
+          '<button type="button" class="btn btn-sm btn-primary" data-np-assign="' + escapeHtml(v.id) + '">Send on ' + escapeHtml(npDayName(d.date, false).split(" ")[0]) + "</button></span>");
+      }) });
+      todo.push({ title: "An engineer, but no day", count: d.undated.length, empty: "Every assigned job has a day.", rows: d.undated.map(function (v) {
+        return row(v, '<span class="np-act"><span class="sdc-muted">' + escapeHtml(v.engineerName) + '</span><button type="button" class="btn btn-sm" data-np-put="' +
+          escapeHtml(v.id) + '" data-eng="' + escapeHtml(v.engineerEmail) + '">Put on ' + escapeHtml(npDayName(d.date, false).split(" ")[0]) + "</button></span>");
+      }) });
+      todo.push({ title: "AMC visits due, no job yet", count: d.amcDue.length, empty: "No AMC visit falls due by then without a job.", rows: d.amcDue.map(function (v) {
+        return row({ customerName: v.customerName, jobType: "AMC visit " + v.visitNo + " of " + v.visitOf,
+          scopeText: v.amcType + " · due " + ebDate(v.dueDate) + (v.state === "Overdue" ? " (overdue)" : "") },
+          '<span class="np-act"><button type="button" class="btn btn-sm" data-np-amc="' + escapeHtml(v.id) + '">Make service job</button></span>');
+      }) });
+    }
+    $("np-todo").innerHTML = todo.map(function (l) {
+      return '<div class="pd-panel"><div class="pd-panel-head"><h3>' + escapeHtml(l.title) + '</h3><span class="pd-count">' + l.count + "</span></div>" +
+        (l.rows.length ? l.rows.join("") : '<div class="pd-empty">' + escapeHtml(l.empty) + "</div>") + "</div>";
+    }).join("");
+  }
+
+  /** Copies a message; where the browser will not, selects it for Ctrl+C. */
+  function npCopy(id, btn) {
+    var text = $(id).textContent;
+    var said = function () { var was = btn.textContent; btn.textContent = "Copied"; setTimeout(function () { btn.textContent = was; }, 1500); };
+    var fallback = function () {
+      var range = document.createRange();
+      range.selectNodeContents($(id));
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      var done = false;
+      try { done = document.execCommand("copy"); } catch (e) { done = false; }
+      if (done) said(); else showMsg("Selected — press Ctrl+C (or long-press Copy on a phone).", "success");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(said, fallback);
+    else fallback();
+  }
+
+  if (FACE_V2) {
+    $("np-quick").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-np-plus]");
+      if (b) { np.date = npPlus(Number(b.dataset.npPlus)); loadPlan(); }
+    });
+    $("np-date").addEventListener("change", function () { if ($("np-date").value) { np.date = $("np-date").value; loadPlan(); } });
+    $("view-plan").addEventListener("change", function (e) {
+      if (e.target.id === "np-per") { np.perEngineer = e.target.checked; renderPlan(); return; }
+      var t = e.target.closest("[data-np-time]");
+      if (t) {
+        srv.withSuccessHandler(function () { loadPlan(); showMsg(t.value ? "Visit time set to " + t.value + "." : "Visit time taken off.", "success"); })
+          .withFailureHandler(onServerError).setServiceJobTime(t.dataset.npTime, t.value);
+      }
+    });
+    $("view-plan").addEventListener("click", function (e) {
+      var copy = e.target.closest("[data-np-copy]");
+      if (copy) { npCopy(copy.dataset.npCopy, copy); return; }
+      var assign = e.target.closest("[data-np-assign]");
+      if (assign) {
+        var eng = $("view-plan").querySelector('[data-np-eng="' + assign.dataset.npAssign + '"]').value;
+        if (!eng) { showMsg("Pick the engineer who is going.", "error"); return; }
+        srv.withSuccessHandler(function (job) { showMsg(job.jobNo + " is on the plan.", "success"); loadPlan(); })
+          .withFailureHandler(onServerError).assignServiceJob(assign.dataset.npAssign, eng, np.data.date);
+        return;
+      }
+      var put = e.target.closest("[data-np-put]");
+      if (put) {
+        srv.withSuccessHandler(function (job) { showMsg(job.jobNo + " is on the plan.", "success"); loadPlan(); })
+          .withFailureHandler(onServerError).assignServiceJob(put.dataset.npPut, put.dataset.eng, np.data.date);
+        return;
+      }
+      var amcBtn = e.target.closest("[data-np-amc]");
+      if (amcBtn) {
+        amcBtn.disabled = true;
+        srv.withSuccessHandler(function (r) { showMsg("Service job " + r.jobNo + " made. Send somebody on it above.", "success"); loadPlan(); })
+          .withFailureHandler(function (err) { amcBtn.disabled = false; onServerError(err); }).makeAmcVisitCall(amcBtn.dataset.npAmc);
+        return;
+      }
+      if (e.target.closest(".np-time")) return;
+      var visit = e.target.closest("[data-np-job]");
+      if (visit) openServiceJobModal(visit.dataset.npJob);
+    });
   }
 
   // ================= COMPRESSOR SALES =================
