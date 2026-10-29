@@ -171,6 +171,14 @@ spares offer's, as before. An enquiry with no type reads as Spares.
     kept as history on the job (table ServiceJobReschedules); the time of day is cleared. On 2.0
     the job window's date, once given, moves only this way.
   - The next-day plan's message carries the instruction.
+- **Service engineers** report (`src/ServiceEngineerReport.gs`), under Reports, at
+  `/reports/service-engineers` — only in a 2.0 menu. ERP 2's columns for a period: assigned (by
+  the visit day, or the call's day when none; ERP 1 keeps no assigned-at time), attended (report
+  in), closed, rescheduled and on how many calls, pending now, local / outstation / no area,
+  hours on site by kind of area, average days from the call to the report, AMC visits done,
+  spare enquiries and compressor leads passed on (with their value for those who see money).
+  Download as CSV. A service engineer sees their own line.
+- **Downloads**: the visit report and the task scorecard download as CSV too.
 
 ## The rule for each screen that moves to 2.0
 
@@ -204,6 +212,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   dashboard tile, and no visit plans on the other faces.
 - `tests/service-calls-ui-test.js`, `tests/service-calls-sql-test.js` — call types, areas, the
   instruction, reschedules with reasons, and ERP 1's breakdown form unchanged on the other faces.
+- `tests/service-engineer-report-ui-test.js`, `tests/service-engineer-report-sql-test.js` — each
+  column for a period, who sees what and money, the CSV, and no report on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

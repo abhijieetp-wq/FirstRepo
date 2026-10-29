@@ -230,7 +230,9 @@
     // Reports that read across the screens above. One today, so it shows as a plain link;
     // the next one turns it into a menu.
     { label: "Reports", children: [
-      { view: "engineers", label: "Leads by Engineer", roles: SALES_SIDE }
+      { view: "engineers", label: "Leads by Engineer", roles: SALES_SIDE },
+      // ERP 2.0's service engineer report (ServiceEngineerReport.gs). Only the 2.0 face.
+      { view: "engreport", label: "Service engineers", roles: ["Service Coordinator", "Service Engineer", "Management", "ERP Admin"], v2: true }
     ] },
     { label: "Orders", children: [
       { view: "orders", label: "Sales Orders", roles: COMMERCIAL_SIDE },
@@ -304,6 +306,7 @@
     quotations: "/quotations",
     progress: "/quotation-progress",
     engineers: "/reports/leads-by-engineer",
+    engreport: "/reports/service-engineers",
     orders: "/sales-orders",
     dispatch: "/dispatch-billing",
     service: "/service-jobs",
@@ -587,6 +590,7 @@
     tasks: initTasksView,
     escalations: initEscalationsView,
     visits: initVisitPlansView,
+    engreport: initEngineerReportView,
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
@@ -6404,6 +6408,7 @@
     var s = d.scoring;
     $("tk-score").innerHTML = '<div class="pd-panel-head"><h3>Task scorecard</h3><span class="tk-rules">On time = all the points · late = ' + s.latePct +
       "% · overdue = −" + s.overduePct + "% · High " + s.High + ", Normal " + s.Normal + ", Low " + s.Low + "</span>" +
+      (d.scorecard.length ? '<button type="button" class="btn btn-sm" id="btn-tk-csv">Download CSV</button>' : "") +
       (d.canScore ? '<button type="button" class="btn btn-sm" id="btn-tk-scoring">Scoring…</button>' : "") + "</div>" +
       (d.scorecard.length ? '<div style="overflow-x:auto;"><table class="tk-table"><thead><tr><th>Name</th><th class="num">Tasks</th><th class="num">On time</th>' +
         '<th class="num">Late</th><th class="num">Overdue</th><th class="num">Open</th><th class="num">Points</th><th class="num">Score</th></tr></thead><tbody>' +
@@ -6575,6 +6580,15 @@
     $("tk-who").addEventListener("change", function () { tk.who = $("tk-who").value; renderTasks(); });
     $("tk-mine").addEventListener("change", function () { tk.mine = $("tk-mine").checked; renderTasks(); });
     $("tk-score").addEventListener("click", function (e) {
+      if (e.target.closest("#btn-tk-csv")) {
+        var d0 = tk.data;
+        csvFile("Task scorecard " + d0.period.from + " to " + d0.period.to + ".csv",
+          ["Name", "Role", "Tasks", "On time", "Late", "Overdue", "Open", "Points earned", "Points possible", "Score %"],
+          d0.scorecard.map(function (r) {
+            return [r.name, r.role, r.tasks, r.onTime, r.late, r.overdue, r.open, Math.round(r.earned * 10) / 10, r.possible, r.score === null ? "" : r.score];
+          }));
+        return;
+      }
       if (e.target.closest("#btn-tk-scoring")) {
         var s = tk.data.scoring;
         ["High", "Normal", "Low", "latePct", "overduePct"].forEach(function (k) { $("tk-s-" + k).value = s[k]; });
@@ -7033,7 +7047,7 @@
     var engs = [];
     V.forEach(function (v) { if (engs.indexOf(v.engineerEmail) === -1) engs.push(v.engineerEmail); });
     $("vp-report").innerHTML = '<div class="pd-panel-head"><h3>Visit performance</h3><span class="tk-rules">' + s.n + " planned · " + s.vis + " visited · " +
-      s.enq + (s.enq === 1 ? " enquiry" : " enquiries") + "</span></div>" +
+      s.enq + (s.enq === 1 ? " enquiry" : " enquiries") + "</span>" + (V.length ? '<button type="button" class="btn btn-sm" id="btn-vp-csv">Download CSV</button>' : "") + "</div>" +
       (V.length ? '<div style="overflow-x:auto;"><table class="tk-table"><thead><tr><th>Engineer</th><th class="num">Planned</th><th class="num">Visited</th>' +
         '<th class="num">Not visited</th><th class="num">Rescheduled</th><th class="num">Completion</th><th class="num">Enquiries</th><th class="num">Visit → enquiry</th>' +
         '<th class="num">Hot</th><th class="num">Potential</th></tr></thead><tbody>' + engs.map(function (e) {
@@ -7192,6 +7206,19 @@
         vpLoad();
       }).withFailureHandler(onServerError).copyLastWeekVisits({ weekStart: vpRange().from, engineer: vp.engineer || "" });
     });
+    $("vp-report").addEventListener("click", function (e) {
+      if (!e.target.closest("#btn-vp-csv")) return;
+      var r = vpRange();
+      csvFile("Visits " + r.from + " to " + r.to + ".csv",
+        ["Date", "Engineer", "Company", "Area", "Local / Outstation", "Purpose", "Status", "Person met", "Phone", "Industry", "Discussion",
+          "Compressor in use", "Brand in use", "Capacity", "Age (years)", "Alternative considered", "Interest", "Requirement", "Timeline",
+          "Potential value", "Next action", "Next action date", "Enquiry"],
+        vp.data.visits.map(function (v) {
+          return [v.visitDate, v.engineerName, v.customerName, v.area, v.areaType, v.purpose, v.status, v.contactMet, v.phone, v.industry, v.discussion,
+            v.compType, v.brand, v.capacity, v.ageYears, v.considering, v.interest, v.requirement, v.timeline,
+            v.potentialValue === "" ? "" : Number(v.potentialValue), v.nextAction, v.nextDate, v.leadNo];
+        }));
+    });
     $("btn-vp-cancel").addEventListener("click", function () { $("vp-modal-backdrop").classList.remove("show"); });
     $("btn-vp-save").addEventListener("click", function () { vpSave(false); });
     $("btn-vp-enquiry").addEventListener("click", function () { vpSave(true); });
@@ -7239,6 +7266,140 @@
         showMsg(areas.length + (areas.length === 1 ? " area" : " areas") + " saved.", "success");
         vpLoad();
       }).withFailureHandler(function (err) { done(); onServerError(err); }).saveVisitAreas(vpReadAreas());
+    });
+  }
+
+  // ================= SERVICE ENGINEER REPORT (2.0) =================
+  // ERP 2's engineer report (ServiceEngineerReport.gs): what each service engineer did in a
+  // period, with a CSV download. 2.0 face only.
+  var ser = { data: null, period: "month", from: "", to: "" };
+
+  if (FACE_V2 && !$("view-engreport")) {
+    (function () {
+      var view = document.createElement("div");
+      view.className = "view";
+      view.id = "view-engreport";
+      view.innerHTML = '<div class="page-head"><div><h2>Service engineers</h2><p>What each service engineer did in the period: calls assigned, attended, ' +
+        "closed and rescheduled, local and outstation, hours on site, days to attend, AMC visits and the enquiries they passed on.</p></div>" +
+        '<button class="btn" id="btn-ser-csv" type="button">Download CSV</button></div>' +
+        '<div class="tk-period"><select id="ser-period" aria-label="Period"></select><input type="date" id="ser-from" aria-label="From" />' +
+          '<input type="date" id="ser-to" aria-label="To" /><span class="sdc-muted" id="ser-range"></span></div>' +
+        '<div id="ser-kpis" class="amc-kpis"></div>' +
+        '<div class="card" style="padding:0; overflow-x:auto;"><div id="ser-body"></div></div>' +
+        '<p class="eb-note">Assigned counts the jobs whose visit day — or, with no day yet, the day the call came in — falls in the period. ' +
+        "Days to attend runs from the call coming in to the engineer’s report.</p>";
+      var after = $("view-engineers") || $("view-dashboard");
+      after.parentNode.insertBefore(view, after.nextSibling);
+    })();
+  }
+
+  function initEngineerReportView() {
+    if (!FACE_V2) return;
+    serLoad();
+  }
+
+  function serLoad() {
+    var q = ser.period === "custom" ? { period: "custom", from: ser.from, to: ser.to } : { period: ser.period };
+    srv.withSuccessHandler(function (d) {
+      ser.data = d;
+      ser.from = d.period.from;
+      ser.to = d.period.to;
+      serRender();
+    }).withFailureHandler(onServerError).getServiceEngineerReport(q);
+  }
+
+  function serHours(n) { var x = Math.round(Number(n) * 10) / 10; return String(x); }
+
+  /** The columns, as the table and the CSV both show them. */
+  function serColumns(d) {
+    var noArea = d.totals.noArea || d.totals.hoursNoArea;
+    var cols = [
+      ["Engineer", function (r) { return r.name; }],
+      ["Assigned", function (r) { return r.assigned; }],
+      ["Attended", function (r) { return r.attended; }],
+      ["Closed", function (r) { return r.closed; }],
+      ["Rescheduled", function (r) { return r.rescheduled; }],
+      ["On calls", function (r) { return r.rescheduledJobs; }],
+      ["Pending now", function (r) { return r.pending; }],
+      ["Local", function (r) { return r.local; }],
+      ["Outstation", function (r) { return r.outstation; }]
+    ];
+    if (noArea) cols.push(["No area", function (r) { return r.noArea; }]);
+    cols = cols.concat([
+      ["Hours local", function (r) { return serHours(r.hoursLocal); }],
+      ["Hours outstation", function (r) { return serHours(r.hoursOutstation); }]
+    ]);
+    if (noArea) cols.push(["Hours, no area", function (r) { return serHours(r.hoursNoArea); }]);
+    cols = cols.concat([
+      ["Avg days to attend", function (r) { return r.daysToAttend === null ? "" : r.daysToAttend; }],
+      ["AMC visits done", function (r) { return r.amcVisits; }],
+      ["Spare enquiries", function (r) { return r.spareEnquiries; }]
+    ]);
+    if (d.money) cols.push(["Spare enquiries value", function (r) { return r.spareValue || 0; }]);
+    cols.push(["Compressor leads", function (r) { return r.leads; }]);
+    return cols;
+  }
+
+  function serRender() {
+    var d = ser.data;
+    if (!d || !$("view-engreport")) return;
+    $("ser-period").innerHTML = d.periods.map(function (p) {
+      return '<option value="' + p.key + '"' + (p.key === d.period.key ? " selected" : "") + ">" + escapeHtml(p.label) + "</option>";
+    }).join("");
+    var custom = d.period.key === "custom";
+    $("ser-from").style.display = custom ? "" : "none";
+    $("ser-to").style.display = custom ? "" : "none";
+    $("ser-from").value = d.period.from;
+    $("ser-to").value = d.period.to;
+    $("ser-range").textContent = ebDate(d.period.from) + " to " + ebDate(d.period.to);
+    var t = d.totals;
+    $("ser-kpis").innerHTML = [
+      ["Calls assigned", t.assigned, t.local + " local · " + t.outstation + " outstation" + (t.noArea ? " · " + t.noArea + " no area" : "")],
+      ["Attended", t.attended, "report in · " + t.closed + " closed"],
+      ["Reschedules", t.rescheduled, "on " + t.rescheduledJobs + (t.rescheduledJobs === 1 ? " call" : " calls")],
+      ["Hours on site", serHours(t.hoursLocal + t.hoursOutstation + (t.hoursNoArea || 0)), serHours(t.hoursLocal) + " local · " + serHours(t.hoursOutstation) + " outstation"],
+      ["Enquiries passed on", t.spareEnquiries + t.leads, t.spareEnquiries + " spares · " + t.leads + " compressor" + (d.money && t.spareValue ? " · " + fmtShort(t.spareValue) : "")]
+    ].map(function (k) {
+      return '<div class="pd-tile"><span class="pd-label">' + escapeHtml(k[0]) + '</span><span class="pd-value">' + escapeHtml(String(k[1])) +
+        '</span><span class="pd-sub">' + escapeHtml(k[2]) + "</span></div>";
+    }).join("");
+    var cols = serColumns(d);
+    $("ser-body").innerHTML = '<table class="tk-table"><thead><tr>' + cols.map(function (c, i) {
+      return "<th" + (i ? ' class="num"' : "") + ">" + escapeHtml(c[0]) + "</th>";
+    }).join("") + "</tr></thead><tbody>" + (d.rows.length ? d.rows.map(function (r) {
+      return "<tr>" + cols.map(function (c, i) {
+        var v = c[1](r);
+        if (c[0] === "Spare enquiries value") v = v ? ebMoney(v) : "—";
+        if (c[0] === "Avg days to attend" && v === "") v = "—";
+        return i ? '<td class="num' + (c[0] === "Rescheduled" && r.rescheduled ? " sdc-late" : "") + '">' + escapeHtml(String(v)) + "</td>"
+          : "<td><b>" + escapeHtml(String(v)) + "</b></td>";
+      }).join("") + "</tr>";
+    }).join("") : '<tr><td colspan="' + cols.length + '" class="empty">No service engineers in Users yet.</td></tr>') + "</tbody></table>";
+  }
+
+  /** A table as a CSV file, with ERP 1's cell rules (csvCell) and download (downloadText). */
+  function csvFile(name, header, rows) {
+    var lines = [header.map(csvCell).join(",")].concat(rows.map(function (r) { return r.map(csvCell).join(","); }));
+    var done = downloadText(name, "﻿" + lines.join("\r\n") + "\r\n", "text/csv;charset=utf-8");
+    showMsg(done ? name + " downloaded." : "The browser would not save the file.", done ? "success" : "error");
+  }
+
+  if (FACE_V2) {
+    $("ser-period").addEventListener("change", function () { ser.period = $("ser-period").value; serLoad(); });
+    ["ser-from", "ser-to"].forEach(function (id) {
+      $(id).addEventListener("change", function () {
+        if (!$("ser-from").value || !$("ser-to").value) return;
+        ser.from = $("ser-from").value;
+        ser.to = $("ser-to").value;
+        serLoad();
+      });
+    });
+    $("btn-ser-csv").addEventListener("click", function () {
+      var d = ser.data;
+      if (!d || !d.rows.length) { showMsg("There is nothing to download for this period.", "error"); return; }
+      var cols = serColumns(d);
+      csvFile("Service engineers " + d.period.from + " to " + d.period.to + ".csv", cols.map(function (c) { return c[0]; }),
+        d.rows.map(function (r) { return cols.map(function (c) { return c[1](r); }); }));
     });
   }
 

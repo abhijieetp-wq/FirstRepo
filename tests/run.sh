@@ -100,6 +100,10 @@ run_ui "visit-plans-ui-test.js (2.0)" tests/visit-plans-ui-test.js "$tmp/base-v2
 run_ui "service-calls-ui-test.js (classic)" tests/service-calls-ui-test.js "$tmp/base.html"
 run_ui "service-calls-ui-test.js (new design)" tests/service-calls-ui-test.js "$tmp/base-web.html"
 run_ui "service-calls-ui-test.js (2.0)" tests/service-calls-ui-test.js "$tmp/base-v2.html"
+# And the service engineer report.
+run_ui "service-engineer-report-ui-test.js (classic)" tests/service-engineer-report-ui-test.js "$tmp/base.html"
+run_ui "service-engineer-report-ui-test.js (new design)" tests/service-engineer-report-ui-test.js "$tmp/base-web.html"
+run_ui "service-engineer-report-ui-test.js (2.0)" tests/service-engineer-report-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

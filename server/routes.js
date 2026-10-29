@@ -27,6 +27,7 @@ const PAGES = [
   '/quotations',
   '/quotation-progress',
   '/reports/leads-by-engineer',
+  '/reports/service-engineers',
   '/sales-orders',
   '/dispatch-billing',
   '/service-jobs',

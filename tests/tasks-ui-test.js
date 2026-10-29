@@ -121,6 +121,10 @@ const ok = (label, cond, detail) => {
       sc[2] === 'Tej Service Engineer|3|0|0|1|2|-7.5 / 15|0%', sc);
     ok('the rules beside it', /On time = all the points · late = 50% · overdue = −50% · High 15, Normal 10, Low 5/.test(await page.textContent('#tk-score')));
     ok('overdue stands out', await page.$eval('#tk-score tbody tr:nth-child(3) td:nth-child(5)', (e) => e.classList.contains('sdc-late')));
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btn-tk-csv')]);
+    const csv = require('fs').readFileSync(await dl.path(), 'utf8').replace(/^\ufeff/, '');
+    ok('the scorecard downloads as a CSV', dl.suggestedFilename() === 'Task scorecard 2026-10-01 to 2026-10-31.csv' &&
+      /"Tej","Service Engineer",3,0,0,1,2,-7\.5,15,0/.test(csv), csv.split('\r\n').slice(0, 4));
 
     console.log('\nTHE LIST');
     ok('open tasks first', (await rows()).join() === 'T1,T2', await rows());

@@ -112,6 +112,10 @@ const ok = (label, cond, detail) => {
     ok('each engineer’s visits, completion and enquiries', rep.length === 2 && /^Rohan\|2\|1\|1\|0\|50%\|1\|100%\|1\|/.test(rep[0]) && /^Ravi\|1\|0\|0\|0\|0%\|0\|—\|0\|—$/.test(rep[1]), rep);
     ok('and what the customers run and when they will buy', /1–3 months/.test(await page.textContent('.vp-bars')) && /Atlas Copco/.test(await page.textContent('.vp-bars')) &&
       /Screw – oil-lubricated, fixed speed/.test(await page.textContent('.vp-bars')));
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btn-vp-csv')]);
+    const csv = require('fs').readFileSync(await dl.path(), 'utf8').replace(/^\ufeff/, '');
+    ok('the visits download as a CSV, ERP 2’s form in columns', dl.suggestedFilename() === 'Visits ' + W.monday + ' to ' + W.sunday + '.csv' &&
+      csv.split('\r\n')[0].split(',').length === 23 && /"Topworth Urja","Butibori MIDC","Local"/.test(csv) && /"LD2610-009"/.test(csv), csv.split('\r\n').slice(0, 2));
 
     console.log('\nMOVING ABOUT');
     await reset();
