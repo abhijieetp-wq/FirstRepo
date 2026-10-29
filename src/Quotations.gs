@@ -190,9 +190,12 @@ function listQuotations(options) {
 
   var customerNames = {};
   readTable_('Customers').forEach(function (c) { customerNames[String(c.id)] = c.name; });
+  // Who prepared it, by name (2.0's list and progress screens show it).
+  var people = userNameMap_();
 
   var rows = readTable_('Quotations').map(function (q) {
     var row = stripRow_(q);
+    row.preparedByName = row.preparedBy ? personLine_(String(row.preparedBy), people) : '';
     row.items = (itemsByQuote[String(row.id)] || []).sort(function (a, b) {
       return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0);
     });

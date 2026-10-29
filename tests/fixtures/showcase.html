@@ -79,27 +79,30 @@
     enq(24, C[7], "H. Chaudhari", "97660 40021", "EG 11", "", "Normal", 1, "Lost", "", false, "2026-10-05")
   ];
 
-  var STAGES = ["Quoted", "PO received", "Order confirmed", "Reserved", "Dispatched", "Delivered"];
+  // ERP 1's ten steps (QuotationJourney.gs), each with whether it happened and when.
+  var STAGES = ["Prepared", "Approved", "Sent to customer", "Accepted by customer", "PO received", "Sales order",
+    "Invoiced", "Dispatched", "Delivered", "Service told"];
   function journey(i, extra) {
-    return Object.assign({ label: STAGES[i], stages: STAGES, reachedIndex: i,
-      nextLabel: STAGES[i + 1] || "", closed: false, stalled: false, creditHold: false }, extra || {});
+    return Object.assign({ label: STAGES[i], reachedIndex: i, nextLabel: STAGES[i + 1] || "", closed: false, stalled: false, creditHold: false,
+      stages: STAGES.map(function (l, k) { return { key: "s" + k, label: l, owner: k < 4 ? "Quotation" : k < 6 ? "Sales order" : "Dispatch", done: k <= i, date: k <= i ? "2026-10-" + (10 + k * 2) : "" }; }) }, extra || {});
   }
   function q(n, stream, cust, model, items, grand, status, j, valid, expired, date, time) {
     return { id: "QT-" + n, quoteNo: "PIE/ELGI/QUOT/26-27/" + n, revision: n % 3 === 0 ? "R1" : "R0",
       businessStream: stream, date: date, createdAt: date + "T" + time + ":00+05:30",
       customerId: cust.id, customerName: cust.name, machineModel: model, itemCount: items,
       grand: grand, status: status, locked: status !== "Draft", journey: j, validUntil: valid,
-      expired: expired };
+      expired: expired, preparedBy: n % 2 ? "kiran@pie.in" : "neha@pie.in", preparedByName: n % 2 ? "Kiran Patil" : "Neha Rao",
+      taxAmt: Math.round(grand * 18 / 118), items: [{ description: model + (stream === "Spare Sales" ? " service kit" : " screw compressor") }] };
   }
   var QUOTATIONS = [
-    q(418, "Spare Sales", C[0], "EG 37", 4, 186420, "Draft", null, "2026-11-16", false, "2026-10-17", "11:42"),
-    q(417, "Compressor Sales", C[4], "EN 75 · 75 kW", 1, 3845000, "Negotiating", journey(0), "2026-11-12", false, "2026-10-16", "16:05"),
-    q(416, "Spare Sales", C[6], "EG 90", 9, 412880, "Won", journey(3), "2026-11-11", false, "2026-10-15", "10:18"),
-    q(415, "Spare Sales", C[1], "EG 22", 3, 58940, "Submitted", journey(0), "2026-11-14", false, "2026-10-15", "09:51"),
-    q(414, "Compressor Sales", C[3], "EG 45 · 45 kW", 1, 2160000, "Won", journey(2, { creditHold: true }), "2026-11-08", false, "2026-10-13", "15:27"),
-    q(413, "Spare Sales", C[5], "EN 30", 3, 97650, "Approved", journey(0), "2026-10-19", false, "2026-10-12", "12:09"),
-    q(412, "Spare Sales", C[2], "EG 15", 5, 74215, "Won", journey(4), "2026-11-06", false, "2026-10-09", "17:44"),
-    q(411, "Spare Sales", C[7], "EG 11", 1, 12980, "Submitted", journey(0), "2026-10-11", true, "2026-09-26", "14:31")
+    q(418, "Spare Sales", C[0], "EG 37", 4, 186420, "Draft", journey(0), "2026-11-16", false, "2026-10-17", "11:42"),
+    q(417, "Compressor Sales", C[4], "EN 75 · 75 kW", 1, 3845000, "Negotiating", journey(2), "2026-11-12", false, "2026-10-16", "16:05"),
+    q(416, "Spare Sales", C[6], "EG 90", 9, 412880, "Won", journey(5), "2026-11-11", false, "2026-10-15", "10:18"),
+    q(415, "Spare Sales", C[1], "EG 22", 3, 58940, "Submitted", journey(2), "2026-11-14", false, "2026-10-15", "09:51"),
+    q(414, "Compressor Sales", C[3], "EG 45 · 45 kW", 1, 2160000, "Won", journey(5, { creditHold: true }), "2026-11-08", false, "2026-10-13", "15:27"),
+    q(413, "Spare Sales", C[5], "EN 30", 3, 97650, "Approved", journey(1), "2026-10-19", false, "2026-10-12", "12:09"),
+    q(412, "Spare Sales", C[2], "EG 15", 5, 74215, "Won", journey(8), "2026-11-06", false, "2026-10-09", "17:44"),
+    q(411, "Spare Sales", C[7], "EG 11", 1, 12980, "Submitted", journey(2), "2026-10-11", true, "2026-09-26", "14:31")
   ];
 
   var SPARES = [

@@ -72,6 +72,10 @@ run_ui "enquiry-board-ui-test.js (2.0)" tests/enquiry-board-ui-test.js "$tmp/bas
 run_ui "board-drawer-ui-test.js (classic)" tests/board-drawer-ui-test.js "$tmp/base.html"
 run_ui "board-drawer-ui-test.js (new design)" tests/board-drawer-ui-test.js "$tmp/base-web.html"
 run_ui "board-drawer-ui-test.js (2.0)" tests/board-drawer-ui-test.js "$tmp/base-v2.html"
+# All Quotations and Quotation Progress, as the 2.0 demo draws them.
+run_ui "quotations-v2-ui-test.js (classic)" tests/quotations-v2-ui-test.js "$tmp/show-classic.html"
+run_ui "quotations-v2-ui-test.js (new design)" tests/quotations-v2-ui-test.js "$tmp/show.html"
+run_ui "quotations-v2-ui-test.js (2.0)" tests/quotations-v2-ui-test.js "$tmp/show-v2.html"
 # So is the dashboard per person; the showcase adds Management's view of the team.
 run_ui "person-dashboard-ui-test.js (classic)" tests/person-dashboard-ui-test.js "$tmp/base.html"
 run_ui "person-dashboard-ui-test.js (new design)" tests/person-dashboard-ui-test.js "$tmp/base-web.html"

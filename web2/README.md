@@ -204,6 +204,14 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   records: a lead's next-action date and owner, a spare enquiry's owner and its own follow-up date,
   follow-ups in Activities, lost as the record's Lost / Disqualified status with a reason. The flag
   is a new column on spare enquiries, leads and opportunities.
+- **All Quotations and Quotation Progress as the 2.0 demo draws them**: six totals (drafts,
+  approved not sent yet, sent with no answer, won and lost this month, past validity; a click
+  filters), Both desks / Compressor / Spares, search, status and who prepared it, and a table with
+  the short number, desk, who, customer, main item, value before GST, status, the ten steps and
+  valid until; a row opens the quotation. Progress shows how far the quotations got step by step
+  (last 30 days or all), then each one's ten steps, where it is, what is next and how many days
+  it has waited; a row opens ERP 1's trail. ERP 1 has no "waiting for approval" flag, so the second
+  total counts approved quotations not sent yet.
 - **Form fields** (`src/FormFields.gs`), Masters → Form fields, for Management: fields of PIE's
   own on a form — text, number, date, dropdown, long text, yes / no — each optionally required and
   a list column, in the order set, with a preview. The forms: spare enquiries, compressor leads,
@@ -271,6 +279,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/quotations-v2-ui-test.js` — the six totals, the desk, search, status and who filters,
+  the table and its steps, Progress's step totals, rows and trail, and ERP 1's lists on the other faces.
 - `tests/form-fields-ui-test.js`, `tests/form-fields-sql-test.js` — building a form's fields,
   each type and its checks, required fields stopping the save, values after the record, list
   columns, who sees and fills them, removing and adding back, and none of it on the other faces.

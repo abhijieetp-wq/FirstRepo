@@ -160,7 +160,7 @@ const ok = (label, cond, detail) => {
     };
   });
   await go('quotations');
-  await page.click('[data-open-quote]');
+  await page.click('[data-open-quote], [data-qv-open]');
   await page.waitForTimeout(600);
   ok('a sent quotation offers Revise', !!(await page.$('#btn-qb-revise')));
   // Revise lives in the Status menu now.
@@ -282,22 +282,28 @@ const ok = (label, cond, detail) => {
     };
   });
   await go('progress');
-  ok('the list has a Created by column',
-    (await page.$$eval('#view-progress thead th', (ths) => ths.map((t) => t.textContent)))
-      .indexOf('Created by') !== -1);
-  const firstRow = await page.$eval('#progress-tbody tr', (r) => r.textContent);
-  ok('naming who created it', /Priya Deshmukh/.test(firstRow), firstRow);
-  ok('and who made the live revision, when that was somebody else',
-    /R1 by Rahul Patil/.test(firstRow), firstRow);
-  ok('with where it got to and why it was declined', /Declined/.test(firstRow) &&
-    /Price too high/.test(firstRow), firstRow);
-  ok('a declined offer is shown as Declined, not Lost',
-    !/\bLost\b/.test(firstRow), firstRow);
-  await page.fill('#progress-search', 'rahul');
-  await page.waitForTimeout(200);
-  ok('and the search finds offers by the person',
-    (await page.$$('#progress-tbody tr [data-progress]')).length === 1);
-  await page.fill('#progress-search', '');
+  // ERP 2.0 draws its own Progress page (tests/quotations-v2-ui-test.js); ERP 1's list is on the other faces.
+  const v2face = await page.evaluate(() => document.documentElement.getAttribute('data-face') === 'v2');
+  if (v2face) {
+    ok('2.0 draws its own progress page', await page.evaluate(() => document.getElementById('qv-progress').offsetParent !== null && document.getElementById('progress-tbody').offsetParent === null));
+  } else {
+    ok('the list has a Created by column',
+      (await page.$$eval('#view-progress thead th', (ths) => ths.map((t) => t.textContent)))
+        .indexOf('Created by') !== -1);
+    const firstRow = await page.$eval('#progress-tbody tr', (r) => r.textContent);
+    ok('naming who created it', /Priya Deshmukh/.test(firstRow), firstRow);
+    ok('and who made the live revision, when that was somebody else',
+      /R1 by Rahul Patil/.test(firstRow), firstRow);
+    ok('with where it got to and why it was declined', /Declined/.test(firstRow) &&
+      /Price too high/.test(firstRow), firstRow);
+    ok('a declined offer is shown as Declined, not Lost',
+      !/\bLost\b/.test(firstRow), firstRow);
+    await page.fill('#progress-search', 'rahul');
+    await page.waitForTimeout(200);
+    ok('and the search finds offers by the person',
+      (await page.$$('#progress-tbody tr [data-progress]')).length === 1);
+    await page.fill('#progress-search', '');
+  }
 
   console.log('\nAND DOWNLOADS THE LOT AS A FILE EXCEL OPENS');
   ok('there is a download button', await shown('#btn-progress-download'));
@@ -542,7 +548,7 @@ const ok = (label, cond, detail) => {
   // Whatever an earlier check left open is closed first; it is not what this looks at.
   const openQuote = () => page.evaluate(() => {
     document.querySelectorAll('.modal-backdrop.show').forEach((m) => m.classList.remove('show'));
-    document.querySelector('[data-open-quote]').click();
+    document.querySelector('[data-open-quote], [data-qv-open]').click();
   });
   await page.evaluate(() => {
     const D = window.__data;

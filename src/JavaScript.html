@@ -3376,6 +3376,8 @@
       srv.withSuccessHandler(function (rows) { lostReasonsCache = rows; })
         .withFailureHandler(function () {}).listLostReasons();
     }
+    // 2.0 draws the page as its demo does (qvQuotesInit); the other faces keep ERP 1's list.
+    if (FACE_V2) { qvQuotesInit(); return; }
     loadQuotations();
   }
 
@@ -9049,6 +9051,7 @@
     openProgress = null;
     $("progress-detail").style.display = "none";
     $("progress-picker-card").style.display = "";
+    if (FACE_V2) { qvProgressInit(); return; }
     srv.withSuccessHandler(function (rows) {
       progressCandidates = rows || [];
       renderProgressPicker();
@@ -9155,6 +9158,273 @@
       onServerError(err);
     }).exportQuotationProgress();
   });
+
+  // ================= ALL QUOTATIONS AND QUOTATION PROGRESS, AS THE 2.0 DEMO DRAWS THEM =================
+  // 2.0 only. The same quotations ERP 1 lists (listQuotations, with each one's ten-step trail),
+  // drawn as the demo has them: totals you can click to filter, Both desks / Compressor / Spares,
+  // search, status and who prepared it, then the table; and on Progress, how far the offers got
+  // step by step, with each one's ten steps, where it is, what is next and how long it has waited.
+  // A row opens the quotation (All Quotations) or its full trail (Progress), as ERP 1 does.
+  var qv = { rows: null, stream: "", status: "", who: "", q: "", pStream: "", pPer: "month" };
+  var QV_STATUS = {
+    Draft: ["Draft", ""], Approved: ["Approved", "acc"], Submitted: ["Sent", "sig"], Negotiating: ["Sent", "sig"],
+    Won: ["Accepted (won)", "good"], Lost: ["Declined (lost)", "bad"], Expired: ["Past validity", "bad"], Revised: ["Revised", ""]
+  };
+  var QV_FILTERS = [["Draft", "Draft"], ["Approved", "Approved"], ["Sent", "Sent"], ["Won", "Accepted (won)"], ["Lost", "Declined (lost)"], ["Expired", "Past validity"]];
+  /** The status a row is read as: a sent offer past its date is past validity. */
+  function qvStatus(r) {
+    if (r.status === "Submitted" || r.status === "Negotiating") return r.expired ? "Expired" : "Sent";
+    if ((r.status === "Draft" || r.status === "Approved") && r.expired) return "Expired";
+    return r.status;
+  }
+  function qvChip(r) {
+    var s = qvStatus(r);
+    var c = s === "Sent" ? QV_STATUS.Submitted : QV_STATUS[s] || [s, ""];
+    return ebChip(c[0], c[1]);
+  }
+  /** Before GST, as the demo shows offers. */
+  function qvBasic(r) {
+    var g = Number(r.grand) || 0;
+    var tax = Number(r.taxAmt);
+    return isFinite(tax) && tax > 0 && tax < g ? g - tax : g;
+  }
+  function qvSum(list) { return list.reduce(function (s, r) { return s + qvBasic(r); }, 0); }
+  function qvSpare(r) { return r.businessStream === "Spare Sales"; }
+  function qvDeskChip(r) {
+    return '<span class="qv-desk ' + (qvSpare(r) ? "sp" : "un") + '">' + escapeHtml(qvSpare(r) ? (r.enquiryType && r.enquiryType !== "Spares" ? r.enquiryType : "Spares") : "Compressor") + "</span>";
+  }
+  /** "UNIT/…/26-27/74 R0": the serial and the year, which is what tells offers apart in a list. */
+  function qvNo(r) {
+    var parts = String(r.quoteNo || "—").split("/");
+    var shown = parts.length > 3 ? parts[0] + "/…/" + parts.slice(-2).join("/") : parts.join("/");
+    return '<span title="' + escapeHtml(r.quoteNo || "") + '">' + escapeHtml(shown) + "</span> " + escapeHtml(r.revision || "R0");
+  }
+  function qvMainItem(r) {
+    var it = (r.items || [])[0];
+    return it ? String(it.description || it.itemCode || "") : String(r.machineModel || "");
+  }
+  function qvMini(j) {
+    if (!j) return "—";
+    if (j.closed || j.stalled) return '<span class="sdc-muted">' + escapeHtml(j.label) + "</span>";
+    return '<span class="qv-stage" title="' + escapeHtml(j.nextLabel ? "Next: " + j.nextLabel : "Complete") + '"><span class="qv-mini">' + j.stages.map(function (s) {
+      return "<i" + (s.done ? ' class="on"' : "") + "></i>";
+    }).join("") + "</span><span>" + escapeHtml(j.label) + ' <span class="mono sdc-muted">' + (j.reachedIndex + 1) + "/" + j.stages.length + "</span></span>" +
+      (j.creditHold ? " " + ebChip("hold", "bad") : "") + "</span>";
+  }
+  function qvStrip(j) {
+    if (!j) return "";
+    return '<ol class="qv-strip" aria-label="' + escapeHtml(j.label) + '">' + j.stages.map(function (s, i) {
+      var cls = s.done ? "done" : (!j.closed && !j.stalled && i === j.reachedIndex + 1) ? "next" : "";
+      if (j.closed && i === j.reachedIndex + 1) cls = "stop";
+      return '<li class="' + cls + '" title="' + escapeHtml(s.label + (s.date ? " · " + ebDay(s.date) : "")) + '"><i></i></li>';
+    }).join("") + "</ol>";
+  }
+  function qvDaysSince(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+    if (!m) return null;
+    var then = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    var t = ebToday().split("-");
+    return Math.max(0, Math.round((Date.UTC(Number(t[0]), Number(t[1]) - 1, Number(t[2])) - then) / 86400000));
+  }
+  function qvTile(label, value, sub, tone, filter) {
+    return "<" + (filter ? 'button type="button" data-qv-tile="' + escapeHtml(filter) + '"' : "div") + ' class="qv-kpi' + (tone ? " " + tone : "") + (filter && qv.status === filter ? " on" : "") + '">' +
+      '<span class="qv-l">' + escapeHtml(label) + '</span><span class="qv-v">' + escapeHtml(String(value)) + '</span><span class="qv-s">' + escapeHtml(sub) + "</span></" + (filter ? "button" : "div") + ">";
+  }
+  function qvSeg(key, opts, cur) {
+    return '<div class="eb2-seg" role="group">' + opts.map(function (o) {
+      return '<button type="button" data-qv-seg="' + key + '" data-v="' + escapeHtml(o[0]) + '" aria-pressed="' + (o[0] === cur) + '">' + escapeHtml(o[1]) + "</button>";
+    }).join("") + "</div>";
+  }
+
+  /** The 2.0 page's box, put where ERP 1's search bar was; ERP 1's own parts put away. */
+  function qvHost(view, id) {
+    if ($(id)) return $(id);
+    var v = $(view);
+    var host = document.createElement("div");
+    host.id = id;
+    host.className = "qv-host";
+    var head = v.querySelector(".page-head");
+    head.parentNode.insertBefore(host, head.nextSibling);
+    return host;
+  }
+  function qvLoad(then) {
+    srv.withSuccessHandler(function (rows) { qv.rows = rows || []; then(); })
+      .withFailureHandler(onServerError).listQuotations({ includeClosed: true });
+  }
+
+  // ---- All Quotations ----
+  function qvQuotesInit() {
+    var v = $("view-quotations");
+    v.querySelector(".search-bar").style.display = "none";
+    v.querySelector(":scope > .card").style.display = "none";
+    var head = v.querySelector(".page-head");
+    head.querySelector("h2").textContent = "All Quotations";
+    head.querySelector("p").textContent = "Every offer from both desks. Compressor offers and spares offers are numbered from one running serial. " +
+      "Revisions keep the number and go up R0, R1, R2. Values are before GST.";
+    if (!$("btn-qv-new") && canEditQuotes()) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn btn-primary";
+      b.id = "btn-qv-new";
+      b.textContent = "+ New quotation";
+      b.addEventListener("click", function () { goToTab("quote"); });
+      head.appendChild(b);
+    }
+    var host = qvHost("view-quotations", "qv-quotes");
+    if (!qv.rows) host.innerHTML = '<div class="empty">Loading the quotations…</div>';
+    qvLoad(qvQuotesRender);
+  }
+
+  function qvQuotesRender() {
+    var host = $("qv-quotes");
+    if (!host || !qv.rows) return;
+    var all = qv.rows;
+    var month = ebToday().slice(0, 7);
+    var drafts = all.filter(function (r) { return qvStatus(r) === "Draft"; });
+    var approved = all.filter(function (r) { return qvStatus(r) === "Approved"; });
+    var sent = all.filter(function (r) { return qvStatus(r) === "Sent"; });
+    var won = all.filter(function (r) { return r.status === "Won" && String(r.wonDate || r.date || "").slice(0, 7) === month; });
+    var lost = all.filter(function (r) { return r.status === "Lost" && String(r.lostDate || r.date || "").slice(0, 7) === month; });
+    var expired = all.filter(function (r) { return qvStatus(r) === "Expired"; });
+    if (!host.querySelector(".qv-tools")) {
+      host.innerHTML = '<div class="qv-kpis"></div><div class="qv-tools eb2-tools"></div><div class="qv-body"></div>';
+      host.querySelector(".qv-tools").innerHTML = qvSeg("stream", [["", "Both desks"], ["Compressor Sales", "Compressor"], ["Spare Sales", "Spares"]], qv.stream) +
+        '<input type="search" class="eb2-search" data-qv-q="1" placeholder="Search number, customer or item" aria-label="Search quotations" />' +
+        '<select data-qv-sel="status" aria-label="Status"></select><select data-qv-sel="who" aria-label="Prepared by"></select>';
+    }
+    host.querySelector(".qv-kpis").innerHTML =
+      qvTile("Drafts", drafts.length, ebLakh(qvSum(drafts)) || "₹0", "", "Draft") +
+      qvTile("Approved, not sent yet", approved.length, approved.length ? ebLakh(qvSum(approved)) : "management has approved them", approved.length ? "sig" : "", "Approved") +
+      qvTile("Sent, no answer yet", sent.length, ebLakh(qvSum(sent)) || "₹0", "", "Sent") +
+      qvTile("Accepted (won) this month", won.length, ebLakh(qvSum(won)) || "₹0", "", "Won") +
+      qvTile("Declined (lost) this month", lost.length, ebLakh(qvSum(lost)) || "₹0", "", "Lost") +
+      qvTile("Past validity", expired.length, (ebLakh(qvSum(expired)) || "₹0") + " · revise to renew", expired.length ? "bad" : "", "Expired");
+    var tools = host.querySelector(".qv-tools");
+    tools.querySelectorAll('[data-qv-seg="stream"]').forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === qv.stream)); });
+    var st = tools.querySelector('[data-qv-sel="status"]');
+    st.innerHTML = '<option value="">Any status</option>' + QV_FILTERS.map(function (f) { return '<option value="' + f[0] + '">' + escapeHtml(f[1]) + "</option>"; }).join("");
+    st.value = qv.status;
+    var people = {};
+    all.forEach(function (r) { if (r.preparedBy) people[String(r.preparedBy).toLowerCase()] = r.preparedByName || r.preparedBy; });
+    var who = tools.querySelector('[data-qv-sel="who"]');
+    who.innerHTML = '<option value="">Anyone</option>' + Object.keys(people).sort(function (a, b) { return String(people[a]).localeCompare(String(people[b])); })
+      .map(function (k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(people[k]) + "</option>"; }).join("");
+    who.value = qv.who;
+
+    var q = String(qv.q || "").trim().toLowerCase();
+    var rows = all.filter(function (r) {
+      if (qv.stream && r.businessStream !== qv.stream) return false;
+      if (qv.status && qvStatus(r) !== qv.status) return false;
+      if (qv.who && String(r.preparedBy).toLowerCase() !== qv.who) return false;
+      if (q && [r.quoteNo, r.customerName, r.machineModel, r.serialNo, (r.items || []).map(function (i) { return i.description + " " + i.itemCode; }).join(" ")]
+        .join(" ").toLowerCase().indexOf(q) === -1) return false;
+      // Closed ones only when asked for by their status.
+      if (!qv.status && ["Won", "Lost"].indexOf(r.status) !== -1 && String(r.wonDate || r.lostDate || r.date || "").slice(0, 7) < month) return false;
+      return true;
+    });
+    var soon = (function () { var t = new Date(); t.setDate(t.getDate() + 7); return t.toISOString().slice(0, 10); })();
+    host.querySelector(".qv-body").innerHTML = '<div class="qv-table"><table><thead><tr><th>Quotation</th><th>Date</th><th>Prepared by</th><th>Customer</th><th>Main item</th>' +
+      '<th class="num">Value</th><th>Status</th><th>Progress</th><th>Valid until</th></tr></thead><tbody>' +
+      (rows.length ? rows.map(function (r) {
+        var s = qvStatus(r);
+        var late = (s === "Sent" && r.validUntil && r.validUntil <= soon) || s === "Expired";
+        return '<tr class="qv-row" data-qv-open="' + escapeHtml(r.id) + '"><td><span class="mono">' + qvNo(r) + "</span><br>" + qvDeskChip(r) + "</td>" +
+          '<td style="white-space:nowrap;">' + escapeHtml(ebDay(r.date)) + "</td>" +
+          "<td>" + escapeHtml(r.preparedByName || r.preparedBy || "—") + "</td>" +
+          "<td><b>" + escapeHtml(r.customerName || "—") + "</b></td>" +
+          '<td class="qv-item">' + escapeHtml(qvMainItem(r) || "—") + "</td>" +
+          '<td class="num mono">' + escapeHtml(ebMoney(qvBasic(r)) || "₹0") + "</td>" +
+          "<td>" + qvChip(r) + "</td>" +
+          "<td>" + qvMini(r.journey) + "</td>" +
+          '<td style="white-space:nowrap;"' + (late ? ' class="qv-late"' : "") + ">" + escapeHtml(ebDay(r.validUntil) || "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="9" class="empty">' + (all.length ? "No quotation matches that." : "No quotations yet — raise one from an enquiry.") + "</td></tr>") +
+      "</tbody></table></div>";
+  }
+
+  // ---- Quotation Progress ----
+  function qvProgressInit() {
+    var v = $("view-progress");
+    v.querySelector(".search-bar").style.display = "none";
+    $("progress-picker-card").style.display = "none";
+    var head = v.querySelector(".page-head");
+    head.querySelector("p").textContent = "Each quotation’s road from prepared to service told, ERP 1’s ten steps, with who made the offer. " +
+      "Anything waiting more than a week at one step is flagged.";
+    $("btn-progress-download").className = "btn btn-primary";
+    var host = qvHost("view-progress", "qv-progress");
+    host.style.display = "";
+    if (!qv.rows) host.innerHTML = '<div class="empty">Loading the quotations…</div>';
+    qvLoad(qvProgressRender);
+  }
+
+  function qvProgressRender() {
+    var host = $("qv-progress");
+    if (!host || !qv.rows) return;
+    var since = (function () { var t = new Date(); t.setDate(t.getDate() - 30); return t.getFullYear() + "-" + ("0" + (t.getMonth() + 1)).slice(-2) + "-" + ("0" + t.getDate()).slice(-2); })();
+    var rows = qv.rows.filter(function (r) {
+      if (r.status === "Revised") return false;
+      if (qv.pStream && r.businessStream !== qv.pStream) return false;
+      return qv.pPer === "all" || String(r.date || "") >= since;
+    });
+    var stages = rows.length && rows[0].journey ? rows[0].journey.stages.map(function (s) { return s.label; })
+      : ["Prepared", "Approved", "Sent to customer", "Accepted by customer", "PO received", "Sales order", "Invoiced", "Dispatched", "Delivered", "Service told"];
+    var mx = Math.max(1, rows.length);
+    var declined = rows.filter(function (r) { return r.status === "Lost"; }).length;
+    var expired = rows.filter(function (r) { return qvStatus(r) === "Expired"; }).length;
+    var bars = stages.map(function (label, i) {
+      var n = rows.filter(function (r) { return r.journey && r.journey.stages[i] && r.journey.stages[i].done; }).length;
+      return '<div class="qv-hbar" data-qv-step="' + i + '"><span>' + escapeHtml(label) + '</span><span class="qv-track"><i class="' + (i < 4 ? "t1" : i < 6 ? "t2" : "t3") + '" style="width:' +
+        (n / mx * 100) + '%"></i></span><span class="mono">' + n + "</span></div>";
+    }).join("");
+    host.innerHTML = '<div class="eb2-tools">' + qvSeg("pStream", [["", "Both desks"], ["Compressor Sales", "Compressor"], ["Spare Sales", "Spares"]], qv.pStream) +
+      qvSeg("pPer", [["month", "Last 30 days"], ["all", "All"]], qv.pPer) + "</div>" +
+      '<section class="qv-panel"><header><h3>How far ' + rows.length + (rows.length === 1 ? " quotation" : " quotations") + " got</h3>" +
+        '<span class="sdc-muted">' + (qv.pPer === "month" ? "prepared in the last 30 days" : "all quotations") + "</span></header>" +
+        '<div class="qv-bars">' + bars + '<p class="eb-note">' + declined + (declined === 1 ? " quotation" : " quotations") + " declined and " + expired + " past validity in this period.</p></div></section>" +
+      '<div class="qv-table"><table><thead><tr><th>Quotation</th><th>Customer</th><th>Prepared by</th><th class="num">Value</th><th>Status</th><th>The ten steps</th><th>Where it is</th><th>Waiting</th></tr></thead><tbody>' +
+      (rows.length ? rows.map(function (r) {
+        var j = r.journey || { stages: [], reachedIndex: -1, label: "" };
+        var all = j.stages.length && j.stages.every(function (s) { return s.done; });
+        var last = j.stages[j.reachedIndex] || {};
+        var wait = j.closed || all ? null : qvDaysSince(last.date || r.date);
+        var waitChip = wait === null ? ebChip(j.closed ? String(j.label).toLowerCase() : "done", j.closed ? "bad" : "good")
+          : ebChip(wait + (wait === 1 ? " day" : " days"), wait > 7 ? "bad" : wait > 3 ? "sig" : "");
+        return '<tr class="qv-row" data-qv-trail="' + escapeHtml(r.id) + '"><td><span class="mono">' + qvNo(r) + "</span><br>" + qvDeskChip(r) + "</td>" +
+          "<td><b>" + escapeHtml(r.customerName || "—") + "</b></td>" +
+          "<td>" + escapeHtml(r.preparedByName || r.preparedBy || "—") + "</td>" +
+          '<td class="num mono">' + escapeHtml(ebLakh(qvBasic(r)) || "₹0") + "</td>" +
+          "<td>" + qvChip(r) + "</td>" +
+          "<td>" + qvStrip(j) + "</td>" +
+          "<td>" + escapeHtml(j.label) + ' <span class="mono sdc-muted">' + (j.reachedIndex + 1) + "/" + (j.stages.length || 10) + "</span>" +
+            (j.nextLabel ? '<br><span class="sdc-muted">next: ' + escapeHtml(j.nextLabel) + "</span>" : "") + "</td>" +
+          "<td>" + waitChip + "</td></tr>";
+      }).join("") : '<tr><td colspan="8" class="empty">No quotations in this period.</td></tr>') + "</tbody></table></div>";
+  }
+
+  if (FACE_V2) {
+    document.addEventListener("click", function (e) {
+      var host = e.target.closest("#qv-quotes, #qv-progress");
+      if (!host) return;
+      var seg = e.target.closest("[data-qv-seg]");
+      if (seg) { qv[seg.dataset.qvSeg] = seg.dataset.v; if (host.id === "qv-quotes") qvQuotesRender(); else qvProgressRender(); return; }
+      var tile = e.target.closest("[data-qv-tile]");
+      if (tile) { qv.status = qv.status === tile.dataset.qvTile ? "" : tile.dataset.qvTile; qvQuotesRender(); return; }
+      var open = e.target.closest("[data-qv-open]");
+      if (open) { openQuotation(open.dataset.qvOpen); return; }
+      var trail = e.target.closest("[data-qv-trail]");
+      if (trail) openProgressTrail(trail.dataset.qvTrail);
+    });
+    document.addEventListener("input", function (e) {
+      if (!e.target.closest("#qv-quotes [data-qv-q]")) return;
+      qv.q = e.target.value;
+      qvQuotesRender();
+    });
+    document.addEventListener("change", function (e) {
+      var sel = e.target.closest("#qv-quotes [data-qv-sel]");
+      if (!sel) return;
+      qv[sel.dataset.qvSel] = sel.value;
+      qvQuotesRender();
+    });
+  }
 
   // ================= ENQUIRY BOARD (2.0) =================
   // ERP 2's ten stages, as a board of cards, on the Spare Sales and Compressor Sales screens.
@@ -11357,6 +11627,7 @@
     var p = openProgress;
     if (!p) return;
     $("progress-picker-card").style.display = "none";
+    if ($("qv-progress")) $("qv-progress").style.display = "none";
     var box = $("progress-detail");
     box.style.display = "";
 
@@ -11538,7 +11809,8 @@
     $("btn-progress-back").addEventListener("click", function () {
       openProgress = null;
       $("progress-detail").style.display = "none";
-      $("progress-picker-card").style.display = "";
+      if (FACE_V2 && $("qv-progress")) { $("qv-progress").style.display = ""; qvProgressRender(); }
+      else $("progress-picker-card").style.display = "";
       showPath(ROUTES.progress, true);
       showTitle("progress");
     });

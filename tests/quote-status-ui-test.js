@@ -61,7 +61,7 @@ const journeyFor = (reached, extra) => Object.assign({
     }, quote);
     await page.evaluate(() => document.querySelector('[data-view="quotations"]').click());
     await page.waitForTimeout(400);
-    await page.evaluate(() => document.querySelector('[data-open-quote]').click());
+    await page.evaluate(() => document.querySelector('[data-open-quote], [data-qv-open]').click());
     await page.waitForTimeout(600);
   };
   const menu = () => page.evaluate(() => {

@@ -258,6 +258,64 @@
     .eb2-acts{ width:100%; justify-content:flex-start; }
   }
 
+  /* ---- All Quotations and Quotation Progress, as the 2.0 demo draws them (JavaScript.html, 2.0 only) ---- */
+  .qv-host{ display:flex; flex-direction:column; gap:14px; margin-bottom:18px; }
+  .qv-host .eb2-tools{ margin:0; }
+  .qv-kpis{ display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); }
+  .qv-kpi{ --tone:var(--eb-unit); display:flex; flex-direction:column; gap:2px; text-align:left; padding:12px 14px; border:1px solid var(--eb-line); border-radius:8px;
+    border-top:3px solid var(--tone); background:linear-gradient(180deg, color-mix(in srgb, var(--tone) 8%, #fff), #fff 70%); font:inherit; color:var(--eb-ink); }
+  button.qv-kpi{ cursor:pointer; }
+  button.qv-kpi:hover{ border-color:var(--eb-ink2); border-top-color:var(--tone); }
+  .qv-kpi.on{ box-shadow:0 0 0 2px var(--tone); }
+  .qv-kpis .qv-kpi:nth-child(6n+2){ --tone:var(--eb-spare); }
+  .qv-kpis .qv-kpi:nth-child(6n+3){ --tone:var(--eb-clime); }
+  .qv-kpis .qv-kpi:nth-child(6n+4){ --tone:var(--eb-service); }
+  .qv-kpis .qv-kpi:nth-child(6n+5){ --tone:var(--eb-visit); }
+  .qv-kpis .qv-kpi:nth-child(6n+6){ --tone:#c2366f; }
+  .qv-kpi.sig{ --tone:var(--eb-signal); background:var(--eb-signal-soft); }
+  .qv-kpi.bad{ --tone:var(--eb-bad); background:var(--eb-bad-soft); }
+  .qv-l{ display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:500; color:var(--eb-ink2); }
+  .qv-l::before{ content:""; width:8px; height:8px; border-radius:2px; background:var(--tone); flex:none; }
+  .qv-v{ font:600 22px var(--font-mono, ui-monospace, monospace); letter-spacing:-.02em; color:color-mix(in srgb, var(--tone) 35%, var(--eb-ink)); }
+  .qv-s{ font-size:12.5px; color:var(--eb-muted); }
+  .qv-table{ overflow-x:auto; border:1px solid var(--eb-line); border-radius:8px; background:#fff; }
+  .qv-table table{ border-collapse:collapse; width:100%; font-size:13.5px; }
+  .qv-table th{ text-align:left; font-weight:600; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--eb-muted); padding:9px 10px;
+    border-bottom:1px solid var(--eb-line); background:color-mix(in srgb, var(--eb-accent) 7%, var(--eb-surface2)); white-space:nowrap; }
+  .qv-table th.num, .qv-table td.num{ text-align:right; }
+  .qv-table td{ padding:9px 10px; border-bottom:1px solid var(--eb-line); vertical-align:middle; color:var(--eb-ink); }
+  .qv-table tr:last-child td{ border-bottom:0; }
+  .qv-row{ cursor:pointer; }
+  .qv-row:hover td{ background:color-mix(in srgb, var(--eb-accent-soft) 50%, transparent); }
+  .qv-table .mono{ font-family:var(--font-mono, ui-monospace, monospace); white-space:nowrap; }
+  .qv-item{ font-size:12.5px; max-width:260px; }
+  .qv-late{ color:var(--eb-bad); font-weight:600; }
+  .qv-desk{ display:inline-block; margin-top:3px; padding:1px 8px; border-radius:10px; font:600 11.5px/1.5 var(--font-sans); }
+  .qv-desk.un{ background:var(--eb-unit-s); color:var(--eb-unit); }
+  .qv-desk.sp{ background:var(--eb-spare-s); color:var(--eb-spare); }
+  .qv-stage{ display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12.5px; }
+  .qv-mini{ display:inline-flex; gap:2px; }
+  .qv-mini i{ width:7px; height:7px; border-radius:2px; background:var(--eb-line); }
+  .qv-mini i.on{ background:var(--eb-good); }
+  .qv-strip{ list-style:none; display:flex; gap:3px; margin:0; padding:0; }
+  .qv-strip li{ position:relative; flex:none; }
+  .qv-strip li + li::before{ content:""; position:absolute; top:5px; right:12px; width:4px; height:2px; background:var(--eb-line); }
+  .qv-strip i{ display:block; width:12px; height:12px; border-radius:50%; border:2px solid var(--eb-line); background:#fff; box-sizing:border-box; }
+  .qv-strip li.done i{ background:var(--eb-good); border-color:var(--eb-good); }
+  .qv-strip li.next i{ border-color:var(--eb-signal); border-style:dashed; }
+  .qv-strip li.stop i{ background:var(--eb-bad); border-color:var(--eb-bad); }
+  .qv-panel{ background:#fff; border:1px solid var(--eb-line); border-radius:8px; }
+  .qv-panel > header{ display:flex; justify-content:space-between; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--eb-line); flex-wrap:wrap; }
+  .qv-panel > header h3{ margin:0; font:700 15px var(--font-display); color:var(--eb-ink); }
+  .qv-bars{ padding:14px; }
+  .qv-hbar{ display:grid; grid-template-columns:minmax(110px, 180px) 1fr auto; gap:10px; align-items:center; font-size:13.5px; padding:4px 0; color:var(--eb-ink); }
+  .qv-track{ height:14px; background:var(--eb-surface2); border-radius:3px; position:relative; overflow:hidden; }
+  .qv-track i{ position:absolute; inset:0 auto 0 0; border-radius:3px; }
+  .qv-track i.t1{ background:#8cc63f; }
+  .qv-track i.t2{ background:#6aa3ef; }
+  .qv-track i.t3{ background:#b48af0; }
+  @media (max-width:860px){ .qv-hbar{ grid-template-columns:100px 1fr auto; } }
+
   /* ---- my dashboard: one per person, above the control tower (JavaScript.html, 2.0 only) ---- */
   .pd{ margin-bottom:26px; }
   /* The greeting is the dashboard's own now; the control tower below it is a section. */
