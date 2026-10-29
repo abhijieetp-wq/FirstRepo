@@ -89,8 +89,7 @@ const ok = (label, cond, detail) => {
   await go('customers');
   ok('and so do customers', await page.evaluate(() => {
     const b = document.getElementById('btn-customer-bulk'); return !!b && b.offsetParent !== null; }));
-  await go('quote');
-  ok('a quotation is still started the ERP 1 way', (await text('#view-quote .page-head h2')) === 'New Quotation');
+  ok('no New Quotation screen in the menu: All Quotations starts one', !(await page.$('#tabs [data-view="quote"]')));
   ok('every screen of the menu opens', await page.evaluate(() => {
     const views = Array.from(document.querySelectorAll('#tabs [data-view]')).map((b) => b.dataset.view);
     return views.every((v) => { document.querySelector('#tabs [data-view="' + v + '"]').click();

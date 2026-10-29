@@ -39,6 +39,7 @@ const ok = (label, cond, detail) => {
     ok('ERP 1’s quotation list, no 2.0 page', await shown('#quotations-tbody') && !(await page.$('#qv-quotes')));
     await go('progress');
     ok('ERP 1’s progress list', await shown('#progress-tbody') && !(await page.$('#qv-progress')));
+    ok('and New Quotation stays in the menu', !!(await page.$('#tabs [data-view="quote"]')) && !(await page.$('#btn-qv-new')));
   } else {
     console.log('ALL QUOTATIONS');
     await go('quotations');
@@ -74,6 +75,47 @@ const ok = (label, cond, detail) => {
     await page.click('#qv-quotes tbody tr[data-qv-open]');
     await page.waitForTimeout(500);
     ok('a row opens the quotation', await page.evaluate(() => window.__calls.some((c) => c.fn === 'getQuotation')));
+
+    console.log('\nNEW QUOTATION, IN A WINDOW');
+    ok('no New Quotation screen in the menu', !(await page.$('#tabs [data-view="quote"]')));
+    await page.evaluate(() => document.querySelectorAll('.modal-backdrop.show').forEach((m) => m.classList.remove('show')));
+    await go('quotations');
+    await page.click('#btn-qv-new');
+    await page.waitForTimeout(400);
+    ok('the button opens a window over All Quotations', await page.evaluate(() => document.getElementById('qv-new-backdrop').classList.contains('show')) &&
+      await page.evaluate(() => document.getElementById('view-quotations').classList.contains('active')));
+    ok('with every field the screen had', await shown('#qv-new-body #qs-customer') && await shown('#qv-new-body #btn-qs-new-customer') &&
+      await shown('#qv-new-body #qs-stream') && await shown('#qv-new-body #qs-model') && await shown('#qv-new-body #qs-serial') &&
+      await shown('#qv-new-body #qs-validity') && await shown('#qv-new-body #btn-qs-create'));
+    ok('customers and desks filled in', (await page.$$eval('#qs-customer option', (o) => o.length)) >= 1 &&
+      (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.value))).indexOf('Spare Sales') === -1);
+    await page.click('#btn-qv-new-cancel');
+    await page.waitForTimeout(200);
+    ok('Cancel closes it', !(await page.evaluate(() => document.getElementById('qv-new-backdrop').classList.contains('show'))));
+    await page.click('#btn-qv-new');
+    await page.waitForTimeout(300);
+    await page.click('#btn-qs-new-customer');
+    await page.waitForTimeout(300);
+    ok('+ New customer opens above it', await page.evaluate(() => {
+      const z = (el) => Number(getComputedStyle(el).zIndex) || 0;
+      const c = document.getElementById('customer-modal-backdrop');
+      return c.classList.contains('show') && z(c) > z(document.getElementById('qv-new-backdrop'));
+    }));
+    await page.evaluate(() => document.getElementById('customer-modal-backdrop').classList.remove('show'));
+    await page.evaluate(() => {
+      window.__calls = [];
+      window.__data.createBlankQuotation = (o) => ({ date: '2026-10-29', customerName: 'Sahyadri Castings Pvt Ltd', validityDays: 30, validUntil: '2026-11-28', paymentTerms: '', deliveryTerms: '',
+        deliveryPeriod: '', warrantyTerms: '', notes: '', packageDiscountPct: 0, pfAmount: 0, taxMode: 'Extra', items: [], subTotal: 0, grand: 0, taxAmt: 0,
+        machineModel: o.machineModel, serialNo: '', id: 'Q-NEW', quoteNo: 'PIE/ELGI/QUOT/26-27/499', revision: 'R0', status: 'Draft', locked: false,
+        customerId: o.customerId, businessStream: o.businessStream });
+    });
+    await page.fill('#qs-model', 'EG 37');
+    await page.click('#btn-qs-create');
+    await page.waitForTimeout(600);
+    const made = await page.evaluate(() => { const c = window.__calls.filter((x) => x.fn === 'createBlankQuotation'); return c.length ? c[0].args[0] : null; });
+    ok('Create Quotation starts it with what was filled', !!made && made.machineModel === 'EG 37' && made.validityDays === '30' && !!made.customerId, made);
+    ok('and opens the new quotation, the window closed', await page.evaluate(() => document.getElementById('view-quote').classList.contains('active')) &&
+      !(await page.evaluate(() => document.getElementById('qv-new-backdrop').classList.contains('show'))) && /499/.test(await page.textContent('#qb-title')));
 
     console.log('\nQUOTATION PROGRESS');
     // ERP 1's trail for one offer, as getQuotationProgress returns it, kept small.

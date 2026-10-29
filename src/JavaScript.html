@@ -223,7 +223,9 @@
     // ERP 2.0's sales visit plans (VisitPlans.gs). Both desks; only the 2.0 face.
     { view: "visits", label: "Visit plans", roles: SALES_SIDE, v2: true },
     { label: "Quotations", children: [
-      { view: "quote", label: "New Quotation", roles: SALES_SIDE },
+      // On 2.0 a quotation is started from All Quotations' "+ New quotation" window, so the
+      // screen is not in the menu; it still opens every quotation, and its address still works.
+      { view: "quote", label: "New Quotation", roles: SALES_SIDE, menuV2: false },
       { view: "quotations", label: "All Quotations", roles: SALES_SIDE },
       { view: "progress", label: "Quotation Progress", roles: SALES_SIDE }
     ] },
@@ -657,7 +659,7 @@
     var html = "";
     // One rule for who sees a screen, used here and by visibleLeaves, so the menu and the
     // screen the app opens on can never disagree.
-    var allowed = function (t) { return visibleLeaves().indexOf(t) !== -1; };
+    var allowed = function (t) { return visibleLeaves().indexOf(t) !== -1 && !(FACE_V2 && t.menuV2 === false); };
 
     NAV.forEach(function (group, gi) {
       if (!group.children) {
@@ -3620,6 +3622,7 @@
     }
     srv.withSuccessHandler(function (quote) {
       openQuote = quote;
+      if (FACE_V2 && $("qv-new-backdrop")) { $("qv-new-backdrop").classList.remove("show"); goToTab("quote"); }
       renderQuoteBuilder();
       showMsg("Quotation " + quote.quoteNo + " started. Add lines from the catalog.", "success");
     }).withFailureHandler(onServerError).createBlankQuotation({
@@ -3636,6 +3639,11 @@
   }
 
   function renderQuoteEmpty() {
+    // 2.0 has no blank quotation screen: a new one starts in All Quotations' window.
+    if (FACE_V2) {
+      if (currentView === "quote") setTimeout(function () { goToTab("quotations", { replace: true }); qvNewOpen(); }, 0);
+      return;
+    }
     $("qb-empty").style.display = "";
     $("qb-body").style.display = "none";
     $("qb-actions").innerHTML = "";
@@ -3925,6 +3933,12 @@
     $("btn-qb-new").addEventListener("click", function () {
       var leaving = openQuote;
       openQuote = null;
+      if (FACE_V2) {
+        goToTab("quotations");
+        qvNewOpen();
+        showMsg(leaving.quoteNo + " is saved as a draft — reopen it any time from All Quotations.", "success");
+        return;
+      }
       renderQuoteEmpty();
       clearMsg();
       showMsg(leaving.quoteNo + " is saved as a draft — reopen it any time from " +
@@ -9267,12 +9281,52 @@
       b.className = "btn btn-primary";
       b.id = "btn-qv-new";
       b.textContent = "+ New quotation";
-      b.addEventListener("click", function () { goToTab("quote"); });
+      b.addEventListener("click", qvNewOpen);
       head.appendChild(b);
     }
     var host = qvHost("view-quotations", "qv-quotes");
     if (!qv.rows) host.innerHTML = '<div class="empty">Loading the quotations…</div>';
     qvLoad(qvQuotesRender);
+  }
+
+  /** 2.0's "+ New quotation": ERP 1's start-a-quotation fields, in a window over All Quotations. */
+  function qvNewOpen() {
+    var back = $("qv-new-backdrop");
+    if (!back) {
+      back = document.createElement("div");
+      back.className = "modal-backdrop";
+      back.id = "qv-new-backdrop";
+      back.innerHTML = '<div class="modal qv-new" role="dialog" aria-modal="true" aria-labelledby="qv-new-title">' +
+        '<div class="qv-new-head"><h3 id="qv-new-title">New quotation</h3>' +
+        '<button type="button" class="eb2-x" id="btn-qv-new-x" aria-label="Close">×</button></div>' +
+        '<div id="qv-new-body"></div></div>';
+      document.body.appendChild(back);
+      // ERP 1's own fields and buttons, moved in once: the same ids, so the same handlers.
+      var body = $("qv-new-body");
+      body.appendChild($("qs-spares-note"));
+      body.appendChild($("qs-start-card"));
+      var row = $("btn-qs-create").parentNode;
+      var cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "btn";
+      cancel.id = "btn-qv-new-cancel";
+      cancel.textContent = "Cancel";
+      row.insertBefore(cancel, $("btn-qs-create"));
+      var close = function () { back.classList.remove("show"); };
+      $("btn-qv-new-x").addEventListener("click", close);
+      cancel.addEventListener("click", close);
+      $("btn-qs-to-enquiries").addEventListener("click", close);
+      back.addEventListener("click", function (e) { if (e.target === back) close(); });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && back.classList.contains("show") && !document.querySelector(".modal-stacked.show, #ask-modal-backdrop.show, #customer-modal-backdrop.show")) close();
+      });
+    }
+    $("qs-model").value = "";
+    $("qs-serial").value = "";
+    $("qs-validity").value = "30";
+    initQuoteStarter();
+    back.classList.add("show");
+    setTimeout(function () { var f = $("qs-customer"); if (f && f.offsetParent) f.focus(); }, 50);
   }
 
   function qvQuotesRender() {

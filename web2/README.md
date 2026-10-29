@@ -216,6 +216,10 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   (last 30 days or all), then each one's ten steps, where it is, what is next and how many days
   it has waited; a row opens ERP 1's trail. ERP 1 has no "waiting for approval" flag, so the second
   total counts approved quotations not sent yet.
+  New Quotation is not in 2.0's menu: All Quotations' "+ New quotation" opens a window with the
+  same fields (customer and + New, business stream, machine model, serial no., validity) and
+  Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
+  and its address still works; its own "+ New Quotation" opens the same window.
 - **Form fields** (`src/FormFields.gs`), Masters → Form fields, for Management: fields of PIE's
   own on a form — text, number, date, dropdown, long text, yes / no — each optionally required and
   a list column, in the order set, with a preview. The forms: spare enquiries, compressor leads,

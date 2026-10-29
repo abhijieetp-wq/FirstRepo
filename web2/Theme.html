@@ -290,6 +290,14 @@
   .qv-table .mono{ font-family:var(--font-mono, ui-monospace, monospace); white-space:nowrap; }
   .qv-item{ font-size:12.5px; max-width:260px; }
   .eb2-list{ margin-top:4px; }
+  /* "+ New quotation": a centred window under any form opened from it (a new customer). */
+  #qv-new-backdrop{ z-index:45; justify-content:center; align-items:flex-start; padding:72px 16px 16px; overflow-y:auto; }
+  #qv-new-backdrop .qv-new{ height:auto; max-width:760px; padding:0; overflow:visible; animation:fade-in .2s ease-out; }
+  .qv-new-head{ display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:1px solid var(--eb-line); }
+  .qv-new-head h3{ margin:0; font-size:19px; }
+  #qv-new-body{ padding:18px 24px 22px; }
+  #qv-new-body .card{ border:0; box-shadow:none; padding:0; margin:0; max-width:none !important; background:transparent; }
+  #qv-new-body .card-title{ display:none; }
   .eb2-list td:nth-child(2), .eb2-list td:nth-child(5), .eb2-list td:nth-child(6), .eb2-list td:nth-child(7), .eb2-list td:nth-child(8){ white-space:nowrap; }
   .eb2-list td.qv-late{ color:var(--eb-bad); }
   .eb2-list td:nth-child(3){ min-width:170px; }
