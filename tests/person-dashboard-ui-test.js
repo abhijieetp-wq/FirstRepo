@@ -112,6 +112,53 @@ const ok = (label, cond, detail) => {
       await boss.selectOption('#pd-as', 'neha@pie.in');
       await boss.waitForTimeout(500);
       ok('or by picking from the list', JSON.stringify(await lastCall(boss, 'getPersonDashboard')) === JSON.stringify([{ as: 'neha@pie.in', period: 'month' }]));
+
+      console.log('\nTHE CONTROL TOWER UNDER A DESK IS THAT PERSON’S');
+      const tower = () => boss.evaluate(() => {
+        const on = (id) => document.getElementById(id).offsetParent !== null;
+        const act = document.querySelector('#dash-stream button.active');
+        return { title: document.getElementById('dash-title').textContent, switch: on('dash-stream'), body: on('dash-body'), active: act ? act.dataset.stream : null };
+      });
+      const towerAsked = async () => ((await lastCall(boss, 'getDashboard')) || [{}])[0].stream;
+      // Neha, picked above, is on the spares desk only.
+      let t = await tower();
+      ok('a spares coordinator’s: spares only, no switch to the other desk', t.title === 'Control Tower · Spare Sales — as Neha sees it' && !t.switch && t.body &&
+        await towerAsked() === 'Spare Sales', t);
+      await boss.click('#pd-host [data-pd-as=""]');
+      await boss.waitForTimeout(500);
+      t = await tower();
+      ok('back on their own desk, Management get both again', t.title === 'Control Tower' && t.switch && t.active === '' && await towerAsked() === '', t);
+      await boss.click('#dash-stream [data-stream="Compressor Sales"]');
+      await boss.waitForTimeout(300);
+      await boss.selectOption('#pd-as', 'kiran@pie.in');
+      await boss.waitForTimeout(500);
+      ok('whatever desk they had picked', await towerAsked() === 'Spare Sales');
+      await boss.click('#pd-host [data-pd-as=""]');
+      await boss.waitForTimeout(500);
+      t = await tower();
+      ok('and that pick comes back with them', t.active === 'Compressor Sales' && t.switch && await towerAsked() === 'Compressor Sales', t);
+      await boss.evaluate(() => {
+        const D = window.__data;
+        const base = D.getPersonDashboard;
+        D.getPersonDashboard = (o) => {
+          const d = base(o);
+          if (o && o.as === 'sanjay@pie.in') Object.assign(d.person, { role: 'Service Engineer', stream: 'All' });
+          if (o && o.as === 'omkar@pie.in') Object.assign(d.person, { role: 'Sales Engineer', stream: 'All' });
+          return d;
+        };
+      });
+      await boss.selectOption('#pd-as', 'sanjay@pie.in');
+      await boss.waitForTimeout(500);
+      t = await tower();
+      ok('a service engineer’s: none, as they never see it', !t.body && !t.switch, t);
+      await boss.selectOption('#pd-as', 'omkar@pie.in');
+      await boss.waitForTimeout(500);
+      t = await tower();
+      ok('somebody on both desks: both, combined', t.body && t.switch && t.active === '' && t.title === 'Control Tower — as Omkar sees it' && await towerAsked() === '', t);
+      await boss.click('#pd-host [data-pd-as=""]');
+      await boss.waitForTimeout(500);
+      t = await tower();
+      ok('and Management’s own once more', t.body && t.active === 'Compressor Sales' && t.title === 'Control Tower', t);
     }
   }
   ok('with no script errors', errors.length === 0, errors);

@@ -13862,7 +13862,7 @@
   // ================= MY DASHBOARD (2.0) =================
   // ERP 2.0's dashboard per person (PersonDashboard.gs), above ERP 1's control tower, which is
   // unchanged under it. Management can open anybody's, exactly as they see it.
-  var pd = { data: null, as: "", period: "month", from: "", to: "" };
+  var pd = { data: null, as: "", period: "month", from: "", to: "", ownStream: null };
   var PD_SAY = {
     coordinator: "Your desk for today: follow-ups, drafts to approve, offers waiting for an answer and SDR calls.",
     salesEngineer: "The leads you found, what is due on them, and your offers out with customers.",
@@ -13987,6 +13987,38 @@
       }).join("") + "</div>";
     }
     host.innerHTML = html;
+    pdSyncTower(d);
+  }
+
+  var PD_TOWER_PARTS = ["#view-dashboard > .page-head", "#view-dashboard > .dash-head", "#dash-body"];
+  var PD_SERVICE_ROLES = ["Service Coordinator", "Service Engineer"];
+
+  /**
+   * The control tower under somebody's desk is the one they see too: a person in one stream
+   * gets that stream's alone, with no switch; service, who never see it, get none; somebody in
+   * both gets the combined view. Back on their own desk, Management get the stream they had
+   * picked. Only the 2.0 face opens somebody else's desk, so only it needs this.
+   */
+  function pdSyncTower(d) {
+    if (!FACE_V2 || PD_SERVICE_ROLES.indexOf(currentUser.role) !== -1 || !$("dash-stream")) return;
+    var p = d.person || {};
+    var role = d.self ? currentUser.role : p.role;
+    var stream = String((d.self ? currentUser.businessStream : p.stream) || "All");
+    // Management's own choice, kept while they look at somebody else's.
+    if (!d.self && pd.ownStream === null) pd.ownStream = dashStream;
+    var want = stream !== "All" ? stream : d.self ? (pd.ownStream !== null ? pd.ownStream : dashStream) : "";
+    if (d.self) pd.ownStream = null;
+    var hide = PD_SERVICE_ROLES.indexOf(role) !== -1;
+    PD_TOWER_PARTS.forEach(function (sel) {
+      var el = document.querySelector(sel);
+      if (el) el.style.display = hide ? "none" : "";
+    });
+    if (hide) return;
+    var first = String(p.name || "").split(" ")[0];
+    $("dash-stream").style.display = stream !== "All" ? "none" : "";
+    $("dash-stream").querySelectorAll("button").forEach(function (b) { b.classList.toggle("active", b.dataset.stream === want); });
+    $("dash-title").textContent = "Control Tower" + (stream !== "All" ? " \u00b7 " + stream : "") + (d.self ? "" : " — as " + first + " sees it");
+    if (want !== dashStream) { dashStream = want; loadDashboard(false); }
   }
 
   /** Opens the ERP 1 record a line is about. */
