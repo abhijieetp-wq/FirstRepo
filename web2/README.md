@@ -142,6 +142,25 @@ spares offer's, as before. An enquiry with no type reads as Spares.
     still marks it won or lost, with ERP 1's own steps.
   - Sales work only; service sees none of it. A tile on Management's and the sales side's
     dashboards counts what waits. One new table, Escalations.
+- **Visit plans** (`src/VisitPlans.gs`), under Sales, at `/visit-plans` — only in a 2.0 menu.
+  - Sales engineers plan customer visits by week (Monday to Sunday) or month: engineer, date,
+    company (a customer in the master or a prospect by name), area, purpose. "+ Add" on a day,
+    and "Copy last week's plan", which never copies a visit twice.
+  - ERP 2's full visit form: status (Planned, Visited, Not visited, Rescheduled — not visited
+    before the day), person met, phone, industry, discussion, compressor and brand in use,
+    capacity, age, alternative considered, interest, requirement, timeline, potential, next
+    action and date. ERP 2's lists, or ConfigLists VisitPurpose, CompressorType, CompressorBrand,
+    PurchaseTimeline; industries from ERP 1's own Industry list.
+  - Areas are Local or Outstation: ERP 2's list until Management sets PIE's own ("Areas…";
+    ConfigLists VisitArea). An area not on the list reads as Outstation, as in ERP 2.
+  - "Save & create enquiry" makes a compressor lead through ERP 1's own lead save — its checks
+    and numbering, source Field Visit, run by a compressor coordinator, with the next action date
+    ERP 1 needs — and the visit keeps it.
+  - Figures, and the visit report per engineer: completion, enquiries, hot, potential, and what
+    customers run and when they will buy. A tile on the dashboards for this week's visits.
+  - A sales engineer sees and plans their own; coordinators and Management everybody's. Service
+    sees none of it. ERP 1's site visit report under an opportunity is unchanged. One new table,
+    SalesVisits.
 
 ## The rule for each screen that moves to 2.0
 
@@ -170,6 +189,9 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/escalations-ui-test.js`, `tests/escalations-sql-test.js` — escalating a card, who answers
   and how, withdrawing, who sees what, the board and dashboard, nothing escalating by itself, no
   quotation changed, and no escalations on the other faces.
+- `tests/visit-plans-ui-test.js`, `tests/visit-plans-sql-test.js` — planning, who sees whose, the
+  visit report, areas, copying last week, a visit made into a lead through ERP 1's lead save, the
+  dashboard tile, and no visit plans on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

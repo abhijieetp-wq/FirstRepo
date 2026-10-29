@@ -22,6 +22,7 @@ const PAGES = [
   '/compressor-sales',
   '/spare-sales',
   '/service-due-calls',
+  '/visit-plans',
   '/quotation',
   '/quotations',
   '/quotation-progress',

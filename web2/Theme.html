@@ -372,6 +372,43 @@
   .eb-esc-row{ padding:6px 0; border-top:1px solid var(--gray-100); color:var(--gray-700); }
   .eb-esc-row div{ margin-top:3px; }
 
+  /* ---- sales visit plans (JavaScript.html, 2.0 only) ---- */
+  .vp-bar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .vp-bar select{ height:38px; padding:0 10px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; font-size:13.5px; }
+  .vp-bar b{ min-width:170px; text-align:center; font-size:14px; }
+  .vp-quick{ display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .vp-quick .field{ margin:0; flex:0 1 170px; }
+  .vp-quick .vp-grow{ flex:2 1 220px; }
+  .vp-week{ display:grid; grid-template-columns:repeat(7, minmax(130px, 1fr)); gap:8px; margin-bottom:14px; overflow-x:auto; }
+  .vp-day{ display:flex; flex-direction:column; gap:6px; min-height:140px; padding:9px; border:1px solid var(--gray-200); border-radius:10px; background:var(--gray-0); min-width:0; }
+  .vp-day.today{ border-color:var(--brand-500); box-shadow:inset 0 3px 0 var(--brand-500); }
+  .vp-dh{ display:flex; gap:6px; align-items:baseline; font-size:12.5px; color:var(--gray-500); }
+  .vp-dh b{ color:var(--gray-900); }
+  .vp-chip{ display:flex; flex-direction:column; gap:2px; padding:6px 8px; border:0; border-left:3px solid var(--brand-500); border-radius:6px;
+    background:var(--gray-50); font:inherit; font-size:12.5px; line-height:1.3; text-align:left; cursor:pointer; overflow-wrap:anywhere; }
+  .vp-chip:hover{ background:var(--brand-50); }
+  .vp-chip.visited{ border-left-color:#1D8A4A; }
+  .vp-chip.missed{ border-left-color:var(--bad-600); opacity:.75; }
+  .vp-chip.res{ border-left-color:var(--warn-600); }
+  .vp-e{ font-size:11.5px; color:var(--gray-500); }
+  .vp-add{ margin-top:auto; padding:4px 6px; border:1px dashed var(--gray-200); border-radius:6px; background:none; font:inherit; font-size:12px;
+    color:var(--gray-500); text-align:left; cursor:pointer; }
+  .vp-add:hover{ border-color:var(--brand-400); color:var(--brand-700); }
+  .vp-table tbody tr{ cursor:pointer; }
+  .vp-table tbody tr:hover{ background:var(--gray-50); }
+  #vp-grid .card{ margin-bottom:14px; }
+  .vp-bars{ display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:18px; margin-top:14px; }
+  .vp-bars h4{ margin:0 0 8px; font-size:13px; }
+  .vp-hbar{ display:grid; grid-template-columns:minmax(110px, 170px) 1fr auto; gap:10px; align-items:center; padding:3px 0; font-size:12.5px; }
+  .vp-track{ height:12px; border-radius:4px; background:var(--gray-100); overflow:hidden; }
+  .vp-track i{ display:block; height:100%; border-radius:4px; background:var(--brand-500); }
+  .vp-form{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; }
+  .vp-form .field{ margin:0; }
+  .vp-form .vp-wide{ grid-column:1 / -1; }
+  .vp-area-row{ display:grid; grid-template-columns:1fr 150px auto; gap:8px; margin-bottom:6px; }
+  .vp-area-row input, .vp-area-row select{ height:36px; padding:0 10px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; }
+  @media (max-width:900px){ .vp-form{ grid-template-columns:1fr; } }
+
   /* ---- what 2.0 adds to the shell (web2/Shell.html) ---- */
   .brand-text h1#app-name{ display:flex; align-items:center; min-width:0; }
   .brand-text h1 .v2-name{ display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;

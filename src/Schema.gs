@@ -615,6 +615,20 @@ var SCHEMA = {
       'status', 'outcome', 'decisionNote', 'decidedAt', 'decidedBy',
       'createdAt', 'createdBy']
   },
+  SalesVisits: {
+    label: 'Customer visits a sales engineer plans, and what each found (2.0 visit plans)',
+    columns: ['id', 'engineerEmail', 'visitDate', 'customerId', 'customerName',
+      // An area from the list, each Local or Outstation (VisitPlans.gs), and why the visit.
+      'area', 'purpose',
+      // Planned, Visited, Not visited or Rescheduled.
+      'status',
+      // ERP 2's visit report: who was met, what the customer runs, the competition, the chance.
+      'contactMet', 'phone', 'industry', 'discussion', 'compType', 'brand', 'capacity', 'ageYears',
+      'considering', 'interest', 'requirement', 'timeline', 'potentialValue', 'nextAction', 'nextDate',
+      // The compressor lead the visit was made into, through ERP 1's lead save.
+      'leadId', 'visitedAt',
+      'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
+  },
 
   Invoices: {
     label: 'Invoice from order + actual dispatch, with Tally sync status (FR-048, FR-050)',

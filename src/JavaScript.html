@@ -220,6 +220,8 @@
     { view: "enquiries", label: "Spare Sales", roles: SALES_SIDE, stream: "Spare Sales" },
     // ELGi's weekly Service Due Report, worked call by call. The spares desk's other front door.
     { view: "servicedue", label: "Service Due Calls", roles: SALES_SIDE, stream: "Spare Sales" },
+    // ERP 2.0's sales visit plans (VisitPlans.gs). Both desks; only the 2.0 face.
+    { view: "visits", label: "Visit plans", roles: SALES_SIDE, v2: true },
     { label: "Quotations", children: [
       { view: "quote", label: "New Quotation", roles: SALES_SIDE },
       { view: "quotations", label: "All Quotations", roles: SALES_SIDE },
@@ -297,6 +299,7 @@
     compressor: "/compressor-sales",
     enquiries: "/spare-sales",
     servicedue: "/service-due-calls",
+    visits: "/visit-plans",
     quote: "/quotation",
     quotations: "/quotations",
     progress: "/quotation-progress",
@@ -583,6 +586,7 @@
     plan: initPlanView,
     tasks: initTasksView,
     escalations: initEscalationsView,
+    visits: initVisitPlansView,
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
@@ -6666,6 +6670,424 @@
         escAfter(r, "Escalated to " + r.toName + ".");
       }).withFailureHandler(function (err) { done(); onServerError(err); })
         .escalateCard({ ref: card.ref, toEmail: $("esc-r-to").value, note: $("esc-r-note").value.trim() });
+    });
+  }
+
+  // ================= VISIT PLANS (2.0) =================
+  // ERP 2's sales visit plans (VisitPlans.gs): customer visits planned by week or month, what
+  // each found, and a visit made into a compressor lead through ERP 1's own lead save.
+  var vp = { data: null, mode: "week", anchor: "", engineer: null, qaDate: "", open: null };
+  var VP_CHIP = { Visited: "visited", "Not visited": "missed", Rescheduled: "res" };
+  var VP_BADGE = { Planned: "badge-draft", Visited: "badge-won", "Not visited": "badge-lost", Rescheduled: "badge-sent" };
+
+  if (FACE_V2 && !$("view-visits")) {
+    (function () {
+      var view = document.createElement("div");
+      view.className = "view";
+      view.id = "view-visits";
+      view.innerHTML = '<div class="page-head"><div><h2>Visit plans</h2><p>Sales engineers plan customer visits by week or month, then log what happened: ' +
+        "who they met, what the customer runs today, the competition, interest and the probable purchase timeline. " +
+        "One press turns a visit into a compressor enquiry.</p></div>" +
+        '<button class="btn" id="btn-vp-areas" type="button" style="display:none;">Areas…</button></div>' +
+        '<div class="vp-bar"><select id="vp-eng" aria-label="Engineer"></select>' +
+          '<div class="eb-switch" id="vp-mode"><button type="button" data-vp-mode="week">Week</button><button type="button" data-vp-mode="month">Month</button></div>' +
+          '<button type="button" class="btn btn-sm" data-vp-nav="-1" aria-label="Previous">‹</button><b id="vp-label"></b>' +
+          '<button type="button" class="btn btn-sm" data-vp-nav="1" aria-label="Next">›</button>' +
+          '<button type="button" class="btn btn-sm" data-vp-nav="0">Today</button>' +
+          '<button type="button" class="btn btn-sm" id="btn-vp-copy">Copy last week’s plan</button></div>' +
+        '<form class="pd-panel vp-quick" id="vp-quick" onsubmit="return false">' +
+          '<div class="field" id="vp-q-eng-wrap"><label>Engineer</label><select id="vp-q-eng"></select></div>' +
+          '<div class="field"><label>Date</label><input type="date" id="vp-q-date" /></div>' +
+          '<div class="field vp-grow"><label>Company</label><input id="vp-q-cust" list="vp-customers" placeholder="Company to visit" autocomplete="off" /></div>' +
+          '<div class="field"><label>Area</label><select id="vp-q-area"></select></div>' +
+          '<div class="field"><label>Purpose</label><select id="vp-q-purpose"></select></div>' +
+          '<button type="button" class="btn btn-primary" id="btn-vp-add">Add to plan</button></form>' +
+        '<datalist id="vp-customers"></datalist>' +
+        '<div id="vp-kpis" class="amc-kpis"></div>' +
+        '<div id="vp-grid"></div>' +
+        '<section class="pd-panel" id="vp-report"></section>';
+      var after = $("view-servicedue") || $("view-enquiries");
+      after.parentNode.insertBefore(view, after.nextSibling);
+
+      var back = document.createElement("div");
+      back.className = "modal-backdrop";
+      back.id = "vp-modal-backdrop";
+      back.innerHTML = '<div class="modal" style="max-width:860px;"><h3 id="vp-m-title">Visit</h3>' +
+        '<p id="vp-m-sub" class="tk-m-sub"></p><div id="vp-m-body"></div>' +
+        '<div class="amc-m-foot"><button type="button" class="btn sd-danger" id="btn-vp-delete">Delete</button>' +
+        '<span style="flex:1"></span><button type="button" class="btn" id="btn-vp-cancel">Close</button>' +
+        '<button type="button" class="btn" id="btn-vp-enquiry">Save &amp; create enquiry</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-vp-save">Save</button></div></div>';
+      document.body.appendChild(back);
+
+      var ar = document.createElement("div");
+      ar.className = "modal-backdrop";
+      ar.id = "vp-areas-backdrop";
+      ar.innerHTML = '<div class="modal" style="max-width:560px;"><h3>Areas</h3>' +
+        '<p class="tk-m-sub">Each area is Local or Outstation. Visits and reports use these.</p><div id="vp-a-body"></div>' +
+        '<button type="button" class="btn btn-sm" id="btn-vp-a-add" style="margin-top:10px;">+ Add area</button>' +
+        '<div class="amc-m-foot"><span style="flex:1"></span><button type="button" class="btn" id="btn-vp-a-cancel">Close</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-vp-a-save">Save areas</button></div></div>';
+      document.body.appendChild(ar);
+    })();
+  }
+
+  function vpIso(d) { return d.getUTCFullYear() + "-" + ("0" + (d.getUTCMonth() + 1)).slice(-2) + "-" + ("0" + d.getUTCDate()).slice(-2); }
+  function vpAdd(iso, n) { var d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return vpIso(d); }
+  function vpToday() { var d = new Date(); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  function vpMonday(iso) { var d = new Date(iso + "T00:00:00Z"); return vpAdd(iso, -((d.getUTCDay() + 6) % 7)); }
+
+  /** The days on screen: Monday to Sunday, or the month. */
+  function vpRange() {
+    var a = vp.anchor || vpToday();
+    if (vp.mode === "month") {
+      var first = a.slice(0, 8) + "01";
+      var next = vpAdd(first, 32).slice(0, 8) + "01";
+      var label = new Date(first + "T00:00:00Z").toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
+      return { from: first, to: vpAdd(next, -1), label: label };
+    }
+    var mon = vpMonday(a);
+    return { from: mon, to: vpAdd(mon, 6), label: ebDate(mon) + " – " + ebDate(vpAdd(mon, 6)) };
+  }
+
+  function initVisitPlansView() {
+    if (!FACE_V2) return;
+    vpLoad();
+  }
+
+  function vpLoad() {
+    var r = vpRange();
+    var q = { from: r.from, to: r.to };
+    if (vp.engineer !== null) q.engineer = vp.engineer;
+    srv.withSuccessHandler(function (d) {
+      vp.data = d;
+      if (vp.engineer === null) vp.engineer = d.engineer;
+      vpRender();
+    }).withFailureHandler(onServerError).getVisitPlans(q);
+  }
+
+  function vpOpts(list, sel, blank) {
+    return (blank !== undefined ? '<option value="">' + escapeHtml(blank) + "</option>" : "") + list.map(function (x) {
+      var v = typeof x === "string" ? x : x.v;
+      var l = typeof x === "string" ? x : x.l;
+      return '<option value="' + escapeHtml(v) + '"' + (v === sel ? " selected" : "") + ">" + escapeHtml(l) + "</option>";
+    }).join("");
+  }
+  function vpAreaOpts(d, sel, blank) {
+    var group = function (type) {
+      var items = d.areas.filter(function (a) { return a.type === type; });
+      return items.length ? '<optgroup label="' + type + '">' + vpOpts(items.map(function (a) { return a.name; }), sel) + "</optgroup>" : "";
+    };
+    var known = !sel || d.areas.some(function (a) { return a.name === sel; });
+    return '<option value="">' + escapeHtml(blank || "—") + "</option>" + group("Local") + group("Outstation") +
+      (known ? "" : '<option value="' + escapeHtml(sel) + '" selected>' + escapeHtml(sel) + " (no longer listed)</option>");
+  }
+
+  function vpStats(V) {
+    var s = { n: V.length, vis: 0, miss: 0, res: 0, enq: 0, pot: 0, hot: 0, local: 0, out: 0, tl: {}, br: {}, ct: {} };
+    V.forEach(function (v) {
+      if (v.status === "Visited") {
+        s.vis++;
+        s.pot += Number(v.potentialValue) || 0;
+        if (v.interest === "Hot") s.hot++;
+        if (v.timeline) s.tl[v.timeline] = (s.tl[v.timeline] || 0) + 1;
+        if (v.brand) s.br[v.brand] = (s.br[v.brand] || 0) + 1;
+        if (v.compType) s.ct[v.compType] = (s.ct[v.compType] || 0) + 1;
+      } else if (v.status === "Not visited") s.miss++;
+      else if (v.status === "Rescheduled") s.res++;
+      if (v.leadId) s.enq++;
+      if (v.areaType === "Local") s.local++;
+      else if (v.areaType === "Outstation") s.out++;
+    });
+    return s;
+  }
+
+  function vpBars(obj, order) {
+    var keys = (order || Object.keys(obj)).filter(function (k) { return obj[k]; });
+    var max = Math.max.apply(null, [1].concat(keys.map(function (k) { return obj[k]; })));
+    return keys.map(function (k) {
+      return '<div class="vp-hbar"><span>' + escapeHtml(k) + '</span><span class="vp-track"><i style="width:' + (obj[k] / max * 100) + '%"></i></span><b>' + obj[k] + "</b></div>";
+    }).join("") || '<p class="sdc-muted">No visit reports yet.</p>';
+  }
+
+  function vpRender() {
+    var d = vp.data;
+    if (!d || !$("view-visits")) return;
+    var r = vpRange();
+    var today = d.today;
+    $("btn-vp-areas").style.display = d.canEditAreas ? "" : "none";
+    $("vp-eng").style.display = d.seeAll ? "" : "none";
+    $("vp-eng").innerHTML = vpOpts([{ v: "", l: "All engineers" }].concat(d.people.map(function (p) { return { v: p.email, l: p.name }; })), vp.engineer || "");
+    $("vp-mode").querySelectorAll("[data-vp-mode]").forEach(function (b) { b.classList.toggle("on", b.dataset.vpMode === vp.mode); });
+    $("vp-label").textContent = r.label;
+    $("btn-vp-copy").style.display = vp.mode === "week" ? "" : "none";
+    $("vp-q-eng-wrap").style.display = d.seeAll && !vp.engineer ? "" : "none";
+    $("vp-q-eng").innerHTML = vpOpts(d.people.map(function (p) { return { v: p.email, l: p.name }; }), d.me, "— engineer —");
+    if (!$("vp-q-date").value || $("vp-q-date").value < r.from || $("vp-q-date").value > r.to) {
+      $("vp-q-date").value = vp.qaDate && vp.qaDate >= r.from && vp.qaDate <= r.to ? vp.qaDate : today >= r.from && today <= r.to ? today : r.from;
+    }
+    var area = $("vp-q-area").value;
+    $("vp-q-area").innerHTML = vpAreaOpts(d, area, "Area");
+    var purpose = $("vp-q-purpose").value;
+    $("vp-q-purpose").innerHTML = vpOpts(d.lists.purposes, purpose || d.lists.purposes[0]);
+    $("vp-customers").innerHTML = d.customers.map(function (c) { return '<option value="' + escapeHtml(c.name) + '">'; }).join("");
+
+    var V = d.visits;
+    var s = vpStats(V);
+    $("vp-kpis").innerHTML = [
+      ["Planned", s.n, s.local + " local · " + s.out + " outstation", ""],
+      ["Visited", s.vis, s.n ? Math.round(s.vis / s.n * 100) + "% of the plan" : "nothing planned", ""],
+      ["Not visited / rescheduled", s.miss + " / " + s.res, "", s.miss ? "warn" : ""],
+      ["Enquiries made", s.enq, s.vis ? Math.round(s.enq / s.vis * 100) + "% of visits" : "", ""],
+      ["Potential value", s.pot ? fmtShort(s.pot) : "—", s.hot + " hot", ""]
+    ].map(function (t) {
+      return '<div class="pd-tile' + (t[3] ? " " + t[3] : "") + '"><span class="pd-label">' + escapeHtml(t[0]) + '</span><span class="pd-value">' +
+        escapeHtml(String(t[1])) + '</span><span class="pd-sub">' + escapeHtml(t[2]) + "</span></div>";
+    }).join("");
+
+    var all = !vp.engineer;
+    var chip = function (v) {
+      return '<button type="button" class="vp-chip ' + (VP_CHIP[v.status] || "") + '" data-vp-open="' + escapeHtml(v.id) + '"><b>' + escapeHtml(v.customerName) + "</b>" +
+        (v.leadNo ? ' <span class="eb-chip auto">Enquiry</span>' : "") +
+        '<span class="vp-e">' + escapeHtml([v.purpose, v.area ? v.area + (v.areaType === "Outstation" ? " (out)" : "") : "", all ? v.engineerName : ""].filter(Boolean).join(" · ")) + "</span></button>";
+    };
+    if (vp.mode === "week") {
+      var days = [];
+      for (var i = 0; i < 7; i++) days.push(vpAdd(r.from, i));
+      $("vp-grid").innerHTML = '<div class="vp-week">' + days.map(function (day) {
+        var dt = new Date(day + "T00:00:00Z");
+        return '<div class="vp-day' + (day === today ? " today" : "") + '"><div class="vp-dh"><b>' +
+          escapeHtml(dt.toLocaleDateString("en-IN", { weekday: "short", timeZone: "UTC" })) + "</b> <span>" +
+          escapeHtml(dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })) + "</span></div>" +
+          V.filter(function (v) { return v.visitDate === day; }).map(chip).join("") +
+          '<button type="button" class="vp-add" data-vp-day="' + day + '">+ Add</button></div>';
+      }).join("") + "</div>";
+    } else {
+      $("vp-grid").innerHTML = '<div class="card" style="padding:0; overflow-x:auto;"><table class="tk-table vp-table"><thead><tr><th>Date</th>' + (all ? "<th>Engineer</th>" : "") +
+        '<th>Company</th><th>Area</th><th>Purpose</th><th>Status</th><th>Discussion</th><th>Timeline</th><th class="num">Potential</th><th>Enquiry</th></tr></thead><tbody>' +
+        (V.length ? V.map(function (v) {
+          return '<tr data-vp-open="' + escapeHtml(v.id) + '"><td style="white-space:nowrap;">' + escapeHtml(ebDate(v.visitDate)) + "</td>" +
+            (all ? "<td>" + escapeHtml(v.engineerName) + "</td>" : "") +
+            "<td><b>" + escapeHtml(v.customerName) + "</b></td>" +
+            "<td>" + escapeHtml(v.area || "—") + (v.areaType ? '<div class="sdc-muted">' + escapeHtml(v.areaType) + "</div>" : "") + "</td>" +
+            "<td>" + escapeHtml(v.purpose) + "</td>" +
+            '<td><span class="badge ' + (VP_BADGE[v.status] || "badge-draft") + '">' + escapeHtml(v.status) + "</span></td>" +
+            '<td class="sdc-muted" style="max-width:260px;">' + escapeHtml((v.discussion || "").slice(0, 90)) + "</td>" +
+            "<td>" + escapeHtml(v.timeline) + "</td>" +
+            '<td class="num">' + escapeHtml(v.potentialValue === "" ? "" : ebMoney(v.potentialValue)) + "</td>" +
+            '<td class="mono">' + escapeHtml(v.leadNo) + "</td></tr>";
+        }).join("") : '<tr><td colspan="10" class="empty">No visits planned this month.</td></tr>') + "</tbody></table></div>";
+    }
+
+    var engs = [];
+    V.forEach(function (v) { if (engs.indexOf(v.engineerEmail) === -1) engs.push(v.engineerEmail); });
+    $("vp-report").innerHTML = '<div class="pd-panel-head"><h3>Visit performance</h3><span class="tk-rules">' + s.n + " planned · " + s.vis + " visited · " +
+      s.enq + (s.enq === 1 ? " enquiry" : " enquiries") + "</span></div>" +
+      (V.length ? '<div style="overflow-x:auto;"><table class="tk-table"><thead><tr><th>Engineer</th><th class="num">Planned</th><th class="num">Visited</th>' +
+        '<th class="num">Not visited</th><th class="num">Rescheduled</th><th class="num">Completion</th><th class="num">Enquiries</th><th class="num">Visit → enquiry</th>' +
+        '<th class="num">Hot</th><th class="num">Potential</th></tr></thead><tbody>' + engs.map(function (e) {
+          var x = vpStats(V.filter(function (v) { return v.engineerEmail === e; }));
+          var name = V.filter(function (v) { return v.engineerEmail === e; })[0].engineerName;
+          var pc = x.n ? Math.round(x.vis / x.n * 100) : 0;
+          return "<tr><td><b>" + escapeHtml(name) + '</b></td><td class="num">' + x.n + '</td><td class="num">' + x.vis + "</td>" +
+            '<td class="num' + (x.miss ? " sdc-late" : "") + '">' + x.miss + '</td><td class="num">' + x.res + "</td>" +
+            '<td class="num"><span class="tk-score"><b>' + pc + '%</b><span class="tk-meter"><i style="width:' + pc + '%"></i></span></span></td>' +
+            '<td class="num">' + x.enq + '</td><td class="num">' + (x.vis ? Math.round(x.enq / x.vis * 100) + "%" : "—") + "</td>" +
+            '<td class="num">' + x.hot + '</td><td class="num">' + escapeHtml(x.pot ? fmtShort(x.pot) : "—") + "</td></tr>";
+        }).join("") + "</tbody></table></div>" +
+        '<div class="vp-bars"><div><h4>Probable purchase timeline</h4>' + vpBars(s.tl, d.lists.timelines) + "</div>" +
+          "<div><h4>Compressor brand in use</h4>" + vpBars(s.br) + "</div>" +
+          "<div><h4>Compressor type in use</h4>" + vpBars(s.ct, d.lists.compTypes) + "</div></div>"
+        : '<div class="pd-empty">No visits planned in this ' + (vp.mode === "week" ? "week" : "month") + ".</div>");
+  }
+
+  function vpField(label, html, wide) {
+    return '<div class="field' + (wide ? " vp-wide" : "") + '"><label>' + label + "</label>" + html + "</div>";
+  }
+
+  /** The visit form: ERP 2's, field for field. */
+  function vpDraw(v) {
+    var d = vp.data;
+    vp.open = v;
+    var ro = v.id && !v.canEdit;
+    var dis = ro ? " disabled" : "";
+    var val = function (k) { return escapeHtml(v[k] === undefined || v[k] === null ? "" : v[k]); };
+    var inp = function (k, type, extra) { return '<input id="vp-f-' + k + '"' + (type ? ' type="' + type + '"' : "") + ' value="' + val(k) + '"' + (extra || "") + dis + " />"; };
+    var sel = function (k, list, blank) { return '<select id="vp-f-' + k + '"' + dis + ">" + vpOpts(list, v[k] || "", blank) + "</select>"; };
+    $("vp-m-title").textContent = v.id ? v.customerName || "Visit" : "Plan a visit";
+    $("vp-m-sub").textContent = v.id ? v.engineerName + " · " + ebDate(v.visitDate) + (v.area ? " · " + v.area + " (" + v.areaType + ")" : "") : "";
+    $("vp-m-body").innerHTML = '<div class="vp-form">' +
+      vpField("Engineer *", '<select id="vp-f-engineerEmail"' + (d.seeAll && !ro ? "" : " disabled") + ">" +
+        vpOpts(d.people.map(function (p) { return { v: p.email, l: p.name }; }), v.engineerEmail || "", "— pick —") + "</select>") +
+      vpField("Date *", inp("visitDate", "date")) +
+      vpField("Company *", inp("customerName", "", ' list="vp-customers" autocomplete="off"')) +
+      vpField("Area", '<select id="vp-f-area"' + dis + ">" + vpAreaOpts(d, v.area || "") + "</select>") +
+      vpField("Purpose", sel("purpose", d.lists.purposes)) +
+      vpField("Status", sel("status", d.statuses)) +
+      vpField("Person met", inp("contactMet")) +
+      vpField("Phone", inp("phone", "tel")) +
+      vpField("Industry", sel("industry", d.lists.industries, "—")) +
+      vpField("Discussion with the customer", '<textarea id="vp-f-discussion" rows="3"' + dis + ">" + val("discussion") + "</textarea>", true) +
+      vpField("Compressor in use", sel("compType", d.lists.compTypes, "—")) +
+      vpField("Brand in use", sel("brand", d.lists.brands, "—")) +
+      vpField("Installed capacity", inp("capacity", "", ' placeholder="e.g. 2 × 22 kW, 250 cfm"')) +
+      vpField("Age of machines (years)", inp("ageYears", "number", ' min="0"')) +
+      vpField("Alternative being considered", sel("considering", d.lists.brands, "None")) +
+      vpField("Interest", sel("interest", d.interest, "—")) +
+      vpField("Requirement / opportunity", inp("requirement"), true) +
+      vpField("Probable purchase timeline", sel("timeline", d.lists.timelines, "—")) +
+      vpField("Potential value (₹)", inp("potentialValue", "number", ' min="0"')) +
+      vpField("Next action", inp("nextAction")) +
+      vpField("Next action date", inp("nextDate", "date")) +
+      "</div>" +
+      (v.leadNo ? '<div class="tk-about">Enquiry made: <b>' + escapeHtml(v.leadNo + (v.leadStatus ? " · " + v.leadStatus : "")) + "</b>" +
+        '<button type="button" class="btn btn-sm" data-vp-lead="' + escapeHtml(v.leadId) + '">Open</button></div>' : "");
+    $("btn-vp-delete").style.display = v.id && !ro ? "" : "none";
+    $("btn-vp-save").style.display = ro ? "none" : "";
+    $("btn-vp-enquiry").style.display = ro || v.leadId ? "none" : "";
+    $("vp-modal-backdrop").classList.add("show");
+  }
+
+  function vpForm() {
+    var v = vp.open || {};
+    var f = function (k) { var el = $("vp-f-" + k); return el ? String(el.value).trim() : ""; };
+    var out = { id: v.id || "" };
+    ["engineerEmail", "visitDate", "customerName", "area", "purpose", "status", "contactMet", "phone", "industry", "discussion", "compType",
+      "brand", "capacity", "ageYears", "considering", "interest", "requirement", "timeline", "potentialValue", "nextAction", "nextDate"].forEach(function (k) {
+      out[k] = f(k);
+    });
+    // The company picked from the master keeps its customer; one typed differently is a prospect.
+    if (v.customerId && out.customerName === v.customerName) out.customerId = v.customerId;
+    return out;
+  }
+
+  function vpSave(withEnquiry) {
+    var input = vpForm();
+    var btn = withEnquiry ? "btn-vp-enquiry" : "btn-vp-save";
+    var done = busyButton(btn, "Saving…");
+    var fail = function (err) { done(); onServerError(err); vpLoad(); };
+    srv.withSuccessHandler(function (saved) {
+      if (!withEnquiry) {
+        done();
+        $("vp-modal-backdrop").classList.remove("show");
+        showMsg("Visit saved.", "success");
+        vpLoad();
+        return;
+      }
+      vp.open = saved;
+      srv.withSuccessHandler(function (r) {
+        done();
+        $("vp-modal-backdrop").classList.remove("show");
+        showMsg("Saved, and enquiry " + r.leadNo + " made on the compressor desk.", "success");
+        vpLoad();
+      }).withFailureHandler(fail).createVisitEnquiry(saved.id);
+    }).withFailureHandler(function (err) { done(); onServerError(err); }).saveVisit(input);
+  }
+
+  function vpDrawAreas(list) {
+    $("vp-a-body").innerHTML = list.map(function (a, i) {
+      return '<div class="vp-area-row" data-vp-area="' + i + '"><input value="' + escapeHtml(a.name) + '" aria-label="Area" />' +
+        '<select aria-label="Local or Outstation">' + vpOpts(["Local", "Outstation"], a.type) + "</select>" +
+        '<button type="button" class="btn btn-sm" data-vp-area-drop="' + i + '" aria-label="Remove">×</button></div>';
+    }).join("");
+  }
+  function vpReadAreas() {
+    return Array.prototype.map.call($("vp-a-body").querySelectorAll("[data-vp-area]"), function (row) {
+      return { name: row.querySelector("input").value.trim(), type: row.querySelector("select").value };
+    });
+  }
+
+  if (FACE_V2) {
+    $("vp-eng").addEventListener("change", function () { vp.engineer = $("vp-eng").value; vpLoad(); });
+    $("vp-mode").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-vp-mode]");
+      if (b) { vp.mode = b.dataset.vpMode; vpLoad(); }
+    });
+    $("view-visits").addEventListener("click", function (e) {
+      var nav = e.target.closest("[data-vp-nav]");
+      if (nav) {
+        var n = Number(nav.dataset.vpNav);
+        var a = vp.anchor || vpToday();
+        vp.anchor = !n ? vpToday() : vp.mode === "month" ? vpAdd(a.slice(0, 8) + "15", n * 30).slice(0, 8) + "01" : vpAdd(a, n * 7);
+        vp.qaDate = "";
+        vpLoad();
+        return;
+      }
+      var add = e.target.closest("[data-vp-day]");
+      if (add) { vp.qaDate = add.dataset.vpDay; $("vp-q-date").value = vp.qaDate; $("vp-q-cust").focus(); return; }
+      var open = e.target.closest("[data-vp-open]");
+      if (open) {
+        var v = vp.data.visits.filter(function (x) { return x.id === open.dataset.vpOpen; })[0];
+        if (v) vpDraw(v);
+      }
+    });
+    $("btn-vp-add").addEventListener("click", function () {
+      var d = vp.data;
+      var input = { visitDate: $("vp-q-date").value, customerName: $("vp-q-cust").value.trim(), area: $("vp-q-area").value, purpose: $("vp-q-purpose").value };
+      input.engineerEmail = !d.seeAll ? d.me : vp.engineer || $("vp-q-eng").value;
+      if (!input.engineerEmail || !input.visitDate || !input.customerName) { showMsg("Pick the engineer, the date and the company.", "error"); return; }
+      vp.qaDate = input.visitDate;
+      srv.withSuccessHandler(function () {
+        $("vp-q-cust").value = "";
+        $("vp-q-cust").focus();
+        showMsg("Added to the plan.", "success");
+        vpLoad();
+      }).withFailureHandler(onServerError).saveVisit(input);
+    });
+    $("btn-vp-copy").addEventListener("click", function () {
+      srv.withSuccessHandler(function (r) {
+        showMsg(r.copied ? r.copied + (r.copied === 1 ? " visit" : " visits") + " copied to this week." + (r.skipped ? " " + r.skipped + " already on the plan." : "")
+          : "Last week’s visits are already on this week’s plan.", "success");
+        vpLoad();
+      }).withFailureHandler(onServerError).copyLastWeekVisits({ weekStart: vpRange().from, engineer: vp.engineer || "" });
+    });
+    $("btn-vp-cancel").addEventListener("click", function () { $("vp-modal-backdrop").classList.remove("show"); });
+    $("btn-vp-save").addEventListener("click", function () { vpSave(false); });
+    $("btn-vp-enquiry").addEventListener("click", function () { vpSave(true); });
+    $("btn-vp-delete").addEventListener("click", function () {
+      var v = vp.open;
+      if (!v || !v.id) return;
+      askDialog({ title: "Take this visit off the plan?", message: v.customerName + " on " + ebDate(v.visitDate) + " leaves the plan. It stays on record.",
+        okLabel: "Delete", danger: true }, function (yes) {
+        if (yes === null) return;
+        srv.withSuccessHandler(function () {
+          $("vp-modal-backdrop").classList.remove("show");
+          showMsg("Visit taken off the plan.", "success");
+          vpLoad();
+        }).withFailureHandler(onServerError).deleteVisit(v.id);
+      });
+    });
+    $("vp-m-body").addEventListener("click", function (e) {
+      var l = e.target.closest("[data-vp-lead]");
+      if (l) { $("vp-modal-backdrop").classList.remove("show"); ebGo("lead", l.dataset.vpLead); }
+    });
+    $("btn-vp-areas").addEventListener("click", function () {
+      vpDrawAreas(vp.data.areas);
+      $("vp-areas-backdrop").classList.add("show");
+    });
+    $("btn-vp-a-add").addEventListener("click", function () {
+      var list = vpReadAreas();
+      list.push({ name: "", type: "Local" });
+      vpDrawAreas(list);
+      var rows = $("vp-a-body").querySelectorAll("[data-vp-area] input");
+      rows[rows.length - 1].focus();
+    });
+    $("vp-a-body").addEventListener("click", function (e) {
+      var drop = e.target.closest("[data-vp-area-drop]");
+      if (!drop) return;
+      var list = vpReadAreas();
+      list.splice(Number(drop.dataset.vpAreaDrop), 1);
+      vpDrawAreas(list);
+    });
+    $("btn-vp-a-cancel").addEventListener("click", function () { $("vp-areas-backdrop").classList.remove("show"); });
+    $("btn-vp-a-save").addEventListener("click", function () {
+      var done = busyButton("btn-vp-a-save", "Saving…");
+      srv.withSuccessHandler(function (areas) {
+        done();
+        $("vp-areas-backdrop").classList.remove("show");
+        showMsg(areas.length + (areas.length === 1 ? " area" : " areas") + " saved.", "success");
+        vpLoad();
+      }).withFailureHandler(function (err) { done(); onServerError(err); }).saveVisitAreas(vpReadAreas());
     });
   }
 

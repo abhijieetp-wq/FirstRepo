@@ -92,6 +92,10 @@ run_ui "tasks-ui-test.js (2.0)" tests/tasks-ui-test.js "$tmp/base-v2.html"
 run_ui "escalations-ui-test.js (classic)" tests/escalations-ui-test.js "$tmp/base.html"
 run_ui "escalations-ui-test.js (new design)" tests/escalations-ui-test.js "$tmp/base-web.html"
 run_ui "escalations-ui-test.js (2.0)" tests/escalations-ui-test.js "$tmp/base-v2.html"
+# And visit plans.
+run_ui "visit-plans-ui-test.js (classic)" tests/visit-plans-ui-test.js "$tmp/base.html"
+run_ui "visit-plans-ui-test.js (new design)" tests/visit-plans-ui-test.js "$tmp/base-web.html"
+run_ui "visit-plans-ui-test.js (2.0)" tests/visit-plans-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"

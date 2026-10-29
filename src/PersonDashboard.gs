@@ -20,6 +20,7 @@
  *     (Tasks.gs). Management's counts everybody's.
  *   - Management and the sales side: a tile for escalated deals waiting for a decision
  *     (Escalations.gs).
+ *   - A tile for this week's customer visits, visited of planned (VisitPlans.gs).
  *
  * Nothing here writes. A figure is a count, a value and where to go to act on it.
  */
@@ -78,6 +79,7 @@ function getPersonDashboard(options) {
   else pdBoss_(ctx, out);
   pdTasks_(ctx, out, kind === 'boss');
   if (kind === 'boss' || kind === 'coordinator' || kind === 'salesEngineer') pdEscalations_(ctx, out, kind === 'boss');
+  if (kind === 'boss' || kind === 'coordinator' || kind === 'salesEngineer') pdVisits_(ctx, out, kind);
 
   if (boss) {
     out.canViewAs = true;
@@ -119,6 +121,19 @@ function pdEscalations_(ctx, out, everyone) {
     out.tiles.push({ key: 'escalations', label: 'Escalated to you', value: String(x.toThem),
       sub: x.theirs + ' of yours waiting for a decision', tone: x.toThem ? 'warn' : '', go: 'escalations' });
   }
+}
+
+/**
+ * The visits tile (VisitPlans.gs): this week's visits, Monday to Sunday. A sales engineer
+ * always has it; a coordinator when they have visits planned; Management, the team's.
+ */
+function pdVisits_(ctx, out, kind) {
+  var x = visitSummary_(ctx.email, kind === 'boss');
+  if (!x || (kind === 'coordinator' && !x.planned)) return;
+  out.tiles.push({ key: 'visits', label: kind === 'boss' ? 'Team visits this week' : 'Visits this week',
+    value: x.visited + ' of ' + x.planned,
+    sub: (kind === 'boss' ? '' : x.today + ' planned today · ') + x.enquiries + (x.enquiries === 1 ? ' enquiry' : ' enquiries') + ' made',
+    go: 'visits' });
 }
 
 // ------------------------------------------------------------------ shared readings
