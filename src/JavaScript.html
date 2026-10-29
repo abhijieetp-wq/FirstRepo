@@ -249,7 +249,9 @@
     { view: "inventory", label: "Inventory", roles: COMMERCIAL_SIDE },
     { label: "Masters", children: [
       { view: "customers", label: "Customers", roles: COMMERCIAL_SIDE },
-      { view: "catalog", label: "Catalog", roles: COMMERCIAL_SIDE }
+      { view: "catalog", label: "Catalog", roles: COMMERCIAL_SIDE },
+      // ERP 2.0's form builder: Management's own fields on a form (FormFields.gs). Only 2.0.
+      { view: "formfields", label: "Form fields", roles: ["Management", "ERP Admin"], v2: true }
     ] },
     { view: "settings", label: "Settings", roles: ["Management", "ERP Admin"] }
   ];
@@ -316,6 +318,7 @@
     inventory: "/inventory",
     customers: "/customers",
     catalog: "/catalog",
+    formfields: "/form-fields",
     settings: "/settings"
   };
   var URL_ROUTING = !ON_APPS_SCRIPT && /^https?:$/.test(location.protocol) &&
@@ -591,6 +594,7 @@
     escalations: initEscalationsView,
     visits: initVisitPlansView,
     engreport: initEngineerReportView,
+    formfields: initFormFieldsView,
     quote: initQuoteView,
     compressor: initCompressorView,
     orders: initOrdersView,
@@ -1775,6 +1779,7 @@
     tbody.querySelectorAll("[data-edit-cust]").forEach(function (btn) {
       btn.addEventListener("click", function () { openCustomerModal(btn.dataset.editCust); });
     });
+    xfTable("customer", tbody.closest("table"), xfRowId("[data-edit-cust]", "data-edit-cust"), true);
   }
 
   $("customer-search").addEventListener("input", renderCustomers);
@@ -2145,6 +2150,7 @@
       riskStatus: $("cm-riskstatus").value
     };
     if (!obj.name) { showMsg("Customer name is required.", "error"); return; }
+    if (!xfReady("customer")) return;
 
     // Advisory duplicate check first — a GSTIN clash is refused server-side regardless.
     srv.withSuccessHandler(function (dupes) {
@@ -2203,6 +2209,7 @@
     var isNew = !$("cm-id").value;
     var hadDetails = isNew && !!(newCustomerAddress() || newCustomerContact());
     var runner = srv.withSuccessHandler(function (saved) {
+      xfAfterSave("customer", saved.id);
       customersLoaded = false;
       srv.withSuccessHandler(function (rows) {
         customersCache = rows; customersLoaded = true; renderCustomers();
@@ -2507,6 +2514,7 @@
         quoteFromEnquiry(e, function () { btn.disabled = false; btn.textContent = was; });
       });
     });
+    xfTable("enquiry", tbody.closest("table"), xfRowId("[data-open-enq]", "data-open-enq"), true);
   }
 
   /** Past the point where another offer would be a second one rather than the first. */
@@ -2879,8 +2887,10 @@
     };
     // 2.0 only: what the offer is for. Left out elsewhere, so the type already stored stays.
     if ($("em-type")) input.enquiryType = $("em-type").value;
+    if (!xfReady("enquiry")) { if (done) done(); return; }
     srv.withSuccessHandler(function (saved) {
       if (done) done();
+      xfAfterSave("enquiry", saved.id);
       onSaved(saved);
     }).withFailureHandler(function (err) {
       if (done) done();
@@ -5261,6 +5271,7 @@
     tbody.querySelectorAll("[data-open-job]").forEach(function (btn) {
       btn.addEventListener("click", function () { openServiceJobModal(btn.dataset.openJob); });
     });
+    xfTable("service", tbody.closest("table"), xfRowId("[data-open-job]", "data-open-job"), true);
   }
 
   ["service-search", "service-mine", "service-closed", "service-type"].forEach(function (id) {
@@ -5296,10 +5307,12 @@
   });
 
   $("btn-bd-save").addEventListener("click", function () {
+    if (!xfReady("call")) return;
     var btn = $("btn-bd-save");
     btn.disabled = true;
     srv.withSuccessHandler(function (job) {
       btn.disabled = false;
+      xfAfterSave("call", job.id);
       $("breakdown-modal-backdrop").classList.remove("show");
       loadServiceJobs();
       showMsg(job.jobNo + " logged" + (FACE_V2 ? " as " + job.jobType : "") + ". It is waiting for the service coordinator to send " +
@@ -5689,6 +5702,7 @@
   });
 
   $("btn-sj-save").addEventListener("click", function () {
+    if (!xfReady("service")) return;
     var id = $("sj-id").value;
     var engineer = $("sj-engineer").value;
     var status = $("sj-status").value;
@@ -5699,6 +5713,7 @@
     // a coordinator names the engineer, the engineer moves the job along.
     var thenStatus = function () {
       srv.withSuccessHandler(function (job) {
+        xfAfterSave("service", job.id);
         openServiceJob = job;
         renderServiceJobModal();
         $("service-modal-backdrop").classList.remove("show");
@@ -5983,6 +5998,7 @@
         }).join("") : '<tr><td colspan="6" class="empty">No contract ends in the next 60 days.</td></tr>') + "</tbody></table>";
     }
     $("amc-body").innerHTML = html;
+    if (amc.mode === "contracts") xfTable("amc", $("amc-body").querySelector("table"), xfRowId("[data-amc-contract]", "data-amc-contract"), false);
   }
 
   if (FACE_V2) {
@@ -6113,9 +6129,11 @@
       area: $("amc-f-area").value.trim(), notes: $("amc-f-notes").value.trim()
     };
     if ($("amc-f-value")) input.contractValue = $("amc-f-value").value;
+    if (!xfReady("amc")) return;
     var done = busyButton("btn-amc-save", "Saving…");
     srv.withSuccessHandler(function (saved) {
       done();
+      xfAfterSave("amc", saved.id);
       $("amc-modal-backdrop").classList.remove("show");
       showMsg(saved.contractNo + " saved, with " + (saved.visits || []).length + " visits.", "success");
       loadAmc();
@@ -6476,6 +6494,7 @@
           '<td class="num' + (t.earned < 0 ? " sdc-late" : "") + '">' + (t.possible ? tkPts(t.earned) : "—") + "</td></tr>";
       }).join("") : '<tr><td colspan="8" class="empty">' + (d.tasks.length ? "No tasks here." : "No tasks yet — give the first with + New task.") + "</td></tr>") +
       "</tbody></table>";
+    xfTable("task", $("tk-body").querySelector("table"), xfRowId("[data-tk-row]", "data-tk-row"), false);
   }
 
   /** Opens the record a task is about, where it is worked as it always was. */
@@ -6561,9 +6580,11 @@
     var status = $("tk-f-status") ? $("tk-f-status").value : t.status;
     var changed = !t.id || (t.canEdit && (input.title !== t.title || input.details !== t.details || input.dueDate !== t.dueDate ||
       input.priority !== t.priority || input.assigneeEmail.toLowerCase() !== String(t.assigneeEmail).toLowerCase()));
+    if (!xfReady("task")) return;
     var done = busyButton("btn-tk-save", "Saving…");
     var fail = function (err) { done(); onServerError(err); };
     var then = function (saved) {
+      xfAfterSave("task", (saved && saved.id) || t.id);
       if (t.id && status !== t.status) {
         srv.withSuccessHandler(function (s) { done(); tkAfter(tkSaid(s)); }).withFailureHandler(fail).setTaskStatus(t.id, status);
         return;
@@ -7056,6 +7077,7 @@
             '<td class="num">' + escapeHtml(v.potentialValue === "" ? "" : ebMoney(v.potentialValue)) + "</td>" +
             '<td class="mono">' + escapeHtml(v.leadNo) + "</td></tr>";
         }).join("") : '<tr><td colspan="10" class="empty">No visits planned this month.</td></tr>') + "</tbody></table></div>";
+      xfTable("visit", $("vp-grid").querySelector("table"), xfRowId("[data-vp-open]", "data-vp-open"), false);
     }
 
     var engs = [];
@@ -7142,10 +7164,12 @@
 
   function vpSave(withEnquiry) {
     var input = vpForm();
+    if (!xfReady("visit")) return;
     var btn = withEnquiry ? "btn-vp-enquiry" : "btn-vp-save";
     var done = busyButton(btn, "Saving…");
     var fail = function (err) { done(); onServerError(err); vpLoad(); };
     srv.withSuccessHandler(function (saved) {
+      xfAfterSave("visit", saved.id);
       if (!withEnquiry) {
         done();
         $("vp-modal-backdrop").classList.remove("show");
@@ -7417,6 +7441,435 @@
     });
   }
 
+  // ================= FORM FIELDS (2.0) =================
+  // ERP 2's form builder (FormFields.gs): fields Management adds to a form without a code change.
+  // Each shows on its form under "More details", is saved with the record, and is a list column
+  // when ticked. The forms: spare enquiries, compressor leads, service jobs (and the log-a-call
+  // form), customers, AMC contracts, visits and tasks. Only the 2.0 face; ERP 1's forms and
+  // records are unchanged, since the values are kept apart.
+  var xf = { defs: null, wait: null, vals: {}, at: {}, open: {}, edit: null, form: "enquiry" };
+  var XF_TYPES = { text: "Text", number: "Number", date: "Date", select: "Dropdown", textarea: "Long text", checkbox: "Yes / no" };
+  var XF_FRESH_MS = 60000;
+
+  /** The fields of every form, fetched once; the builder fetches them afresh. */
+  function xfDefs(then) {
+    if (!FACE_V2) return;
+    if (xf.defs) { then(xf.defs); return; }
+    if (xf.wait) { xf.wait.push(then); return; }
+    // The forms still work without their extra fields; asked again a minute after a failure,
+    // not on every list drawn.
+    if (xf.failedAt && Date.now() - xf.failedAt < XF_FRESH_MS) return;
+    xf.wait = [then];
+    srv.withSuccessHandler(function (d) {
+      xf.defs = d && d.fields ? d : { forms: [], types: [], fields: {}, canEdit: false };
+      xf.failedAt = 0;
+      var w = xf.wait;
+      xf.wait = null;
+      w.forEach(function (f) { f(xf.defs); });
+    }).withFailureHandler(function () { xf.wait = null; xf.failedAt = Date.now(); }).getFormFields();
+  }
+  function xfFields(form) { return xf.defs ? (xf.defs.fields[form] || []) : []; }
+
+  /** Where each form's "More details" goes, the record it is about, and whether it is read-only. */
+  var XF_HOSTS = [
+    { key: "customer", form: "customer", backdrop: "customer-modal-backdrop", save: "btn-save-customer", id: function () { return $("cm-id").value; } },
+    { key: "enquiry", form: "enquiry", backdrop: "enquiry-modal-backdrop", save: "btn-save-enquiry", id: function () { return $("em-id").value; } },
+    { key: "lead", form: "lead", backdrop: "lead-modal-backdrop", save: "btn-save-lead", id: function () { return $("lm-id").value; } },
+    { key: "service", form: "service", backdrop: "service-modal-backdrop", save: "btn-sj-save", id: function () { return $("sj-id").value; } },
+    { key: "call", form: "service", backdrop: "breakdown-modal-backdrop", save: "btn-bd-save", id: function () { return ""; } },
+    { key: "amc", form: "amc", backdrop: "amc-modal-backdrop", save: "btn-amc-save", id: function () { return (amc.open || {}).id || ""; } },
+    { key: "visit", form: "visit", backdrop: "vp-modal-backdrop", save: "btn-vp-save", id: function () { return (vp.open || {}).id || ""; } },
+    { key: "task", form: "task", backdrop: "tk-modal-backdrop", save: "btn-tk-save", id: function () { return (tk.open || {}).id || ""; } }
+  ];
+
+  if (FACE_V2) {
+    XF_HOSTS.forEach(function (h) {
+      var back = $(h.backdrop);
+      var btn = $(h.save);
+      if (!back || !btn || $("xf-host-" + h.key)) return;
+      // Above the row the save button sits in: the window's last row.
+      var foot = btn;
+      while (foot.parentNode && foot.parentNode !== document.body && !foot.parentNode.classList.contains("modal")) foot = foot.parentNode;
+      if (!foot.parentNode || foot.parentNode === document.body) foot = btn.parentNode;
+      var host = document.createElement("section");
+      host.className = "xf-sec";
+      host.id = "xf-host-" + h.key;
+      host.style.display = "none";
+      foot.parentNode.insertBefore(host, foot);
+      // Mounted as the window opens, whichever of the form's own buttons opened it.
+      new MutationObserver(function () {
+        var shown = back.classList.contains("show");
+        var o = xf.open[h.key];
+        if (shown && (!h.shown || !o || String(h.id() || "") !== String(o.id || ""))) xfMount(h);
+        h.shown = shown;
+      }).observe(back, { attributes: true, attributeFilter: ["class"] });
+    });
+  }
+
+  function xfInput(key, f, val, ro) {
+    var id = "xf-" + key + "-" + f.key;
+    var v = val === undefined || val === null ? "" : String(val);
+    var dis = ro ? " disabled" : "";
+    var ctl;
+    if (f.type === "select") {
+      ctl = '<select id="' + id + '"' + dis + '><option value="">—</option>' + f.options.map(function (o) {
+        return '<option value="' + escapeHtml(o) + '"' + (o === v ? " selected" : "") + ">" + escapeHtml(o) + "</option>";
+      }).join("") + (v && f.options.indexOf(v) === -1 ? '<option value="' + escapeHtml(v) + '" selected>' + escapeHtml(v) + " (no longer listed)</option>" : "") + "</select>";
+    } else if (f.type === "textarea") {
+      ctl = '<textarea id="' + id + '" rows="2"' + dis + ">" + escapeHtml(v) + "</textarea>";
+    } else if (f.type === "checkbox") {
+      ctl = '<label class="xf-yes"><input type="checkbox" id="' + id + '"' + (v === "TRUE" ? " checked" : "") + dis + " /> Yes</label>";
+    } else {
+      ctl = '<input id="' + id + '" type="' + (f.type === "number" ? "number" : f.type === "date" ? "date" : "text") + '" value="' + escapeHtml(v) + '"' + dis + " />";
+    }
+    return '<div class="field' + (f.type === "textarea" ? " xf-wide" : "") + '" data-xf-field="' + escapeHtml(f.key) + '"><label for="' + id + '">' +
+      escapeHtml(f.label) + (f.required ? " *" : "") + "</label>" + ctl + "</div>";
+  }
+
+  function xfMount(h) {
+    var host = $("xf-host-" + h.key);
+    if (!host) return;
+    var btn = $(h.save);
+    var o = { form: h.form, id: h.id() || "", ro: !btn || btn.disabled || btn.style.display === "none", values: {}, ready: false, pending: null };
+    xf.open[h.key] = o;
+    host.innerHTML = "";
+    host.style.display = "none";
+    xfDefs(function () {
+      var fields = xfFields(h.form);
+      if (!fields.length || xf.open[h.key] !== o) return;
+      var draw = function (vals) {
+        if (xf.open[h.key] !== o) return;
+        o.values = vals || {};
+        o.ready = true;
+        host.innerHTML = '<div class="xf-h">More details</div><div class="xf-grid">' + fields.map(function (f) {
+          return xfInput(h.key, f, o.values[f.key], o.ro);
+        }).join("") + "</div>";
+        host.style.display = "";
+      };
+      if (!o.id) { draw({}); return; }
+      srv.withSuccessHandler(function (m) { draw((m || {})[o.id] || {}); }).withFailureHandler(function () {
+        // Not drawn empty: saving blanks over values that could not be read would wipe them.
+        if (xf.open[h.key] !== o) return;
+        host.innerHTML = '<div class="xf-h">More details</div><p class="sdc-muted">These could not be loaded. Close and open the record again.</p>';
+        host.style.display = "";
+      }).getCustomValues(h.form, [o.id]);
+    });
+  }
+
+  function xfCollect(key) {
+    var o = xf.open[key];
+    var out = {};
+    xfFields(o.form).forEach(function (f) {
+      var el = $("xf-" + key + "-" + f.key);
+      if (!el) return;
+      out[f.key] = f.type === "checkbox" ? (el.checked ? "TRUE" : "") : String(el.value).trim();
+    });
+    return out;
+  }
+
+  /**
+   * Before a form's own save: a required field left empty stops it, so the record is not saved
+   * without them. What was typed is kept for xfAfterSave.
+   */
+  function xfReady(key) {
+    var o = xf.open[key];
+    if (!FACE_V2 || !o || !o.ready || o.ro || !xfFields(o.form).length || !$("xf-host-" + key)) return true;
+    var vals = xfCollect(key);
+    var miss = [];
+    var bad = "";
+    xfFields(o.form).forEach(function (f) {
+      var v = vals[f.key];
+      if (!v) { if (f.required) miss.push(f); return; }
+      if (f.type === "number" && !isFinite(Number(v)) && !bad) bad = "“" + f.label + "” is a number.";
+    });
+    if (miss.length || bad) {
+      showMsg(miss.length ? "Fill in: " + miss.map(function (f) { return f.label; }).join(", ") + "." : bad, "error");
+      var first = miss.length ? $("xf-" + key + "-" + miss[0].key) : null;
+      if (first) first.focus();
+      o.pending = null;
+      return false;
+    }
+    o.pending = vals;
+    return true;
+  }
+
+  /** After the form's own save: the record's extra fields, when any changed. */
+  function xfAfterSave(key, id) {
+    var o = xf.open[key];
+    if (!o || !o.pending || !id) return;
+    var vals = o.pending;
+    o.pending = null;
+    var same = Object.keys(vals).every(function (k) { return String(o.values[k] || "") === vals[k]; });
+    o.id = String(id);
+    if (same) return;
+    srv.withSuccessHandler(function (saved) {
+      o.values = saved || {};
+      xfKeep(o.form, o.id, o.values);
+      xfFillAll(o.form);
+    }).withFailureHandler(function (err) {
+      showMsg("Saved — but not its more details: " + String((err && err.message) || err).replace(/^Error:\s*/, ""), "error", true);
+    }).saveCustomValues(o.form, o.id, vals);
+  }
+
+  // ---- List columns ----
+  function xfKeep(form, id, vals) {
+    (xf.vals[form] = xf.vals[form] || {})[id] = vals || {};
+    (xf.at[form] = xf.at[form] || {})[id] = Date.now();
+  }
+  function xfCols(form) { return xfFields(form).filter(function (f) { return f.inList; }); }
+  function xfShow(f, v) {
+    if (v === undefined || v === null || v === "") return "";
+    if (f.type === "checkbox") return v === "TRUE" ? "Yes" : "";
+    if (f.type === "date") return ebDate(v);
+    return String(v);
+  }
+
+  /** The values for these records, from what was fetched in the last minute or afresh. */
+  function xfFetch(form, ids, then) {
+    var now = Date.now();
+    var at = xf.at[form] || {};
+    var want = ids.filter(function (id) { return !(now - (at[id] || 0) < XF_FRESH_MS); });
+    if (!want.length) { then(); return; }
+    srv.withSuccessHandler(function (m) {
+      want.forEach(function (id) { xfKeep(form, id, (m || {})[id] || {}); });
+      then();
+    }).withFailureHandler(function () { /* the columns stay blank */ }).getCustomValues(form, want);
+  }
+
+  function xfFillAll(form) {
+    var cols = {};
+    xfCols(form).forEach(function (f) { cols[f.key] = f; });
+    var vals = xf.vals[form] || {};
+    document.querySelectorAll('[data-xf-form="' + form + '"]').forEach(function (el) {
+      var v = vals[el.dataset.xfId] || {};
+      if (el.classList.contains("xf-line")) {
+        el.textContent = xfCols(form).map(function (f) { var s = xfShow(f, v[f.key]); return s ? f.label + ": " + s : ""; }).filter(Boolean).join(" · ");
+        el.style.display = el.textContent ? "" : "none";
+        return;
+      }
+      var f = cols[el.dataset.xfKey];
+      if (f) el.textContent = xfShow(f, v[f.key]);
+    });
+  }
+
+  /**
+   * A form's list-column fields, added to a table already drawn: a header each, a cell in every
+   * row with a record. beforeLast keeps a row's Open button the last cell.
+   */
+  function xfTable(form, table, idOf, beforeLast) {
+    if (!FACE_V2 || !table) return;
+    xfDefs(function () {
+      table.querySelectorAll(".xf-col").forEach(function (c) { c.parentNode.removeChild(c); });
+      var cols = xfCols(form);
+      if (!cols.length) return;
+      var put = function (tr, cells) {
+        var ref = beforeLast ? tr.lastElementChild : null;
+        cells.forEach(function (c) { tr.insertBefore(c, ref); });
+      };
+      var head = table.querySelector("thead tr");
+      if (head) put(head, cols.map(function (f) { var th = document.createElement("th"); th.className = "xf-col"; th.textContent = f.label; return th; }));
+      var ids = [];
+      table.querySelectorAll("tbody tr").forEach(function (tr) {
+        var id = idOf(tr);
+        if (!id) return;
+        ids.push(id);
+        put(tr, cols.map(function (f) {
+          var td = document.createElement("td");
+          td.className = "xf-col";
+          td.dataset.xfForm = form;
+          td.dataset.xfId = id;
+          td.dataset.xfKey = f.key;
+          return td;
+        }));
+      });
+      xfFetch(form, ids, function () { xfFillAll(form); });
+    });
+  }
+  function xfRowId(sel, attr) {
+    return function (tr) { var el = tr.matches(sel) ? tr : tr.querySelector(sel); return el ? el.getAttribute(attr) : ""; };
+  }
+
+  /** On the enquiry board, the list-column fields are a line on the card. */
+  function xfCards(root) {
+    if (!FACE_V2 || !root) return;
+    var FORMS = { SE: "enquiry", LD: "lead" };
+    xfDefs(function () {
+      var ids = {};
+      root.querySelectorAll("[data-eb-card]").forEach(function (card) {
+        var ref = String(card.dataset.ebCard).split(":");
+        var form = FORMS[ref[0]];
+        if (!form || !ref[1] || !xfCols(form).length || card.querySelector(".xf-line")) return;
+        var line = document.createElement("span");
+        line.className = "xf-line";
+        line.style.display = "none";
+        line.dataset.xfForm = form;
+        line.dataset.xfId = ref[1];
+        card.appendChild(line);
+        (ids[form] = ids[form] || []).push(ref[1]);
+      });
+      Object.keys(ids).forEach(function (form) { xfFetch(form, ids[form], function () { xfFillAll(form); }); });
+    });
+  }
+
+  // ---- The builder (Masters → Form fields) ----
+  if (FACE_V2 && !$("view-formfields")) {
+    (function () {
+      var view = document.createElement("div");
+      view.className = "view";
+      view.id = "view-formfields";
+      view.innerHTML = '<div class="page-head"><div><h2>Form fields</h2><p>Add your own fields to a form — text, a number, a date, a dropdown, ' +
+        "long text or yes / no — without a change to the software. They appear on the form under More details, are kept with the record, " +
+        "and can be a column in its list. Taking a field off keeps what was already entered.</p></div></div>" +
+        '<div class="xf-builder"><nav class="xf-forms" id="xf-forms" aria-label="Forms"></nav><section class="pd-panel" id="xf-edit"></section></div>';
+      var after = $("view-catalog") || $("view-customers");
+      after.parentNode.insertBefore(view, after.nextSibling);
+
+      $("xf-forms").addEventListener("click", function (e) {
+        var b = e.target.closest("[data-xf-form-pick]");
+        if (!b || b.dataset.xfFormPick === xf.form) return;
+        var go = function () { xf.form = b.dataset.xfFormPick; xf.edit = null; xfBuild(); };
+        if (xf.edit && xf.edit.dirty) {
+          askDialog({ title: "Leave without saving?", message: "The changes to " + xfFormLabel(xf.form) + " are not saved yet.", okLabel: "Leave them" },
+            function (ok) { if (ok !== null) go(); });
+          return;
+        }
+        go();
+      });
+      $("xf-edit").addEventListener("input", function (e) { if (e.target.closest("[data-xf-i]")) xfRead(true); });
+      $("xf-edit").addEventListener("change", function (e) {
+        if (!e.target.closest("[data-xf-i]")) return;
+        xfRead(true);
+        if (e.target.classList.contains("xf-t")) xfBuild();
+        else xfPreview();
+      });
+      $("xf-edit").addEventListener("click", function (e) {
+        var b = e.target.closest("button");
+        if (!b || !xf.edit) return;
+        var L = xf.edit.list;
+        var i = b.closest("[data-xf-i]") ? Number(b.closest("[data-xf-i]").dataset.xfI) : -1;
+        if (b.id === "btn-xf-add") {
+          xfRead(false);
+          L.push({ key: "", label: "", type: "text", options: "", required: false, inList: false });
+          xf.edit.dirty = true;
+          xfBuild();
+          var rows = $("xf-edit").querySelectorAll(".xf-l");
+          if (rows.length) rows[rows.length - 1].focus();
+        } else if (b.dataset.xfMove && i >= 0) {
+          xfRead(false);
+          var j = i + Number(b.dataset.xfMove);
+          if (j < 0 || j >= L.length) return;
+          var x = L[i]; L[i] = L[j]; L[j] = x;
+          xf.edit.dirty = true;
+          xfBuild();
+        } else if (b.dataset.xfDrop !== undefined && i >= 0) {
+          xfRead(false);
+          L.splice(i, 1);
+          xf.edit.dirty = true;
+          xfBuild();
+        } else if (b.id === "btn-xf-discard") {
+          xf.edit = null;
+          xfBuild();
+        } else if (b.id === "btn-xf-save") {
+          xfRead(false);
+          var form = xf.form;
+          var done = busyButton("btn-xf-save", "Saving…");
+          srv.withSuccessHandler(function (fields) {
+            done();
+            xf.defs.fields[form] = fields;
+            xf.vals[form] = {};
+            xf.at[form] = {};
+            xf.edit = null;
+            xfBuild();
+            showMsg(xfFormLabel(form) + ": " + fields.length + (fields.length === 1 ? " field" : " fields") + " saved.", "success");
+          }).withFailureHandler(function (err) { done(); onServerError(err); }).saveFormFields(form, L.map(function (f) {
+            return { key: f.key, label: f.label, type: f.type, options: f.options, required: f.required, inList: f.inList };
+          }));
+        }
+      });
+    })();
+  }
+
+  function xfFormLabel(form) {
+    var f = ((xf.defs || {}).forms || []).filter(function (x) { return x.key === form; })[0];
+    return f ? f.label : form;
+  }
+
+  function initFormFieldsView() {
+    if (!FACE_V2) return;
+    if (xf.edit && xf.edit.dirty) { xfBuild(); return; }
+    xf.defs = null;
+    xf.failedAt = 0;
+    xfDefs(xfBuild);
+  }
+
+  /** What is typed in the builder, back into the list being edited. */
+  function xfRead(dirty) {
+    if (!xf.edit) return;
+    $("xf-edit").querySelectorAll("[data-xf-i]").forEach(function (row) {
+      var f = xf.edit.list[Number(row.dataset.xfI)];
+      if (!f) return;
+      f.label = row.querySelector(".xf-l").value;
+      f.type = row.querySelector(".xf-t").value;
+      f.options = row.querySelector(".xf-o") ? row.querySelector(".xf-o").value : f.options;
+      f.required = row.querySelector(".xf-r").checked;
+      f.inList = row.querySelector(".xf-c").checked;
+    });
+    if (dirty) xf.edit.dirty = true;
+  }
+
+  function xfBuild() {
+    var d = xf.defs;
+    if (!d || !$("view-formfields")) return;
+    if (!xf.edit || xf.edit.form !== xf.form) {
+      xf.edit = { form: xf.form, dirty: false, list: xfFields(xf.form).map(function (f) {
+        return { key: f.key, label: f.label, type: f.type, options: f.options.join(", "), required: f.required, inList: f.inList };
+      }) };
+    }
+    $("xf-forms").innerHTML = d.forms.map(function (f) {
+      var n = (d.fields[f.key] || []).length;
+      return '<button type="button" class="xf-pick' + (f.key === xf.form ? " on" : "") + '" data-xf-form-pick="' + escapeHtml(f.key) + '">' +
+        escapeHtml(f.label) + '<span class="eb-count">' + n + "</span></button>";
+    }).join("");
+    var ro = !d.canEdit;
+    var dis = ro ? " disabled" : "";
+    var L = xf.edit.list;
+    $("xf-edit").innerHTML = '<div class="xf-head"><h3>' + escapeHtml(xfFormLabel(xf.form)) + "</h3>" +
+      (xf.edit.dirty ? '<span class="eb-chip warn">Not saved yet</span>' : "") + "</div>" +
+      (L.length ? '<div class="xf-rows"><div class="xf-row xf-row-h"><span>Field</span><span>Type</span><span>Choices</span><span>Required</span><span>In the list</span><span></span></div>' +
+        L.map(function (f, i) {
+          return '<div class="xf-row" data-xf-i="' + i + '">' +
+            '<input class="xf-l" maxlength="60" placeholder="e.g. Warranty ends" aria-label="Field name" value="' + escapeHtml(f.label) + '"' + dis + " />" +
+            '<select class="xf-t" aria-label="Type"' + dis + ">" + d.types.map(function (t) {
+              return '<option value="' + t + '"' + (t === f.type ? " selected" : "") + ">" + escapeHtml(XF_TYPES[t] || t) + "</option>";
+            }).join("") + "</select>" +
+            (f.type === "select" ? '<input class="xf-o" placeholder="Choices, separated by commas" aria-label="Choices" value="' + escapeHtml(f.options) + '"' + dis + " />"
+              : '<span class="sdc-muted">—</span>') +
+            '<label class="xf-tick"><input type="checkbox" class="xf-r"' + (f.required ? " checked" : "") + dis + ' aria-label="Required" /></label>' +
+            '<label class="xf-tick"><input type="checkbox" class="xf-c"' + (f.inList ? " checked" : "") + dis + ' aria-label="Show in the list" /></label>' +
+            '<span class="xf-acts">' + (ro ? "" : '<button type="button" class="btn btn-sm" data-xf-move="-1" aria-label="Move up"' + (i ? "" : " disabled") + ">↑</button>" +
+              '<button type="button" class="btn btn-sm" data-xf-move="1" aria-label="Move down"' + (i < L.length - 1 ? "" : " disabled") + ">↓</button>" +
+              '<button type="button" class="btn btn-sm sd-danger" data-xf-drop="1" aria-label="Remove">×</button>') + "</span></div>";
+        }).join("") + "</div>"
+        : '<p class="sdc-muted">No fields of your own on this form yet.</p>') +
+      (ro ? "" : '<div class="xf-foot"><button type="button" class="btn btn-sm" id="btn-xf-add">+ Add field</button><span style="flex:1"></span>' +
+        (xf.edit.dirty ? '<button type="button" class="btn" id="btn-xf-discard">Discard changes</button>' : "") +
+        '<button type="button" class="btn btn-primary" id="btn-xf-save"' + (xf.edit.dirty ? "" : " disabled") + ">Save fields</button></div>") +
+      '<div class="xf-sec xf-preview" id="xf-preview"></div>';
+    xfPreview();
+  }
+
+  /** How the section will look on the form. */
+  function xfPreview() {
+    var pv = $("xf-preview");
+    if (!pv || !xf.edit) return;
+    var L = xf.edit.list.filter(function (f) { return String(f.label).trim(); });
+    pv.innerHTML = L.length ? '<div class="xf-h">More details <span class="sdc-muted">· how it looks on the form</span></div><div class="xf-grid">' +
+      L.map(function (f, i) {
+        return xfInput("pv", { key: "f" + i, label: f.label, type: f.type, required: f.required,
+          options: String(f.options || "").split(/[,\n]/).map(function (o) { return o.trim(); }).filter(Boolean) }, "", false);
+      }).join("") + "</div>" : "";
+  }
+
   // ================= COMPRESSOR SALES =================
   // 2.0 opens on the enquiry board unless this browser last chose a list.
   var CS_MODE = "leads";
@@ -7543,6 +7996,7 @@
     $("cs-tbody").querySelectorAll("[data-open-lead]").forEach(function (btn) {
       btn.addEventListener("click", function () { openLeadModal(btn.dataset.openLead); });
     });
+    xfTable("lead", $("cs-tbody").closest("table"), xfRowId("[data-open-lead]", "data-open-lead"), true);
   }
 
   function renderPipeline() {
@@ -7834,7 +8288,9 @@
       showMsg("Enter the company name this lead is from.", "error");
       return;
     }
+    if (!xfReady("lead")) return;
     srv.withSuccessHandler(function (saved) {
+      xfAfterSave("lead", saved.id);
       $("lm-id").value = saved.id;
       $("lm-no").textContent = saved.leadNo || "";
       $("lead-modal-title").textContent = "Lead";
@@ -8688,6 +9144,7 @@
       '<p class="eb-note">Dispatched and closed cards stay for ' + d.recentDays + " days. " +
       (showClosed ? "" : "Tick “Include closed” to see the closed ones. ") + "</p>";
     host.innerHTML = html;
+    xfCards(host);
   }
 
   function ebCard(c, today) {

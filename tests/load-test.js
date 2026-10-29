@@ -1,7 +1,7 @@
 /**
  * The loader, including the part of it that has never run.
  *
- * All 53 modules load on the first pass today because `ROLES` lives in Auth.gs and Auth sorts
+ * All 54 modules load on the first pass today because `ROLES` lives in Auth.gs and Auth sorts
  * first in the alphabet. That is luck. One file named `Accounts.gs` with a top-level
  * `[ROLES.MANAGEMENT]` in it and the first pass stops working — and the recovery that is meant
  * to handle it would be running for the first time in front of PIE.
@@ -36,7 +36,7 @@ const FIXTURES = path.join(__dirname, 'fixtures');
 
 console.log('THE REAL PORTAL LOADS, ALL OF IT');
 const portal = loadPortal(noDb, 'boss@pie.in', { quiet: true });
-ok('all 53 modules loaded', portal.__loaded.length === 53, portal.__loaded.length);
+ok('all 54 modules loaded', portal.__loaded.length === 54, portal.__loaded.length);
 ok('and none of them queried on the way in', true);   // the fake db would have thrown
 // A spot check across the project rather than one function: a module that failed to load
 // silently would leave its names missing and nothing else would notice until a request.

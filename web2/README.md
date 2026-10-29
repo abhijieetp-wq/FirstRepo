@@ -193,6 +193,16 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   waiting; a sales engineer's desk opens with today's visits.
 - **SDR totals** on 2.0, above ERP 1's count by status: customers in the list, called, quotations
   raised (with their value), converted (with the PO value).
+- **Form fields** (`src/FormFields.gs`), Masters → Form fields, for Management: fields of PIE's
+  own on a form — text, number, date, dropdown, long text, yes / no — each optionally required and
+  a list column, in the order set, with a preview. The forms: spare enquiries, compressor leads,
+  service jobs (and the log-a-call form), customers, AMC contracts, visits and tasks. They show
+  under "More details" on the form; a required one left empty stops the save before anything is
+  written; the values are saved after the record, in their own table (`FormFieldValues`), so
+  nothing ERP 1 reads or prints changes. A list-column field is a column in the record's list (a
+  line on an enquiry-board card). Who sees and fills them follows the record. Taking a field off
+  keeps its values; adding one back under the same name brings them back. A choice since taken off
+  a dropdown, or a value from before a field's type changed, stays on the records that had it.
 
 ## The rule for each screen that moves to 2.0
 
@@ -232,6 +242,9 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   order tab, a lead's area, and ERP 1's lead form unchanged on the other faces.
 - `tests/dashboard-extras-ui-test.js`, `tests/dashboard-extras-sql-test.js` — the period, the
   enquiries raised by service engineers, today's visits, and the SDR totals.
+- `tests/form-fields-ui-test.js`, `tests/form-fields-sql-test.js` — building a form's fields,
+  each type and its checks, required fields stopping the save, values after the record, list
+  columns, who sees and fills them, removing and adding back, and none of it on the other faces.
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.

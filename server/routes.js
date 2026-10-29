@@ -37,6 +37,7 @@ const PAGES = [
   '/inventory',
   '/customers',
   '/catalog',
+  '/form-fields',
   '/settings'
 ];
 

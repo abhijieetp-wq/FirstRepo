@@ -650,6 +650,20 @@ var SCHEMA = {
       'leadId', 'visitedAt',
       'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
   },
+  FormFields: {
+    label: 'Fields Management adds to a form, without a code change (2.0 form builder)',
+    columns: ['id',
+      // enquiry, lead, service, customer, amc, visit or task (FormFields.gs).
+      'form', 'fieldKey', 'label',
+      // text, number, date, select, textarea or checkbox; a dropdown's choices one a line.
+      'type', 'options', 'isRequired', 'isListColumn', 'sortOrder',
+      // FALSE once taken off the form; the values entered stay.
+      'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
+  },
+  FormFieldValues: {
+    label: 'What was entered in those fields, a row per record and field, apart from the record itself',
+    columns: ['id', 'form', 'recordId', 'fieldKey', 'value', 'updatedAt', 'updatedBy']
+  },
 
   Invoices: {
     label: 'Invoice from order + actual dispatch, with Tally sync status (FR-048, FR-050)',

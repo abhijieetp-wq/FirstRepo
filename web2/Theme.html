@@ -429,6 +429,42 @@
   .vp-area-row input, .vp-area-row select{ height:36px; padding:0 10px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; }
   @media (max-width:900px){ .vp-form{ grid-template-columns:1fr; } }
 
+  /* ---- form fields: Management's own fields on a form (JavaScript.html, 2.0 only) ---- */
+  .xf-sec{ margin:16px 0 4px; padding:14px 0 0; border-top:1px solid var(--gray-100); }
+  .xf-h{ margin:0 0 10px; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--gray-500); }
+  .xf-h .sdc-muted{ text-transform:none; letter-spacing:0; font-weight:400; }
+  .xf-grid{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; }
+  .xf-grid .field{ margin:0; }
+  .xf-grid .xf-wide{ grid-column:1 / -1; }
+  .xf-sec .field label.xf-yes{ display:flex; align-items:center; gap:8px; min-height:42px; margin:0; font-size:13.5px; font-weight:400; color:var(--gray-700); }
+  .xf-sec .field .xf-yes input[type="checkbox"]{ width:18px; height:18px; margin:0; padding:0; flex:none; accent-color:var(--brand-600); }
+  .xf-col{ white-space:nowrap; }
+  .xf-line{ display:block; margin-top:4px; font-size:11.5px; color:var(--gray-600); overflow-wrap:anywhere; }
+  .xf-builder{ display:grid; grid-template-columns:220px minmax(0, 1fr); gap:16px; align-items:start; }
+  .xf-forms{ display:flex; flex-direction:column; gap:4px; }
+  .xf-pick{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 12px; border:1px solid transparent; border-radius:var(--r-sm);
+    background:none; font:inherit; font-size:13.5px; text-align:left; color:var(--gray-700); cursor:pointer; }
+  .xf-pick:hover{ background:var(--gray-50); }
+  .xf-pick.on{ border-color:var(--brand-200); background:var(--brand-50); color:var(--gray-900); font-weight:600; }
+  .xf-head{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .xf-head h3{ margin:0; font-size:16px; }
+  /* Fixed widths but the two names: each row is its own grid, and they have to line up. */
+  .xf-row{ display:grid; grid-template-columns:minmax(0, 1.4fr) 130px minmax(0, 1.4fr) 76px 76px 132px; gap:8px; align-items:center; margin-bottom:6px; }
+  .xf-row-h span:nth-child(4), .xf-row-h span:nth-child(5){ text-align:center; }
+  .xf-row input:not([type="checkbox"]), .xf-row select{ height:36px; padding:0 10px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; font-size:13.5px; min-width:0; }
+  .xf-row-h{ font-size:11.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--gray-500); }
+  .xf-tick{ display:flex; justify-content:center; }
+  .xf-acts{ display:flex; gap:4px; }
+  .xf-foot{ display:flex; align-items:center; gap:8px; margin-top:12px; }
+  .xf-preview{ margin-top:18px; }
+  @media (max-width:900px){
+    .xf-grid{ grid-template-columns:1fr; }
+    .xf-builder{ grid-template-columns:1fr; }
+    .xf-forms{ flex-direction:row; flex-wrap:wrap; }
+    .xf-row{ grid-template-columns:1fr 1fr; }
+    .xf-row-h{ display:none; }
+  }
+
   /* ---- what 2.0 adds to the shell (web2/Shell.html) ---- */
   .brand-text h1#app-name{ display:flex; align-items:center; min-width:0; }
   .brand-text h1 .v2-name{ display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;

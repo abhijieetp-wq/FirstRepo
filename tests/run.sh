@@ -112,6 +112,10 @@ run_ui "board-extras-ui-test.js (2.0)" tests/board-extras-ui-test.js "$tmp/base-
 run_ui "dashboard-extras-ui-test.js (classic)" tests/dashboard-extras-ui-test.js "$tmp/base.html"
 run_ui "dashboard-extras-ui-test.js (new design)" tests/dashboard-extras-ui-test.js "$tmp/base-web.html"
 run_ui "dashboard-extras-ui-test.js (2.0)" tests/dashboard-extras-ui-test.js "$tmp/base-v2.html"
+# And the form builder: fields of your own on each form.
+run_ui "form-fields-ui-test.js (classic)" tests/form-fields-ui-test.js "$tmp/base.html"
+run_ui "form-fields-ui-test.js (new design)" tests/form-fields-ui-test.js "$tmp/base-web.html"
+run_ui "form-fields-ui-test.js (2.0)" tests/form-fields-ui-test.js "$tmp/base-v2.html"
 
 echo
 [ $fail -eq 0 ] && echo "all suites passed" || echo "SOME SUITES FAILED"
