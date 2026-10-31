@@ -4,10 +4,11 @@ The portal has two faces over the same markup and the same behaviour:
 
 | face | who serves it | files |
 |---|---|---|
-| **new design** | the Node server (`server/index.js`) | `src/Index.html` + `src/JavaScript.html`, dressed by `web/Stylesheet.html`, extended by `web/Shell.html` |
+| **new design** (ERP 1) | the Node server with `ERP_UI=web`, or `?look=1` in one browser | `src/Index.html` + `src/JavaScript.html`, dressed by `web/Stylesheet.html`, extended by `web/Shell.html` |
 | **classic** | Apps Script — and the Node server with `ERP_UI=classic` | `src/` only |
 
-`server/page.js` assembles both. The design lives here rather than in `src/` because
+`server/page.js` assembles both. The Node server opens on ERP 2.0 by default, which is this
+design with `web2/` laid over it — see `web2/README.md`. The design lives here rather than in `src/` because
 `clasp push` pushes `src/` and nothing else (`.clasp.json` → `rootDir: "src"`). So the
 live Apps Script portal stays on the classic look however often `clasp push` runs, until
 the cutover — it is a property of where the files are, not something to remember.
@@ -21,8 +22,9 @@ the split sign-in screen, the command palette. Nineteen of its custom properties
 name from `src/JavaScript.html`; the list is at the top of the file.
 
 **`Shell.html`** — what a stylesheet cannot do alone. It adds icons, section labels, the
-breadcrumb, the command palette (`Ctrl K`), the phone drawer, the sidebar fold, the
-sign-in panel, and the class that pins each form's buttons to the bottom of its sheet. It
+breadcrumb, the command palette (`Ctrl K`), the phone drawer, the sidebar fold, the switch
+between ERP 1 and ERP 2.0 at the foot of the menu, the sign-in panel, and the class that pins
+each form's buttons to the bottom of its sheet. It
 reaches the portal only through the DOM — it presses the same buttons a person presses and
 watches for the menu and the dashboard being drawn — and every part is wrapped so a fault
 costs a decoration, never a screen.
@@ -49,7 +51,7 @@ file it falls back to system fonts.
 
 - `tests/shell-ui-test.js` — everything the shell adds, in Chromium.
 - `tests/portal-ui-test.js` — the portal's behaviour; `tests/run.sh` runs it against both faces.
-- `tests/server-test.js` — the server serves the new face by default and the classic one when switched.
+- `tests/server-test.js` — the server serves 2.0 by default, this face with `ERP_UI=web`, and the classic one when switched.
 - `tests/browser-server-test.js` — signing in against the real server, with every font fetched from its own origin.
 
 Icons are [Lucide](https://lucide.dev) path data (ISC licence), embedded in `Shell.html`.

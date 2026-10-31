@@ -4,13 +4,15 @@
  * only (server/page.js).
  *
  * Like web/Shell.html it reaches the portal only through the DOM and changes no behaviour:
- * every screen, button, permission and document is JavaScript.html's. So far it does three
+ * every screen, button, permission and document is JavaScript.html's. So far it does two
  * things:
  *
  *   - names the Service Due Calls screen "SDR", as PIE asked for 2.0: in the menu, on the
  *     screen's heading, in the breadcrumb and in the browser tab;
- *   - marks the app's name "2.0";
- *   - puts a way back to the current look at the foot of the menu, for anyone previewing.
+ *   - marks the app's name "2.0".
+ *
+ * The switch to ERP 1 at the foot of the menu is web/Shell.html's, which draws the same switch
+ * the other way round on ERP 1.
  *
  * Every part is wrapped, as in web/Shell.html, so a fault here costs a decoration and never a
  * screen. What 2.0 changes in how a screen is worked (the SDR rows) is JavaScript.html's, behind
@@ -96,16 +98,6 @@
     }
   }
 
-  function addWayBack() {
-    var bar = document.querySelector(".topbar");
-    if (!bar || document.querySelector(".v2-back")) return;
-    var a = document.createElement("a");
-    a.className = "v2-back";
-    a.href = "?look=web";
-    a.textContent = "Back to the current look";
-    bar.appendChild(a);
-  }
-
   var pending = false;
   function soon() {
     if (pending) return;
@@ -127,7 +119,6 @@
     if (name) new MutationObserver(soon).observe(name, { childList: true });
     var title = document.querySelector("title");
     if (title) new MutationObserver(soon).observe(title, { childList: true, characterData: true, subtree: true });
-    addWayBack();
     soon();
   });
 

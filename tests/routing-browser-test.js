@@ -64,7 +64,9 @@ const ok = (label, cond, detail) => {
     await db.updateRowById('Users', 'id', id, { mustChangePassword: 'FALSE' }, 'test reaches the portal');
   }
 
-  const server = build({ db, tenant: TENANT });
+  // ERP 1's look, named: the steps below read ERP 1's screens and titles (its quotations list
+  // with the full numbers, its Dashboard). The website opens on 2.0 now.
+  const server = build({ db, tenant: TENANT, ui: 'web' });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = 'http://127.0.0.1:' + server.address().port;
 

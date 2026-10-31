@@ -11,13 +11,15 @@
  *
  *   'web'      src/Index.html and src/JavaScript.html, dressed by web/Stylesheet.html and
  *              extended by web/Shell.html — the sidebar, the icons, the command palette.
- *              This is what the Node server serves.
+ *              ERP 1: what the Node server serves with ERP_UI=web, or to one browser
+ *              that switched to it.
  *   'classic'  src/ and nothing else: byte for byte what Apps Script serves. Kept so the new
  *              design can be switched off with one environment variable if it ever has to be.
- *   'v2'       ERP 2.0's look: the 'web' face with web2/Theme.html after its stylesheet and
- *              web2/Shell.html after its shell. Still the same markup and behaviour — every
- *              screen, rule, import and printed document is ERP 1's — so 2.0 can be looked at,
- *              and switched on and off, without anything underneath changing.
+ *   'v2'       ERP 2.0's look, and what the Node server serves by default: the 'web' face with
+ *              web2/Theme.html after its stylesheet and web2/Shell.html after its shell. Still
+ *              the same markup and behaviour — every screen, rule, import and printed document
+ *              is ERP 1's — so either look can be switched to without anything underneath
+ *              changing.
  *
  * The new design lives in web/ rather than src/ for one reason: clasp pushes src/ and only
  * src/. Nothing in web/ can reach the live Apps Script portal by accident, which is what makes

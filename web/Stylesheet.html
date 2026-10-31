@@ -205,6 +205,16 @@
   .nav-collapse .ico{ width:14px; height:14px; stroke-width:2.2; transform:rotate(180deg);
     transition:transform .25s var(--ease); }
   html.sidebar-collapsed .nav-collapse .ico{ transform:none; }
+
+  /* The switch between ERP 1 and ERP 2.0 at the foot of the menu (web/Shell.html). Its
+     colours are the theme's own tokens, so 2.0 draws it in its green and lime. */
+  .look-switch{ display:flex; align-items:center; justify-content:center; gap:8px; flex-shrink:0;
+    margin:8px 8px 0; padding:7px 10px; border-radius:6px;
+    font:500 12px/1.3 var(--font-sans); color:var(--night-200) !important;
+    text-decoration:none !important; border:1px dashed rgba(255,255,255,.18);
+    transition:color .15s, border-color .15s; }
+  .look-switch:hover, .look-switch:focus-visible{ color:#fff !important; border-color:var(--brand-400); }
+  .look-switch .ico{ width:15px; height:15px; flex:none; }
   .topbar{ transition:width .28s var(--ease); }
   #app{ transition:padding-left .28s var(--ease); }
 
@@ -940,6 +950,8 @@
       font-size:0; background:rgba(255,255,255,.08); }
     .whoami{ flex-direction:column; gap:8px; padding:12px 0 6px; margin:6px 0 0; }
     .user-meta{ display:none; }
+    .look-switch{ margin:8px 0 0; padding:8px 0; }
+    .look-switch span{ display:none; }
     .ws-search{ width:220px; }
     .nav-collapse{ display:none; }
   }
@@ -956,6 +968,8 @@
       font-size:0; background:rgba(255,255,255,.08); }
     html.sidebar-collapsed .whoami{ flex-direction:column; gap:8px; padding:12px 0 6px; margin:6px 0 0; }
     html.sidebar-collapsed .user-meta{ display:none; }
+    html.sidebar-collapsed .look-switch{ margin:8px 0 0; padding:8px 0; }
+    html.sidebar-collapsed .look-switch span{ display:none; }
   }
   /* A short screen — the 768-pixel laptop is common in an office — gets a tighter menu
      before it has to scroll. */

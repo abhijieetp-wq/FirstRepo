@@ -4,20 +4,27 @@ ERP 2.0 is a third face of the same portal, built screen by screen over ERP 1:
 
 | face | files |
 |---|---|
-| **2.0** (`v2`) | `web/Stylesheet.html` + **`web2/Theme.html`**, `src/JavaScript.html`, `web/Shell.html` + **`web2/Shell.html`** |
-| new design (`web`, the default) | `web/Stylesheet.html`, `src/JavaScript.html`, `web/Shell.html` |
+| **2.0** (`v2`, the default) | `web/Stylesheet.html` + **`web2/Theme.html`**, `src/JavaScript.html`, `web/Shell.html` + **`web2/Shell.html`** |
+| ERP 1, the new design (`web`) | `web/Stylesheet.html`, `src/JavaScript.html`, `web/Shell.html` |
 | classic | `src/` only — what Apps Script serves |
 
 Same markup, same behaviour, same server. Every screen, rule, permission, bulk import and
 printed or e-mailed quotation is ERP 1's own; 2.0 changes how it looks and, screen by screen
 from here, how it is laid out. Nothing in `web2/` can reach Apps Script (`clasp` pushes `src/`).
 
-## Switching it on
+## Which look the website opens on
 
-- **One browser:** add `?look=2` to any address. That browser keeps 2.0 until `?look=web`
-  (back to the new design) or `?look=default` (whatever the server serves everyone). Nobody
-  else's screen changes. The menu has a "Back to the current look" link at its foot.
-- **Everyone:** `ERP_UI=v2`. Unset it to go back. No deployment of code either way.
+2.0. Nothing needs setting for that.
+
+- **One browser:** the switch at the foot of the menu — "Switch to ERP 1" on 2.0, "Switch to
+  ERP 2.0" on ERP 1 (`web/Shell.html`). It is a link to `?look=1` or `?look=2`, which works on
+  any address too, and that browser keeps its choice until it switches again or opens
+  `?look=default` (whatever the server serves everyone). Nobody else's screen changes.
+- **Everyone:** `ERP_UI=web` puts ERP 1 in front for everybody; unset it to go back to 2.0.
+  No deployment of code either way.
+- A choice made before 2.0 became the default (the old "Back to the current look" link, cookie
+  `erp_look`) is not kept: every browser opens on 2.0 once after the change. The choice is
+  kept in `erp_look_v2` now.
 
 ## What is in each file
 
@@ -28,7 +35,8 @@ full. The nineteen custom-property names `JavaScript.html` reads keep their name
 
 **`Shell.html`** — runs after `web/Shell.html`, through the DOM only, like it. Today: names the
 Service Due Calls screen **SDR** (menu, heading, breadcrumb, browser tab, command palette),
-marks the app's name "2.0", and adds the way back.
+and marks the app's name "2.0". The switch to ERP 1 is `web/Shell.html`'s, the same switch ERP 1
+shows the other way round.
 
 **`src/JavaScript.html`, behind `FACE_V2`** — the few ways of working only 2.0 has, where
 going through the DOM alone would not do. The server marks the page `<html data-face="v2">`
@@ -300,4 +308,6 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.
-- `tests/server-test.js` — `ERP_UI=v2`, `?look=`, and the cookie.
+- `tests/server-test.js` — 2.0 served by default, `ERP_UI=web`, `?look=`, and the cookie.
+- `tests/shell-ui-test.js`, `tests/v2-ui-test.js` — the switch at the foot of the menu, on
+  ERP 1 and on 2.0, and none on the classic face.

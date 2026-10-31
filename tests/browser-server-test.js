@@ -73,7 +73,10 @@ const ok = (label, cond, detail) => {
   await db.updateRowById('Users', 'id', 'USR-1', { mustChangePassword: 'FALSE' },
     'so the test reaches the portal rather than the password screen');
 
-  const server = build({ db, tenant: TENANT });
+  // ERP 1's look, named: the steps below read ERP 1's screens (its Control Tower first, its
+  // quotations list with the full numbers). The website opens on 2.0 now, whose screens are
+  // checked against the same fixtures by the *-ui-test.js suites on the 2.0 face.
+  const server = build({ db, tenant: TENANT, ui: 'web' });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = 'http://127.0.0.1:' + server.address().port;
 

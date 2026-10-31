@@ -11,6 +11,7 @@
  *   - a bar across the top of the workspace: where you are, search, today's date
  *   - a command palette — Ctrl K — to jump to any screen or start the common jobs
  *   - the sidebar as a drawer on a phone
+ *   - a switch between ERP 1 and ERP 2.0 at the foot of the menu
  *   - a sign-in screen that says whose system this is
  *
  * It reaches the portal only through the DOM: it never calls a function inside
@@ -74,6 +75,8 @@
     timer: "<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\"/><line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\"/><circle cx=\"12\" cy=\"14\" r=\"8\"/>",
     file: "<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>",
     arrow: "<path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/>",
+    // The switch between ERP 1 and ERP 2.0: Lucide "arrow-left-right".
+    swap: "<path d=\"m16 3 4 4-4 4\"/><path d=\"M20 7H4\"/><path d=\"m8 21-4-4 4-4\"/><path d=\"M4 17h16\"/>",
     sparkles: "<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>",
     gauge: "<path d=\"m12 14 4-4\"/><path d=\"M3.34 19a10 10 0 1 1 17.32 0\"/>",
     package: "<path d=\"M12 22V12\"/><path d=\"m16 17 2 2 4-4\"/><path d=\"M21 11.127V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l1.32-.753\"/><path d=\"M3.29 7 12 12l8.71-5\"/><path d=\"m7.5 4.27 8.997 5.148\"/>",
@@ -308,6 +311,35 @@
       apply(folded);
       try { window.localStorage.setItem(KEY, folded ? "1" : "0"); } catch (e) { /* not kept */ }
     });
+  }
+
+  /**
+   * The way between ERP 1 and ERP 2.0, at the foot of the menu.
+   *
+   * The website opens on 2.0, and while the two run side by side ERP 1 is one click away —
+   * and 2.0 one click back. Each is a link to the server's ?look=, which this browser then
+   * keeps (server/index.js); nobody else's screen changes. The link changes only the
+   * address's query, so the screen being looked at opens again in the other look.
+   *
+   * Only these two faces have it. The classic face does not load this file, and Apps Script
+   * marks no face at all.
+   */
+  function buildLookSwitch() {
+    var topbar = document.querySelector("#app .topbar");
+    if (!topbar || $("look-switch")) return;
+    var face = document.documentElement.getAttribute("data-face");
+    var to = face === "v2" ? { look: "1", label: "Switch to ERP 1" }
+      : face === "web" ? { look: "2", label: "Switch to ERP 2.0" } : null;
+    if (!to) return;
+    var a = document.createElement("a");
+    a.id = "look-switch";
+    a.className = "look-switch";
+    a.href = "?look=" + to.look;
+    // Named on hover and to a screen reader, because a folded menu shows the icon alone.
+    a.title = to.label;
+    a.setAttribute("aria-label", to.label);
+    a.innerHTML = svg("swap") + "<span>" + esc(to.label) + "</span>";
+    topbar.appendChild(a);
   }
 
   // ------------------------------------------------------------------ headings and buttons
@@ -609,6 +641,7 @@
 
   safely("bar", buildBar);
   safely("collapse", buildCollapse);
+  safely("look switch", buildLookSwitch);
   safely("headings", decoratePageHeads);
   safely("buttons", decorateButtons);
   safely("subtabs", decorateSubtabs);

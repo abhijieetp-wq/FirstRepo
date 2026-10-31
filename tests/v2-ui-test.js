@@ -79,8 +79,14 @@ const ok = (label, cond, detail) => {
   console.log('\nTHE MARK AND THE WAY BACK');
   ok('"2.0" beside the app’s name', (await text('#app-name .v2-tag')) === '2.0');
   ok('the name itself is the company’s', /ELGi Sales ERP/.test(await text('#app-name')), await text('#app-name'));
-  const back = await page.evaluate(() => { const a = document.querySelector('.topbar .v2-back'); return a ? { href: a.getAttribute('href'), t: a.textContent } : null; });
-  ok('a way back to the current look at the foot of the menu', back && back.href === '?look=web' && /current look/.test(back.t), back);
+  const back = await page.evaluate(() => {
+    const a = document.querySelector('.topbar #look-switch');
+    return a ? { href: a.getAttribute('href'), t: a.textContent.trim(), last: a === a.parentNode.lastElementChild,
+      icon: !!a.querySelector('svg'), seen: a.offsetParent !== null } : null;
+  });
+  ok('a switch to ERP 1 at the foot of the menu', back && back.href === '?look=1' && back.t === 'Switch to ERP 1' &&
+    back.last && back.icon && back.seen, back);
+  ok('and only the one', (await page.$$('#look-switch, .v2-back')).length === 1);
 
   console.log('\nNOTHING OF ERP 1 IS LOST UNDER IT');
   await go('catalog');

@@ -182,7 +182,7 @@ Open `https://your-address/health`. You should see:
 {
   "ok": true,
   "build": "2026-10-17.5",
-  "look": "web",
+  "look": "v2",
   "database": "4ms",
   "attachments": { "state": "ok", "dir": "/data/files/pie", "held": 0 },
   "pdfs":        { "state": "ok", "chromium": "/usr/bin/chromium" },

@@ -15,7 +15,7 @@ variable until it is set — nothing fails silently.
 | `DATABASE_URL` | required; Neon's non-pooled string |
 | `PORT` | default 3000 |
 | `TENANT_ID` | default `pie` |
-| `ERP_UI` | `classic` serves what Apps Script serves; omit for the new design |
+| `ERP_UI` | omit for ERP 2.0, the default; `web` serves ERP 1 (the new design) to everyone, `classic` what Apps Script serves |
 | `ERP_BASE_URL` | what this server calls itself, e.g. `https://erp.pie.in`. Needed for the Google sign-in, which must match a redirect URI registered with Google. Derived from the request when unset. |
 | `ERP_FILES_DIR` | where attachments go; default `var/files` beside the code |
 | `ERP_CHROMIUM` | path to Chromium, for PDFs; found automatically in the usual places |

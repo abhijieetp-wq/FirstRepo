@@ -185,12 +185,29 @@ const ok = (label, cond, detail) => {
   await page.click('#btn-cancel-enquiry');
   await page.waitForTimeout(300);
 
+  console.log('\nA SWITCH TO ERP 2.0 AT THE FOOT OF THE MENU');
+  // The website opens on 2.0; ERP 1 carries the way back to it, as 2.0 carries the way here.
+  const sw = await page.evaluate(() => {
+    const a = document.querySelector('.topbar #look-switch');
+    return a ? { href: a.getAttribute('href'), t: a.textContent.trim(), title: a.title,
+      last: a === a.parentNode.lastElementChild, icon: !!a.querySelector('svg') } : null;
+  });
+  ok('there, named, pointing at 2.0', sw && sw.href === '?look=2' && sw.t === 'Switch to ERP 2.0' &&
+    sw.title === 'Switch to ERP 2.0', sw);
+  ok('below everything else in the menu, with its icon', sw && sw.last && sw.icon, sw);
+  const swBox = await box(page, '#look-switch');
+  ok('inside the sidebar, at its foot', swBox.x >= 0 && swBox.x + swBox.w <= side.w &&
+    swBox.y + swBox.h <= 900 && swBox.y > 900 - 160, swBox);
+
   console.log('\nTHE SIDEBAR FOLDS AWAY, AND STAYS FOLDED');
   await page.click('#nav-collapse');
   await page.waitForTimeout(450);
   let w = (await box(page, '.topbar')).w;
   ok('one click folds it to its icons', w <= 80, w);
   ok('and the workspace takes the room', (await box(page, '.container')).x < 200);
+  const folded = await box(page, '#look-switch');
+  ok('the switch folds to its icon, still inside the sidebar', folded.w > 0 && folded.x + folded.w <= w &&
+    !(await page.$eval('#look-switch span', (s) => s.offsetParent !== null)), folded);
   await ctx.close();
   // A fresh page in the same browser profile would remember; a new context is a new
   // browser, so this re-opens with the stored value carried in by hand.
@@ -248,10 +265,11 @@ const ok = (label, cond, detail) => {
       bar: !!document.getElementById('ws-bar'),
       icons: document.querySelectorAll('.page-ico, .nav-ico').length,
       palette: !!document.getElementById('cmdk'),
-      ready: document.documentElement.classList.contains('shell-ready')
+      ready: document.documentElement.classList.contains('shell-ready'),
+      look: !!document.getElementById('look-switch')
     }));
-    ok('no shell, no icons, no palette — exactly what Apps Script serves',
-      !classic.bar && classic.icons === 0 && !classic.palette && !classic.ready, classic);
+    ok('no shell, no icons, no palette, no switch — exactly what Apps Script serves',
+      !classic.bar && classic.icons === 0 && !classic.palette && !classic.ready && !classic.look, classic);
     await page.keyboard.press('Control+k');
     await page.waitForTimeout(150);
     ok('and Ctrl K does nothing there', !(await page.$('#cmdk')));
