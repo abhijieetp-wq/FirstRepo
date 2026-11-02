@@ -229,8 +229,8 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   visit and how often it moved, status). A row opens the same job window. Engineer reports is the
   calls whose report is in, waiting for the coordinator. A service engineer sees their own calls.
 - **The menu as the 2.0 demo lays it out**: Dashboard; Sales (Compressor Sales, Spare Sales, SDR,
-  Visit Plans); Quotations (All Quotations, Quotation Progress); Service (Service Desk, AMC & Dues,
-  Next-day Plan); Orders & money (Sales Orders, Dispatch & Billing, Collections, Inventory);
+  Visit Plans); Quotations (All Quotations, Quotation Progress); Service (Service Desk, AMC & Dues —
+  the next-day plan is a tab of the Service Desk, as in the demo, and its address still works); Orders & money (Sales Orders, Dispatch & Billing, Collections, Inventory);
   Management (Tasks, Escalations, Leads by Engineer, Service Engineers); Setup (Customers,
   Catalogue, Form Fields, Settings). Same screens and the same rules for who sees them.
 - **Form fields** (`src/FormFields.gs`), Masters → Form fields, for Management: fields of PIE's

@@ -219,11 +219,21 @@
   var lastView = null;
   var visited = {};
 
+  function tabsHave(view) { return !!document.querySelector('#tabs [data-view="' + view + '"]'); }
+
   function syncPlace() {
     var leaf = document.querySelector("#tabs [data-view].active");
     if (!leaf) return;
     var v = leaf.dataset.view;
     var name = labelOf(leaf);
+    // A screen reached from inside another rather than from the menu (2.0's next-day plan, a tab
+    // of the Service Desk): the menu lights the screen it belongs to; the breadcrumb names it.
+    var open = document.querySelector(".view.active");
+    var on = open ? open.id.replace(/^view-/, "") : "";
+    if (on && on !== v && !tabsHave(on)) {
+      var h = open.querySelector(".page-head h2");
+      if (h && h.textContent.trim()) { v = on; name = h.textContent.trim(); }
+    }
     var section = SECTION[v] || "";
     var sec = $("ws-crumb-section");
     var page = $("ws-crumb-page");
@@ -622,6 +632,15 @@
       tabsWatch.observe(tabs, { childList: true });
       new MutationObserver(soon(syncPlace))
         .observe(tabs, { subtree: true, attributes: true, attributeFilter: ["class"] });
+      // A screen opened without the menu changing (one with no line of its own) still renames
+      // the breadcrumb: the screens' own "active" class is watched too.
+      var screens = document.querySelector(".view") && document.querySelector(".view").parentNode;
+      if (screens) {
+        var sync = soon(syncPlace);
+        new MutationObserver(function (list) {
+          if (list.some(function (m) { return m.target.classList && m.target.classList.contains("view"); })) sync();
+        }).observe(screens, { subtree: true, attributes: true, attributeFilter: ["class"] });
+      }
       // Capture phase: the menu's own handler stops the click from going any further.
       tabs.addEventListener("click", function (e) {
         if (e.target.closest && e.target.closest("[data-view]")) closeNav();

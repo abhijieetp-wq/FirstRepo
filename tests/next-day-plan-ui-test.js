@@ -83,11 +83,18 @@ const ok = (label, cond, detail) => {
         serviceStatuses: ['Unassigned', 'Assigned', 'Scheduled', 'In Progress', 'Completed', 'Cancelled'] };
     });
 
-    console.log('THE PLAN IN THE MENU, ON ITS OWN SCREEN');
-    ok('in the menu', !!(await page.$('#tabs [data-view="plan"]')));
-    await page.evaluate(() => { window.__calls = []; document.querySelector('#tabs [data-view="plan"]').click(); });
+    console.log('THE PLAN, A TAB OF THE SERVICE DESK, ON ITS OWN SCREEN');
+    ok('not a line of the menu, as in the demo', !(await page.$('#tabs [data-view="plan"]')));
+    await page.evaluate(() => document.querySelector('#tabs [data-view="service"]').click());
     await page.waitForTimeout(500);
-    ok('opens', (await active()) === 'view-plan');
+    await page.evaluate(() => { window.__calls = []; document.querySelector('#view-service [data-sdv-tab="plan"]').click(); });
+    await page.waitForTimeout(500);
+    ok('opens from the Service Desk’s tab', (await active()) === 'view-plan');
+    ok('the menu lights the Service Desk; the breadcrumb names the plan', await page.evaluate(() => {
+      const lit = document.querySelector('#tabs [data-view].active');
+      const crumb = document.getElementById('ws-crumb-page');
+      return !!lit && lit.dataset.view === 'service' && (!crumb || /Next-day plan/i.test(crumb.textContent));
+    }));
     ok('on tomorrow, unless another day is asked for', JSON.stringify(await lastCall('getNextDayPlan')) === '[{}]' &&
       await page.inputValue('#np-date') === await page.evaluate(() => window.__plus(1)) &&
       await page.$eval('[data-np-plus="1"]', (b) => b.classList.contains('on')));

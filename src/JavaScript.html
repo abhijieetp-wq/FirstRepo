@@ -269,6 +269,9 @@
     var names = { servicedue: "SDR", visits: "Visit Plans", service: "Service Desk", amc: "AMC & Dues", catalog: "Catalogue",
       engineers: "Leads by Engineer", engreport: "Service Engineers", formfields: "Form Fields", plan: "Next-day Plan" };
     Object.keys(names).forEach(function (v) { if (by[v]) by[v].label = names[v]; });
+    // The next-day plan is a tab of the Service Desk (and its "Tomorrow's plan"), as in the
+    // demo, not a line of the menu. Its screen and address stay.
+    if (by.plan) by.plan.menuV2 = false;
     var group = function (label, views) {
       return { label: label, children: views.map(function (v) { return by[v]; }).filter(Boolean) };
     };
@@ -645,13 +648,16 @@
     document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
     $("view-" + view).classList.add("active");
 
-    // A group heading lights up when the screen you are on lives inside it.
+    // A group heading lights up when the screen you are on lives inside it. A screen with no
+    // line of its own in the menu lights the one it is reached from (2.0's next-day plan, a
+    // tab of the Service Desk).
+    var lit = FACE_V2 && view === "plan" ? "service" : view;
     document.querySelectorAll("#tabs .tab-btn").forEach(function (b) {
-      var owns = (b.dataset.views || "").split(",").indexOf(view) !== -1;
+      var owns = (b.dataset.views || "").split(",").indexOf(lit) !== -1;
       b.classList.toggle("active", owns);
     });
     document.querySelectorAll(".nav-menu button").forEach(function (b) {
-      b.classList.toggle("active", b.dataset.view === view);
+      b.classList.toggle("active", b.dataset.view === lit);
     });
 
     // The address first, then the screen: a screen that changes its own address as it draws
