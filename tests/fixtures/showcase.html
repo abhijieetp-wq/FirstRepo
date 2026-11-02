@@ -124,8 +124,12 @@
     return { id: "SP-" + (i + 1), partNo: r[0], description: r[1], productGroup: r[2],
       category: r[3], uom: r[4], price: r[5], onHand: r[6], reserved: r[7],
       available: r[6] - r[7], active: "TRUE", hsnCode: "84149090", alternates: [],
-      compatibility: [] };
+      compatibility: [], gstPct: 18 };
   });
+  // One accessory sold with a machine: a part with a specification table (2.0's Accessories tab).
+  SPARES.push({ id: "SP-11", partNo: "TXD-300", description: "Refrigerated air dryer", productGroup: "Accessories", category: "Dryer", uom: "Nos",
+    price: 168000, onHand: 1, reserved: 0, available: 1, active: "TRUE", hsnCode: "84193900", alternates: [], compatibility: [], gstPct: 18,
+    specTitle: "TX Air Dryer 300", specCapacity: "300 cfm", specWorkingPressure: "7 to 13 bar" });
 
   var ORDERS = [
     { id: "SO-1", orderNo: "SO2610-0042", date: "2026-10-16", customerName: C[6].name,
@@ -332,6 +336,17 @@
     listCustomers: function () { return CUSTOMERS; },
     listQuotations: function () { return QUOTATIONS; },
     listSpares: SPARES,
+    // Compressors for 2.0's Catalogue (Products.gs). Invented figures, not ELGi's price list.
+    listProducts: [
+      { id: "PR-1", productCode: "EG22-8", model: "EG 22", family: "EG", series: "EG", description: "Oil-lubricated screw compressor, 22 kW",
+        motorKw: "22", capacityCfm: "128", maxPressure: "8", hsnCode: "84148011", price: 685000, piePrice: 598000, available: 1, dimensionsMm: "1550 x 900 x 1500", active: "TRUE" },
+      { id: "PR-2", productCode: "EG37-10", model: "EG 37", family: "EG", series: "EG", description: "Oil-lubricated screw compressor, 37 kW",
+        motorKw: "37", capacityCfm: "196", maxPressure: "10", hsnCode: "84148011", price: 1090000, piePrice: 948000, available: 2, dimensionsMm: "1800 x 1000 x 1650", active: "TRUE" },
+      { id: "PR-3", productCode: "EN75-8", model: "EN 75", family: "EN", series: "EN", description: "Oil-free screw compressor, 75 kW",
+        motorKw: "75", capacityCfm: "430", maxPressure: "8", hsnCode: "84148011", price: 2650000, piePrice: 2310000, available: 0, active: "TRUE" },
+      { id: "PR-4", productCode: "TS10-12", model: "TS 10 LB-12", family: "TS", series: "TS", description: "Reciprocating compressor, 7.5 kW",
+        motorKw: "", capacityCfm: "", maxPressure: "", fad: "28", workingPressure: "12", hsnCode: "84148019", price: 186000, piePrice: 161000, available: 3, active: "TRUE" }
+    ],
     listSalesOrders: ORDERS,
     listPeople: { salesEngineers: [{ email: "kiran@pie.in", name: "Kiran Patil" },
       { email: "neha@pie.in", name: "Neha Rao" }],

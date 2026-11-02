@@ -100,6 +100,14 @@ run_ui "quote-builder-v2-ui-test.js (2.0)" tests/quote-builder-v2-ui-test.js "$t
 run_ui "inventory-v2-ui-test.js (classic)" tests/inventory-v2-ui-test.js "$tmp/show-classic.html"
 run_ui "inventory-v2-ui-test.js (new design)" tests/inventory-v2-ui-test.js "$tmp/show.html"
 run_ui "inventory-v2-ui-test.js (2.0)" tests/inventory-v2-ui-test.js "$tmp/show-v2.html"
+# Customers, as the 2.0 demo draws it.
+run_ui "customers-v2-ui-test.js (classic)" tests/customers-v2-ui-test.js "$tmp/show-classic.html"
+run_ui "customers-v2-ui-test.js (new design)" tests/customers-v2-ui-test.js "$tmp/show.html"
+run_ui "customers-v2-ui-test.js (2.0)" tests/customers-v2-ui-test.js "$tmp/show-v2.html"
+# The Catalogue, as the 2.0 demo draws it.
+run_ui "catalog-v2-ui-test.js (classic)" tests/catalog-v2-ui-test.js "$tmp/show-classic.html"
+run_ui "catalog-v2-ui-test.js (new design)" tests/catalog-v2-ui-test.js "$tmp/show.html"
+run_ui "catalog-v2-ui-test.js (2.0)" tests/catalog-v2-ui-test.js "$tmp/show-v2.html"
 # So is the dashboard per person; the showcase adds Management's view of the team.
 run_ui "person-dashboard-ui-test.js (classic)" tests/person-dashboard-ui-test.js "$tmp/base.html"
 run_ui "person-dashboard-ui-test.js (new design)" tests/person-dashboard-ui-test.js "$tmp/base-web.html"

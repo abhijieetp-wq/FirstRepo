@@ -220,6 +220,13 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **The Catalogue as the 2.0 demo draws it**: Compressors, Accessories (the spares with a
+  specification table: dryers, filters, receivers) and Spares (every spare) as tabs, opening on
+  Compressors; "Pick by need" (air in cfm and pressure in bar, up to 45% headroom) beside ERP 1's
+  Find by flow & pressure; and the demo's columns — model, kW, air, bar, the ELGi price (sell), the
+  PIE price (cost, Management and the ERP Admin only), HSN, GST, stock, and whether a compressor's
+  specification is in. ERP 1's search, compare, delete, bulk upload ("Import price list"), paging
+  and item window work as before.
 - **Customers as the 2.0 demo draws it**: search by name, code, GSTIN, a contact's phone or city;
   segment (ERP 1's Industry), salesperson and Has overdue dues; and a table of code, customer (city,
   segment, "no GSTIN yet"), machines, salesperson, what is owed (red when overdue; only for whoever
@@ -345,6 +352,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/catalog-v2-ui-test.js` — the three tabs and their columns, Pick by need, ERP 1's search
+  and item window underneath; ERP 1's two buttons on the other faces.
 - `tests/customers-v2-ui-test.js`, `tests/customer-summaries-sql-test.js` — the list, its search and
   filters, a row opening the record; and on the server the machines, dues and open items per
   customer, by desk and by who may see money.

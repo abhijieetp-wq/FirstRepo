@@ -122,6 +122,8 @@ const ok = (label, cond, detail) => {
 
   console.log('\nTHE CATALOGUE SAYS HOW MUCH IS IN IT');
   await page.evaluate(() => document.querySelector('[data-view="catalog"]').click());
+  // 2.0 opens on Compressors, as the demo does; the spares are a tab.
+  await page.evaluate(() => { const t = document.querySelector('#catv-tabs [data-catv-tab="spares"]'); if (t) t.click(); });
   await page.waitForTimeout(600);
 
   const countText = () => page.$eval('#catalog-count', (e) => e.textContent.trim());

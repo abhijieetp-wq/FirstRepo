@@ -55,6 +55,8 @@ const ok = (label, cond, detail) => {
   console.log('A SCREENFUL IS DRAWN, AND THE COUNT IS THE WHOLE CATALOGUE');
   const t0 = Date.now();
   await page.evaluate(() => document.querySelector('[data-view="catalog"]').click());
+  // 2.0 opens on Compressors, as the demo does (tests/catalog-v2-ui-test.js); the spares are a tab.
+  await page.evaluate(() => { const t = document.querySelector('#catv-tabs [data-catv-tab="spares"]'); if (t) t.click(); });
   await page.waitForFunction(() => document.querySelectorAll('#catalog-tbody tr').length > 50);
   const openMs = Date.now() - t0;
   ok('the count is every spare', (await count()) === '1,200 spares', await count());

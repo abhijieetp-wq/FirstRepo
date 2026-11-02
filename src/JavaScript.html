@@ -767,6 +767,7 @@
   // allowed to see cost data — the server omits the field for everyone else.
   function catalogColumns() {
     var cost = canSeeCost();
+    if (FACE_V2) return catvColumns(cost);
     if (CATALOG_MODE === "spares") {
       return [
         { key: "partNo", label: "Part No.", cls: "mono" },
@@ -823,6 +824,7 @@
   }
 
   function initCatalogView() {
+    if (FACE_V2) catvInit();
     $("btn-new-catalog-item").style.display = canEditCatalog() ? "inline-flex" : "none";
     $("btn-bulk-upload").style.display = canRemoveFromCatalog() ? "inline-flex" : "none";
     // Only the people who can reactivate a row have any use for seeing deactivated ones.
@@ -832,6 +834,8 @@
 
   function switchCatalogMode(mode) {
     CATALOG_MODE = mode;
+    // 2.0's tab follows whichever way the list was switched.
+    if (FACE_V2) catv.tab = mode === "products" ? "units" : catv.tab === "units" ? "spares" : catv.tab;
     $("bulk-upload-panel").style.display = "none";
     compareSelection = new Set();
     syncDeleteSelected();
@@ -955,6 +959,7 @@
     var filtered = rows.filter(function (r) {
       return keys.some(function (k) { return String(r[k] || "").toLowerCase().indexOf(q) !== -1; });
     });
+    if (FACE_V2) { filtered = filtered.filter(catvKeep); catvSync(); }
 
     $("catalog-thead").innerHTML = "<tr><th class=\"checkbox-cell\"></th>" +
       cols.map(function (c) { return "<th" + (c.num ? ' class="num"' : "") + ">" + c.label + "</th>"; }).join("") +
@@ -964,15 +969,23 @@
     // reads as a catalogue of 42. Nothing at all when the list is empty — the empty state
     // below says it better, and "0 spares" twice is noise.
     var noun = CATALOG_MODE === "spares" ? "spare" : "compressor";
+    var narrowed = FACE_V2 && (catv.tab === "acc" || (catv.tab === "units" && (catv.cfm || catv.bar)));
     $("catalog-count").textContent = !rows.length ? ""
-      : filtered.length === rows.length
+      : FACE_V2 && catv.tab === "acc"
+        ? fmtInt(filtered.length) + (filtered.length === 1 ? " accessory" : " accessories") + " — spares with a specification table"
+      : filtered.length === rows.length && !narrowed
         ? fmtInt(rows.length) + " " + noun + (rows.length === 1 ? "" : "s")
         : fmtInt(filtered.length) + " of " + fmtInt(rows.length) + " " + noun + "s";
 
     if (filtered.length === 0) {
       // "No items match your search" over an empty catalogue sends people hunting for a
       // filter that is not there. Say which of the two it is.
-      var msg = rows.length
+      var msg = FACE_V2 && catv.tab === "acc" && rows.length && !q
+        ? "No accessories yet. A spare given a specification table — a dryer, a filter, a receiver — shows here."
+        : FACE_V2 && catv.tab === "units" && (catv.cfm || catv.bar) && rows.length
+        ? "No compressor gives " + (catv.cfm ? catv.cfm + " cfm" : "") + (catv.cfm && catv.bar ? " at " : "") + (catv.bar ? catv.bar + " bar" : "") +
+          " within 45% headroom. Try two smaller units, or Find by flow & pressure."
+        : rows.length
         ? "No items match your search."
         : (CATALOG_MODE === "spares"
             ? "No spares in the catalogue yet. Add one, or load a file with Bulk Upload."
@@ -988,6 +1001,7 @@
     var more = filtered.length - visible.length;
     $("catalog-tbody").innerHTML = visible.map(function (r) {
       var cells = cols.map(function (c) {
+        if (c.html) return "<td" + (c.num ? ' class="num"' : "") + ">" + c.html(r) + "</td>";
         var v = r[c.key];
         var display = c.money ? (v ? fmt(v) : "—") : (v === undefined || v === null || v === "" ? "—" : escapeHtml(v));
         return "<td" + (c.num ? ' class="num mono"' : "") + ">" + display + "</td>";
@@ -1012,6 +1026,119 @@
           fmtInt(Math.min(500, more)) + " more</button></div></td></tr>"
         : "");
     syncDeleteSelected();
+  }
+
+  // ---- ERP 2.0's Catalogue, as the 2.0 demo draws it ----
+  // Three tabs — Compressors, Accessories (spares with a specification table: dryers, filters,
+  // receivers) and Spares (every spare) — over ERP 1's own search, compare, delete, bulk upload
+  // and paging; "Pick by need" on compressors (air in cfm and pressure in bar, up to 45%
+  // headroom); and the demo's columns: the ELGi price (sell), the PIE price (cost, Management and
+  // the ERP Admin only), HSN, GST, stock, and whether a compressor has its specification.
+  var catv = { tab: "units", cfm: "", bar: "", started: false };
+
+  function catvNum(v) { var n = parseFloat(String(v === undefined || v === null ? "" : v).replace(/,/g, "")); return isNaN(n) ? null : n; }
+  function catvCfm(r) { var c = catvNum(r.capacityCfm); return c !== null ? c : catvNum(r.fad); }
+  function catvBar(r) { var b = catvNum(r.maxPressure); return b !== null ? b : catvNum(r.workingPressure); }
+  function catvMoney(v) { return v ? escapeHtml(ebMoney(v)) : "—"; }
+  function catvGst(r) { return r.gstPct === "" || r.gstPct === undefined || r.gstPct === null ? "—" : escapeHtml(r.gstPct) + "%"; }
+  function catvHsn(r) { return '<span class="mono">' + escapeHtml(r.hsnCode || "—") + "</span>"; }
+  function catvKeep(r) {
+    if (catv.tab === "acc") return !!String(r.specTitle || "").trim();
+    if (catv.tab !== "units") return true;
+    var need = catvNum(catv.cfm), bar = catvNum(catv.bar);
+    if (need) { var c = catvCfm(r); if (c === null || c < need || c > need * 1.45) return false; }
+    if (bar) { var b = catvBar(r); if (b === null || b < bar) return false; }
+    return true;
+  }
+
+  function catvColumns(cost) {
+    var pie = cost ? [{ label: "PIE price (cost)", num: true, html: function (r) { return catvMoney(r.piePrice); } }] : [];
+    if (CATALOG_MODE !== "spares") {
+      return [
+        { label: "Model", html: function (r) { return '<b class="mono">' + escapeHtml(r.model || r.productCode || "—") + "</b>" + (r.productCode && r.model ? '<br><span class="eb2-kind mono">' + escapeHtml(r.productCode) + "</span>" : ""); } },
+        { label: "Description", html: function (r) { return escapeHtml(r.description || [r.family, r.series].filter(Boolean).join(" · ") || "—"); } },
+        { label: "kW", num: true, html: function (r) { return escapeHtml(r.motorKw || "—"); } },
+        { label: "Air (cfm)", num: true, html: function (r) { var c = catvCfm(r); return c === null ? "—" : String(c); } },
+        { label: "Bar", num: true, html: function (r) { var b = catvBar(r); return b === null ? "—" : String(b); } },
+        { label: "ELGi price (sell)", num: true, html: function (r) { return catvMoney(r.price); } }
+      ].concat(pie).concat([
+        { label: "HSN", html: catvHsn },
+        { label: "Specs", html: function (r) { return (r.capacityCfm || r.motorKw || r.dimensionsMm) ? ebChip("Spec sheet", "good") : ebChip("Missing", "sig"); } },
+        { label: "In stock", num: true, html: function (r) { return r.available === undefined || r.available === null ? "—" : String(r.available); } }
+      ]);
+    }
+    if (catv.tab === "acc") {
+      return [
+        { label: "Item", html: function (r) { return '<span class="mono">' + escapeHtml(r.partNo || "—") + "</span>"; } },
+        { label: "Description", html: function (r) { return "<b>" + escapeHtml(r.specTitle || r.description || "—") + "</b>" + (r.specTitle && r.description ? '<br><span class="eb2-kind">' + escapeHtml(r.description) + "</span>" : ""); } },
+        { label: "Capacity", html: function (r) { return escapeHtml([r.specCapacity, r.specWorkingPressure || r.specMaxPressure].filter(Boolean).join(" · ") || "—"); } },
+        { label: "ELGi price (sell)", num: true, html: function (r) { return catvMoney(r.price); } }
+      ].concat(pie).concat([
+        { label: "HSN", html: catvHsn },
+        { label: "GST", num: true, html: catvGst },
+        { label: "In stock", num: true, html: function (r) { return String(r.available || 0); } }
+      ]);
+    }
+    return [
+      { label: "Part", html: function (r) { return '<span class="mono">' + escapeHtml(r.partNo || "—") + "</span>"; } },
+      { label: "Description", html: function (r) { return escapeHtml(r.description || "—") + (r.productGroup || r.category ? '<br><span class="eb2-kind">' + escapeHtml(r.productGroup || r.category) + "</span>" : ""); } },
+      { label: "ELGi price (sell)", num: true, html: function (r) { return catvMoney(r.price); } }
+    ].concat(pie).concat([
+      { label: "Alternate", html: function (r) { return r.altSummary ? '<span class="mono eb2-kind">' + escapeHtml(r.altSummary) + "</span>" : "—"; } },
+      { label: "HSN", html: catvHsn },
+      { label: "GST", num: true, html: catvGst },
+      { label: "In stock", num: true, html: function (r) { var a = Number(r.available) || 0; return '<span class="' + (a > 0 ? "" : "eb2-kind") + '">' + a + "</span>"; } }
+    ]);
+  }
+
+  /** The tabs and the "Pick by need" row, made once, where ERP 1's two buttons were. */
+  function catvInit() {
+    var v = $("view-catalog");
+    if (!catv.started) { catv.started = true; CATALOG_MODE = catv.tab === "units" ? "products" : "spares"; }
+    if ($("catv-tabs")) { catvSync(); return; }
+    var old = $("subtab-parts").parentNode;
+    old.style.display = "none";
+    v.querySelector(".page-head p").textContent = "Compressors, accessories and spares with the ELGi price (what PIE sells at, used on quotations), HSN and GST" +
+      (canSeeCost() ? ", and the PIE price (what PIE buys at), shown to Management and the ERP Admin only" : "") +
+      ". Specifications feed the quotation pages. Prices load from the ELGi price list file, as in ERP 1.";
+    $("btn-new-catalog-item").className = "btn btn-primary";
+    $("btn-new-catalog-item").textContent = "+ Add item";
+    $("btn-bulk-upload").textContent = "Import price list";
+    var tabs = document.createElement("div");
+    tabs.id = "catv-tabs";
+    tabs.className = "eb2-tabs catv-tabs";
+    tabs.setAttribute("role", "tablist");
+    old.parentNode.insertBefore(tabs, old);
+    var pick = document.createElement("div");
+    pick.id = "catv-pick";
+    pick.className = "eb2-tools catv-pick";
+    pick.innerHTML = '<span class="eb2-kind">Pick by need:</span>' +
+      '<label class="catv-in">Air needed <input type="number" min="0" step="any" id="catv-cfm" placeholder="cfm" /></label>' +
+      '<label class="catv-in">Pressure <input type="number" min="0" step="0.5" id="catv-bar" placeholder="bar" /></label>' +
+      '<button type="button" class="btn btn-sm" id="btn-catv-clear">Clear</button>';
+    old.parentNode.insertBefore(pick, old);
+    pick.appendChild($("btn-find-compressor"));
+    tabs.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-catv-tab]");
+      if (!b || b.dataset.catvTab === catv.tab) return;
+      catv.tab = b.dataset.catvTab;
+      switchCatalogMode(catv.tab === "units" ? "products" : "spares");
+    });
+    var onNeed = function () { catv.cfm = $("catv-cfm").value; catv.bar = $("catv-bar").value; renderCatalogTable(); };
+    $("catv-cfm").addEventListener("input", onNeed);
+    $("catv-bar").addEventListener("input", onNeed);
+    $("btn-catv-clear").addEventListener("click", function () { $("catv-cfm").value = ""; $("catv-bar").value = ""; onNeed(); });
+    catvSync();
+  }
+
+  function catvSync() {
+    var tabs = $("catv-tabs");
+    if (!tabs) return;
+    tabs.innerHTML = [["units", "Compressors"], ["acc", "Accessories"], ["spares", "Spares"]].map(function (t) {
+      return '<button type="button" role="tab" data-catv-tab="' + t[0] + '" aria-selected="' + (catv.tab === t[0]) + '">' + t[1] + "</button>";
+    }).join("");
+    $("catv-pick").style.display = catv.tab === "units" ? "" : "none";
+    $("btn-find-compressor").style.display = catv.tab === "units" ? "" : "none";
   }
 
   // One listener for the whole table, set once, instead of two attached to every row on every
