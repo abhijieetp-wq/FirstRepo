@@ -220,6 +220,13 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **Collections as the 2.0 demo draws it**: six totals (outstanding, overdue and its share, over 90
+  days, received this month, promised for today, broken promises), Import receipts and Record
+  receipt, and ERP 1's four lists as tabs: ageing by customer (ERP 1's buckets by days past due,
+  the total, a bar of how it is spread, credit days and limit, the last follow-up, Follow up and
+  Statement), open invoices (still owed, how late, any promise, Overdue only, Follow up and
+  Receipt), follow-ups as a timeline (Open, Promised, Broken, Closed) and receipts (mode,
+  reference, Tally voucher, Reverse). ERP 1's figures, forms and rules as before.
 - **Dispatch & Billing as the 2.0 demo draws it**: five totals (ready to dispatch and its value,
   waiting for the delivery photo with the oldest, dispatched and not invoiced in red with its value,
   invoiced this month, the Tally queue and how many failed; each opens its tab), the orders ready to
@@ -317,6 +324,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/collections-v2-ui-test.js` — the six totals, the four tabs and their tables, Overdue only,
+  and each button opening ERP 1's forms; ERP 1's lists on the other faces.
 - `tests/dispatch-v2-ui-test.js` — the five totals, Ready to go, the four tabs and their tables, and
   each button and row opening ERP 1's forms; ERP 1's lists on the other faces.
 - `tests/orders-v2-ui-test.js` — the five totals and their filters, status, Only mine, search, the

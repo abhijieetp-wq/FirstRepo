@@ -334,6 +334,52 @@
       coordinators: [{ email: "kiran@pie.in", name: "Kiran Patil" }],
       serviceCoordinators: [], serviceEngineers: [{ email: "sagar@pie.in", name: "Sagar Raut" },
         { email: "vikas@pie.in", name: "Vikas Meshram" }], management: [] },
+    // Collections (Collections.gs): the ageing strip, ageing by customer, open invoices, follow-ups, receipts.
+    getAgeingSummary: { totalOutstanding: 1394800, overdueAmount: 612300, invoiceCount: 6, buckets: [
+      { key: "notDue", label: "Not Due", amount: 782500, count: 3 }, { key: "d0_30", label: "1–30", amount: 74800, count: 1 },
+      { key: "d31_60", label: "31–60", amount: 186000, count: 1 }, { key: "d61_90", label: "61–90", amount: 0, count: 0 },
+      { key: "d90plus", label: "90+", amount: 351500, count: 1 }] },
+    getAgeingByCustomer: [
+      { customerId: "CU-4", customerName: "Vardhman Precision Tools", notDue: 0, d0_30: 74800, d31_60: 0, d61_90: 0, d90plus: 351500,
+        totalOutstanding: 426300, oldestOverdueDays: 118, invoiceCount: 2, creditLimit: 300000, creditDays: 30, overLimit: true, brokenCommitments: 1 },
+      { customerId: "CU-5", customerName: "Deccan Polymers", notDue: 286400, d0_30: 0, d31_60: 186000, d61_90: 0, d90plus: 0,
+        totalOutstanding: 472400, oldestOverdueDays: 41, invoiceCount: 2, creditLimit: 800000, creditDays: 45, overLimit: false, brokenCommitments: 0 },
+      { customerId: "CU-6", customerName: "Godavari Textile Mills", notDue: 496100, d0_30: 0, d31_60: 0, d61_90: 0, d90plus: 0,
+        totalOutstanding: 496100, oldestOverdueDays: 0, invoiceCount: 2, creditLimit: null, creditDays: 30, overLimit: false, brokenCommitments: 0 }
+    ],
+    getReceivables: [
+      { invoiceId: "INV-7", invoiceNo: "INV/26-27/0301", invoiceDate: "2026-07-03", dueDate: "2026-08-02", customerId: "CU-4", customerName: "Vardhman Precision Tools",
+        grand: 351500, receivedAmt: 0, balanceAmt: 351500, overdueDays: 88, commitmentAmount: 150000, commitmentDate: "2026-10-25", commitmentOverdue: true },
+      { invoiceId: "INV-6", invoiceNo: "INV/26-27/0355", invoiceDate: "2026-08-04", dueDate: "2026-09-18", customerId: "CU-5", customerName: "Deccan Polymers",
+        grand: 236000, receivedAmt: 50000, balanceAmt: 186000, overdueDays: 41, commitmentAmount: 0, commitmentDate: "", commitmentOverdue: false },
+      { invoiceId: "INV-0", invoiceNo: "INV/26-27/0388", invoiceDate: "2026-09-12", dueDate: "2026-10-12", customerId: "CU-4", customerName: "Vardhman Precision Tools",
+        grand: 74800, receivedAmt: 0, balanceAmt: 74800, overdueDays: 17, commitmentAmount: 74800, commitmentDate: "2026-10-29", commitmentOverdue: false },
+      { invoiceId: "INV-2", invoiceNo: "INV/26-27/0419", invoiceDate: "2026-10-14", dueDate: "2026-11-28", customerId: "CU-5", customerName: "Deccan Polymers",
+        grand: 286400, receivedAmt: 0, balanceAmt: 286400, overdueDays: 0, commitmentAmount: 0, commitmentDate: "", commitmentOverdue: false },
+      { invoiceId: "INV-8", invoiceNo: "INV/26-27/0422", invoiceDate: "2026-10-18", dueDate: "2026-11-17", customerId: "CU-6", customerName: "Godavari Textile Mills",
+        grand: 410200, receivedAmt: 0, balanceAmt: 410200, overdueDays: 0, commitmentAmount: 0, commitmentDate: "", commitmentOverdue: false },
+      { invoiceId: "INV-9", invoiceNo: "INV/26-27/0426", invoiceDate: "2026-10-22", dueDate: "2026-11-21", customerId: "CU-6", customerName: "Godavari Textile Mills",
+        grand: 85900, receivedAmt: 0, balanceAmt: 85900, overdueDays: 0, commitmentAmount: 0, commitmentDate: "", commitmentOverdue: false }
+    ],
+    listFollowups: [
+      { id: "FU-3", customerId: "CU-4", customerName: "Vardhman Precision Tools", invoiceId: "INV-0", invoiceNo: "INV/26-27/0388", contactDate: "2026-10-27",
+        contactPerson: "Mr Kulkarni", discussion: "Will release the September invoice on Thursday.", balanceAmt: 74800, commitmentAmount: 74800,
+        commitmentDate: "2026-10-29", commitmentOverdue: false, nextFollowupDate: "2026-10-29", followupDue: true, status: "Open" },
+      { id: "FU-2", customerId: "CU-4", customerName: "Vardhman Precision Tools", invoiceId: "INV-7", invoiceNo: "INV/26-27/0301", contactDate: "2026-10-15",
+        contactPerson: "Accounts", discussion: "Promised half by the 25th; the rest after their own customer pays.", balanceAmt: 351500, commitmentAmount: 150000,
+        commitmentDate: "2026-10-25", commitmentOverdue: true, nextFollowupDate: "2026-10-30", followupDue: false, status: "Broken" },
+      { id: "FU-1", customerId: "CU-5", customerName: "Deccan Polymers", invoiceId: "INV-6", invoiceNo: "INV/26-27/0355", contactDate: "2026-10-10",
+        contactPerson: "", discussion: "Part payment received; balance after their month-end.", balanceAmt: 186000, commitmentAmount: 0,
+        commitmentDate: "", commitmentOverdue: false, nextFollowupDate: "", followupDue: false, status: "Closed" }
+    ],
+    listReceipts: [
+      { id: "RC-3", receiptNo: "RCP2610-0014", receiptDate: "2026-10-24", customerName: "Sahyadri Castings Pvt Ltd", invoiceNo: "INV/26-27/0412",
+        mode: "NEFT/RTGS", reference: "UTR 6612840", tallyRef: "Rcpt/1182", amount: 158300, importedDate: "2026-10-25" },
+      { id: "RC-2", receiptNo: "RCP2610-0011", receiptDate: "2026-10-09", customerName: "Deccan Polymers", invoiceNo: "INV/26-27/0355",
+        mode: "Cheque", reference: "Chq 004417", tallyRef: "", amount: 50000, importedDate: "" },
+      { id: "RC-1", receiptNo: "RCP2609-0031", receiptDate: "2026-09-28", customerName: "Konkan Agro Foods", invoiceNo: "",
+        mode: "UPI", reference: "UPI 88412", tallyRef: "", amount: 25000, importedDate: "" }
+    ],
     // Dispatch & Billing (Dispatch.gs, Billing.gs): ERP 1's dispatches, invoices and what is still to bill.
     listDispatches: [
       { id: "DSP-3", dispatchNo: "DSP2610-0019", dispatchDate: "2026-10-27", orderNo: "SO2610-0042", customerName: "Bhima Sugar Industries",

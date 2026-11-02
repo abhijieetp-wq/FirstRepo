@@ -14442,10 +14442,12 @@
   }
 
   function initCollectionsView() {
-    $("col-actions").innerHTML = canCollect()
-      ? '<button class="btn btn-primary" id="btn-new-receipt">+ Record Receipt</button>' +
-        '<button class="btn btn-amber" id="btn-import-receipts">Import Receipts</button>'
-      : "";
+    $("col-actions").innerHTML = !canCollect() ? ""
+      // 2.0 puts them as the demo does: Import receipts, then Record receipt.
+      : FACE_V2 ? '<button class="btn" id="btn-import-receipts">Import receipts</button>' +
+        '<button class="btn btn-primary" id="btn-new-receipt">+ Record receipt</button>'
+      : '<button class="btn btn-primary" id="btn-new-receipt">+ Record Receipt</button>' +
+        '<button class="btn btn-amber" id="btn-import-receipts">Import Receipts</button>';
     if (canCollect()) {
       $("btn-new-receipt").addEventListener("click", startReceipt);
       $("btn-import-receipts").addEventListener("click", startReceiptImport);
@@ -14458,6 +14460,7 @@
   });
 
   function setColMode(mode) {
+    if (FACE_V2) { cov.tab = mode; covLoad(); return; }
     colMode = mode;
     COL_SUBTABS.forEach(function (m) {
       $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
@@ -14469,6 +14472,7 @@
   $("col-overdue").addEventListener("change", loadCollections);
 
   function loadCollections() {
+    if (FACE_V2) { covLoad(); return; }
     // The ageing strip is the same for every sub-tab, so it is fetched once alongside the rows.
     srv.withSuccessHandler(function (summary) {
       colSummary = summary;
@@ -14521,6 +14525,7 @@
   }
 
   function renderColTable() {
+    if (FACE_V2) { covRender(); return; }
     var q = ($("col-search").value || "").toLowerCase();
     var rows = colCache.filter(function (r) {
       return [r.customerName, r.invoiceNo, r.receiptNo, r.reference].join(" ").toLowerCase().indexOf(q) !== -1;
@@ -14679,6 +14684,223 @@
           }).withFailureHandler(onServerError).reverseReceipt(btn.dataset.reverse, reason);
         });
       });
+    });
+  }
+
+  // ---- ERP 2.0's Collections, as the 2.0 demo draws it ----
+  // Six totals (outstanding, overdue, over 90 days, received this month, promised for today,
+  // broken promises), then ERP 1's four lists as tabs in the demo's tables: ageing by customer
+  // with a bar of how it is spread, open invoices, follow-ups as a timeline, and receipts.
+  // ERP 1's figures, forms (receipt, follow-up, statement) and rules as before.
+  var cov = { tab: "ageing", q: "", overdue: false, summary: null, ageing: null, open: null, follow: null, receipts: null };
+  var COV_BUCKETS = [["notDue", "Not due", "var(--eb-clime)"], ["d0_30", "1–30", "#a77d00"], ["d31_60", "31–60", "var(--eb-spare)"],
+    ["d61_90", "61–90", "#d9534f"], ["d90plus", "Over 90", "var(--eb-bad)"]];
+
+  function covFollowState(f) {
+    if (f.status === "Closed") return "Closed";
+    if (f.status === "Broken" || f.commitmentOverdue) return "Broken";
+    if (f.commitmentAmount) return "Promised";
+    return "Open";
+  }
+  var COV_STATE_TONE = { Open: "", Promised: "acc", Broken: "bad", Closed: "good" };
+
+  function covInit() {
+    var v = $("view-collections");
+    if ($("cov-host")) return;
+    COL_SUBTABS.forEach(function (m) { $("subtab-" + m).parentNode.style.display = "none"; });
+    v.querySelector(".search-bar").style.display = "none";
+    $("col-summary").style.display = "none";
+    v.querySelector(":scope > .card").style.display = "none";
+    v.querySelector(".page-head p").textContent = "Who owes PIE what, and for how long. Invoices come from billing; each receipt is recorded against " +
+      "the invoice it pays, here or from Tally. Each customer’s follow-ups stay with their dues.";
+    var host = qvHost("view-collections", "cov-host");
+    host.innerHTML = '<div class="qv-kpis cov-kpis"></div>' +
+      '<div class="eb2-tabs cov-tabs" role="tablist" aria-label="Collections"></div>' +
+      '<div class="eb2-tools cov-tools"><input type="search" class="eb2-search" data-cov-q="1" placeholder="Search customer or invoice" aria-label="Search" />' +
+      '<label class="eb2-chk cov-overdue"><input type="checkbox" data-cov-overdue="1" /> Overdue only</label></div>' +
+      '<div class="cov-body"></div>';
+  }
+
+  /** ERP 1's figures: the ageing strip, ageing by customer, open invoices, follow-ups and receipts. */
+  function covLoad() {
+    covInit();
+    var host = $("cov-host");
+    if (!cov.ageing) host.querySelector(".cov-body").innerHTML = '<div class="empty">Loading…</div>';
+    var left = 5;
+    var done = function () { if (--left === 0) covRender(); };
+    var put = function (key) { return function (v) { cov[key] = v || (key === "summary" ? null : []); done(); }; };
+    var fail = function (err) { done(); onServerError(err); };
+    srv.withSuccessHandler(put("summary")).withFailureHandler(fail).getAgeingSummary();
+    srv.withSuccessHandler(put("ageing")).withFailureHandler(fail).getAgeingByCustomer();
+    srv.withSuccessHandler(put("open")).withFailureHandler(fail).getReceivables({});
+    srv.withSuccessHandler(put("follow")).withFailureHandler(fail).listFollowups({ openOnly: false });
+    srv.withSuccessHandler(put("receipts")).withFailureHandler(fail).listReceipts({});
+  }
+
+  function covTile(label, value, sub, tone, tab) {
+    return "<" + (tab ? 'button type="button" data-cov-tile="' + tab + '"' : "div") + ' class="qv-kpi' + (tone ? " " + tone : "") + (tab && cov.tab === tab ? " on" : "") + '">' +
+      '<span class="qv-l">' + escapeHtml(label) + '</span><span class="qv-v">' + escapeHtml(String(value)) + '</span><span class="qv-s">' + escapeHtml(sub) + "</span></" + (tab ? "button" : "div") + ">";
+  }
+
+  function covRender() {
+    var host = $("cov-host");
+    if (!host) return;
+    var sm = cov.summary || { totalOutstanding: 0, overdueAmount: 0, invoiceCount: 0, buckets: [] };
+    var ageing = cov.ageing || [], open = cov.open || [], follow = cov.follow || [], receipts = cov.receipts || [];
+    colCache = open;   // ERP 1's follow-up form names the invoice and its balance from this.
+    var today = ebToday(), month = today.slice(0, 7);
+    var over90 = ageing.filter(function (r) { return Number(r.d90plus) > 0; });
+    var over90Amt = over90.reduce(function (n, r) { return n + (Number(r.d90plus) || 0); }, 0);
+    var recM = receipts.filter(function (r) { return String(r.receiptDate || "").slice(0, 7) === month; });
+    var recAmt = recM.reduce(function (n, r) { return n + (Number(r.amount) || 0); }, 0);
+    var live = follow.filter(function (f) { return covFollowState(f) !== "Closed"; });
+    var promisedToday = live.filter(function (f) { return f.commitmentAmount && f.commitmentDate === today && covFollowState(f) === "Promised"; });
+    var broken = live.filter(function (f) { return covFollowState(f) === "Broken"; });
+    var pct = sm.totalOutstanding ? Math.round(sm.overdueAmount / sm.totalOutstanding * 100) : 0;
+    host.querySelector(".cov-kpis").innerHTML =
+      covTile("Outstanding", ebLakh(sm.totalOutstanding) || "₹0", sm.invoiceCount + (sm.invoiceCount === 1 ? " open invoice" : " open invoices"), "", "") +
+      covTile("Overdue", ebLakh(sm.overdueAmount) || "₹0", pct + "% of outstanding, past the due date", sm.overdueAmount > 0 ? "sig" : "", "") +
+      covTile("Over 90 days", ebLakh(over90Amt) || "₹0", over90.length + (over90.length === 1 ? " customer" : " customers"), over90Amt > 0 ? "bad" : "", "") +
+      covTile("Received this month", ebLakh(recAmt) || "₹0", recM.length + (recM.length === 1 ? " receipt" : " receipts"), "", "receipts") +
+      covTile("Promised for today", promisedToday.length, promisedToday.length ? promisedToday[0].customerName : "none", "", "") +
+      covTile("Broken promises", broken.length, broken.length ? broken[0].customerName : "none", broken.length ? "bad" : "", "followups");
+
+    host.querySelector(".cov-tabs").innerHTML = [["ageing", "Ageing by customer"], ["receivables", "Open invoices"], ["followups", "Follow-ups"], ["receipts", "Receipts"]].map(function (t) {
+      return '<button type="button" role="tab" data-cov-tab="' + t[0] + '" aria-selected="' + (cov.tab === t[0]) + '">' + escapeHtml(t[1]) + "</button>";
+    }).join("");
+    host.querySelector(".cov-overdue").style.display = cov.tab === "receivables" ? "" : "none";
+    host.querySelector("[data-cov-overdue]").checked = cov.overdue;
+
+    var q = String(cov.q || "").trim().toLowerCase();
+    var hit = function (r) { return !q || [r.customerName, r.invoiceNo, r.receiptNo, r.reference, r.tallyRef].join(" ").toLowerCase().indexOf(q) !== -1; };
+    var table = function (heads, rows, empty) {
+      return '<div class="qv-table cov-table"><table><thead><tr>' + heads.map(function (h) {
+        return "<th" + (/^(Not due|1–30|31–60|61–90|Over 90|Total|Amount|Received|Still owed)$/.test(h) ? ' class="num"' : "") + ">" + escapeHtml(h) + "</th>";
+      }).join("") + '</tr></thead><tbody id="cov-tbody">' + (rows.join("") || '<tr><td colspan="' + heads.length + '" class="eb2-empty">' + escapeHtml(empty) + "</td></tr>") + "</tbody></table></div>";
+    };
+    var lastFollow = {};
+    follow.forEach(function (f) {
+      var k = String(f.customerId);
+      if (!lastFollow[k] || String(f.contactDate) > String(lastFollow[k].contactDate)) lastFollow[k] = f;
+    });
+    var oldestInvoice = {};
+    open.forEach(function (r) {
+      var k = String(r.customerId);
+      if (!oldestInvoice[k] || String(r.invoiceDate) < String(oldestInvoice[k].invoiceDate)) oldestInvoice[k] = r;
+    });
+    var html;
+    if (cov.tab === "ageing") {
+      html = table(["Customer"].concat(COV_BUCKETS.map(function (b) { return b[1]; })).concat(["Total", "Spread", "Credit", "Last follow-up", ""]),
+        ageing.filter(hit).map(function (r) {
+          var total = Number(r.totalOutstanding) || 0;
+          var f = lastFollow[String(r.customerId)];
+          var inv = oldestInvoice[String(r.customerId)];
+          return '<tr><td><b>' + escapeHtml(r.customerName || "—") + "</b>" + (r.overLimit ? " " + ebChip("Over limit", "bad") : "") +
+              '<br><span class="eb2-kind">' + r.invoiceCount + (r.invoiceCount === 1 ? " invoice" : " invoices") +
+              (r.oldestOverdueDays > 0 ? " · oldest " + r.oldestOverdueDays + " days late" : "") + "</span></td>" +
+            COV_BUCKETS.map(function (b, i) {
+              var v = Number(r[b[0]]) || 0;
+              return '<td class="num' + (i >= 3 && v ? " qv-late" : "") + '">' + (v ? escapeHtml(ebLakh(v)) : "—") + "</td>";
+            }).join("") +
+            '<td class="num"><b>' + escapeHtml(ebLakh(total) || "₹0") + "</b></td>" +
+            '<td><span class="cov-spread" title="' + escapeHtml((r.customerName || "") + ": " + (ebLakh(total) || "")) + '">' + COV_BUCKETS.map(function (b) {
+              var v = Number(r[b[0]]) || 0;
+              return v && total ? '<i style="width:' + (v / total * 100) + "%;background:" + b[2] + '"></i>' : "";
+            }).join("") + "</span></td>" +
+            '<td class="eb2-kind cov-nw">' + (r.creditDays !== null && r.creditDays !== undefined ? r.creditDays + " days" : "—") + " · " +
+              (r.creditLimit !== null && r.creditLimit !== undefined ? escapeHtml(ebLakh(r.creditLimit)) : "no limit") + "</td>" +
+            '<td class="eb2-kind cov-last">' + (f ? escapeHtml(ebDay(f.contactDate) + ": " + String(f.discussion || "").slice(0, 60)) : "—") + "</td>" +
+            '<td><div class="cov-acts">' + (inv && canCollect() ? '<button type="button" class="btn btn-sm" data-cov-follow="' + escapeHtml(inv.invoiceId) + '">Follow up</button>' : "") +
+              '<button type="button" class="btn btn-sm" data-cov-statement="' + escapeHtml(r.customerId) + '">Statement</button></div></td></tr>';
+        }), "Nothing outstanding. Every issued invoice is paid.") +
+        '<p class="cov-legend">' + COV_BUCKETS.map(function (b) { return '<span><i style="background:' + b[2] + '"></i>' + escapeHtml(b[1]) + "</span>"; }).join("") +
+        "<span>days past the due date</span></p>";
+    } else if (cov.tab === "receivables") {
+      html = table(["Invoice", "Date", "Customer", "Amount", "Received", "Still owed", "Past due", "Promise", ""], open.filter(hit).filter(function (r) {
+        return !cov.overdue || r.overdueDays > 0;
+      }).map(function (r) {
+        return '<tr><td><span class="mono">' + escapeHtml(r.invoiceNo || "—") + "</span></td>" +
+          '<td class="cov-nw">' + escapeHtml(ebDay(r.invoiceDate)) + "</td>" +
+          "<td><b>" + escapeHtml(r.customerName || "—") + "</b></td>" +
+          '<td class="num">' + escapeHtml(ebMoney(r.grand)) + "</td>" +
+          '<td class="num">' + (Number(r.receivedAmt) ? escapeHtml(ebMoney(r.receivedAmt)) : "—") + "</td>" +
+          '<td class="num"><b>' + escapeHtml(ebMoney(r.balanceAmt)) + "</b></td>" +
+          '<td class="cov-nw">' + (r.overdueDays > 0 ? '<span class="qv-late">' + r.overdueDays + (r.overdueDays === 1 ? " day" : " days") + "</span>" : ebChip("Not due", "good")) + "</td>" +
+          "<td>" + (r.commitmentAmount ? ebChip(ebMoney(r.commitmentAmount) + " by " + ebDay(r.commitmentDate), r.commitmentOverdue ? "bad" : "acc") : "—") + "</td>" +
+          '<td class="cov-nw">' + (canCollect() ? '<button type="button" class="btn btn-sm" data-cov-follow="' + escapeHtml(r.invoiceId) + '">Follow up</button> ' +
+            '<button type="button" class="btn btn-sm btn-primary" data-cov-receipt="' + escapeHtml(r.invoiceId) + '">Receipt</button>' : "") + "</td></tr>";
+      }), "No open invoices match.");
+    } else if (cov.tab === "followups") {
+      var list = follow.filter(hit).slice().sort(function (a, b) { return String(b.contactDate).localeCompare(String(a.contactDate)); });
+      html = '<p class="cov-legend">' + ["Open", "Promised", "Broken", "Closed"].map(function (x) { return ebChip(x, COV_STATE_TONE[x]); }).join(" ") +
+        "<span>A promise whose date passes without the money becomes Broken.</span></p>" +
+        (list.length ? '<div class="cov-timeline">' + list.map(function (f) {
+          var st = covFollowState(f);
+          return '<div class="cov-tl"><span class="eb-av">' + escapeHtml(ebInitials(f.customerName)) + '</span><div class="cov-tl-main"><div class="cov-meta"><b>' +
+            escapeHtml(f.customerName || "—") + "</b><span>" + escapeHtml(ebDay(f.contactDate, true)) + (f.invoiceNo ? " · " + escapeHtml(f.invoiceNo) : "") +
+            (f.contactPerson ? " · with " + escapeHtml(f.contactPerson) : "") + "</span>" +
+            ebChip(st + (f.commitmentDate && st !== "Closed" ? " · " + ebDay(f.commitmentDate) : "") + (f.commitmentAmount ? " · " + ebLakh(f.commitmentAmount) : ""), COV_STATE_TONE[st]) +
+            "</div><p>" + escapeHtml(f.discussion || "") + "</p>" +
+            (f.nextFollowupDate && st !== "Closed" ? '<span class="eb2-kind' + (f.followupDue ? " qv-late" : "") + '">Next follow-up ' + escapeHtml(ebDay(f.nextFollowupDate)) + "</span>" : "") +
+            "</div>" + (canCollect() ? '<button type="button" class="btn btn-sm" data-cov-editfu="' + escapeHtml(f.id) + '">Edit</button>' : "") + "</div>";
+        }).join("") + "</div>" : '<div class="empty">No follow-ups yet. Log one from an open invoice.</div>');
+    } else {
+      html = table(["Receipt", "Date", "Customer", "Against invoice", "Amount", "Mode", "Reference", "Tally voucher", ""], receipts.filter(hit).map(function (r) {
+        var reversal = (Number(r.amount) || 0) < 0;
+        return '<tr><td><span class="mono">' + escapeHtml(r.receiptNo || "—") + "</span>" + (r.importedDate ? "<br>" + ebChip("from Tally") : "") + "</td>" +
+          '<td class="cov-nw">' + escapeHtml(ebDay(r.receiptDate)) + "</td>" +
+          "<td><b>" + escapeHtml(r.customerName || "—") + "</b></td>" +
+          "<td>" + (r.invoiceNo ? '<span class="mono">' + escapeHtml(r.invoiceNo) + "</span>" : '<span class="eb2-kind">advance</span>') + "</td>" +
+          '<td class="num' + (reversal ? " qv-late" : "") + '">' + escapeHtml(ebMoney(r.amount)) + "</td>" +
+          "<td>" + escapeHtml(r.mode || "—") + "</td>" +
+          '<td><span class="mono">' + escapeHtml(r.reference || "—") + "</span></td>" +
+          '<td><span class="mono">' + escapeHtml(r.tallyRef || "—") + "</span></td>" +
+          "<td>" + (reversal ? ebChip("Reversal", "bad") : canOverrideDispatch() ? '<button type="button" class="btn btn-sm" data-cov-reverse="' + escapeHtml(r.id) + '">Reverse</button>' : "") + "</td></tr>";
+      }), "No receipts recorded yet.") +
+        '<p class="eb-note">Only Management or the ERP Admin can reverse a receipt. The invoice goes back to owing the amount, and the reversal stays on record.</p>';
+    }
+    host.querySelector(".cov-body").innerHTML = html;
+  }
+
+  if (FACE_V2) {
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest("#cov-host")) return;
+      var tile = e.target.closest("[data-cov-tile]");
+      if (tile) { cov.tab = tile.dataset.covTile; covRender(); return; }
+      var tab = e.target.closest("[data-cov-tab]");
+      if (tab) { cov.tab = tab.dataset.covTab; covRender(); return; }
+      var fu = e.target.closest("[data-cov-follow]");
+      if (fu) { startFollowup(fu.dataset.covFollow); return; }
+      var rc = e.target.closest("[data-cov-receipt]");
+      if (rc) { startReceipt(rc.dataset.covReceipt); return; }
+      var stmt = e.target.closest("[data-cov-statement]");
+      if (stmt) { openStatement(stmt.dataset.covStatement); return; }
+      var ed = e.target.closest("[data-cov-editfu]");
+      if (ed) {
+        var f = (cov.follow || []).filter(function (x) { return String(x.id) === String(ed.dataset.covEditfu); })[0];
+        if (f) startFollowup(f.invoiceId, f);
+        return;
+      }
+      var rv = e.target.closest("[data-cov-reverse]");
+      if (rv) {
+        askDialog({
+          title: "Reverse this receipt?",
+          message: "The original stays in the ledger and an offsetting entry is added, so the history of what was believed and when survives.",
+          input: true, inputLabel: "Reason *", okLabel: "Reverse Receipt", danger: true
+        }, function (reason) {
+          if (reason === null) return;
+          srv.withSuccessHandler(function () { loadCollections(); showMsg("Receipt reversed.", "success"); })
+            .withFailureHandler(onServerError).reverseReceipt(rv.dataset.covReverse, reason);
+        });
+      }
+    });
+    document.addEventListener("change", function (e) {
+      if (e.target.closest("#cov-host [data-cov-overdue]")) { cov.overdue = e.target.checked; covRender(); }
+    });
+    document.addEventListener("input", function (e) {
+      if (!e.target.closest("#cov-host [data-cov-q]")) return;
+      cov.q = e.target.value;
+      covRender();
     });
   }
 
