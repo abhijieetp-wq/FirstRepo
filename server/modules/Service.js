@@ -429,6 +429,8 @@ async function listServiceJobs(options) {
   // ERP 2.0: each call's area as Local or Outstation, and how often it was rescheduled.
   var areas = await serviceAreas_();
   var moved = await serviceRescheduleCounts_();
+  // Who is going, by name: 2.0's Service Desk shows it and filters by it.
+  var names = await userNameMap_();
   // Rows raised before breakdown calls existed are installations; that is what they were.
   rows.forEach(function (j) {
     j.areaType = visitAreaType_(j.area, areas);
@@ -438,6 +440,7 @@ async function listServiceJobs(options) {
     j.urgency = String(j.urgency || 'Normal');
     // ERP 2.0's name for where it stands (ServiceDesk.gs); ERP 1 reads `status` as before.
     j.deskStatus = serviceDeskStatus_(j);
+    j.engineerName = personLine_(j.engineerEmail, names);
   });
 
   return rows.sort(function (a, b) {

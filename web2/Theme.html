@@ -290,6 +290,19 @@
   .qv-table .mono{ font-family:var(--font-mono, ui-monospace, monospace); white-space:nowrap; }
   .qv-item{ font-size:12.5px; max-width:260px; }
   .eb2-list{ margin-top:4px; }
+  /* The Service Desk, as the 2.0 demo draws it: four tabs, totals, call types, one table. */
+  .sdv-tabs{ border-bottom:1px solid var(--eb-line); margin:-4px 0 16px; }
+  .sdv-n{ display:inline-block; margin-left:4px; padding:0 7px; border-radius:10px; background:var(--eb-surface2, #e8f0e4); color:var(--eb-ink2); font:600 11.5px/1.6 var(--font-sans); }
+  .sdv-acts{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .sdv-tools .eb2-seg{ flex-wrap:wrap; }
+  .sdv-table td:nth-child(5), .sdv-table td:nth-child(7), .sdv-table td:nth-child(8){ white-space:nowrap; }
+  .sdv-table .eb2-kind{ font-size:12px; color:var(--eb-muted); }
+  .sdv-table td.eb2-empty{ text-align:center; color:var(--eb-muted); padding:24px; }
+  .sdv-urg{ font-size:11.5px; font-weight:600; color:var(--eb-bad); }
+  tr.sdv-hot td{ background:color-mix(in srgb, var(--eb-bad-soft) 55%, transparent); }
+  .eb-chip.c-service{ background:#efe6fb; color:var(--eb-service); }
+  .eb-chip.c-visit{ background:#d8f2f0; color:var(--eb-visit); }
+  .eb-chip.c-unit{ background:#e1ecfa; color:var(--eb-unit); }
   /* "+ New quotation": a centred window under any form opened from it (a new customer). */
   #qv-new-backdrop{ z-index:45; justify-content:center; align-items:flex-start; padding:72px 16px 16px; overflow-y:auto; }
   #qv-new-backdrop .qv-new{ height:auto; max-width:760px; padding:0; overflow:visible; animation:fade-in .2s ease-out; }

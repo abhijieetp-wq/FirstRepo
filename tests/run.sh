@@ -76,6 +76,10 @@ run_ui "board-drawer-ui-test.js (2.0)" tests/board-drawer-ui-test.js "$tmp/base-
 run_ui "quotations-v2-ui-test.js (classic)" tests/quotations-v2-ui-test.js "$tmp/show-classic.html"
 run_ui "quotations-v2-ui-test.js (new design)" tests/quotations-v2-ui-test.js "$tmp/show.html"
 run_ui "quotations-v2-ui-test.js (2.0)" tests/quotations-v2-ui-test.js "$tmp/show-v2.html"
+# The Service Desk, as the 2.0 demo draws it: four tabs, totals, call types, one table.
+run_ui "service-desk-v2-ui-test.js (classic)" tests/service-desk-v2-ui-test.js "$tmp/show-classic.html"
+run_ui "service-desk-v2-ui-test.js (new design)" tests/service-desk-v2-ui-test.js "$tmp/show.html"
+run_ui "service-desk-v2-ui-test.js (2.0)" tests/service-desk-v2-ui-test.js "$tmp/show-v2.html"
 # So is the dashboard per person; the showcase adds Management's view of the team.
 run_ui "person-dashboard-ui-test.js (classic)" tests/person-dashboard-ui-test.js "$tmp/base.html"
 run_ui "person-dashboard-ui-test.js (new design)" tests/person-dashboard-ui-test.js "$tmp/base-web.html"

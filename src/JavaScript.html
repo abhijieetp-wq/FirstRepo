@@ -5256,6 +5256,7 @@
   }
 
   function loadServiceJobs() {
+    if (FACE_V2) { sdvLoad(); return; }
     srv.withSuccessHandler(function (rows) {
       serviceCache = rows;
       renderServiceJobs();
@@ -5267,6 +5268,7 @@
   }
 
   function renderServiceJobs() {
+    if (FACE_V2) { sdvRender(); return; }
     var q = ($("service-search").value || "").toLowerCase();
     var areaType = $("service-area-type") ? $("service-area-type").value : "";
     var rows = serviceCache.filter(function (j) {
@@ -5322,6 +5324,243 @@
       if (id === "service-search") renderServiceJobs(); else loadServiceJobs();
     });
   });
+
+  // ---- ERP 2.0's Service Desk, as the 2.0 demo draws it ----
+  // Four tabs — Calls, Engineer reports, AMC and dues, Next-day plan — over the totals, the call
+  // types and every call in one table. The same strip of tabs sits under the heading of the AMC
+  // and next-day screens, so the three read as one page. Everything is ERP 1's service jobs,
+  // with 2.0's call types and statuses (ServiceDesk.gs); a row opens the same job window.
+  var SDV_TYPES = ["Breakdown", "AMC visit", "Regular service", "Spare change", "Installation", "Commissioning"];
+  var SDV_STATUSES = ["New", "Assigned", "In progress", "Report submitted", "Closed", "Cancelled"];
+  var sdv = { rows: null, type: "", eng: "", status: "open", area: "", q: "", fetching: false, amcAsked: false };
+
+  function sdvMine() { return !!currentUser && currentUser.role === "Service Engineer"; }
+  function sdvOpen(j) { return ["Closed", "Cancelled"].indexOf(j.deskStatus) === -1; }
+  function sdvTypeTone(t) {
+    return { Breakdown: "bad", "Regular service": "c-service", "AMC visit": "c-visit", Installation: "c-unit", Commissioning: "c-unit", "Spare change": "sig" }[t] || "";
+  }
+  function sdvStatusText(j) { return j.deskStatus === "Assigned" && j.scheduledDate === ebToday() ? "Visit today" : j.deskStatus; }
+  function sdvStatusTone(j) {
+    var st = j.deskStatus;
+    return st === "New" ? "sig" : st === "Report submitted" ? "acc" : st === "Closed" ? "good" : st === "Cancelled" ? ""
+      : st === "In progress" || j.scheduledDate === ebToday() ? "c-visit" : "c-service";
+  }
+  function sdvCanSee(view) { return visibleLeaves().some(function (t) { return t.view === view; }); }
+  function sdvDays(from, to) {
+    var a = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(from || "")), b = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(to || ""));
+    if (!a || !b) return null;
+    return Math.max(0, Math.round((Date.UTC(+b[1], +b[2] - 1, +b[3]) - Date.UTC(+a[1], +a[2] - 1, +a[3])) / 86400000));
+  }
+
+  /** The service jobs, closed ones too (the totals count them); an engineer gets their own. */
+  function sdvFetch(then) {
+    sdv.fetching = true;
+    srv.withSuccessHandler(function (rows) {
+      sdv.fetching = false;
+      sdv.rows = rows || [];
+      serviceCache = sdv.rows;
+      if (then) then();
+    }).withFailureHandler(function (err) { sdv.fetching = false; onServerError(err); })
+      .listServiceJobs({ includeClosed: true, mineOnly: sdvMine() });
+  }
+
+  /** The four tabs, under the heading of whichever of the three screens is open. */
+  function sdvStrip(view) {
+    if (!FACE_V2) return;
+    var v = $("view-" + view);
+    if (!v) return;
+    var strip = v.querySelector(".sdv-tabs");
+    if (!strip) {
+      strip = document.createElement("div");
+      strip.className = "eb2-tabs sdv-tabs";
+      strip.setAttribute("role", "tablist");
+      strip.setAttribute("aria-label", "Service desk");
+      var head = v.querySelector(".page-head");
+      head.parentNode.insertBefore(strip, head.nextSibling);
+    }
+    // The counts on the tabs, fetched once when this screen is the first of the three opened.
+    if (!sdv.rows && !sdv.fetching && view !== "service") sdvFetch(function () { sdvStrip(view); });
+    if (view !== "amc" && sdvCanSee("amc") && !amc.data && !sdv.amcAsked) {
+      sdv.amcAsked = true;
+      srv.withSuccessHandler(function (d) { if (!amc.data) amc.data = d; sdvStrip(view); })
+        .withFailureHandler(function () { /* the count is a convenience */ }).listAmc({ window: amc.window });
+    }
+    var rows = sdv.rows || [];
+    var cur = view === "amc" ? "amc" : view === "plan" ? "plan" : sdv.status === "Report submitted" ? "reports" : "calls";
+    var tabs = [["calls", "Calls", sdv.rows ? rows.filter(sdvOpen).length : ""],
+      ["reports", "Engineer reports", sdv.rows ? rows.filter(function (j) { return j.deskStatus === "Report submitted"; }).length : ""]];
+    if (sdvCanSee("amc")) tabs.push(["amc", "AMC and dues", amc.data && amc.data.dues ? amc.data.dues.length : ""]);
+    if (sdvCanSee("plan")) tabs.push(["plan", "Next-day plan", ""]);
+    strip.innerHTML = tabs.map(function (t) {
+      return '<button type="button" role="tab" data-sdv-tab="' + t[0] + '" aria-selected="' + (t[0] === cur) + '">' + escapeHtml(t[1]) +
+        (t[2] !== "" ? ' <span class="sdv-n">' + t[2] + "</span>" : "") + "</button>";
+    }).join("");
+  }
+
+  /** The Service Desk's own parts, made once: ERP 1's search bar and table put away. */
+  function sdvInit() {
+    var v = $("view-service");
+    if (v.querySelector("#sdv-host")) return;
+    v.querySelector(".search-bar").style.display = "none";
+    v.querySelector(":scope > .card").style.display = "none";
+    var head = v.querySelector(".page-head");
+    head.querySelector("p").textContent = sdvMine()
+      ? "Your calls. Write the report after each visit; the service coordinator closes the call once it is in."
+      : "Breakdowns, periodic services, AMC visits and installation jobs in one list. Installation jobs come from ERP 1: once a delivery " +
+        "is confirmed with the customer’s photo, the job lands here. The service coordinator assigns the engineer and closes the call once the report is in.";
+    var acts = document.createElement("div");
+    acts.className = "sdv-acts";
+    if (sdvCanSee("plan")) {
+      var plan = document.createElement("button");
+      plan.type = "button";
+      plan.className = "btn";
+      plan.id = "btn-sdv-plan";
+      plan.textContent = "Tomorrow’s plan";
+      plan.addEventListener("click", function () { goToTab("plan"); });
+      acts.appendChild(plan);
+    }
+    var add = $("btn-new-breakdown");
+    add.className = "btn btn-primary";
+    head.appendChild(acts);
+    acts.appendChild(add);
+    sdvStrip("service");
+    var host = document.createElement("div");
+    host.id = "sdv-host";
+    host.className = "qv-host";
+    var strip = v.querySelector(".sdv-tabs");
+    strip.parentNode.insertBefore(host, strip.nextSibling);
+    host.innerHTML = '<div class="qv-kpis sdv-kpis"></div><div class="eb2-tools sdv-tools">' +
+      '<div class="eb2-seg sdv-types" role="group" aria-label="Call type"></div>' +
+      (sdvMine() ? "" : '<select data-sdv-sel="eng" aria-label="Engineer"></select>') +
+      '<select data-sdv-sel="status" aria-label="Status"><option value="open">Open calls</option>' +
+        SDV_STATUSES.map(function (x) { return '<option value="' + x + '">' + x + "</option>"; }).join("") + '<option value="all">All calls</option></select>' +
+      '<select data-sdv-sel="area" aria-label="Local or outstation"><option value="">Local and outstation</option><option value="Local">Local</option><option value="Outstation">Outstation</option></select>' +
+      '<input type="search" class="eb2-search" data-sdv-q="1" placeholder="Search call, customer or serial" aria-label="Search calls" /></div>' +
+      '<div class="sdv-body"></div>';
+    // The engineers to pick from: everybody who is one, and anybody on a call.
+    if (!sdvMine()) withPeople(function () { sdvRender(); });
+  }
+
+  function sdvLoad() {
+    sdvInit();
+    if (!sdv.rows) $("sdv-host").querySelector(".sdv-body").innerHTML = '<div class="empty">Loading the calls…</div>';
+    sdvFetch(sdvRender);
+  }
+
+  function sdvTile(label, value, sub, tone, filter) {
+    var on = filter && sdv.status === filter;
+    return "<" + (filter ? 'button type="button" data-sdv-tile="' + escapeHtml(filter) + '"' : "div") + ' class="qv-kpi' + (tone ? " " + tone : "") + (on ? " on" : "") + '">' +
+      '<span class="qv-l">' + escapeHtml(label) + '</span><span class="qv-v">' + value + '</span><span class="qv-s">' + sub + "</span></" + (filter ? "button" : "div") + ">";
+  }
+
+  function sdvRender() {
+    var host = $("sdv-host");
+    if (!host) return;
+    sdvStrip("service");
+    if (!sdv.rows) return;
+    var all = sdv.rows, today = ebToday(), month = today.slice(0, 7);
+    var open = all.filter(sdvOpen);
+    var bd = open.filter(function (j) { return j.jobType === "Breakdown"; });
+    var late = bd.filter(function (j) { return qvDaysSince(j.date) >= 1 && j.deskStatus !== "Report submitted"; });
+    var rep = open.filter(function (j) { return j.deskStatus === "Report submitted"; });
+    var closed = all.filter(function (j) { return j.deskStatus === "Closed" && String(j.completedDate || "").slice(0, 7) === month; });
+    var took = closed.map(function (j) { return sdvDays(j.date, j.completedDate); }).filter(function (n) { return n !== null; });
+    host.querySelector(".sdv-kpis").innerHTML =
+      sdvTile("Open calls", open.length, all.filter(function (j) { return String(j.date || "").slice(0, 7) === month; }).length + " logged this month", "") +
+      sdvTile("Breakdowns open", bd.length, late.length ? '<span class="qv-late">' + late.length + " open over 24 hours</span>" : "none over 24 hours", bd.length ? "bad" : "") +
+      sdvTile("Installations to do", open.filter(function (j) { return j.jobType === "Installation"; }).length, "from confirmed deliveries", "") +
+      sdvTile("Reports in, not closed", rep.length, "the coordinator closes these", "", "Report submitted") +
+      sdvTile("Closed this month", closed.length, "average " + (took.length ? (took.reduce(function (a, b) { return a + b; }, 0) / took.length).toFixed(1) : "—") + " days to close", "");
+
+    // The toolbar's moving parts; the search box is left alone so it keeps its focus.
+    var tools = host.querySelector(".sdv-tools");
+    tools.querySelector(".sdv-types").innerHTML = [["", "All types"]].concat(SDV_TYPES.map(function (t) { return [t, t]; })).map(function (o) {
+      return '<button type="button" data-sdv-type="' + escapeHtml(o[0]) + '" aria-pressed="' + (o[0] === sdv.type) + '">' + escapeHtml(o[1]) + "</button>";
+    }).join("");
+    var engSel = tools.querySelector('[data-sdv-sel="eng"]');
+    if (engSel) {
+      var names = {};
+      ((peopleCache && peopleCache.serviceEngineers) || []).forEach(function (p) { if (p.email) names[String(p.email).toLowerCase()] = p.name || p.email; });
+      all.forEach(function (j) { var e = String(j.engineerEmail || "").toLowerCase(); if (e && !names[e]) names[e] = j.engineerName || j.engineerEmail; });
+      engSel.innerHTML = '<option value="">All engineers</option><option value="__none">Not assigned</option>' + Object.keys(names).sort(function (a, b) {
+        return String(names[a]).localeCompare(String(names[b]));
+      }).map(function (k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(names[k]) + "</option>"; }).join("");
+      engSel.value = sdv.eng;
+    }
+    tools.querySelector('[data-sdv-sel="status"]').value = sdv.status;
+    tools.querySelector('[data-sdv-sel="area"]').value = sdv.area;
+
+    var q = String(sdv.q || "").trim().toLowerCase();
+    var rows = all.filter(function (j) {
+      if (sdv.type && j.jobType !== sdv.type) return false;
+      var who = String(j.engineerEmail || "").toLowerCase();
+      if (sdv.eng === "__none" && who) return false;
+      if (sdv.eng && sdv.eng !== "__none" && who !== sdv.eng) return false;
+      if (sdv.status === "open" && !sdvOpen(j)) return false;
+      if (sdv.status !== "open" && sdv.status !== "all" && j.deskStatus !== sdv.status) return false;
+      if (sdv.area && j.areaType !== sdv.area) return false;
+      if (q && [j.jobNo, j.customerName, j.serialNo, j.machineModel, j.engineerName, j.engineerEmail, j.scopeText, j.area].join(" ").toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    }).sort(function (a, b) {
+      return (!sdvOpen(a)) - (!sdvOpen(b)) || String(b.date + b.jobNo).localeCompare(String(a.date + a.jobNo));
+    });
+
+    var body = rows.map(function (j) {
+      var age = qvDaysSince(j.date) || 0;
+      var hot = j.jobType === "Breakdown" && sdvOpen(j) && age >= 1 && j.deskStatus !== "Report submitted";
+      var scope = String(j.scopeText || "").replace(/\s+/g, " ").trim();
+      if (scope.length > 70) scope = scope.slice(0, 68) + "…";
+      var source = [j.serialNo ? j.machineModel : "", scope || (j.jobType === "Installation" ? "From a confirmed delivery" : "")].filter(Boolean).join(" · ");
+      return '<tr class="qv-row' + (hot ? " sdv-hot" : "") + '" data-open-job="' + escapeHtml(j.id) + '">' +
+        '<td><span class="mono">' + escapeHtml(j.jobNo || "—") + "</span></td>" +
+        "<td>" + ebChip(j.jobType, sdvTypeTone(j.jobType)) +
+          (j.urgency && j.urgency !== "Normal" ? '<br><span class="sdv-urg">' + escapeHtml(j.urgency) + "</span>" : "") + "</td>" +
+        "<td><b>" + escapeHtml(j.customerName || "—") + "</b>" +
+          (j.area ? '<br><span class="eb2-kind">' + escapeHtml(j.area + (j.areaType ? " · " + j.areaType : "")) + "</span>" : "") + "</td>" +
+        '<td><span class="mono">' + escapeHtml(j.serialNo || j.machineModel || "—") + "</span>" +
+          (source ? '<br><span class="eb2-kind">' + escapeHtml(source) + "</span>" : "") + "</td>" +
+        '<td class="' + (hot ? "qv-late" : "") + '">' + escapeHtml(ebDay(j.date)) + (hot ? " · " + age * 24 + " h" : "") + "</td>" +
+        "<td>" + (j.engineerEmail ? escapeHtml(j.engineerName || j.engineerEmail) : '<span class="eb2-kind">—</span>') + "</td>" +
+        "<td>" + (j.scheduledDate ? escapeHtml(ebDay(j.scheduledDate) + (j.scheduledTime ? " " + j.scheduledTime : "")) : "—") +
+          (j.rescheduleCount ? '<br><span class="eb2-kind">moved ' + j.rescheduleCount + "×</span>" : "") + "</td>" +
+        "<td>" + ebChip(sdvStatusText(j), sdvStatusTone(j)) + "</td></tr>";
+    }).join("");
+    host.querySelector(".sdv-body").innerHTML = '<div class="qv-table sdv-table"><table><thead><tr><th>Call</th><th>Type</th><th>Customer</th>' +
+      '<th>Machine · source</th><th>Opened</th><th>Engineer</th><th>Visit</th><th>Status</th></tr></thead><tbody id="sdv-tbody">' +
+      (body || '<tr><td colspan="8" class="eb2-empty">' + (all.length ? "No calls match." :
+        "No service calls yet. One is raised whenever a delivery is confirmed, and any call can be logged with + Service call.") + "</td></tr>") +
+      "</tbody></table></div>";
+    xfTable("service", host.querySelector(".sdv-table table"), xfRowId("[data-open-job]", "data-open-job"), true);
+  }
+
+  if (FACE_V2) {
+    document.addEventListener("click", function (e) {
+      var tab = e.target.closest("[data-sdv-tab]");
+      if (tab) {
+        var t = tab.dataset.sdvTab;
+        if (t === "amc" || t === "plan") { goToTab(t); return; }
+        sdv.status = t === "reports" ? "Report submitted" : "open";
+        if (currentView !== "service") goToTab("service"); else sdvRender();
+        return;
+      }
+      if (!e.target.closest("#sdv-host")) return;
+      var tile = e.target.closest("[data-sdv-tile]");
+      if (tile) { sdv.status = sdv.status === tile.dataset.sdvTile ? "open" : tile.dataset.sdvTile; sdvRender(); return; }
+      var type = e.target.closest("[data-sdv-type]");
+      if (type) { sdv.type = type.dataset.sdvType; sdvRender(); return; }
+      var row = e.target.closest("tr[data-open-job]");
+      if (row) openServiceJobModal(row.dataset.openJob);
+    });
+    document.addEventListener("change", function (e) {
+      var sel = e.target.closest("#sdv-host [data-sdv-sel]");
+      if (sel) { sdv[sel.dataset.sdvSel] = sel.value; sdvRender(); }
+    });
+    document.addEventListener("input", function (e) {
+      if (!e.target.closest("#sdv-host [data-sdv-q]")) return;
+      sdv.q = e.target.value;
+      sdvRender();
+    });
+  }
 
   // ---- Logging a breakdown call ----
   $("btn-new-breakdown").addEventListener("click", function () {
@@ -5809,7 +6048,7 @@
         '<div class="field"><label>Instruction to the engineer</label><input id="bd-instruction" placeholder="e.g. Carry an AOS kit" /></div>';
       var first = modal.querySelector(".grid");
       first.parentNode.insertBefore(row, first);
-      $("btn-new-breakdown").textContent = "+ Log Service Call";
+      $("btn-new-breakdown").textContent = "+ Service call";
       ["Regular service", "Spare change", "Commissioning"].forEach(function (t) {
         if ($("service-type") && !$("service-type").querySelector('option[value="' + t + '"]')) {
           var o = document.createElement("option");
@@ -5951,6 +6190,7 @@
 
   function initAmcView() {
     if (!FACE_V2) return;
+    sdvStrip("amc");
     loadAmc();
   }
 
@@ -5962,6 +6202,7 @@
         return '<option value="' + w + '"' + (w === d.window ? " selected" : "") + ">" + w + " days</option>";
       }).join("");
       renderAmc();
+      sdvStrip("amc");
     }).withFailureHandler(onServerError).listAmc({ window: amc.window });
   }
 
@@ -6217,6 +6458,7 @@
 
   function initPlanView() {
     if (!FACE_V2) return;
+    sdvStrip("plan");
     loadPlan();
   }
 

@@ -327,7 +327,44 @@
     listPeople: { salesEngineers: [{ email: "kiran@pie.in", name: "Kiran Patil" },
       { email: "neha@pie.in", name: "Neha Rao" }],
       coordinators: [{ email: "kiran@pie.in", name: "Kiran Patil" }],
-      serviceCoordinators: [], serviceEngineers: [], management: [] },
+      serviceCoordinators: [], serviceEngineers: [{ email: "sagar@pie.in", name: "Sagar Raut" },
+        { email: "vikas@pie.in", name: "Vikas Meshram" }], management: [] },
+    // 2.0's Service Desk: ERP 1's service jobs with 2.0's types and statuses (ServiceDesk.gs).
+    listServiceJobs: function () {
+      var job = function (n, o) {
+        return Object.assign({ id: "SJ-" + n, jobNo: "SVJ2610-0" + n, date: "2026-10-20", customerName: "Sahyadri Castings Pvt Ltd",
+          machineModel: "EG 37", serialNo: "EG37-21874", jobType: "Breakdown", urgency: "Normal", scopeText: "", engineerEmail: "",
+          engineerName: "", scheduledDate: "", scheduledTime: "", completedDate: "", area: "Butibori MIDC", areaType: "Local",
+          rescheduleCount: 0, partCount: 0, status: "Unassigned", deskStatus: "New" }, o);
+      };
+      return [
+        job(31, { date: "2026-10-28", jobType: "Breakdown", urgency: "Urgent", scopeText: "Tripping on high temperature since morning",
+          customerName: "Konkan Agro Foods", area: "Kamptee", serialNo: "EG22-40877", machineModel: "EG 22" }),
+        job(30, { date: "2026-10-27", jobType: "Breakdown", scopeText: "Oil carry-over in the air line", customerName: "Deccan Polymers",
+          area: "Nagpur City", serialNo: "EG55-12065", machineModel: "EG 55", engineerEmail: "sagar@pie.in", engineerName: "Sagar Raut",
+          scheduledDate: "2026-10-29", scheduledTime: "10:00", status: "Assigned", deskStatus: "Assigned" }),
+        job(29, { date: "2026-10-26", jobType: "Installation", scopeText: "", customerName: "Godavari Textile Mills", area: "Wardha",
+          areaType: "Outstation", serialNo: "EG75-30112", machineModel: "EG 75", engineerEmail: "vikas@pie.in", engineerName: "Vikas Meshram",
+          scheduledDate: "2026-10-30", scheduledTime: "11:30", status: "Scheduled", deskStatus: "Assigned", rescheduleCount: 1 }),
+        job(28, { date: "2026-10-25", jobType: "Regular service", scopeText: "4,000-hour service", customerName: "Godavari Textile Mills",
+          area: "Wardha", areaType: "Outstation", serialNo: "EN75-11902", machineModel: "EN 75", engineerEmail: "sagar@pie.in",
+          engineerName: "Sagar Raut", scheduledDate: "2026-10-26", scheduledTime: "10:00", status: "In Progress", deskStatus: "Report submitted" }),
+        job(27, { date: "2026-10-24", jobType: "AMC visit", scopeText: "AMC visit 3 of 4", customerName: "Deccan Polymers", area: "Nagpur City",
+          serialNo: "EG22-40877", machineModel: "EG 22", engineerEmail: "vikas@pie.in", engineerName: "Vikas Meshram",
+          scheduledDate: "2026-10-26", scheduledTime: "10:30", status: "In Progress", deskStatus: "Report submitted" }),
+        job(26, { date: "2026-10-23", jobType: "Spare change", scopeText: "Replace the separator element", customerName: "Vardhman Precision Tools",
+          area: "Hingna MIDC", serialNo: "EG30-55210", machineModel: "EG 30", engineerEmail: "sagar@pie.in", engineerName: "Sagar Raut",
+          scheduledDate: "2026-10-29", scheduledTime: "15:00", status: "In Progress", deskStatus: "In progress" }),
+        job(25, { date: "2026-10-22", jobType: "Commissioning", scopeText: "Commission the new dryer", customerName: "Sinhgad Pharma Packaging",
+          area: "Amravati", areaType: "Outstation", serialNo: "", machineModel: "TS 10 LB-12" }),
+        job(24, { date: "2026-10-12", jobType: "Breakdown", scopeText: "Motor overload", customerName: "Konkan Agro Foods", area: "Kamptee",
+          engineerEmail: "sagar@pie.in", engineerName: "Sagar Raut", scheduledDate: "2026-10-13", status: "Completed", deskStatus: "Closed",
+          completedDate: "2026-10-14" }),
+        job(23, { date: "2026-10-08", jobType: "Installation", customerName: "Deccan Polymers", area: "Nagpur City",
+          engineerEmail: "vikas@pie.in", engineerName: "Vikas Meshram", scheduledDate: "2026-10-10", status: "Completed", deskStatus: "Closed",
+          completedDate: "2026-10-11" })
+      ];
+    },
     findDuplicateCustomers: [],
     getConfigLists: { LeadSource: ["Phone", "WhatsApp", "Email", "Walk-in"],
       Urgency: ["Normal", "Urgent", "Breakdown"] },

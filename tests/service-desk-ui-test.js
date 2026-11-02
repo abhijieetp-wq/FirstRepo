@@ -68,7 +68,10 @@ const ok = (label, cond, detail) => {
   });
   await page.evaluate(() => document.querySelector('[data-view="service"]').click());
   await page.waitForTimeout(600);
-  const badges = () => page.$$eval('#service-tbody tr', (r) => r.map((x) => x.querySelector('td:nth-last-child(2) .badge').textContent));
+  // ERP 1's table on the other faces; 2.0's Service Desk table (its status chip is the last cell) on 2.0.
+  const badges = () => page.evaluate(() => document.getElementById('sdv-tbody')
+    ? Array.from(document.querySelectorAll('#sdv-tbody tr[data-open-job]')).map((x) => x.querySelector('td:last-child .eb-chip').textContent)
+    : Array.from(document.querySelectorAll('#service-tbody tr')).map((x) => x.querySelector('td:nth-last-child(2) .badge').textContent));
   const openJob = async (id) => {
     await page.click('[data-open-job="' + id + '"]');
     await page.waitForTimeout(500);
@@ -87,7 +90,7 @@ const ok = (label, cond, detail) => {
       await page.evaluate(() => document.getElementById('sj-status').closest('.field').offsetParent !== null));
   } else {
     console.log('THE LIST SAYS WHERE EACH STANDS, IN ERP 2’S WORDS');
-    ok('New, Assigned, Report submitted', JSON.stringify(await badges()) === '["New","Assigned","Report submitted"]', await badges());
+    ok('New, Assigned, Report submitted', JSON.stringify((await badges()).slice().sort()) === '["Assigned","New","Report submitted"]', await badges());
 
     console.log('\nA JOB, STEP BY STEP');
     await openJob('J2');

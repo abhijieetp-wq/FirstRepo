@@ -220,6 +220,14 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **The Service Desk as the 2.0 demo draws it**: four tabs — Calls, Engineer reports, AMC and dues,
+  Next-day plan — with the same strip under the AMC and next-day screens' headings, so the three read
+  as one page; Tomorrow's plan and + Service call; five totals (open calls, breakdowns open with those
+  over 24 hours, installations to do, reports in and not closed, closed this month with the average
+  days to close); the six call types, engineer, status, Local / Outstation and search; and every
+  call in one table (call, type, customer and area, machine and what is wrong, opened, engineer,
+  visit and how often it moved, status). A row opens the same job window. Engineer reports is the
+  calls whose report is in, waiting for the coordinator. A service engineer sees their own calls.
 - **The menu as the 2.0 demo lays it out**: Dashboard; Sales (Compressor Sales, Spare Sales, SDR,
   Visit Plans); Quotations (All Quotations, Quotation Progress); Service (Service Desk, AMC & Dues,
   Next-day Plan); Orders & money (Sales Orders, Dispatch & Billing, Collections, Inventory);
@@ -292,6 +300,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/service-desk-v2-ui-test.js` — the Service Desk's four tabs on its three screens, the five
+  totals, each filter, the table, Engineer reports, a row opening the job, and ERP 1's list on the other faces.
 - `tests/quotations-v2-ui-test.js` — the six totals, the desk, search, status and who filters,
   the table and its steps, Progress's step totals, rows and trail, and ERP 1's lists on the other faces.
 - `tests/form-fields-ui-test.js`, `tests/form-fields-sql-test.js` — building a form's fields,
