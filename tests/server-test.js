@@ -182,7 +182,17 @@ const ok = (label, cond, detail) => {
   // What JavaScript.html reads for the few things only 2.0 has (the SDR rows worked in place).
   ok('the page says which face it is', /<html data-face="v2"/.test(v2) && /<html data-face="web"/.test(page.text) &&
     /<html data-face="classic"/.test(classic));
+  ok('a choice kept while 2.0 was being previewed no longer holds a browser on the old look',
+    is2(await (await fetch(v2Base + '/', { headers: { cookie: 'erp_look=web' } })).text()));
   await new Promise((r) => v2Server.close(r));
+  for (const typed of [' V2 ', '"v2"', '2.0']) {
+    const loose = build({ db, tenant: TENANT, ui: typed });
+    await new Promise((r) => loose.listen(0, '127.0.0.1', r));
+    const lb = 'http://127.0.0.1:' + loose.address().port;
+    ok('ERP_UI typed as ' + JSON.stringify(typed) + ' still means 2.0', is2(await (await fetch(lb + '/')).text()) &&
+      JSON.parse(await (await fetch(lb + '/health')).text()).look === 'v2');
+    await new Promise((r) => loose.close(r));
+  }
   const fonts2 = await Promise.all(['archivo-latin-var', 'plexsans-latin-400', 'plexsans-latin-500', 'plexsans-latin-600',
     'plexsans-latin-700'].map((n) => fetch(base + '/fonts/' + n + '.woff2').then((r) => r.status)));
   ok('the faces 2.0 names are here to be fetched', fonts2.every((x) => x === 200), fonts2);
@@ -191,16 +201,16 @@ const ok = (label, cond, detail) => {
   const tried = await fetch(base + '/quotations?look=2');
   const cookie = tried.headers.get('set-cookie') || '';
   ok('?look=2 serves 2.0', is2(await tried.text()));
-  ok('and remembers it for this browser only', /^erp_look=v2;/.test(cookie) && /HttpOnly/.test(cookie) &&
+  ok('and remembers it for this browser only', /^erp_look2=v2;/.test(cookie) && /HttpOnly/.test(cookie) &&
     /SameSite=Lax/.test(cookie) && /Path=\//.test(cookie), cookie);
-  ok('the next page in that browser is 2.0 too', is2(await (await fetch(base + '/customers', { headers: { cookie: 'erp_look=v2' } })).text()));
+  ok('the next page in that browser is 2.0 too', is2(await (await fetch(base + '/customers', { headers: { cookie: 'erp_look2=v2' } })).text()));
   ok('another browser still gets the current look', !is2(await (await fetch(base + '/customers')).text()));
-  const back = await fetch(base + '/?look=web', { headers: { cookie: 'erp_look=v2' } });
-  ok('?look=web goes back', !is2(await back.text()) && /^erp_look=web;/.test(back.headers.get('set-cookie') || ''));
-  const forget = await fetch(base + '/?look=default', { headers: { cookie: 'erp_look=v2' } });
+  const back = await fetch(base + '/?look=web', { headers: { cookie: 'erp_look2=v2' } });
+  ok('?look=web goes back', !is2(await back.text()) && /^erp_look2=web;/.test(back.headers.get('set-cookie') || ''));
+  const forget = await fetch(base + '/?look=default', { headers: { cookie: 'erp_look2=v2' } });
   ok('?look=default forgets the choice', !is2(await forget.text()) && /Max-Age=0/.test(forget.headers.get('set-cookie') || ''),
     forget.headers.get('set-cookie'));
-  ok('a cookie naming no look is ignored', !is2(await (await fetch(base + '/', { headers: { cookie: 'erp_look=<script>' } })).text()));
+  ok('a cookie naming no look is ignored', !is2(await (await fetch(base + '/', { headers: { cookie: 'erp_look2=<script>' } })).text()));
   ok('and the same address with no ?look sets nothing', !(await fetch(base + '/')).headers.get('set-cookie'));
 
   console.log('\nAND SIGNING IN WORKS');

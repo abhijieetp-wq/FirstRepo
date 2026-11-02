@@ -26,6 +26,8 @@ const ok = (label, cond, detail) => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e) + ' @ ' + String(e.stack).split('\n').slice(1, 3).join(' | ')));
+  // The test data is dated October 2026; the clock is held there so "this month" stays put.
+  await page.clock.setFixedTime(new Date('2026-10-29T10:00:00+05:30'));
   await page.goto('file://' + PREVIEW);
   await page.waitForTimeout(1200);
   const v2 = await page.evaluate(() => document.documentElement.getAttribute('data-face') === 'v2');

@@ -46,6 +46,8 @@ const journeyFor = (reached, extra) => Object.assign({
     .replace(/(bootstrap: \{[^}]*?businessStream: )"Spare Sales"/, '$1"All"');
   const copy = PREVIEW.replace(/\.html$/, '') + '.status.html';
   fs.writeFileSync(copy, html);
+  // The test data is dated October 2026; the clock is held there so "this month" stays put.
+  await page.clock.setFixedTime(new Date('2026-10-29T10:00:00+05:30'));
   await page.goto('file://' + copy);
   await page.waitForTimeout(1200);
 

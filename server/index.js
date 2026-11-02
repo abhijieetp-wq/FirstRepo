@@ -64,6 +64,9 @@ const BUILD = (() => {
  * was being written, and it cost twenty minutes of testing the previous version of the code
  * without realising it.
  */
+/** What ERP_UI and ?look= may name, each to a face. */
+const LOOK_NAMES = { 2: 'v2', '2.0': 'v2', v2: 'v2', web: 'web', current: 'web', classic: 'classic' };
+
 function build(options) {
   const o = options || {};
   const tenant = o.tenant || process.env.TENANT_ID || 'pie';
@@ -132,8 +135,9 @@ function build(options) {
    * losing anything. One browser can also choose for itself (lookFor), which is how 2.0 is
    * looked at on the live portal before anyone else sees it.
    */
-  const asked = o.ui || process.env.ERP_UI;
-  const ui = asked === 'classic' || asked === 'v2' ? asked : 'web';
+  // Read loosely: " V2 ", "2.0" or a value pasted with quotes round it all mean 2.0.
+  const asked = LOOK_NAMES[String(o.ui || process.env.ERP_UI || '').trim().replace(/^["']|["']$/g, '').trim().toLowerCase()];
+  const ui = asked || 'web';
 
   /**
    * Attachments and e-mail.
@@ -329,8 +333,9 @@ function failed(res, err, where) {
  * tried on the live portal by one person at a time. The cookie names a look and nothing else —
  * every face is the same portal with the same permissions — so it carries no risk if forged.
  */
-const LOOK_COOKIE = 'erp_look';
-const LOOK_NAMES = { 2: 'v2', '2.0': 'v2', v2: 'v2', web: 'web', current: 'web', classic: 'classic' };
+// Renamed when 2.0 became the look everyone gets: a choice a browser kept while 2.0 was being
+// previewed ("Back to the current look") would otherwise hold it on the old look for a year.
+const LOOK_COOKIE = 'erp_look2';
 function lookFor(req, url, serverDefault) {
   const tail = '; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly';
   const want = url.searchParams.get('look');
