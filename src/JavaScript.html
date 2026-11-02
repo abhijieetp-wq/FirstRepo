@@ -12868,6 +12868,7 @@
   }
 
   function switchInvMode(mode) {
+    if (FACE_V2) { ivv.tab = mode; ivvLoad(); return; }
     INV_MODE = mode;
     ["stock", "reservations", "inward", "serials"].forEach(function (m) {
       $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
@@ -12897,6 +12898,7 @@
   $("inv-type").addEventListener("change", loadInvRows);
 
   function loadInvRows() {
+    if (FACE_V2) { ivvLoad(); return; }
     if (INV_MODE === "stock") {
       srv.withSuccessHandler(function (rows) {
         inventoryCache = rows; renderInvRows();
@@ -12917,10 +12919,198 @@
   }
 
   function renderInvRows() {
+    if (FACE_V2) { ivvRender(); return; }
     if (INV_MODE === "stock") renderStock();
     else if (INV_MODE === "reservations") renderReservations();
     else if (INV_MODE === "inward") renderGRNs();
     else renderSerials();
+  }
+
+  // ---- ERP 2.0's Inventory & Inward, as the 2.0 demo draws it ----
+  // Five totals (spares in stock, GRNs to verify, compressors in stock, below the reorder level,
+  // reserved; each opens what it counts), "+ Inward (GRN)" at the top, and ERP 1's four lists as
+  // tabs in the demo's tables. ERP 1's GRN, serial and reservation windows and rules as before.
+  var ivv = { tab: "stock", q: "", type: "Spare", store: "", low: false, spares: null, products: null, res: null, grns: null, serials: null };
+
+  function ivvInit() {
+    var v = $("view-inventory");
+    if ($("ivv-host")) return;
+    ["stock", "reservations", "inward", "serials"].forEach(function (m) { $("subtab-" + m).parentNode.style.display = "none"; });
+    v.querySelector(".search-bar").style.display = "none";
+    $("inv-summary").style.display = "none";
+    v.querySelector(":scope > .card").style.display = "none";
+    v.querySelector(".page-head p").textContent = "Live stock, what is reserved against orders, compressor serials, and goods received. " +
+      "Stock moves only when a goods receipt is verified, and only by the quantity accepted.";
+    var host = qvHost("view-inventory", "ivv-host");
+    host.innerHTML = '<div class="qv-kpis ivv-kpis"></div><div class="eb2-tabs ivv-tabs" role="tablist" aria-label="Inventory"></div>' +
+      '<div class="eb2-tools ivv-tools"><input type="search" class="eb2-search" data-ivv-q="1" aria-label="Search" />' +
+      '<span class="ivv-stockonly"><select data-ivv-sel="type" aria-label="Spares or compressors"><option value="Spare">Spares</option><option value="Product">Compressors</option></select>' +
+      '<select data-ivv-sel="store" aria-label="Store"></select>' +
+      '<label class="eb2-chk"><input type="checkbox" data-ivv-low="1" /> Below reorder only</label></span></div><div class="ivv-body"></div>';
+  }
+
+  function ivvLoad() {
+    ivvInit();
+    // ERP 1 puts "+ New GRN" or "+ Add Serial" on its own tabs; 2.0 has "+ Inward (GRN)" always, as the demo.
+    $("inv-actions").innerHTML = canDoStores() ? (ivv.tab === "serials" ? '<button class="btn" id="btn-new-serial">+ Add serial</button>' : "") +
+      '<button class="btn btn-primary" id="btn-new-grn">+ Inward (GRN)</button>' : "";
+    if ($("btn-new-grn")) $("btn-new-grn").addEventListener("click", function () { openGrnModal(null); });
+    if ($("btn-new-serial")) $("btn-new-serial").addEventListener("click", function () { openSerialModal(null); });
+    var host = $("ivv-host");
+    if (!ivv.spares) host.querySelector(".ivv-body").innerHTML = '<div class="empty">Loading…</div>';
+    var left = 5;
+    var done = function () { if (--left === 0) ivvRender(); };
+    var put = function (key) { return function (rows) { ivv[key] = rows || []; done(); }; };
+    var fail = function (err) { done(); onServerError(err); };
+    srv.withSuccessHandler(put("spares")).withFailureHandler(fail).listInventory("Spare");
+    srv.withSuccessHandler(put("products")).withFailureHandler(fail).listInventory("Product");
+    srv.withSuccessHandler(put("res")).withFailureHandler(fail).listReservations({});
+    srv.withSuccessHandler(put("grns")).withFailureHandler(fail).listGRNs({ includeVerified: true });
+    srv.withSuccessHandler(put("serials")).withFailureHandler(fail).listSerialNumbers({});
+  }
+
+  function ivvTile(label, value, sub, tone, act) {
+    return "<" + (act ? 'button type="button" data-ivv-tile="' + act + '"' : "div") + ' class="qv-kpi' + (tone ? " " + tone : "") + '">' +
+      '<span class="qv-l">' + escapeHtml(label) + '</span><span class="qv-v">' + escapeHtml(String(value)) + '</span><span class="qv-s">' + escapeHtml(sub) + "</span></" + (act ? "button" : "div") + ">";
+  }
+
+  function ivvRender() {
+    var host = $("ivv-host");
+    if (!host) return;
+    var spares = ivv.spares || [], products = ivv.products || [], res = ivv.res || [], grns = ivv.grns || [], serials = ivv.serials || [];
+    var num = function (list, k) { return list.reduce(function (n, r) { return n + (Number(r[k]) || 0); }, 0); };
+    var pend = grns.filter(function (g) { return g.verificationStatus !== "Verified"; });
+    var free = serials.filter(function (x) { return x.status === "In Stock"; }).length;
+    var held = serials.filter(function (x) { return x.status === "Reserved"; }).length;
+    var low = spares.concat(products).filter(function (r) { return r.belowReorder; });
+    host.querySelector(".ivv-kpis").innerHTML =
+      ivvTile("Spares in stock", num(spares, "onHand"), spares.length + (spares.length === 1 ? " part number" : " part numbers"), "", "") +
+      ivvTile("GRNs to verify", pend.length, pend.length ? "stock not added yet" : "none", pend.length ? "sig" : "", "inward") +
+      ivvTile("Compressors in stock", free + held, free + " free", "", "serials") +
+      ivvTile("Below reorder level", low.length, "order from ELGi", low.length ? "sig" : "", "low") +
+      ivvTile("Reserved", num(spares, "reserved") + num(products, "reserved"), "against orders", "", "reservations");
+    host.querySelector(".ivv-tabs").innerHTML = [["stock", "Stock"], ["reservations", "Reservations"], ["inward", "Inward (GRN)"], ["serials", "Serials"]].map(function (t) {
+      var n = t[0] === "inward" ? pend.length : "";
+      return '<button type="button" role="tab" data-ivv-tab="' + t[0] + '" aria-selected="' + (ivv.tab === t[0]) + '">' + escapeHtml(t[1]) + (n ? ' <span class="sdv-n">' + n + "</span>" : "") + "</button>";
+    }).join("");
+
+    var tools = host.querySelector(".ivv-tools");
+    tools.querySelector("[data-ivv-q]").placeholder = { stock: "Search part, description or category", reservations: "Search order or part",
+      inward: "Search GRN, supplier or PO", serials: "Search serial or model" }[ivv.tab];
+    tools.querySelector(".ivv-stockonly").style.display = ivv.tab === "stock" ? "" : "none";
+    tools.querySelector('[data-ivv-sel="type"]').value = ivv.type;
+    var list = ivv.type === "Product" ? products : spares;
+    var stores = {};
+    list.forEach(function (r) { if (r.warehouse) stores[r.warehouse] = true; });
+    var storeSel = tools.querySelector('[data-ivv-sel="store"]');
+    storeSel.innerHTML = '<option value="">All stores</option>' + Object.keys(stores).sort().map(function (x) { return '<option>' + escapeHtml(x) + "</option>"; }).join("");
+    storeSel.value = stores[ivv.store] ? ivv.store : "";
+    storeSel.style.display = Object.keys(stores).length > 1 ? "" : "none";
+    tools.querySelector("[data-ivv-low]").checked = ivv.low;
+
+    var q = String(ivv.q || "").trim().toLowerCase();
+    var table = function (heads, rows, empty, tail) {
+      return '<div class="qv-table ivv-table"><table><thead><tr>' + heads.map(function (h) {
+        return "<th" + (/^(On hand|Reserved|Free|Reorder at|Value|Qty|Lines)$/.test(h) ? ' class="num"' : "") + ">" + escapeHtml(h) + "</th>";
+      }).join("") + '</tr></thead><tbody id="ivv-tbody">' + (rows.join("") || '<tr><td colspan="' + heads.length + '" class="eb2-empty">' + escapeHtml(empty) + "</td></tr>") + "</tbody></table></div>" + (tail || "");
+    };
+    var html;
+    if (ivv.tab === "stock") {
+      html = table(["Part", "Description", "Store", "On hand", "Reserved", "Free", "Reorder at", "Value"], list.filter(function (r) {
+        if (ivv.store && r.warehouse !== ivv.store) return false;
+        if (ivv.low && !r.belowReorder) return false;
+        return !q || [r.code, r.description, r.category].join(" ").toLowerCase().indexOf(q) !== -1;
+      }).map(function (r) {
+        return '<tr class="' + (r.belowReorder ? "ivv-low" : "") + '"><td><span class="mono">' + escapeHtml(r.code || "—") + "</span></td>" +
+          "<td>" + escapeHtml(r.description || "—") + (r.category ? '<br><span class="eb2-kind">' + escapeHtml(r.category) + "</span>" : "") + "</td>" +
+          "<td>" + escapeHtml(r.warehouse || "—") + (r.binId ? '<br><span class="eb2-kind mono">' + escapeHtml(r.binId) + "</span>" : "") + "</td>" +
+          '<td class="num">' + r.onHand + '</td><td class="num">' + r.reserved + "</td>" +
+          '<td class="num' + (r.available <= 0 || r.belowReorder ? " qv-late" : "") + '"><b>' + r.available + "</b></td>" +
+          '<td class="num">' + (r.reorderLevel === null ? "—" : r.reorderLevel) + (r.belowReorder ? " " + ebChip("Low", "sig") : "") + "</td>" +
+          '<td class="num">' + escapeHtml(ebMoney(r.stockValue) || "—") + "</td></tr>";
+      }), ivv.low ? "Nothing is below its reorder level." : "Nothing to show.",
+        '<p class="eb-note">Value is at ELGi’s selling price. Free is what can still be promised: on hand less what is reserved.</p>');
+    } else if (ivv.tab === "reservations") {
+      html = table(["For", "Part", "Type", "Qty", "Since", "By", ""], res.filter(function (r) {
+        return !q || [r.orderNo, r.itemCode].join(" ").toLowerCase().indexOf(q) !== -1;
+      }).map(function (r) {
+        return '<tr><td><span class="mono">' + escapeHtml(r.orderNo || "—") + "</span></td>" +
+          '<td><span class="mono">' + escapeHtml(r.itemCode || "—") + "</span></td>" +
+          "<td>" + ebChip(r.itemType === "Product" ? "Compressor" : "Spare", r.itemType === "Product" ? "c-unit" : "c-spare") + "</td>" +
+          '<td class="num">' + r.qtyReserved + "</td>" +
+          '<td class="ivv-nw">' + escapeHtml(ebDay(r.reservedDate)) + "</td>" +
+          "<td>" + escapeHtml(r.reservedBy || "—") + "</td>" +
+          "<td>" + (canDoStores() ? '<button type="button" class="btn btn-sm" data-ivv-release="' + escapeHtml(r.id) + '">Release</button>' : "") + "</td></tr>";
+      }), "No active reservations. Reserving happens from an order once it is past the credit check.");
+    } else if (ivv.tab === "inward") {
+      html = table(["GRN", "Date", "From", "PO ref", "Lines", "Recorded by", "Verified"], grns.filter(function (g) {
+        return !q || [g.grnNo, g.supplierName, g.poRef].join(" ").toLowerCase().indexOf(q) !== -1;
+      }).map(function (g) {
+        var ok = g.verificationStatus === "Verified";
+        return '<tr class="qv-row' + (ok ? "" : " ivv-low") + '" data-ivv-grn="' + escapeHtml(g.id) + '"><td><span class="mono">' + escapeHtml(g.grnNo || "—") + "</span>" +
+          (g.invoiceRef ? '<br><span class="eb2-kind">' + escapeHtml(g.invoiceRef) + "</span>" : "") + "</td>" +
+          '<td class="ivv-nw">' + escapeHtml(ebDay(g.grnDate)) + "</td>" +
+          "<td><b>" + escapeHtml(g.supplierName || "—") + "</b></td>" +
+          '<td><span class="mono">' + escapeHtml(g.poRef || "—") + "</span></td>" +
+          '<td class="num">' + (g.itemCount || 0) + "</td>" +
+          "<td>" + escapeHtml(g.receivedBy || "—") + "</td>" +
+          "<td>" + (ok ? ebChip("Verified" + (g.verificationDate ? " · " + ebDay(g.verificationDate) : ""), "good") : ebChip("Waiting", "sig")) + "</td></tr>";
+      }), "No goods received yet.", '<p class="eb-note">A sales coordinator, Management or the ERP Admin verifies each GRN: what was accepted goes into stock; ' +
+        "damaged or short quantities are recorded and do not. Open a GRN to verify it.</p>");
+    } else {
+      html = table(["Model", "Serial", "State", "Received on a GRN", "Order", "Recorded", ""], serials.filter(function (x) {
+        return !q || [x.serialNo, x.productCode, x.productName].join(" ").toLowerCase().indexOf(q) !== -1;
+      }).map(function (x) {
+        var tone = x.status === "In Stock" ? "good" : x.status === "Reserved" ? "sig" : x.status === "Dispatched" ? "c-unit" : "";
+        return "<tr><td><b>" + escapeHtml(x.productName || x.productCode || "—") + "</b></td>" +
+          '<td><span class="mono">' + escapeHtml(x.serialNo) + "</span></td>" +
+          "<td>" + ebChip(x.status === "In Stock" ? "Free" : x.status, tone) + "</td>" +
+          "<td>" + (x.grnId ? "Yes" : "—") + "</td>" +
+          "<td>" + (x.salesOrderId ? "Allocated" : "—") + "</td>" +
+          '<td class="ivv-nw">' + escapeHtml(x.createdAt ? ebDay(x.createdAt) : "—") + "</td>" +
+          "<td>" + (canDoStores() ? '<button type="button" class="btn btn-sm" data-ivv-serial="' + escapeHtml(x.id) + '">Edit</button>' : "") + "</td></tr>";
+      }), "No serials recorded. Verifying a GRN with serial numbers creates them.");
+    }
+    host.querySelector(".ivv-body").innerHTML = html;
+  }
+
+  if (FACE_V2) {
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest("#ivv-host")) return;
+      var tile = e.target.closest("[data-ivv-tile]");
+      if (tile) {
+        var t = tile.dataset.ivvTile;
+        if (t === "low") { ivv.tab = "stock"; ivv.low = true; ivv.type = (ivv.spares || []).some(function (r) { return r.belowReorder; }) ? "Spare" : "Product"; }
+        else ivv.tab = t;
+        ivvLoad();
+        return;
+      }
+      var tab = e.target.closest("[data-ivv-tab]");
+      if (tab) { ivv.tab = tab.dataset.ivvTab; ivvLoad(); return; }
+      var grn = e.target.closest("tr[data-ivv-grn]");
+      if (grn) { openGrnModal(grn.dataset.ivvGrn); return; }
+      var sn = e.target.closest("[data-ivv-serial]");
+      if (sn) { openSerialModal(sn.dataset.ivvSerial); return; }
+      var rel = e.target.closest("[data-ivv-release]");
+      if (rel) {
+        askDialog({ title: "Release this reservation?", message: "The stock returns to available and can be promised to another order.",
+          input: true, inputLabel: "Reason", okLabel: "Release", danger: true }, function (reason) {
+          if (reason === null) return;
+          srv.withSuccessHandler(function () { loadInvRows(); showMsg("Reservation released.", "success"); })
+            .withFailureHandler(onServerError).releaseReservation(rel.dataset.ivvRelease, reason);
+        });
+      }
+    });
+    document.addEventListener("change", function (e) {
+      var sel = e.target.closest("#ivv-host [data-ivv-sel]");
+      if (sel) { ivv[sel.dataset.ivvSel] = sel.value; if (sel.dataset.ivvSel === "type") ivv.store = ""; ivvRender(); return; }
+      if (e.target.closest("#ivv-host [data-ivv-low]")) { ivv.low = e.target.checked; ivvRender(); }
+    });
+    document.addEventListener("input", function (e) {
+      if (!e.target.closest("#ivv-host [data-ivv-q]")) return;
+      ivv.q = e.target.value;
+      ivvRender();
+    });
   }
 
   function renderStock() {

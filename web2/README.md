@@ -220,6 +220,12 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **Inventory & Inward as the 2.0 demo draws it**: five totals that open what they count (spares in
+  stock, GRNs to verify, compressors in stock and how many are free, below the reorder level,
+  reserved), "+ Inward (GRN)" at the top (and "+ Add serial" on Serials), and ERP 1's four lists as
+  tabs: stock (spares or compressors, by store, below reorder only; free stock and low parts
+  marked; value at ELGi's selling price), reservations with Release, goods received with their
+  verification, and serials. ERP 1's GRN, serial and reservation windows and rules as before.
 - **The quotation page laid out as the 2.0 demo has it**: the kind of offer (Compressor / Spares
   offer) over the number in figures, the customer, date and machine under it; the ten-step progress
   in its own panel with where it is and what is next; who prepared, approved and looks after it;
@@ -332,6 +338,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/inventory-v2-ui-test.js` — the five totals and what each opens, the stock filters, the
+  four tabs, and the buttons opening ERP 1's windows; ERP 1's lists on the other faces.
 - `tests/quote-builder-v2-ui-test.js` — the heading, the panels in the demo's order with ERP 1's
   fields in them, saving through ERP 1's button, a locked and a compressor offer; ERP 1's page elsewhere.
 - `tests/collections-v2-ui-test.js` — the six totals, the four tabs and their tables, Overdue only,

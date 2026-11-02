@@ -334,6 +334,36 @@
       coordinators: [{ email: "kiran@pie.in", name: "Kiran Patil" }],
       serviceCoordinators: [], serviceEngineers: [{ email: "sagar@pie.in", name: "Sagar Raut" },
         { email: "vikas@pie.in", name: "Vikas Meshram" }], management: [] },
+    // Inventory & Inward (Inventory.gs): stock of each kind, reservations, goods received, serials.
+    listInventory: function (type) {
+      var row = function (o) { return Object.assign({ itemType: type, category: "", binId: "", warehouse: "Main store", reorderLevel: null, belowReorder: false }, o); };
+      return type === "Product" ? [
+        row({ id: "PR-1", code: "EG37-10", description: "EG 37 screw compressor, 10 bar", category: "EG series", onHand: 2, reserved: 1, available: 1, reorderLevel: 1, stockValue: 1640000 }),
+        row({ id: "PR-2", code: "EN75-8", description: "EN 75 screw compressor, 8 bar", category: "EN series", onHand: 1, reserved: 0, available: 1, reorderLevel: null, stockValue: 1310000 })
+      ] : [
+        row({ id: "SP-1", code: "2205190474", description: "Air-oil separator element", category: "Separators", binId: "A-04", onHand: 6, reserved: 2, available: 4, reorderLevel: 4, belowReorder: true, stockValue: 110400 }),
+        row({ id: "SP-2", code: "2200902014", description: "Oil filter", category: "Filters", binId: "B-11", onHand: 24, reserved: 4, available: 20, reorderLevel: 10, stockValue: 158400 }),
+        row({ id: "SP-3", code: "2205206010", description: "Air filter element", category: "Filters", binId: "B-12", onHand: 3, reserved: 3, available: 0, reorderLevel: 5, belowReorder: true, stockValue: 25800 }),
+        row({ id: "SP-4", code: "2236101010", description: "Airend oil, 20 L", category: "Oils", binId: "C-01", warehouse: "Service van", onHand: 9, reserved: 0, available: 9, reorderLevel: 4, stockValue: 106200 })
+      ];
+    },
+    listReservations: [
+      { id: "RS-1", orderNo: "SO2610-0042", itemCode: "2205190474", itemType: "Spare", qtyReserved: 1, reservedDate: "2026-10-17", reservedBy: "Neha Rao" },
+      { id: "RS-2", orderNo: "SO2610-0037", itemCode: "2200902014", itemType: "Spare", qtyReserved: 4, reservedDate: "2026-10-08", reservedBy: "Anil Mehta" },
+      { id: "RS-3", orderNo: "SO2610-0041", itemCode: "EG37-10", itemType: "Product", qtyReserved: 1, reservedDate: "2026-10-14", reservedBy: "Kiran Patil" }
+    ],
+    listGRNs: [
+      { id: "GRN-2", grnNo: "GRN2610-0007", grnDate: "2026-10-27", supplierName: "ELGi Equipments", poRef: "PIE/PO/26-27/118", invoiceRef: "ELGi inv 4410287",
+        itemCount: 3, receivedBy: "Neha Rao", verificationStatus: "Pending", verificationDate: "" },
+      { id: "GRN-1", grnNo: "GRN2610-0006", grnDate: "2026-10-15", supplierName: "ELGi Equipments", poRef: "PIE/PO/26-27/111", invoiceRef: "ELGi inv 4409755",
+        itemCount: 5, receivedBy: "Kiran Patil", verificationStatus: "Verified", verificationDate: "2026-10-16" }
+    ],
+    listSerialNumbers: [
+      { id: "SN-1", serialNo: "EG37-24410", productCode: "EG37-10", productName: "EG 37 screw compressor, 10 bar", status: "In Stock", grnId: "GRN-1", salesOrderId: "", createdAt: "2026-10-16" },
+      { id: "SN-2", serialNo: "EG37-24411", productCode: "EG37-10", productName: "EG 37 screw compressor, 10 bar", status: "Reserved", grnId: "GRN-1", salesOrderId: "SO-2", createdAt: "2026-10-16" },
+      { id: "SN-3", serialNo: "EN75-11930", productCode: "EN75-8", productName: "EN 75 screw compressor, 8 bar", status: "In Stock", grnId: "", salesOrderId: "", createdAt: "2026-09-02" },
+      { id: "SN-4", serialNo: "EG22-40877", productCode: "EG22-8", productName: "EG 22 screw compressor, 8 bar", status: "Installed", grnId: "", salesOrderId: "SO-0", createdAt: "2026-04-11" }
+    ],
     // Collections (Collections.gs): the ageing strip, ageing by customer, open invoices, follow-ups, receipts.
     getAgeingSummary: { totalOutstanding: 1394800, overdueAmount: 612300, invoiceCount: 6, buckets: [
       { key: "notDue", label: "Not Due", amount: 782500, count: 3 }, { key: "d0_30", label: "1–30", amount: 74800, count: 1 },
