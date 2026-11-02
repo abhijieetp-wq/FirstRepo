@@ -220,6 +220,14 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **The quotation page laid out as the 2.0 demo has it**: the kind of offer (Compressor / Spares
+  offer) over the number in figures, the customer, date and machine under it; the ten-step progress
+  in its own panel with where it is and what is next; who prepared, approved and looks after it;
+  Customer (customer, GSTIN, machine, kind attention, addresses) and Offer details (date, validity,
+  payment, delivery, warranty, GST, notes; "Printed on the offer" or "Locked. Revise to change.")
+  side by side; the items; and Totals (package discount, P&F, the sums, a Save that uses ERP 1's
+  Save details) beside what the customer receives. ERP 1's own fields and buttons are moved into
+  these panels with their ids, so everything works as before; the breadcrumb names the quotation.
 - **Collections as the 2.0 demo draws it**: six totals (outstanding, overdue and its share, over 90
   days, received this month, promised for today, broken promises), Import receipts and Record
   receipt, and ERP 1's four lists as tabs: ageing by customer (ERP 1's buckets by days past due,
@@ -324,6 +332,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/quote-builder-v2-ui-test.js` — the heading, the panels in the demo's order with ERP 1's
+  fields in them, saving through ERP 1's button, a locked and a compressor offer; ERP 1's page elsewhere.
 - `tests/collections-v2-ui-test.js` — the six totals, the four tabs and their tables, Overdue only,
   and each button opening ERP 1's forms; ERP 1's lists on the other faces.
 - `tests/dispatch-v2-ui-test.js` — the five totals, Ready to go, the four tabs and their tables, and

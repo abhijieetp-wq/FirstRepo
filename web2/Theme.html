@@ -307,6 +307,36 @@
   .eb-chip.c-visit{ background:#d8f2f0; color:var(--eb-visit); }
   .eb-chip.c-unit{ background:#e1ecfa; color:var(--eb-unit); }
   .eb-chip.c-spare{ background:#fdebd8; color:var(--eb-spare); }
+  /* The quotation page, laid out as the 2.0 demo has it (qbV2Layout in JavaScript.html). */
+  .qbv-eyebrow{ display:block; font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:var(--eb-muted); font-weight:600; }
+  #view-quote .qbv-no{ font-family:var(--font-mono, ui-monospace, monospace); font-size:21px; letter-spacing:0; }
+  #qb-body{ display:flex; flex-direction:column; gap:16px; }
+  #qb-body > *:empty{ display:none; }
+  .qbv-panel, #qb-body .qbv-items{ background:#fff; border:1px solid var(--eb-line); border-radius:8px; min-width:0; margin:0; box-shadow:none; }
+  .qbv-panel > header{ display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; padding:12px 16px; border-bottom:1px solid var(--eb-line); }
+  .qbv-panel > header h2{ margin:0; font-size:16px; }
+  .qbv-note{ font-size:12.5px; color:var(--eb-muted); }
+  .qbv-body{ padding:14px 16px; }
+  .qbv-split{ display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(380px, 1fr)); align-items:start; }
+  .qbv-grid{ display:grid; gap:12px; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); }
+  .qbv-grid .field{ margin:0; }
+  .qbv-save{ display:flex; justify-content:flex-end; margin-top:12px; }
+  .qbv-hint{ font-size:12.5px; color:var(--eb-muted); margin:10px 0 0; }
+  .qbv-totalsbox{ display:flex; justify-content:flex-end; margin-top:12px; }
+  .qbv-totalsbox .totals-box{ width:100%; max-width:none; }
+  #qbv-progress .journey{ border:0; box-shadow:none; margin:0; padding:0; background:transparent; }
+  #qb-body .owners{ margin:0; }
+  .qbv-list{ margin:0; padding-left:1.2rem; display:flex; flex-direction:column; gap:4px; font-size:13.5px; }
+  #qb-body .qbv-items{ padding:0; }
+  #qb-body .qbv-items > .card-title{ padding:12px 16px; margin:0; border-bottom:1px solid var(--eb-line); font-size:16px; }
+  #qb-body .qbv-items > #qb-items{ padding:0; overflow-x:auto; }
+  #qb-body .qbv-items #qb-items table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  #qb-body .qbv-items #qb-items th{ text-align:left; font-weight:600; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--eb-muted);
+    padding:9px 10px; border-bottom:1px solid var(--eb-line); background:color-mix(in srgb, var(--eb-accent) 7%, var(--eb-surface2)); }
+  #qb-body .qbv-items #qb-items td{ padding:9px 10px; border-bottom:1px solid var(--eb-line); }
+  #qb-body .qbv-items .inline-form{ margin:12px 16px; }
+  #qb-body .qbv-items > div:last-child:not(#qb-items){ padding:0 16px 16px; }
+  #qb-body .compare-strip{ margin:0 !important; border-radius:8px; border:1px solid color-mix(in srgb, var(--eb-accent) 40%, var(--eb-line)); background:var(--eb-accent-soft); }
   /* Collections, as the 2.0 demo draws it. */
   .cov-tabs{ border-bottom:1px solid var(--eb-line); }
   .cov-table .eb2-kind, .cov-timeline .eb2-kind{ font-size:12px; color:var(--eb-muted); }

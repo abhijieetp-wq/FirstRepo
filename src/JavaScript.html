@@ -651,7 +651,7 @@
     // A group heading lights up when the screen you are on lives inside it. A screen with no
     // line of its own in the menu lights the one it is reached from (2.0's next-day plan, a
     // tab of the Service Desk).
-    var lit = FACE_V2 && view === "plan" ? "service" : view;
+    var lit = !FACE_V2 ? view : view === "plan" ? "service" : view === "quote" ? "quotations" : view;
     document.querySelectorAll("#tabs .tab-btn").forEach(function (b) {
       var owns = (b.dataset.views || "").split(",").indexOf(lit) !== -1;
       b.classList.toggle("active", owns);
@@ -3782,6 +3782,111 @@
     renderQuoteActions(q, editable);
     renderQuoteItems(q, editable);
     renderQuoteTotals(q);
+    if (FACE_V2) qbV2Layout(q, editable);
+  }
+
+  // ---- ERP 2.0's quotation page, laid out as the 2.0 demo has it ----
+  // The same fields, buttons and rules as ERP 1's: only where they sit and how they look
+  // change. The heading names the kind of offer; then the progress strip, who prepared and
+  // approved it, the customer and the offer's terms side by side, the items, and the totals
+  // beside what the customer receives. Every element keeps its id, so ERP 1's code is unchanged.
+  function qbV2Frame() {
+    if ($("qbv-customer")) return;
+    var body = $("qb-body");
+    var card = $("qb-customer").closest(".card");
+    var field = function (id) { var el = $(id); return el ? el.closest(".field") : null; };
+    var panel = function (id, title) {
+      var sec = document.createElement("section");
+      sec.className = "qbv-panel";
+      sec.id = id;
+      sec.innerHTML = "<header><h2>" + title + '</h2><span class="qbv-note"></span></header><div class="qbv-body"></div>';
+      return sec;
+    };
+    var grid = function (sec) {
+      var g = document.createElement("div");
+      g.className = "qbv-grid";
+      sec.querySelector(".qbv-body").appendChild(g);
+      return g;
+    };
+    var move = function (g, ids) { ids.forEach(function (id) { var f = field(id); if (f) g.appendChild(f); }); };
+
+    var progress = panel("qbv-progress", "Progress");
+    progress.querySelector(".qbv-body").appendChild($("qb-journey"));
+    body.insertBefore(progress, body.firstChild);
+
+    var split = document.createElement("div");
+    split.className = "qbv-split";
+    var cust = panel("qbv-customer", "Customer");
+    move(grid(cust), ["qb-customer", "qb-gstin", "qb-model", "qb-serial", "qb-contact", "qb-billaddr", "qb-shipaddr"]);
+    var offer = panel("qbv-offer", "Offer details");
+    move(grid(offer), ["qb-date", "qb-validity", "qb-validuntil", "qb-paymentterms", "qb-deliveryterms", "qb-deliveryperiod",
+      "qb-warrantyterms", "qb-taxmode", "qb-notes"]);
+    var save = $("btn-qb-save-header");
+    save.className = "btn btn-sm btn-primary";
+    save.textContent = "Save details";
+    var row = document.createElement("div");
+    row.className = "qbv-save";
+    row.appendChild(save);
+    offer.querySelector(".qbv-body").appendChild(row);
+    split.appendChild(cust);
+    split.appendChild(offer);
+    card.parentNode.insertBefore(split, card);
+
+    var items = $("qb-items").closest(".card");
+    items.classList.add("qbv-items");
+    var totals = panel("qbv-totals", "Totals");
+    move(grid(totals), ["qb-pkgdisc", "qb-pf"]);
+    var hint = card.querySelector("p");
+    if (hint) { hint.className = "qbv-hint"; hint.removeAttribute("style"); totals.querySelector(".qbv-body").appendChild(hint); }
+    var box = $("qb-totals").parentNode;
+    box.className = "qbv-totalsbox";
+    box.removeAttribute("style");
+    totals.querySelector(".qbv-body").appendChild(box);
+    var again = document.createElement("div");
+    again.className = "qbv-save";
+    again.innerHTML = '<button type="button" class="btn btn-sm" id="btn-qbv-save-totals">Save</button>';
+    totals.querySelector(".qbv-body").appendChild(again);
+    // The discount and P&F are saved with the rest of the offer's details, by ERP 1's own button.
+    again.querySelector("button").addEventListener("click", function () { $("btn-qb-save-header").click(); });
+    var receives = panel("qbv-receives", "What the customer receives");
+    var split2 = document.createElement("div");
+    split2.className = "qbv-split";
+    split2.appendChild(totals);
+    split2.appendChild(receives);
+    items.parentNode.insertBefore(split2, items.nextSibling);
+
+    // Everything ERP 1's long card held now sits in the panels above; it goes only when empty.
+    if (!card.querySelector("input, select, textarea, button")) card.style.display = "none";
+  }
+
+  function qbV2Layout(q, editable) {
+    qbV2Frame();
+    var spare = q.businessStream === "Spare Sales";
+    var head = $("view-quote").querySelector(".page-head");
+    var eyebrow = $("qbv-eyebrow");
+    if (!eyebrow) {
+      eyebrow = document.createElement("span");
+      eyebrow.id = "qbv-eyebrow";
+      eyebrow.className = "qbv-eyebrow";
+      $("qb-title").parentNode.insertBefore(eyebrow, $("qb-title"));
+    }
+    eyebrow.textContent = spare ? (q.enquiryType && q.enquiryType !== "Spares" ? q.enquiryType + " offer" : "Spares offer") : "Compressor offer";
+    $("qb-title").classList.add("qbv-no");
+    $("qb-subtitle").textContent = [q.customerName, q.date ? ebDay(q.date, true) : "", q.machineModel ? q.machineModel + (q.serialNo ? " · " + q.serialNo : "") : ""]
+      .filter(Boolean).join(" · ");
+    head.classList.add("qbv-head");
+
+    var j = q.journey || {};
+    $("qbv-progress").querySelector(".qbv-note").textContent = (j.label || "") + (j.nextLabel ? " · next: " + j.nextLabel : "");
+    $("qbv-progress").style.display = j.stages ? "" : "none";
+    $("qbv-offer").querySelector(".qbv-note").textContent = editable ? "Printed on the offer." : "Locked. Revise to change.";
+    $("qbv-totals").querySelector(".qbv-note").innerHTML = ebChip((q.taxMode || "Extra") === "Extra" ? "GST extra" : "GST included", "acc");
+    $("btn-qbv-save-totals").style.display = $("btn-qb-save-header").style.display;
+    $("qbv-receives").querySelector(".qbv-body").innerHTML = '<ol class="qbv-list">' + (spare
+      ? "<li>Offer letter on PIE letterhead</li><li>Price schedule with part numbers</li><li>Terms</li>"
+      : "<li>Offer letter on PIE letterhead</li><li>Technical specifications, with the range picture</li><li>Price schedule in PIE’s layout</li>" +
+        "<li>Scope of supply and terms</li>") + "</ol>" +
+      '<p class="qbv-hint">Print / PDF shows exactly what the customer will get.' + (spare ? "" : " A kit-only compressor offer prints the range picture above the price schedule.") + "</p>";
   }
 
   /**

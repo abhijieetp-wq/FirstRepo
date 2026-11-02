@@ -92,6 +92,10 @@ run_ui "dispatch-v2-ui-test.js (2.0)" tests/dispatch-v2-ui-test.js "$tmp/show-v2
 run_ui "collections-v2-ui-test.js (classic)" tests/collections-v2-ui-test.js "$tmp/show-classic.html"
 run_ui "collections-v2-ui-test.js (new design)" tests/collections-v2-ui-test.js "$tmp/show.html"
 run_ui "collections-v2-ui-test.js (2.0)" tests/collections-v2-ui-test.js "$tmp/show-v2.html"
+# The quotation page, laid out as the 2.0 demo has it.
+run_ui "quote-builder-v2-ui-test.js (classic)" tests/quote-builder-v2-ui-test.js "$tmp/base.html"
+run_ui "quote-builder-v2-ui-test.js (new design)" tests/quote-builder-v2-ui-test.js "$tmp/base-web.html"
+run_ui "quote-builder-v2-ui-test.js (2.0)" tests/quote-builder-v2-ui-test.js "$tmp/base-v2.html"
 # So is the dashboard per person; the showcase adds Management's view of the team.
 run_ui "person-dashboard-ui-test.js (classic)" tests/person-dashboard-ui-test.js "$tmp/base.html"
 run_ui "person-dashboard-ui-test.js (new design)" tests/person-dashboard-ui-test.js "$tmp/base-web.html"
