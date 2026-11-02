@@ -12232,6 +12232,7 @@
   }
 
   function loadOrders() {
+    if (FACE_V2) { soLoad(); return; }
     srv.withSuccessHandler(function (rows) {
       ordersCache = rows; renderOrders();
     }).withFailureHandler(onServerError).listSalesOrders({
@@ -12247,6 +12248,7 @@
   $("orders-closed").addEventListener("change", loadOrders);
 
   function renderOrders() {
+    if (FACE_V2) { soRender(); return; }
     var q = ($("orders-search").value || "").toLowerCase();
     var rows = ordersCache.filter(function (o) {
       return [o.orderNo, o.poNo, o.customerName].join(" ").toLowerCase().indexOf(q) !== -1;
@@ -12288,6 +12290,131 @@
 
     $("orders-tbody").querySelectorAll("[data-open-order]").forEach(function (btn) {
       btn.addEventListener("click", function () { openOrderModal(btn.dataset.openOrder); });
+    });
+  }
+
+  // ---- ERP 2.0's Sales Orders, as the 2.0 demo draws them ----
+  // Five totals that filter, search, status and Only mine, and one table: the order and its
+  // desk, the customer and what was ordered, the PO (and a variance), the value before GST, the
+  // status, how much is in stock, and the promised date. ERP 1's orders and order window as before.
+  var SO_STATES = ["Draft", "Approval Pending", "Credit Hold", "Material Pending", "Ready for Dispatch", "Dispatched", "Invoiced", "Closed"];
+  var so = { rows: null, status: "open", mine: false, q: "" };
+
+  function soOpen(o) { return ["Invoiced", "Closed", "Cancelled"].indexOf(o.orderStatus) === -1; }
+  function soHold(o) { return o.creditHold || o.orderStatus === "Credit Hold"; }
+  function soBasic(o) { return (Number(o.grand) || 0) - (Number(o.taxAmt) || 0); }
+  function soTone(st) {
+    return { "Credit Hold": "bad", "Material Pending": "c-spare", "Ready for Dispatch": "good", Dispatched: "c-unit", Invoiced: "acc", "Approval Pending": "sig" }[st] || "";
+  }
+  /** How much of the order is in stock, from ERP 1's reserved quantities on its lines. */
+  function soMaterial(o) {
+    if (["Dispatched", "Invoiced", "Closed"].indexOf(o.orderStatus) !== -1) return "All dispatched";
+    var n = Number(o.itemCount) || 0, r = Number(o.reservedLines) || 0;
+    if (!n) return "—";
+    if (r >= n) return "All in stock";
+    if (r) return r + " of " + n + " lines in stock";
+    return "Waiting on ELGi or stock";
+  }
+
+  function soInit() {
+    var v = $("view-orders");
+    if ($("so-host")) return;
+    v.querySelector(".search-bar").style.display = "none";
+    $("orders-summary").style.display = "none";
+    v.querySelector(":scope > .card").style.display = "none";
+    v.querySelector(".page-head p").textContent = "Customer PO through to dispatch, with credit exposure checked before anything leaves the building. " +
+      "ERP 1’s order desk, unchanged underneath. Values are before GST.";
+    $("btn-new-order").className = "btn btn-primary";
+    $("btn-new-order").textContent = "+ Create from an accepted quotation";
+    var host = qvHost("view-orders", "so-host");
+    host.innerHTML = '<div class="qv-kpis so-kpis"></div><div class="eb2-tools so-tools">' +
+      '<input type="search" class="eb2-search" data-so-q="1" placeholder="Search order, PO or customer" aria-label="Search orders" />' +
+      '<select data-so-sel="status" aria-label="Status"><option value="open">Open orders</option><option value="hold">Credit holds only</option>' +
+        SO_STATES.slice(3).map(function (x) { return '<option value="' + x + '">' + x + "</option>"; }).join("") +
+        '<option value="all">All, including closed</option></select>' +
+      '<label class="eb2-chk"><input type="checkbox" data-so-mine="1" /> Only mine</label></div><div class="so-body"></div>';
+  }
+
+  function soLoad() {
+    soInit();
+    if (!so.rows) $("so-host").querySelector(".so-body").innerHTML = '<div class="empty">Loading the orders…</div>';
+    srv.withSuccessHandler(function (rows) {
+      so.rows = rows || [];
+      ordersCache = so.rows;
+      soRender();
+    }).withFailureHandler(onServerError).listSalesOrders({ includeClosed: true });
+  }
+
+  function soTile(label, value, sub, tone, filter) {
+    var on = filter && filter !== "open" && so.status === filter;
+    return "<" + (filter ? 'button type="button" data-so-tile="' + escapeHtml(filter) + '"' : "div") + ' class="qv-kpi' + (tone ? " " + tone : "") + (on ? " on" : "") + '">' +
+      '<span class="qv-l">' + escapeHtml(label) + '</span><span class="qv-v">' + value + '</span><span class="qv-s">' + escapeHtml(sub) + "</span></" + (filter ? "button" : "div") + ">";
+  }
+
+  function soRender() {
+    var host = $("so-host");
+    if (!host || !so.rows) return;
+    var me = String(currentUser.email || "").toLowerCase();
+    var base = so.rows.filter(function (o) { return !so.mine || String(o.ownerEmail || "").toLowerCase() === me; });
+    var open = base.filter(soOpen);
+    var holds = base.filter(soHold);
+    var mp = base.filter(function (o) { return o.orderStatus === "Material Pending"; });
+    var rd = base.filter(function (o) { return o.orderStatus === "Ready for Dispatch"; });
+    var late = open.filter(function (o) { return o.overdueDispatch; });
+    var oldest = late.reduce(function (m, o) { var d = qvDaysSince(o.promisedDispatchDate) || 0; return d > m ? d : m; }, 0);
+    var sum = function (list) { return list.reduce(function (n, o) { return n + soBasic(o); }, 0); };
+    host.querySelector(".so-kpis").innerHTML =
+      soTile("Open orders", open.length, ebLakh(sum(open)) || "₹0", "", "open") +
+      soTile("Credit holds", holds.length, "unpaid invoices or advance", holds.length ? "bad" : "", "hold") +
+      soTile("Material pending", mp.length, "waiting on ELGi or stock", "", "Material Pending") +
+      soTile("Ready for dispatch", rd.length, ebLakh(sum(rd)) || "₹0", "", "Ready for Dispatch") +
+      soTile("Past promised date", late.length, late.length ? "oldest " + oldest + (oldest === 1 ? " day" : " days") + " late" : "none", late.length ? "sig" : "");
+    var tools = host.querySelector(".so-tools");
+    tools.querySelector('[data-so-sel="status"]').value = so.status;
+    tools.querySelector("[data-so-mine]").checked = so.mine;
+
+    var q = String(so.q || "").trim().toLowerCase();
+    var rows = base.filter(function (o) {
+      if (so.status === "open" && !soOpen(o)) return false;
+      if (so.status === "hold" && !soHold(o)) return false;
+      if (["open", "hold", "all"].indexOf(so.status) === -1 && o.orderStatus !== so.status) return false;
+      return !q || [o.orderNo, o.poNo, o.customerName, o.mainItem].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+    var body = rows.map(function (o) {
+      var variance = String(o.poVerified).toUpperCase() === "FALSE";
+      return '<tr class="qv-row' + (soHold(o) ? " so-hold" : "") + '" data-open-order="' + escapeHtml(o.id) + '">' +
+        '<td><span class="mono">' + escapeHtml(o.orderNo || "—") + "</span><br>" + qvDeskChip(o) + "</td>" +
+        '<td class="so-nw">' + escapeHtml(ebDay(o.date)) + "</td>" +
+        "<td><b>" + escapeHtml(o.customerName || "—") + "</b>" + (o.mainItem ? '<br><span class="eb2-kind">' + escapeHtml(o.mainItem) +
+          (Number(o.itemCount) > 1 ? " + " + (o.itemCount - 1) + " more" : "") + "</span>" : "") + "</td>" +
+        '<td><span class="mono">' + escapeHtml(o.poNo || "—") + "</span>" + (variance ? "<br>" + ebChip("PO variance", "sig") : "") + "</td>" +
+        '<td class="num"><b>' + escapeHtml(ebLakh(soBasic(o)) || "₹0") + "</b></td>" +
+        "<td>" + ebChip(o.orderStatus || "—", soTone(o.orderStatus)) + "</td>" +
+        '<td class="eb2-kind">' + escapeHtml(soMaterial(o)) + "</td>" +
+        '<td class="so-nw' + (o.overdueDispatch ? " qv-late" : "") + '">' + escapeHtml(o.promisedDispatchDate ? ebDay(o.promisedDispatchDate) : "—") + "</td></tr>";
+    }).join("");
+    host.querySelector(".so-body").innerHTML = '<div class="qv-table so-table"><table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>PO</th>' +
+      '<th class="num">Value</th><th>Status</th><th>Material</th><th>Promised</th></tr></thead><tbody id="so-tbody">' +
+      (body || '<tr><td colspan="8" class="eb2-empty">' + (base.length ? "No orders match." : "No orders yet — convert an accepted quotation.") + "</td></tr>") +
+      "</tbody></table></div>";
+  }
+
+  if (FACE_V2) {
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest("#so-host")) return;
+      var tile = e.target.closest("[data-so-tile]");
+      if (tile) { so.status = so.status === tile.dataset.soTile && tile.dataset.soTile !== "open" ? "open" : tile.dataset.soTile; soRender(); return; }
+      var row = e.target.closest("tr[data-open-order]");
+      if (row) openOrderModal(row.dataset.openOrder);
+    });
+    document.addEventListener("change", function (e) {
+      if (e.target.closest("#so-host [data-so-sel]")) { so.status = e.target.value; soRender(); return; }
+      if (e.target.closest("#so-host [data-so-mine]")) { so.mine = e.target.checked; soRender(); }
+    });
+    document.addEventListener("input", function (e) {
+      if (!e.target.closest("#so-host [data-so-q]")) return;
+      so.q = e.target.value;
+      soRender();
     });
   }
 

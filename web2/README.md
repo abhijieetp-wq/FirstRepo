@@ -220,6 +220,12 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **Sales Orders as the 2.0 demo draws them**: five totals that filter (open orders and their value,
+  credit holds in red, material pending, ready for dispatch and its value, past the promised date in
+  amber with the oldest), search, status and Only mine, and one table — the order and its desk, the
+  customer and what was ordered, the PO and any variance, the value before GST, the status, how much
+  is in stock (from ERP 1's reserved quantities on the lines) and the promised date. A row opens
+  ERP 1's order window; "+ Create from an accepted quotation" is ERP 1's own.
 - **AMC & Dues as the 2.0 demo draws it**: the four totals (active AMCs and their value a year,
   visits due this month, visits overdue in red, renewals in 60 days and their value), Visits due /
   Contracts / Renewals, the due window and search, chips for where each visit and contract stands,
@@ -304,6 +310,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/orders-v2-ui-test.js` — the five totals and their filters, status, Only mine, search, the
+  table and a row opening the order, and ERP 1's list on the other faces.
 - `tests/service-desk-v2-ui-test.js` — the Service Desk's four tabs on its three screens, the five
   totals, each filter, the table, Engineer reports, a row opening the job, and ERP 1's list on the other faces.
 - `tests/quotations-v2-ui-test.js` — the six totals, the desk, search, status and who filters,

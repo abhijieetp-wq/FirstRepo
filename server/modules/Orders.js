@@ -62,15 +62,25 @@ async function listSalesOrders(options) {
   (await readTable_('Customers')).forEach(function (c) { customerNames[String(c.id)] = c.name; });
 
   var itemCounts = {};
+  // ERP 2.0's list shows the order's first line and how much of it is in stock (reserved), from
+  // the same one read of the lines.
+  var firstLine = {};
+  var reserved = {};
   (await readTable_('SalesOrderItems')).forEach(function (i) {
     var key = String(i.salesOrderId);
     itemCounts[key] = (itemCounts[key] || 0) + 1;
+    var n = Number(i.lineNo) || 0;
+    if (!firstLine[key] || n < firstLine[key].n) firstLine[key] = { n: n, text: String(i.description || i.itemCode || '') };
+    var qty = Number(i.qty) || 0;
+    if (qty > 0 && (Number(i.qtyReserved) || 0) >= qty) reserved[key] = (reserved[key] || 0) + 1;
   });
 
   var rows = (await readTable_('SalesOrders')).map(function (o) {
     var row = stripRow_(o);
     row.customerName = customerNames[String(row.customerId)] || '';
     row.itemCount = itemCounts[String(row.id)] || 0;
+    row.mainItem = firstLine[String(row.id)] ? firstLine[String(row.id)].text : '';
+    row.reservedLines = reserved[String(row.id)] || 0;
     row.creditHold = String(row.creditHold).toUpperCase() === 'TRUE';
     row.overdueDispatch = row.promisedDispatchDate &&
       String(row.promisedDispatchDate) < todayIso_() &&
