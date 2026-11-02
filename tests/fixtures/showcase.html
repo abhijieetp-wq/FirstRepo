@@ -334,6 +334,34 @@
       coordinators: [{ email: "kiran@pie.in", name: "Kiran Patil" }],
       serviceCoordinators: [], serviceEngineers: [{ email: "sagar@pie.in", name: "Sagar Raut" },
         { email: "vikas@pie.in", name: "Vikas Meshram" }], management: [] },
+    // Dispatch & Billing (Dispatch.gs, Billing.gs): ERP 1's dispatches, invoices and what is still to bill.
+    listDispatches: [
+      { id: "DSP-3", dispatchNo: "DSP2610-0019", dispatchDate: "2026-10-27", orderNo: "SO2610-0042", customerName: "Bhima Sugar Industries",
+        transporterName: "VRL Logistics", vehicleNo: "MH40 AK 2231", lrNumber: "VRL-882140", status: "Dispatched", deliveryConfirmed: "",
+        checklistComplete: "TRUE", invoiceNo: "", awaitingInvoice: true, itemCount: 1 },
+      { id: "DSP-2", dispatchNo: "DSP2610-0018", dispatchDate: "2026-10-21", orderNo: "SO2610-0039", customerName: "Konkan Agro Foods",
+        transporterName: "Own vehicle", vehicleNo: "MH31 FX 0417", lrNumber: "", status: "Dispatched", deliveryConfirmed: "Yes",
+        deliveryConfirmedDate: "2026-10-22", checklistComplete: "TRUE", invoiceNo: "", awaitingInvoice: true, itemCount: 3 },
+      { id: "DSP-1", dispatchNo: "DSP2610-0016", dispatchDate: "2026-10-08", orderNo: "SO2610-0035", customerName: "Sahyadri Castings Pvt Ltd",
+        transporterName: "Gati", vehicleNo: "", lrNumber: "GATI-55120", status: "Dispatched", deliveryConfirmed: "Yes",
+        deliveryConfirmedDate: "2026-10-10", checklistComplete: "FALSE", invoiceNo: "INV/26-27/0412", awaitingInvoice: false, itemCount: 1 }
+    ],
+    listDispatchedNotInvoiced: [
+      { dispatchId: "DSP-2", dispatchNo: "DSP2610-0018", dispatchDate: "2026-10-21", daysPending: 8, orderNo: "SO2610-0039",
+        customerName: "Konkan Agro Foods", uninvoicedValue: 62894, lrNumber: "" },
+      { dispatchId: "DSP-3", dispatchNo: "DSP2610-0019", dispatchDate: "2026-10-27", daysPending: 2, orderNo: "SO2610-0042",
+        customerName: "Bhima Sugar Industries", uninvoicedValue: 88400, lrNumber: "VRL-882140" }
+    ],
+    listInvoices: [
+      { id: "INV-3", invoiceNo: "", invoiceDate: "2026-10-28", customerName: "Godavari Textile Mills", orderNo: "SO2610-0037", billedAmt: 120500,
+        balanceAmt: 120500, owed: false, overdueDays: 0, dueDate: "", status: "Draft", tallySyncStatus: "Pending" },
+      { id: "INV-2", invoiceNo: "INV/26-27/0419", invoiceDate: "2026-10-14", customerName: "Deccan Polymers", orderNo: "SO2610-0031", billedAmt: 286400,
+        balanceAmt: 286400, owed: true, overdueDays: 0, dueDate: "2026-11-13", status: "Issued", tallySyncStatus: "Failed" },
+      { id: "INV-1", invoiceNo: "INV/26-27/0412", invoiceDate: "2026-10-11", customerName: "Sahyadri Castings Pvt Ltd", orderNo: "SO2610-0035", billedAmt: 158300,
+        balanceAmt: 0, owed: false, overdueDays: 0, dueDate: "2026-10-26", status: "Issued", tallySyncStatus: "Synced" },
+      { id: "INV-0", invoiceNo: "INV/26-27/0388", invoiceDate: "2026-09-12", customerName: "Vardhman Precision Tools", orderNo: "SO2609-0022", billedAmt: 74800,
+        balanceAmt: 74800, owed: true, overdueDays: 17, dueDate: "2026-10-12", status: "Issued", tallySyncStatus: "Pending" }
+    ],
     // 2.0's AMC & Dues (Amc.gs): contracts, the visits they promise, and renewals.
     listAmc: function (o) {
       var c = function (n, o2) {

@@ -220,6 +220,13 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **Dispatch & Billing as the 2.0 demo draws it**: five totals (ready to dispatch and its value,
+  waiting for the delivery photo with the oldest, dispatched and not invoiced in red with its value,
+  invoiced this month, the Tally queue and how many failed; each opens its tab), the orders ready to
+  go with a Dispatch button that opens the new dispatch on that order, and ERP 1's four lists as
+  tabs: dispatches (how it went, LR, proof of delivery, invoice, Add photo / Make invoice), invoices
+  (amount, still owed or paid, due, status, Tally), dispatched and not invoiced, and the Tally queue.
+  Rows open ERP 1's dispatch and invoice windows; + New Dispatch and + Raise Invoice are ERP 1's.
 - **Sales Orders as the 2.0 demo draws them**: five totals that filter (open orders and their value,
   credit holds in red, material pending, ready for dispatch and its value, past the promised date in
   amber with the oldest), search, status and Only mine, and one table — the order and its desk, the
@@ -310,6 +317,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/dispatch-v2-ui-test.js` — the five totals, Ready to go, the four tabs and their tables, and
+  each button and row opening ERP 1's forms; ERP 1's lists on the other faces.
 - `tests/orders-v2-ui-test.js` — the five totals and their filters, status, Only mine, search, the
   table and a row opening the order, and ERP 1's list on the other faces.
 - `tests/service-desk-v2-ui-test.js` — the Service Desk's four tabs on its three screens, the five

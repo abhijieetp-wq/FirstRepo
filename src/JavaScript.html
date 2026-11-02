@@ -13225,7 +13225,7 @@
 
   function initDispatchView() {
     $("dsp-actions").innerHTML = canDispatch()
-      ? '<button class="btn btn-amber" id="btn-new-dispatch">+ New Dispatch</button>' +
+      ? '<button class="btn ' + (FACE_V2 ? "" : "btn-amber") + '" id="btn-new-dispatch">+ New Dispatch</button>' +
         '<button class="btn btn-primary" id="btn-new-invoice">+ Raise Invoice</button>'
       : "";
     if (canDispatch()) {
@@ -13240,6 +13240,7 @@
   });
 
   function setDspMode(mode) {
+    if (FACE_V2) { dsv.tab = mode; dsvLoad(); return; }
     dspMode = mode;
     DSP_SUBTABS.forEach(function (m) {
       $("subtab-" + m).className = "btn btn-sm" + (m === mode ? " btn-primary" : "");
@@ -13250,6 +13251,7 @@
   $("dsp-search").addEventListener("input", function () { renderDspTable(); });
 
   function loadDispatchData() {
+    if (FACE_V2) { dsvLoad(); return; }
     var done = function (rows) { dspCache = rows; renderDspTable(); };
     if (dspMode === "dispatches") {
       srv.withSuccessHandler(done).withFailureHandler(onServerError).listDispatches({});
@@ -13263,6 +13265,7 @@
   }
 
   function renderDspTable() {
+    if (FACE_V2) { dsvRender(); return; }
     var q = ($("dsp-search").value || "").toLowerCase();
     var rows = dspCache.filter(function (r) {
       return [r.dispatchNo, r.invoiceNo, r.orderNo, r.customerName].join(" ").toLowerCase().indexOf(q) !== -1;
@@ -13272,6 +13275,170 @@
     else if (dspMode === "invoices") renderInvoicesTable(rows);
     else if (dspMode === "uninvoiced") renderUninvoicedTable(rows);
     else renderTallyTable(rows);
+  }
+
+  // ---- ERP 2.0's Dispatch & Billing, as the 2.0 demo draws it ----
+  // Five totals (ready to dispatch, waiting for the delivery photo, dispatched and not invoiced,
+  // invoiced this month, the Tally queue), the orders ready to go with a Dispatch button, and
+  // ERP 1's four lists as tabs in the demo's tables. ERP 1's lists, windows and rules as before.
+  var dsv = { tab: "dispatches", q: "", orders: null, dispatches: null, invoices: null, uninvoiced: null };
+
+  function dsvDelivered(d) { return String(d.deliveryConfirmed) === "Yes"; }
+  function dsvQueue() {
+    return (dsv.invoices || []).filter(function (i) { return i.status === "Issued" && ["Synced", "Not Required"].indexOf(i.tallySyncStatus) === -1; });
+  }
+
+  function dsvInit() {
+    var v = $("view-dispatch");
+    if ($("dsv-host")) return;
+    DSP_SUBTABS.forEach(function (m) { $("subtab-" + m).parentNode.style.display = "none"; });
+    v.querySelector(".search-bar").style.display = "none";
+    $("dsp-summary").style.display = "none";
+    v.querySelector(":scope > .card").style.display = "none";
+    v.querySelector(".page-head p").textContent = "Lorry out, proof of delivery back, invoice made, and the invoice sent to Tally. A delivery is confirmed " +
+      "by the customer’s photo; that is also what tells the service desk to send an engineer for installation.";
+    var host = qvHost("view-dispatch", "dsv-host");
+    host.innerHTML = '<div class="qv-kpis dsv-kpis"></div><div class="dsv-ready"></div>' +
+      '<div class="eb2-tabs dsv-tabs" role="tablist" aria-label="Dispatch and billing"></div>' +
+      '<div class="eb2-tools dsv-tools"><input type="search" class="eb2-search" data-dsv-q="1" placeholder="Search number, order or customer" aria-label="Search" /></div>' +
+      '<div class="dsv-body"></div>';
+  }
+
+  /** ERP 1's four lists and the orders ready to go, fetched together for the totals. */
+  function dsvLoad() {
+    dsvInit();
+    var host = $("dsv-host");
+    if (!dsv.dispatches) host.querySelector(".dsv-body").innerHTML = '<div class="empty">Loading…</div>';
+    var left = 4;
+    var done = function () { if (--left === 0) dsvRender(); };
+    var put = function (key) { return function (rows) { dsv[key] = rows || []; done(); }; };
+    var fail = function (err) { done(); onServerError(err); };
+    srv.withSuccessHandler(put("orders")).withFailureHandler(fail).listSalesOrders({});
+    srv.withSuccessHandler(put("dispatches")).withFailureHandler(fail).listDispatches({});
+    srv.withSuccessHandler(put("invoices")).withFailureHandler(fail).listInvoices({});
+    srv.withSuccessHandler(put("uninvoiced")).withFailureHandler(fail).listDispatchedNotInvoiced();
+  }
+
+  function dsvTile(label, value, sub, tone, tab) {
+    return "<" + (tab ? 'button type="button" data-dsv-tile="' + tab + '"' : "div") + ' class="qv-kpi' + (tone ? " " + tone : "") + (tab && dsv.tab === tab && tab !== "dispatches" ? " on" : "") + '">' +
+      '<span class="qv-l">' + escapeHtml(label) + '</span><span class="qv-v">' + value + '</span><span class="qv-s">' + escapeHtml(sub) + "</span></" + (tab ? "button" : "div") + ">";
+  }
+
+  function dsvRender() {
+    var host = $("dsv-host");
+    if (!host) return;
+    var orders = dsv.orders || [], dispatches = dsv.dispatches || [], invoices = dsv.invoices || [], uninv = dsv.uninvoiced || [];
+    var month = ebToday().slice(0, 7);
+    var ready = orders.filter(function (o) { return o.orderStatus === "Ready for Dispatch"; });
+    var noPod = dispatches.filter(function (d) { return d.status === "Dispatched" && !dsvDelivered(d); });
+    var oldest = noPod.reduce(function (m, d) { var n = qvDaysSince(d.dispatchDate) || 0; return n > m ? n : m; }, 0);
+    var invM = invoices.filter(function (i) { return i.status === "Issued" && String(i.invoiceDate || "").slice(0, 7) === month; });
+    var queue = dsvQueue();
+    var amt = function (i) { return Number(i.billedAmt !== undefined ? i.billedAmt : i.grand) || 0; };
+    host.querySelector(".dsv-kpis").innerHTML =
+      dsvTile("Ready to dispatch", ready.length, ebLakh(ready.reduce(function (n, o) { return n + soBasic(o); }, 0)) || "₹0", "", "") +
+      dsvTile("Waiting for delivery photo", noPod.length, noPod.length ? "oldest " + oldest + (oldest === 1 ? " day" : " days") : "none", noPod.length ? "sig" : "", "dispatches") +
+      dsvTile("Dispatched, not invoiced", uninv.length, ebLakh(uninv.reduce(function (n, r) { return n + (Number(r.uninvoicedValue) || 0); }, 0)) || "₹0", uninv.length ? "bad" : "", "uninvoiced") +
+      dsvTile("Invoiced this month", invM.length, ebLakh(invM.reduce(function (n, i) { return n + amt(i); }, 0)) || "₹0", "", "invoices") +
+      dsvTile("In the Tally queue", queue.length, queue.filter(function (i) { return i.tallySyncStatus === "Failed"; }).length + " failed", "", "tally");
+
+    // The orders ready to go, each with its own Dispatch button.
+    host.querySelector(".dsv-ready").innerHTML = ready.length ? '<section class="dsv-panel"><h3>Ready to go</h3>' + ready.map(function (o) {
+      return '<div class="dsv-lrow"><div><b>' + escapeHtml(o.customerName || "—") + '</b><div class="eb2-kind"><span class="mono">' + escapeHtml(o.orderNo) + "</span>" +
+        (o.mainItem ? " · " + escapeHtml(o.mainItem) : "") + (o.promisedDispatchDate ? " · promised " + escapeHtml(ebDay(o.promisedDispatchDate)) : "") + "</div></div>" +
+        (canDispatch() ? '<button type="button" class="btn btn-sm btn-primary" data-dsv-dispatch="' + escapeHtml(o.id) + '">Dispatch</button>' : "") + "</div>";
+    }).join("") + "</section>" : "";
+
+    host.querySelector(".dsv-tabs").innerHTML = [["dispatches", "Dispatches"], ["invoices", "Invoices"], ["uninvoiced", "Dispatched, not invoiced"], ["tally", "Tally queue"]].map(function (t) {
+      var n = t[0] === "uninvoiced" ? uninv.length : t[0] === "tally" ? queue.length : "";
+      return '<button type="button" role="tab" data-dsv-tab="' + t[0] + '" aria-selected="' + (dsv.tab === t[0]) + '">' + escapeHtml(t[1]) + (n ? ' <span class="sdv-n">' + n + "</span>" : "") + "</button>";
+    }).join("");
+
+    var q = String(dsv.q || "").trim().toLowerCase();
+    var hit = function (r) { return !q || [r.dispatchNo, r.invoiceNo, r.orderNo, r.customerName, r.lrNumber].join(" ").toLowerCase().indexOf(q) !== -1; };
+    var table = function (heads, rows, empty) {
+      return '<div class="qv-table dsv-table"><table><thead><tr>' + heads.map(function (h) {
+        return "<th" + (/^(Amount|Still owed|Value)$/.test(h) ? ' class="num"' : "") + ">" + escapeHtml(h) + "</th>";
+      }).join("") + '</tr></thead><tbody id="dsv-tbody">' + (rows.join("") || '<tr><td colspan="' + heads.length + '" class="eb2-empty">' + escapeHtml(empty) + "</td></tr>") + "</tbody></table></div>";
+    };
+    var html;
+    if (dsv.tab === "dispatches") {
+      html = table(["Dispatch", "Date", "Order", "Customer", "Through", "LR / docket", "Proof of delivery", "Invoice", ""], dispatches.filter(hit).map(function (d) {
+        var pod = d.status === "Planned" ? ebChip("Not gone yet") : dsvDelivered(d) ? ebChip("Photo · " + ebDay(d.deliveryConfirmedDate || d.podDate || d.dispatchDate), "good") : ebChip("Waiting for photo", "sig");
+        var inv = d.invoiceNo ? '<span class="mono">' + escapeHtml(d.invoiceNo) + "</span>" : d.status === "Dispatched" ? ebChip("Not invoiced", dsvDelivered(d) ? "bad" : "") : "—";
+        var act = d.status === "Dispatched" && !dsvDelivered(d) ? '<button type="button" class="btn btn-sm" data-dsv-open="' + escapeHtml(d.id) + '">Add photo</button>'
+          : d.awaitingInvoice && canDispatch() ? '<button type="button" class="btn btn-sm btn-primary" data-dsv-invoice="' + escapeHtml(d.id) + '">Make invoice</button>' : "";
+        return '<tr class="qv-row" data-dsv-dispatch-row="' + escapeHtml(d.id) + '"><td><span class="mono">' + escapeHtml(d.dispatchNo || "—") + "</span>" +
+          (String(d.checklistComplete).toUpperCase() === "FALSE" ? "<br>" + ebChip("Override", "sig") : "") + "</td>" +
+          '<td class="dsv-nw">' + escapeHtml(ebDay(d.dispatchDate)) + "</td>" +
+          '<td><span class="mono">' + escapeHtml(d.orderNo || "—") + "</span></td>" +
+          "<td><b>" + escapeHtml(d.customerName || "—") + "</b></td>" +
+          "<td>" + escapeHtml(d.transporterName || "—") + (d.vehicleNo ? '<br><span class="eb2-kind mono">' + escapeHtml(d.vehicleNo) + "</span>" : "") + "</td>" +
+          '<td><span class="mono">' + escapeHtml(d.lrNumber || "—") + "</span></td>" +
+          "<td>" + pod + "</td><td>" + inv + '</td><td class="dsv-act">' + act + "</td></tr>";
+      }), "No dispatches yet — dispatch an order from Ready to go.");
+    } else if (dsv.tab === "invoices") {
+      html = table(["Invoice", "Date", "Customer", "Order", "Amount", "Still owed", "Due", "Status", "Tally"], invoices.filter(hit).map(function (i) {
+        var owed = i.status !== "Issued" ? '<span class="eb2-kind">' + (i.status === "Draft" ? "not issued" : "—") + "</span>" : i.owed ? escapeHtml(ebMoney(i.balanceAmt)) : ebChip("Paid", "good");
+        var tally = i.tallySyncStatus || "Pending";
+        return '<tr class="qv-row" data-dsv-invoice-row="' + escapeHtml(i.id) + '"><td>' + (i.invoiceNo ? '<span class="mono">' + escapeHtml(i.invoiceNo) + "</span>" : '<span class="eb2-kind">Awaiting Tally no.</span>') + "</td>" +
+          '<td class="dsv-nw">' + escapeHtml(ebDay(i.invoiceDate)) + "</td>" +
+          "<td><b>" + escapeHtml(i.customerName || "—") + "</b></td>" +
+          '<td><span class="mono">' + escapeHtml(i.orderNo || "—") + "</span></td>" +
+          '<td class="num">' + escapeHtml(ebMoney(amt(i))) + "</td>" +
+          '<td class="num">' + owed + "</td>" +
+          '<td class="dsv-nw' + (i.owed && i.overdueDays > 0 ? " qv-late" : "") + '">' + (i.dueDate ? escapeHtml(ebDay(i.dueDate)) + (i.owed && i.overdueDays > 0 ? " · " + i.overdueDays + " d late" : "") : "—") + "</td>" +
+          "<td>" + ebChip(i.status, i.status === "Issued" ? "acc" : i.status === "Cancelled" ? "bad" : "") + "</td>" +
+          "<td>" + ebChip(tally, tally === "Synced" ? "good" : tally === "Failed" ? "bad" : tally === "Not Required" ? "" : "sig") + "</td></tr>";
+      }), "No invoices yet — make one from a delivered dispatch.");
+    } else if (dsv.tab === "uninvoiced") {
+      html = table(["Dispatch", "Dispatched", "Waiting", "Order", "Customer", "LR / docket", "Value", ""], uninv.filter(hit).map(function (r) {
+        return '<tr class="qv-row" data-dsv-dispatch-row="' + escapeHtml(r.dispatchId) + '"><td><span class="mono">' + escapeHtml(r.dispatchNo) + "</span></td>" +
+          '<td class="dsv-nw">' + escapeHtml(ebDay(r.dispatchDate)) + "</td>" +
+          '<td class="dsv-nw' + (r.daysPending > 7 ? " qv-late" : "") + '">' + r.daysPending + (r.daysPending === 1 ? " day" : " days") + "</td>" +
+          '<td><span class="mono">' + escapeHtml(r.orderNo || "—") + "</span></td>" +
+          "<td><b>" + escapeHtml(r.customerName || "—") + "</b></td>" +
+          '<td><span class="mono">' + escapeHtml(r.lrNumber || "—") + "</span></td>" +
+          '<td class="num">' + escapeHtml(ebMoney(r.uninvoicedValue)) + "</td>" +
+          '<td class="dsv-act">' + (canDispatch() ? '<button type="button" class="btn btn-sm btn-primary" data-dsv-invoice="' + escapeHtml(r.dispatchId) + '">Make invoice</button>' : "") + "</td></tr>";
+      }), "Nothing has gone out without a bill. This is the state you want.");
+    } else {
+      html = table(["Invoice", "Customer", "Amount", "Queued", "State"], queue.filter(hit).map(function (i) {
+        var failed = i.tallySyncStatus === "Failed";
+        return '<tr class="qv-row" data-dsv-invoice-row="' + escapeHtml(i.id) + '"><td><span class="mono">' + escapeHtml(i.invoiceNo || "—") + "</span></td>" +
+          "<td><b>" + escapeHtml(i.customerName || "—") + "</b></td>" +
+          '<td class="num">' + escapeHtml(ebMoney(amt(i))) + "</td>" +
+          '<td class="dsv-nw">' + escapeHtml(ebDay(i.invoiceDate)) + "</td>" +
+          "<td>" + ebChip(failed ? "Tally not reachable · try again" : "Waiting", failed ? "bad" : "sig") + "</td></tr>";
+      }), "Every issued invoice is in Tally.") +
+        '<p class="eb-note">Open an invoice to send it to Tally, or to type in the number Tally gave it. Invoices go over PIE’s office connection, so nothing is typed twice.</p>';
+    }
+    host.querySelector(".dsv-body").innerHTML = html;
+  }
+
+  if (FACE_V2) {
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest("#dsv-host")) return;
+      var tile = e.target.closest("[data-dsv-tile]");
+      if (tile) { dsv.tab = tile.dataset.dsvTile; dsvRender(); return; }
+      var tab = e.target.closest("[data-dsv-tab]");
+      if (tab) { dsv.tab = tab.dataset.dsvTab; dsvRender(); return; }
+      var go = e.target.closest("[data-dsv-dispatch]");
+      if (go) { startNewDispatch(go.dataset.dsvDispatch); return; }
+      var inv = e.target.closest("[data-dsv-invoice]");
+      if (inv) { startNewInvoice(inv.dataset.dsvInvoice); return; }
+      var open = e.target.closest("[data-dsv-open]");
+      if (open) { openDispatchModal(open.dataset.dsvOpen); return; }
+      var drow = e.target.closest("tr[data-dsv-dispatch-row]");
+      if (drow) { openDispatchModal(drow.dataset.dsvDispatchRow); return; }
+      var irow = e.target.closest("tr[data-dsv-invoice-row]");
+      if (irow) openInvoiceModal(irow.dataset.dsvInvoiceRow);
+    });
+    document.addEventListener("input", function (e) {
+      if (!e.target.closest("#dsv-host [data-dsv-q]")) return;
+      dsv.q = e.target.value;
+      dsvRender();
+    });
   }
 
   function dspEmpty(cols, text) {
@@ -13473,7 +13640,7 @@
   // ---- New dispatch ----
   var newDispatchOrders = [];
 
-  function startNewDispatch() {
+  function startNewDispatch(orderId) {
     srv.withSuccessHandler(function (orders) {
       newDispatchOrders = orders;
       if (!orders.length) {
@@ -13485,6 +13652,8 @@
           escapeHtml(o.orderNo + " · " + o.customerName + " · " + o.orderStatus +
             (o.ready ? " · ready" : " · check")) + "</option>";
       }).join("");
+      // Started from one order's Dispatch button (2.0's Ready to go): that order, picked.
+      if (typeof orderId === "string" && orders.some(function (o) { return String(o.id) === orderId; })) $("nd-order").value = orderId;
       $("nd-date").value = new Date().toISOString().slice(0, 10);
       ["nd-transporter", "nd-challan", "nd-lr", "nd-lrdate", "nd-eway", "nd-packing",
        "nd-certs", "nd-override"].forEach(function (f) { $(f).value = ""; });
@@ -13957,7 +14126,7 @@
   });
 
   // ---- Raise invoice ----
-  function startNewInvoice() {
+  function startNewInvoice(dispatchId) {
     srv.withSuccessHandler(function (rows) {
       if (!rows.length) {
         showMsg("Every posted dispatch is already invoiced.", "error");
@@ -13968,6 +14137,8 @@
           escapeHtml(r.dispatchNo + " · " + r.customerName + " · " + r.dispatchDate +
             " · " + fmt(r.uninvoicedValue)) + "</option>";
       }).join("");
+      // Started from one dispatch's Make invoice button (2.0): that dispatch, picked.
+      if (typeof dispatchId === "string" && rows.some(function (r) { return String(r.dispatchId) === dispatchId; })) $("ni-dispatch").value = dispatchId;
       $("ni-date").value = new Date().toISOString().slice(0, 10);
       $("ni-warranty").value = "";
       $("ni-notes").value = "";

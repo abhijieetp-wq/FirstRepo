@@ -358,20 +358,30 @@ const ok = (label, cond, detail) => {
     D.saveReceipt = { id: 'RC-1' };
   });
   await go('dispatch');
-  await page.click('#subtab-invoices');
+  // 2.0 draws Dispatch & Billing as the demo does (tests/dispatch-v2-ui-test.js): the same
+  // invoices, in its own Invoices tab.
+  const v2dsp = await page.evaluate(() => !!document.getElementById('dsv-host'));
+  if (v2dsp) await page.evaluate(() => document.querySelector('#dsv-host [data-dsv-tab="invoices"]').click());
+  else await page.click('#subtab-invoices');
   await page.waitForTimeout(500);
-  const rowsText = await page.$$eval('#dsp-tbody tr', (rs) => rs.map((r) => r.textContent));
+  const rowsText = await page.$$eval(v2dsp ? '#dsv-tbody tr' : '#dsp-tbody tr', (rs) => rs.map((r) => r.textContent));
   ok('a draft says it has no Tally number yet, rather than a blank cell',
     /Awaiting Tally no\./.test(rowsText[1] || ''), rowsText);
   ok('the value is what Tally billed', /1,00,400/.test(rowsText[0] || ''), rowsText[0]);
   ok('and a draft has no balance owed yet', /not issued/.test(rowsText[1] || ''), rowsText[1]);
-  const kpis = await page.$$eval('#dsp-summary .kpi-card', (cs) => cs.map((c) => c.textContent));
-  const outstandingCard = kpis.filter((k) => /Outstanding/.test(k))[0] || '';
-  ok('outstanding counts the issued invoice only, at what was billed',
-    /60,400/.test(outstandingCard) && !/1,10,400/.test(outstandingCard), outstandingCard);
+  if (v2dsp) {
+    // 2.0 keeps the outstanding total on Collections; here each invoice says what is still owed.
+    ok('what is owed is the issued invoice only, at what was billed', /60,400/.test(rowsText[0] || '') && !/60,400/.test(rowsText[1] || ''), rowsText);
+  } else {
+    const kpis = await page.$$eval('#dsp-summary .kpi-card', (cs) => cs.map((c) => c.textContent));
+    const outstandingCard = kpis.filter((k) => /Outstanding/.test(k))[0] || '';
+    ok('outstanding counts the issued invoice only, at what was billed',
+      /60,400/.test(outstandingCard) && !/1,10,400/.test(outstandingCard), outstandingCard);
+  }
 
   console.log('\nTHE INVOICE WINDOW ADDS UP, AND TAKES A PAYMENT');
-  await page.click('[data-open-invoice="IN-1"]');
+  if (v2dsp) await page.evaluate(() => document.querySelector('#dsv-tbody tr[data-dsv-invoice-row="IN-1"] td:nth-child(3)').click());
+  else await page.click('[data-open-invoice="IN-1"]');
   await page.waitForTimeout(500);
   const totals = await text('#im-totals');
   ok('when Tally billed a different figure, both are shown', /Lines come to/.test(totals) &&

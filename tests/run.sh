@@ -84,6 +84,10 @@ run_ui "service-desk-v2-ui-test.js (2.0)" tests/service-desk-v2-ui-test.js "$tmp
 run_ui "orders-v2-ui-test.js (classic)" tests/orders-v2-ui-test.js "$tmp/show-classic.html"
 run_ui "orders-v2-ui-test.js (new design)" tests/orders-v2-ui-test.js "$tmp/show.html"
 run_ui "orders-v2-ui-test.js (2.0)" tests/orders-v2-ui-test.js "$tmp/show-v2.html"
+# Dispatch & Billing, as the 2.0 demo draws it.
+run_ui "dispatch-v2-ui-test.js (classic)" tests/dispatch-v2-ui-test.js "$tmp/show-classic.html"
+run_ui "dispatch-v2-ui-test.js (new design)" tests/dispatch-v2-ui-test.js "$tmp/show.html"
+run_ui "dispatch-v2-ui-test.js (2.0)" tests/dispatch-v2-ui-test.js "$tmp/show-v2.html"
 # So is the dashboard per person; the showcase adds Management's view of the team.
 run_ui "person-dashboard-ui-test.js (classic)" tests/person-dashboard-ui-test.js "$tmp/base.html"
 run_ui "person-dashboard-ui-test.js (new design)" tests/person-dashboard-ui-test.js "$tmp/base-web.html"
