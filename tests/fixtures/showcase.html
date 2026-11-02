@@ -329,6 +329,35 @@
       coordinators: [{ email: "kiran@pie.in", name: "Kiran Patil" }],
       serviceCoordinators: [], serviceEngineers: [{ email: "sagar@pie.in", name: "Sagar Raut" },
         { email: "vikas@pie.in", name: "Vikas Meshram" }], management: [] },
+    // 2.0's AMC & Dues (Amc.gs): contracts, the visits they promise, and renewals.
+    listAmc: function (o) {
+      var c = function (n, o2) {
+        return Object.assign({ id: "AMC-" + n, contractNo: "AMC2610-00" + n, customerName: "Deccan Polymers", machineModel: "EG 22",
+          serialNo: "EG22-40877", amcType: "Comprehensive", startDate: "2026-01-15", endDate: "2027-01-14", everyMonths: 3,
+          contractValue: 64000, area: "Nagpur City", visitsDone: 2, visitsTotal: 4, nextVisit: "2026-11-05", state: "Active",
+          daysLeft: 77, renewal: null }, o2);
+      };
+      var contracts = [c(1), c(2, { customerName: "Godavari Textile Mills", machineModel: "EN 75", serialNo: "EN75-11902", amcType: "Non-comprehensive",
+          contractValue: 42000, area: "Wardha", startDate: "2025-12-01", endDate: "2026-11-30", state: "Ends in 32 days", daysLeft: 32, visitsDone: 3, nextVisit: "2026-11-20" }),
+        c(3, { customerName: "Konkan Agro Foods", machineModel: "EG 37", serialNo: "EG37-21874", amcType: "Labour only", contractValue: 18000,
+          area: "Kamptee", startDate: "2026-03-01", endDate: "2027-02-28", everyMonths: 6, visitsTotal: 2, visitsDone: 0, nextVisit: "2026-09-01", daysLeft: 122 }),
+        c(4, { customerName: "Sinhgad Pharma Packaging", machineModel: "TS 10 LB-12", serialNo: "TS10-7720", amcType: "Service reminder",
+          contractValue: "", area: "Amravati", endDate: "", state: "Active", visitsDone: 1, visitsTotal: 4, nextVisit: "2026-11-12", daysLeft: 999 })];
+      var due = function (id, ctr, n, of, date, state, extra) {
+        return Object.assign({ id: id, contractId: ctr.id, contractNo: ctr.contractNo, customerName: ctr.customerName, machineModel: ctr.machineModel,
+          serialNo: ctr.serialNo, amcType: ctr.amcType, endDate: ctr.endDate, area: ctr.area, visitNo: n, visitOf: of, dueDate: date, state: state,
+          jobId: "", jobNo: "", engineer: "" }, extra || {});
+      };
+      return { window: (o && o.window) || 30, windows: [7, 15, 30, 60], today: "2026-10-29", money: true,
+        types: ["Comprehensive", "Non-comprehensive", "Labour only", "Service reminder"], canEdit: true, canRenew: true, canMakeCall: true,
+        kpis: { active: 4, valueAYear: 124000, dueThisMonth: 2, overdue: 1, renewals: 1 },
+        dues: [due("AMV-31", contracts[2], 1, 2, "2026-09-01", "Overdue"),
+          due("AMV-12", contracts[0], 3, 4, "2026-10-24", "Call made", { jobId: "SJ-27", jobNo: "SVJ2610-027", engineer: "Vikas Meshram" }),
+          due("AMV-13", contracts[0], 4, 4, "2026-11-05", "Due"),
+          due("AMV-41", contracts[3], 2, 4, "2026-11-12", "Due"),
+          due("AMV-24", contracts[1], 4, 4, "2026-11-20", "Due")],
+        contracts: contracts, renewals: [contracts[1]] };
+    },
     // 2.0's Service Desk: ERP 1's service jobs with 2.0's types and statuses (ServiceDesk.gs).
     listServiceJobs: function () {
       var job = function (n, o) {

@@ -50,7 +50,7 @@ const ok = (label, cond, detail) => {
     ok('ERP 1’s list put away, 2.0’s in its place', await shown('#sdv-host') && !(await shown('#service-tbody')) && !(await shown('#service-search')));
     ok('the heading’s two buttons', await shown('#btn-sdv-plan') && /Tomorrow’s plan/.test(await page.textContent('#btn-sdv-plan')) &&
       /Service call/.test(await page.textContent('#btn-new-breakdown')));
-    ok('four tabs, with the counts', JSON.stringify(await tabs('service')) === JSON.stringify(['Calls 7*', 'Engineer reports 2', 'AMC and dues', 'Next-day plan']), await tabs('service'));
+    ok('four tabs, with the counts', JSON.stringify(await tabs('service')) === JSON.stringify(['Calls 7*', 'Engineer reports 2', 'AMC and dues 5', 'Next-day plan']), await tabs('service'));
     const tiles = await page.$$eval('#sdv-host .qv-kpi', (t) => t.map((x) => x.innerText.replace(/\s+/g, ' ').trim()));
     ok('five totals', tiles.length === 5 && tiles[0] === 'Open calls 7 9 logged this month' && tiles[1] === 'Breakdowns open 2 2 open over 24 hours' &&
       tiles[2] === 'Installations to do 1 from confirmed deliveries' && tiles[3] === 'Reports in, not closed 2 the coordinator closes these' &&
@@ -120,11 +120,11 @@ const ok = (label, cond, detail) => {
     await page.click('#view-service [data-sdv-tab="amc"]');
     await page.waitForTimeout(500);
     ok('AMC and dues opens the AMC screen, with the same tabs', await page.evaluate(() => document.getElementById('view-amc').classList.contains('active')) &&
-      (await tabs('amc')).join('|') === 'Calls 7|Engineer reports 2|AMC and dues*|Next-day plan', await tabs('amc'));
+      (await tabs('amc')).join('|') === 'Calls 7|Engineer reports 2|AMC and dues 5*|Next-day plan', await tabs('amc'));
     await page.click('#view-amc [data-sdv-tab="plan"]');
     await page.waitForTimeout(500);
     ok('Next-day plan opens the plan, with the same tabs', await page.evaluate(() => document.getElementById('view-plan').classList.contains('active')) &&
-      (await tabs('plan')).join('|') === 'Calls 7|Engineer reports 2|AMC and dues|Next-day plan*', await tabs('plan'));
+      (await tabs('plan')).join('|') === 'Calls 7|Engineer reports 2|AMC and dues 5|Next-day plan*', await tabs('plan'));
     await page.click('#view-plan [data-sdv-tab="reports"]');
     await page.waitForTimeout(500);
     ok('Engineer reports from there goes back to the desk, filtered', await page.evaluate(() => document.getElementById('view-service').classList.contains('active')) &&

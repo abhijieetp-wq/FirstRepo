@@ -274,6 +274,9 @@
   .qv-kpis .qv-kpi:nth-child(6n+6){ --tone:#c2366f; }
   .qv-kpi.sig{ --tone:var(--eb-signal); background:var(--eb-signal-soft); }
   .qv-kpi.bad{ --tone:var(--eb-bad); background:var(--eb-bad-soft); }
+  /* A warning or a problem keeps its own colour along the top, whatever its place in the row. */
+  .qv-kpis .qv-kpi.sig{ --tone:var(--eb-signal); }
+  .qv-kpis .qv-kpi.bad{ --tone:var(--eb-bad); }
   .qv-l{ display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:500; color:var(--eb-ink2); }
   .qv-l::before{ content:""; width:8px; height:8px; border-radius:2px; background:var(--tone); flex:none; }
   .qv-v{ font:600 22px var(--font-mono, ui-monospace, monospace); letter-spacing:-.02em; color:color-mix(in srgb, var(--tone) 35%, var(--eb-ink)); }
@@ -437,12 +440,12 @@
   #service-area-type{ height:38px; padding:0 8px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; font-size:13px; }
 
   /* ---- AMC: contracts and visits (JavaScript.html, 2.0 only) ---- */
-  .amc-kpis{ display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:12px; margin-bottom:16px; }
-  .amc-bar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
-  .amc-bar input{ flex:1; min-width:220px; height:40px; padding:0 12px; border:1px solid var(--gray-200); border-radius:var(--r-sm);
-    background:var(--gray-0); font:inherit; font-size:14px; }
-  .amc-window{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--gray-600); }
-  .amc-window select{ height:36px; padding:0 8px; border:1px solid var(--gray-200); border-radius:var(--r-sm); background:var(--gray-0); font:inherit; }
+  /* Laid out as the 2.0 demo's AMC & Dues: qv-kpi totals, an eb2 toolbar and a qv-table. */
+  .amc-kpis{ margin-bottom:14px; }
+  .amc-bar{ margin-bottom:12px; }
+  .amc-window{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--eb-ink2); }
+  .amc-table td.amc-due{ white-space:nowrap; }
+  .amc-table td.empty{ text-align:center; color:var(--eb-muted); padding:24px; }
   .amc-row{ cursor:pointer; }
   .amc-m-foot{ display:flex; gap:10px; align-items:center; margin-top:20px; }
   .amc-visits{ width:100%; font-size:13px; }

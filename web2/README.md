@@ -220,6 +220,10 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **AMC & Dues as the 2.0 demo draws it**: the four totals (active AMCs and their value a year,
+  visits due this month, visits overdue in red, renewals in 60 days and their value), Visits due /
+  Contracts / Renewals, the due window and search, chips for where each visit and contract stands,
+  how far off or late each visit is, and Make call / Open call. Under the Service Desk's tabs.
 - **The Service Desk as the 2.0 demo draws it**: four tabs — Calls, Engineer reports, AMC and dues,
   Next-day plan — with the same strip under the AMC and next-day screens' headings, so the three read
   as one page; Tomorrow's plan and + Service call; five totals (open calls, breakdowns open with those

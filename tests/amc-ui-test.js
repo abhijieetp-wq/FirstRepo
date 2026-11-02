@@ -72,14 +72,19 @@ const ok = (label, cond, detail) => {
     await page.evaluate(() => document.querySelector('#tabs [data-view="amc"]').click());
     await page.waitForTimeout(500);
     ok('opens', (await active()) === 'view-amc');
-    ok('four figures across the top', (await page.$$('#amc-kpis .pd-tile')).length === 4 && /₹82K a year/.test(await page.textContent('#amc-kpis')),
+    ok('four figures across the top', (await page.$$('#amc-kpis .qv-kpi')).length === 4 && /₹82K a year/.test(await page.textContent('#amc-kpis')),
       await page.textContent('#amc-kpis'));
-    ok('overdue stands out', await page.$eval('#amc-kpis .pd-tile:nth-child(3)', (e) => e.classList.contains('bad')));
+    ok('overdue stands out', await page.$eval('#amc-kpis .qv-kpi:nth-child(3)', (e) => e.classList.contains('bad')));
 
     console.log('\nVISITS DUE');
     const rows = await page.$$eval('#amc-body tbody tr', (r) => r.map((x) => x.textContent.replace(/\s+/g, ' ')));
     ok('each with its machine, contract and which visit', rows.length === 2 && /FAB-77/.test(rows[0]) && /2 of 4/.test(rows[0]) && /Overdue/.test(rows[0]), rows);
     ok('a visit already made into a job says which, and who is going', /SVJ2610-009 · Tej/.test(rows[1]) && !!(await page.$('[data-amc-job="SVJ-9"]')));
+    ok('as the demo has it: the totals, the switch, chips, how far off each visit is, Make call and Open call',
+      (await page.$$eval('#amc-kpis .qv-l', (l) => l.map((x) => x.textContent))).join('|') === 'Active AMCs|Visits due this month|Visits overdue|Renewals in 60 days' &&
+      await page.$eval('#amc-mode [data-amc-mode="due"]', (b) => b.getAttribute('aria-pressed')) === 'true' &&
+      !!(await page.$('#amc-body .eb-chip.bad')) && /106 days late/.test(rows[0]) && /in 8 days/.test(rows[1]) &&
+      /Make call/.test(await page.textContent('[data-amc-call="AMV-2"]')) && /Open call/.test(await page.textContent('[data-amc-job="SVJ-9"]')), rows);
     await page.evaluate(() => { window.__calls = []; });
     await page.selectOption('#amc-window', '7');
     await page.waitForTimeout(300);
@@ -87,7 +92,7 @@ const ok = (label, cond, detail) => {
     await page.click('[data-amc-call="AMV-2"]');
     await page.waitForTimeout(400);
     ok('a due visit becomes a service job with one press', JSON.stringify(await lastCall('makeAmcVisitCall')) === '["AMV-2"]' &&
-      /SVJ2610-010 made/.test(await page.textContent('#msg-box')));
+      /SVJ2610-010 made/.test(await page.textContent('#msg-box')) && /Service Desk/.test(await page.textContent('#msg-box')));
 
     console.log('\nCONTRACTS');
     await page.click('[data-amc-mode="contracts"]');

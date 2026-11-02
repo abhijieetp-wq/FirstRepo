@@ -6161,16 +6161,17 @@
       var view = document.createElement("div");
       view.className = "view";
       view.id = "view-amc";
-      view.innerHTML = '<div class="page-head"><div><h2>AMC</h2><p>Every AMC contract and service reminder, with its visits. ' +
-        "A due visit becomes a service job with one press; a contract near its end gets a renewal quotation.</p></div>" +
-        '<button class="btn btn-amber" id="btn-new-amc" type="button" style="display:none;">+ AMC contract</button></div>' +
-        '<div id="amc-kpis" class="amc-kpis"></div>' +
-        '<div class="amc-bar"><div class="eb-switch" id="amc-mode">' +
+      // Laid out as the 2.0 demo's AMC & Dues: the totals, Visits due / Contracts / Renewals, one table.
+      view.innerHTML = '<div class="page-head"><div><h2>AMC &amp; Dues</h2><p>Every AMC contract and service reminder, with its visits. ' +
+        "A due visit becomes a service call with one click; a contract near its end gets a renewal quotation.</p></div>" +
+        '<button class="btn btn-primary" id="btn-new-amc" type="button" style="display:none;">+ AMC contract</button></div>' +
+        '<div id="amc-kpis" class="qv-kpis amc-kpis"></div>' +
+        '<div class="eb2-tools amc-bar"><div class="eb2-seg" id="amc-mode" role="group" aria-label="Show">' +
           '<button type="button" data-amc-mode="due">Visits due</button><button type="button" data-amc-mode="contracts">Contracts</button>' +
           '<button type="button" data-amc-mode="renewals">Renewals</button></div>' +
           '<label class="amc-window" id="amc-window-wrap">Due within <select id="amc-window"></select></label>' +
-          '<input id="amc-search" placeholder="Search customer, machine, contract or area…" /></div>' +
-        '<div class="card" style="padding:0; overflow-x:auto;"><div id="amc-body"></div></div>';
+          '<input type="search" class="eb2-search" id="amc-search" placeholder="Search customer, machine, contract or area" aria-label="Search AMC" /></div>' +
+        '<div class="qv-table amc-table"><div id="amc-body"></div></div>';
       var after = $("view-service");
       after.parentNode.insertBefore(view, after.nextSibling);
 
@@ -6218,16 +6219,18 @@
     var d = amc.data;
     if (!d) return;
     var k = d.kpis;
+    var ending = (d.renewals || []).filter(function (c) { return c.daysLeft >= 0; });
+    var endingValue = ending.reduce(function (n, c) { return n + (Number(c.contractValue) || 0); }, 0);
     $("amc-kpis").innerHTML = [
-      ["Active contracts", k.active, d.money ? (k.valueAYear ? fmtShort(k.valueAYear) + " a year" : "") : "", ""],
+      ["Active AMCs", k.active, d.money ? (k.valueAYear ? fmtShort(k.valueAYear) + " a year" : "") : "", ""],
       ["Visits due this month", k.dueThisMonth, "not yet done", ""],
-      ["Visits overdue", k.overdue, "no job made, or the job not done", k.overdue ? "bad" : ""],
-      ["Renewals in 60 days", k.renewals, "contracts ending", k.renewals ? "warn" : ""]
+      ["Visits overdue", k.overdue, "no call made, or not done yet", k.overdue ? "bad" : ""],
+      ["Renewals in 60 days", k.renewals, d.money && endingValue ? fmtShort(endingValue) + " a year" : "contracts ending", k.renewals ? "sig" : ""]
     ].map(function (t) {
-      return '<div class="pd-tile' + (t[3] ? " " + t[3] : "") + '"><span class="pd-label">' + escapeHtml(t[0]) + '</span><span class="pd-value">' +
-        t[1] + '</span><span class="pd-sub">' + escapeHtml(t[2]) + "</span></div>";
+      return '<div class="qv-kpi' + (t[3] ? " " + t[3] : "") + '"><span class="qv-l">' + escapeHtml(t[0]) + '</span><span class="qv-v">' +
+        t[1] + '</span><span class="qv-s">' + escapeHtml(t[2]) + "</span></div>";
     }).join("");
-    $("amc-mode").querySelectorAll("[data-amc-mode]").forEach(function (b) { b.classList.toggle("on", b.dataset.amcMode === amc.mode); });
+    $("amc-mode").querySelectorAll("[data-amc-mode]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.amcMode === amc.mode)); });
     $("amc-window-wrap").style.display = amc.mode === "due" ? "" : "none";
     var q = ($("amc-search").value || "").trim().toLowerCase();
     var hit = function (r) {
@@ -6236,37 +6239,39 @@
     var html = "";
     if (amc.mode === "due") {
       var rows = d.dues.filter(hit);
-      html = '<table><thead><tr><th>Customer</th><th>Machine</th><th>Contract</th><th>Visit</th><th>Due</th><th>Where it stands</th><th></th></tr></thead><tbody>' +
+      html = '<table><thead><tr><th>Customer</th><th>Machine</th><th>Contract</th><th>Visit</th><th>Due</th><th>Status</th><th></th></tr></thead><tbody>' +
         (rows.length ? rows.map(function (v) {
-          var badge = v.state === "Overdue" ? "badge-lost" : v.state === "Call made" ? "badge-quoted" : "badge-sent";
+          var tone = v.state === "Overdue" ? "bad" : v.state === "Call made" ? "c-service" : "sig";
+          var gap = sdvDays(d.today, v.dueDate), back = sdvDays(v.dueDate, d.today);
+          var when = v.dueDate === d.today ? "today" : gap ? "in " + gap + (gap === 1 ? " day" : " days") : back ? back + (back === 1 ? " day" : " days") + " late" : "";
           return '<tr data-amc-visit="' + escapeHtml(v.id) + '"><td><b>' + escapeHtml(v.customerName) + "</b>" +
             (v.area ? '<div class="sdc-muted">' + escapeHtml(v.area) + "</div>" : "") + "</td>" +
-            "<td>" + escapeHtml(v.machineModel || "—") + '<div class="mono sdc-muted">' + escapeHtml(v.serialNo) + "</div></td>" +
-            "<td>" + escapeHtml(v.amcType) + '<div class="sdc-muted">' + escapeHtml(v.contractNo) + (v.endDate ? " · till " + escapeHtml(ebDate(v.endDate)) : "") + "</div></td>" +
+            '<td><span class="mono">' + escapeHtml(v.serialNo || "—") + '</span><div class="sdc-muted">' + escapeHtml(v.machineModel || "") + "</div></td>" +
+            "<td>" + escapeHtml(v.amcType) + '<div class="sdc-muted">' + escapeHtml(v.contractNo) + (v.endDate ? " · till " + escapeHtml(ebDay(v.endDate, true)) : "") + "</div></td>" +
             "<td>" + v.visitNo + " of " + v.visitOf + "</td>" +
-            '<td class="' + (v.state === "Overdue" ? "sdc-late" : "") + '">' + escapeHtml(ebDate(v.dueDate)) + "</td>" +
-            '<td><span class="badge ' + badge + '">' + escapeHtml(v.state) + "</span>" +
+            '<td class="amc-due' + (v.state === "Overdue" ? " sdc-late" : "") + '">' + escapeHtml(ebDay(v.dueDate)) + (when ? '<div class="sdc-muted">' + escapeHtml(when) + "</div>" : "") + "</td>" +
+            "<td>" + ebChip(v.state, tone) +
               (v.jobNo ? '<div class="sdc-muted">' + escapeHtml(v.jobNo) + (v.engineer ? " · " + escapeHtml(v.engineer) : " · no engineer yet") + "</div>" : "") + "</td>" +
-            '<td class="center">' + (v.jobId ? '<button type="button" class="btn btn-sm" data-amc-job="' + escapeHtml(v.jobId) + '">Open job</button>'
-              : d.canMakeCall ? '<button type="button" class="btn btn-sm btn-primary" data-amc-call="' + escapeHtml(v.id) + '">Make service job</button>' : "") + "</td></tr>";
+            '<td class="center">' + (v.jobId ? '<button type="button" class="btn btn-sm" data-amc-job="' + escapeHtml(v.jobId) + '">Open call</button>'
+              : d.canMakeCall ? '<button type="button" class="btn btn-sm btn-primary" data-amc-call="' + escapeHtml(v.id) + '">Make call</button>' : "") + "</td></tr>";
         }).join("") : '<tr><td colspan="7" class="empty">No visits due within ' + d.window + " days.</td></tr>") + "</tbody></table>";
     } else if (amc.mode === "contracts") {
       var cs = d.contracts.filter(hit);
-      html = '<table><thead><tr><th>Contract</th><th>Customer</th><th>Machine</th><th>Type</th><th>Period</th><th>Service every</th>' +
+      html = '<table><thead><tr><th>Customer</th><th>Machine</th><th>Type</th><th>Period</th>' +
         (d.money ? '<th class="num">Value a year</th>' : "") + '<th>Visits done</th><th>Next visit</th><th>State</th></tr></thead><tbody>' +
         (cs.length ? cs.map(function (c) {
-          var st = /^Ends/.test(c.state) ? "badge-sent" : c.state === "Ended" ? "badge-lost" : "badge-won";
-          return '<tr class="amc-row" data-amc-contract="' + escapeHtml(c.id) + '"><td class="mono">' + escapeHtml(c.contractNo) + "</td>" +
-            "<td><b>" + escapeHtml(c.customerName) + "</b>" + (c.area ? '<div class="sdc-muted">' + escapeHtml(c.area) + "</div>" : "") + "</td>" +
-            "<td>" + escapeHtml(c.machineModel || "—") + '<div class="mono sdc-muted">' + escapeHtml(c.serialNo) + "</div></td>" +
-            "<td>" + escapeHtml(c.amcType) + "</td>" +
-            "<td>" + escapeHtml(ebDate(c.startDate)) + " – " + escapeHtml(ebDate(c.endDate)) + "</td>" +
-            "<td>" + c.everyMonths + (c.everyMonths === 1 ? " month" : " months") + "</td>" +
+          var tone = /^Ends/.test(c.state) ? "sig" : c.state === "Ended" ? "bad" : "good";
+          return '<tr class="amc-row qv-row" data-amc-contract="' + escapeHtml(c.id) + '">' +
+            "<td><b>" + escapeHtml(c.customerName) + '</b><div class="sdc-muted"><span class="mono">' + escapeHtml(c.contractNo) + "</span>" +
+              (c.area ? " · " + escapeHtml(c.area) : "") + "</div></td>" +
+            '<td><span class="mono">' + escapeHtml(c.serialNo || "—") + '</span><div class="sdc-muted">' + escapeHtml(c.machineModel || "") + "</div></td>" +
+            "<td>" + escapeHtml(c.amcType) + '<div class="sdc-muted">every ' + c.everyMonths + (c.everyMonths === 1 ? " month" : " months") + "</div></td>" +
+            '<td class="amc-due">' + (c.endDate ? escapeHtml(ebDay(c.startDate)) + " – " + escapeHtml(ebDay(c.endDate, true)) : "from " + escapeHtml(ebDay(c.startDate, true))) + "</td>" +
             (d.money ? '<td class="num">' + escapeHtml(amcMoney(c.contractValue)) + "</td>" : "") +
             "<td>" + c.visitsDone + " of " + c.visitsTotal + "</td>" +
-            "<td>" + escapeHtml(c.nextVisit ? ebDate(c.nextVisit) : "—") + "</td>" +
-            '<td><span class="badge ' + st + '">' + escapeHtml(c.state) + "</span></td></tr>";
-        }).join("") : '<tr><td colspan="10" class="empty">No AMC contracts yet' + (d.canEdit ? " — add the first with + AMC contract." : ".") + "</td></tr>") +
+            '<td class="amc-due">' + escapeHtml(c.nextVisit ? ebDay(c.nextVisit, true) : "—") + "</td>" +
+            "<td>" + ebChip(c.state, tone) + "</td></tr>";
+        }).join("") : '<tr><td colspan="8" class="empty">No AMC contracts yet' + (d.canEdit ? " — add the first with + AMC contract." : ".") + "</td></tr>") +
         "</tbody></table>";
     } else {
       var rs = d.renewals.filter(hit);
@@ -6274,14 +6279,14 @@
         "<th>Renewal offer</th></tr></thead><tbody>" +
         (rs.length ? rs.map(function (c) {
           return "<tr><td><b>" + escapeHtml(c.customerName) + "</b></td>" +
-            "<td>" + escapeHtml(c.machineModel || "—") + '<div class="mono sdc-muted">' + escapeHtml(c.serialNo) + "</div></td>" +
+            '<td><span class="mono">' + escapeHtml(c.serialNo || "—") + '</span><div class="sdc-muted">' + escapeHtml(c.machineModel || "") + "</div></td>" +
             "<td>" + escapeHtml(c.amcType) + '<div class="sdc-muted">' + escapeHtml(c.contractNo) + "</div></td>" +
-            '<td class="' + (c.daysLeft < 0 ? "sdc-late" : "") + '">' + escapeHtml(ebDate(c.endDate)) + '<div class="sdc-muted">' +
+            '<td class="amc-due' + (c.daysLeft < 0 ? " sdc-late" : "") + '">' + escapeHtml(ebDay(c.endDate, true)) + '<div class="sdc-muted">' +
               escapeHtml(c.daysLeft < 0 ? "ended " + (-c.daysLeft) + " days ago" : "in " + c.daysLeft + " days") + "</div></td>" +
             (d.money ? '<td class="num">' + escapeHtml(amcMoney(c.contractValue)) + "</td>" : "") +
             "<td>" + (c.renewal ? '<button type="button" class="btn btn-sm" data-amc-quote="' + escapeHtml(c.renewal.quotationId) + '">' +
                 escapeHtml(c.renewal.quoteNo) + " · " + escapeHtml(c.renewal.status === "Submitted" ? "Sent" : c.renewal.status) + "</button>"
-              : d.canRenew ? '<button type="button" class="btn btn-sm btn-primary" data-amc-renew="' + escapeHtml(c.id) + '">Prepare renewal quotation</button>'
+              : d.canRenew ? '<button type="button" class="btn btn-sm btn-primary" data-amc-renew="' + escapeHtml(c.id) + '">Prepare renewal quote</button>'
               : '<span class="sdc-muted">The spares desk raises it.</span>') + "</td></tr>";
         }).join("") : '<tr><td colspan="6" class="empty">No contract ends in the next 60 days.</td></tr>') + "</tbody></table>";
     }
@@ -6301,7 +6306,7 @@
       if (call) {
         call.disabled = true;
         srv.withSuccessHandler(function (r) {
-          showMsg("Service job " + r.jobNo + " made for the visit. Assign the engineer from Service Jobs.", "success");
+          showMsg("Service call " + r.jobNo + " made for the visit. Assign the engineer from the Service Desk.", "success");
           loadAmc();
         }).withFailureHandler(function (err) { call.disabled = false; onServerError(err); }).makeAmcVisitCall(call.dataset.amcCall);
         return;
