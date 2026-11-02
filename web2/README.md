@@ -220,6 +220,13 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   same fields (customer and + New, business stream, machine model, serial no., validity) and
   Create Quotation opens the new offer. The quotation screen itself stays for every offer opened,
   and its address still works; its own "+ New Quotation" opens the same window.
+- **Customers as the 2.0 demo draws it**: search by name, code, GSTIN, a contact's phone or city;
+  segment (ERP 1's Industry), salesperson and Has overdue dues; and a table of code, customer (city,
+  segment, "no GSTIN yet"), machines, salesperson, what is owed (red when overdue; only for whoever
+  Collections allows) and the open enquiries and service calls. getCustomerSummaries
+  (Customers.gs) counts them in one read: machines from the installed base, ELGi's service due
+  list and service jobs, each serial once; another desk's enquiries not counted. A row opens ERP
+  1's customer window; + Add customer and Bulk upload are ERP 1's.
 - **Inventory & Inward as the 2.0 demo draws it**: five totals that open what they count (spares in
   stock, GRNs to verify, compressors in stock and how many are free, below the reorder level,
   reserved), "+ Inward (GRN)" at the top (and "+ Add serial" on Serials), and ERP 1's four lists as
@@ -338,6 +345,9 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   matched here; the request to Claude, its fallback and its errors; off without the key.
 - `tests/board-drawer-ui-test.js`, `tests/board-drawer-sql-test.js` — the cards, the drawer, its
   dropdowns written to ERP 1's records, follow-ups in Activities, marking lost, who may do which.
+- `tests/customers-v2-ui-test.js`, `tests/customer-summaries-sql-test.js` — the list, its search and
+  filters, a row opening the record; and on the server the machines, dues and open items per
+  customer, by desk and by who may see money.
 - `tests/inventory-v2-ui-test.js` — the five totals and what each opens, the stock filters, the
   four tabs, and the buttons opening ERP 1's windows; ERP 1's lists on the other faces.
 - `tests/quote-builder-v2-ui-test.js` — the heading, the panels in the demo's order with ERP 1's

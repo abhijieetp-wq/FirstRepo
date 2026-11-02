@@ -145,7 +145,7 @@ const ok = (label, cond, detail) => {
     console.log('\nA RECORD ALREADY HOLDING VALUES');
     await go('customers');
     await page.waitForTimeout(300);
-    const head = await page.$$eval('#customers-tbody', (b) => [...b[0].closest('table').querySelectorAll('thead th')].map((t) => t.textContent));
+    const head = await page.$$eval('#cuv-tbody, #customers-tbody', (b) => [...b[0].closest('table').querySelectorAll('thead th')].map((t) => t.textContent));
     ok('a list column, before the Open button', head[head.length - 2] === 'Class', head);
     const row = await page.$eval('[data-edit-cust="CU-1"]', (b) => [...b.closest('tr').children].map((td) => td.textContent));
     ok('with the record’s value', row[row.length - 2] === 'B', row);

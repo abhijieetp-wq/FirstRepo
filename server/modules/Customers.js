@@ -38,6 +38,66 @@ function canEditCommercials_(user) {
 }
 
 /** Customers with their contacts and addresses nested, in one pass over each table. */
+/**
+ * ERP 2.0's customer list, as the 2.0 demo draws it: for each customer, how many machines PIE
+ * knows of (the installed base, ELGi's service due list and service jobs, as the AMC form reads
+ * them), what they owe and how late the oldest of it is, and how many enquiries and service
+ * calls are open. One read of each table, for the list; nothing is written. What is owed is left
+ * out for anybody Collections would refuse, and another desk's enquiries are not counted.
+ */
+async function getCustomerSummaries() {
+  var user = getCurrentUser();
+  var out = {};
+  var at = function (id) {
+    var k = String(id || '');
+    if (!k) return null;
+    return out[k] || (out[k] = { machines: {}, outstanding: 0, oldestOverdueDays: 0, openEnquiries: 0, openCalls: 0 });
+  };
+  var machine = function (id, serial) {
+    var r = at(id);
+    var s = String(serial || '').trim().toUpperCase();
+    if (r && s) r.machines[s] = true;
+  };
+  try { (await readTable_('InstalledBase')).forEach(function (m) { machine(m.customerId, m.serialNo); }); } catch (err) { /* optional table */ }
+  try { (await readTable_('ServiceDueCalls')).forEach(function (c) { machine(c.customerId, c.fabNo); }); } catch (err) { /* optional table */ }
+  (await readTable_('ServiceJobs')).forEach(function (j) {
+    machine(j.customerId, j.serialNo);
+    if (['Completed', 'Cancelled'].indexOf(String(j.status)) === -1) { var r = at(j.customerId); if (r) r.openCalls++; }
+  });
+  if (streamAllowed_(user, STREAM_SPARE)) {
+    (await readTable_('SpareEnquiries')).forEach(function (e) {
+      if (['New', 'Identifying', 'Quoted'].indexOf(String(e.status || 'New')) === -1) return;
+      var r = at(e.customerId); if (r) r.openEnquiries++;
+    });
+  }
+  if (streamAllowed_(user, STREAM_COMPRESSOR)) {
+    (await readTable_('Leads')).forEach(function (l) {
+      if (['New', 'Contacted', 'Qualified'].indexOf(String(l.status || 'New')) === -1) return;
+      var r = at(l.customerId); if (r) r.openEnquiries++;
+    });
+    (await readTable_('Opportunities')).forEach(function (o) {
+      if (['Won', 'Lost'].indexOf(String(o.stage)) !== -1) return;
+      var r = at(o.customerId); if (r) r.openEnquiries++;
+    });
+  }
+  var money = true;
+  try {
+    (await getReceivables({})).forEach(function (inv) {
+      var r = at(inv.customerId);
+      if (!r) return;
+      r.outstanding += Number(inv.balanceAmt) || 0;
+      if ((Number(inv.overdueDays) || 0) > r.oldestOverdueDays) r.oldestOverdueDays = Number(inv.overdueDays) || 0;
+    });
+  } catch (err) {
+    money = false;   // not this person's to see
+  }
+  return { money: money, customers: Object.keys(out).map(function (k) {
+    var r = out[k];
+    return { customerId: k, machines: Object.keys(r.machines).length, outstanding: money ? roundMoney_(r.outstanding) : null,
+      oldestOverdueDays: money ? r.oldestOverdueDays : 0, openEnquiries: r.openEnquiries, openCalls: r.openCalls };
+  }) };
+}
+
 async function listCustomers(includeInactive) {
   getCurrentUser();
 

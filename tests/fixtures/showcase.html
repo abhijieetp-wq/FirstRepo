@@ -67,6 +67,10 @@
       requirementText: "", items: [], ownerEmail: "kiran@pie.in", ownerName: "Kiran Patil",
       createdAt: date };
   }
+  // The segment each customer is in (ERP 1's Industry), one without a GSTIN yet, and a contact to find by phone.
+  ["Engineering", "Plastics", "Food & agro", "Engineering", "Textiles", "Pharma", "Sugar", "Paper"].forEach(function (ind, i) { if (CUSTOMERS[i]) CUSTOMERS[i].industry = ind; });
+  if (CUSTOMERS[7]) CUSTOMERS[7].gstin = "";
+  CUSTOMERS[0].contacts = [{ name: "R. Joshi", phone: "98220 41187", isPrimary: "TRUE" }];
   var C = CUSTOMERS;
   var ENQUIRIES = [
     enq(31, C[0], "R. Joshi", "98220 41187", "EG 37", "EG37-21874", "Urgent", 4, "New", "2026-10-21", false, "2026-10-17"),
@@ -334,6 +338,13 @@
       coordinators: [{ email: "kiran@pie.in", name: "Kiran Patil" }],
       serviceCoordinators: [], serviceEngineers: [{ email: "sagar@pie.in", name: "Sagar Raut" },
         { email: "vikas@pie.in", name: "Vikas Meshram" }], management: [] },
+    // 2.0's customer list (Customers.gs getCustomerSummaries): machines, what is owed, open items.
+    getCustomerSummaries: { money: true, customers: [
+      { customerId: "CU-1", machines: 3, outstanding: 0, oldestOverdueDays: 0, openEnquiries: 2, openCalls: 1 },
+      { customerId: "CU-2", machines: 2, outstanding: 472400, oldestOverdueDays: 41, openEnquiries: 1, openCalls: 1 },
+      { customerId: "CU-3", machines: 1, outstanding: 0, oldestOverdueDays: 0, openEnquiries: 1, openCalls: 1 },
+      { customerId: "CU-4", machines: 2, outstanding: 426300, oldestOverdueDays: 118, openEnquiries: 0, openCalls: 1 },
+      { customerId: "CU-5", machines: 4, outstanding: 496100, oldestOverdueDays: 0, openEnquiries: 1, openCalls: 2 }] },
     // Inventory & Inward (Inventory.gs): stock of each kind, reservations, goods received, serials.
     listInventory: function (type) {
       var row = function (o) { return Object.assign({ itemType: type, category: "", binId: "", warehouse: "Main store", reorderLevel: null, belowReorder: false }, o); };

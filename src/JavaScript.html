@@ -1708,8 +1708,110 @@
     // Bulk upload writes over the master, so it sits with the other master-data privileges.
     $("btn-customer-bulk").style.display = canRemoveFromCatalog() ? "inline-flex" : "none";
     if (!configLists) loadConfigLists();
+    if (FACE_V2) cuvLoadSummaries();
     if (customersLoaded) { renderCustomers(); return; }
     loadCustomers();
+  }
+
+  // ---- ERP 2.0's Customers, as the 2.0 demo draws it ----
+  // Search by name, code, GSTIN, phone, city or machine; segment, salesperson and "Has overdue
+  // dues"; and a table of code, customer (city, segment, a missing GSTIN), machines, salesperson,
+  // what is owed and the open enquiries and service calls. A row opens ERP 1's customer window.
+  var cuv = { q: "", seg: "", sp: "", due: false, sum: null, money: false };
+
+  function cuvLoadSummaries() {
+    srv.withSuccessHandler(function (d) {
+      cuv.sum = {};
+      cuv.money = !!(d && d.money);
+      ((d && d.customers) || []).forEach(function (r) { cuv.sum[String(r.customerId)] = r; });
+      renderCustomers();
+    }).withFailureHandler(function () { cuv.sum = {}; renderCustomers(); }).getCustomerSummaries();
+  }
+
+  function cuvInit() {
+    var v = $("view-customers");
+    if ($("cuv-host")) return;
+    v.querySelector(".search-bar").style.display = "none";
+    v.querySelector(":scope > .card").style.display = "none";
+    v.querySelector(".page-head p").textContent = "One customer code across compressors, spares and service. Add a customer once and every enquiry, " +
+      "quotation, order and service call picks it up. Contacts, addresses and machines work as in ERP 1.";
+    $("btn-new-customer").className = "btn btn-primary";
+    $("btn-new-customer").textContent = "+ Add customer";
+    $("btn-customer-bulk").textContent = "Bulk upload";
+    var host = qvHost("view-customers", "cuv-host");
+    host.innerHTML = '<div class="eb2-tools cuv-tools"><input type="search" class="eb2-search cuv-search" data-cuv-q="1" placeholder="Search name, code, GSTIN, phone, city or serial" aria-label="Search customers" />' +
+      '<select data-cuv-sel="seg" aria-label="Segment"></select><select data-cuv-sel="sp" aria-label="Salesperson"></select>' +
+      '<label class="eb2-chk cuv-due"><input type="checkbox" data-cuv-due="1" /> Has overdue dues</label></div><div class="cuv-body"></div>';
+  }
+
+  function cuvRender() {
+    cuvInit();
+    var host = $("cuv-host");
+    var all = customersCache || [];
+    var sum = cuv.sum || {};
+    var tools = host.querySelector(".cuv-tools");
+    var segs = {}, sps = {};
+    all.forEach(function (c) { if (c.industry) segs[c.industry] = true; if (c.assignedSalesperson) sps[c.assignedSalesperson] = true; });
+    var segSel = tools.querySelector('[data-cuv-sel="seg"]');
+    segSel.innerHTML = '<option value="">All segments</option>' + Object.keys(segs).sort().map(function (x) { return "<option>" + escapeHtml(x) + "</option>"; }).join("");
+    segSel.value = segs[cuv.seg] ? cuv.seg : "";
+    segSel.style.display = Object.keys(segs).length ? "" : "none";
+    var spSel = tools.querySelector('[data-cuv-sel="sp"]');
+    spSel.innerHTML = '<option value="">Any salesperson</option>' + Object.keys(sps).sort().map(function (x) { return "<option>" + escapeHtml(x) + "</option>"; }).join("");
+    spSel.value = sps[cuv.sp] ? cuv.sp : "";
+    tools.querySelector(".cuv-due").style.display = cuv.money ? "" : "none";
+    tools.querySelector("[data-cuv-due]").checked = cuv.due;
+
+    var q = String(cuv.q || "").trim().toLowerCase();
+    var rows = all.filter(function (c) {
+      var s = sum[String(c.id)] || {};
+      if (cuv.seg && c.industry !== cuv.seg) return false;
+      if (cuv.sp && c.assignedSalesperson !== cuv.sp) return false;
+      if (cuv.due && !(s.oldestOverdueDays > 0)) return false;
+      if (!q) return true;
+      var hay = [c.customerCode, c.name, c.gstin, c.assignedSalesperson, c.territory, c.industry].concat(
+        (c.addresses || []).map(function (a) { return a.city; }),
+        (c.contacts || []).map(function (x) { return (x.name || "") + " " + (x.phone || "") + " " + (x.mobile || ""); })).join(" ").toLowerCase();
+      return hay.indexOf(q) !== -1;
+    }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+
+    var body = rows.map(function (c) {
+      var s = sum[String(c.id)] || {};
+      var addr = (c.addresses || []).filter(function (a) { return String(a.isDefault).toUpperCase() === "TRUE"; })[0] || (c.addresses || [])[0] || {};
+      var sub = [addr.city, c.industry, c.gstin ? "" : "no GSTIN yet"].filter(Boolean).join(" · ");
+      var owed = s.outstanding ? '<span class="' + (s.oldestOverdueDays > 0 ? "qv-late" : "") + '"' + (s.oldestOverdueDays > 0 ? ' title="Oldest ' + s.oldestOverdueDays + ' days past due"' : "") + ">" +
+        escapeHtml(ebLakh(s.outstanding)) + "</span>" : "—";
+      var open = (s.openEnquiries ? ebChip(s.openEnquiries + (s.openEnquiries === 1 ? " enquiry" : " enquiries"), "c-unit") + " " : "") +
+        (s.openCalls ? ebChip(s.openCalls + (s.openCalls === 1 ? " call" : " calls"), "c-service") : "");
+      return '<tr class="qv-row" data-edit-cust="' + escapeHtml(c.id) + '"><td><span class="mono">' + escapeHtml(c.customerCode || "—") + "</span></td>" +
+        "<td><b>" + escapeHtml(c.name) + "</b>" + (sub ? '<br><span class="eb2-kind">' + escapeHtml(sub) + "</span>" : "") + "</td>" +
+        '<td class="num">' + (s.machines || "—") + "</td>" +
+        "<td>" + escapeHtml(c.assignedSalesperson || "—") + "</td>" +
+        (cuv.money ? '<td class="num">' + owed + "</td>" : "") +
+        "<td>" + (open || '<span class="eb2-kind">—</span>') + "</td></tr>";
+    }).join("");
+    host.querySelector(".cuv-body").innerHTML = '<div class="qv-table cuv-table"><table><thead><tr><th>Code</th><th>Customer</th><th class="num">Machines</th><th>Salesperson</th>' +
+      (cuv.money ? '<th class="num">Outstanding</th>' : "") + '<th>Open items</th></tr></thead><tbody id="cuv-tbody">' +
+      (body || '<tr><td colspan="6" class="eb2-empty">' + (all.length ? "No customers match." : "No customers yet — add the first one.") + "</td></tr>") +
+      '</tbody></table></div><p class="eb-note">' + rows.length + (rows.length === 1 ? " customer" : " customers") + ". Click one to open its record — contacts, addresses and commercial terms.</p>";
+    xfTable("customer", host.querySelector(".cuv-table table"), xfRowId("tr[data-edit-cust]", "data-edit-cust"), true);
+  }
+
+  if (FACE_V2) {
+    document.addEventListener("click", function (e) {
+      var row = e.target.closest("#cuv-host tr[data-edit-cust]");
+      if (row) openCustomerModal(row.dataset.editCust);
+    });
+    document.addEventListener("change", function (e) {
+      var sel = e.target.closest("#cuv-host [data-cuv-sel]");
+      if (sel) { cuv[sel.dataset.cuvSel] = sel.value; cuvRender(); return; }
+      if (e.target.closest("#cuv-host [data-cuv-due]")) { cuv.due = e.target.checked; cuvRender(); }
+    });
+    document.addEventListener("input", function (e) {
+      if (!e.target.closest("#cuv-host [data-cuv-q]")) return;
+      cuv.q = e.target.value;
+      cuvRender();
+    });
   }
 
   /** Refetches the customer list, bypassing the cache flag — used after a bulk import. */
@@ -1778,6 +1880,7 @@
   }
 
   function renderCustomers() {
+    if (FACE_V2) { cuvRender(); return; }
     var q = ($("customer-search").value || "").toLowerCase();
     var rows = customersCache.filter(function (c) {
       var hay = [c.customerCode, c.name, c.gstin, c.assignedSalesperson, c.territory,
