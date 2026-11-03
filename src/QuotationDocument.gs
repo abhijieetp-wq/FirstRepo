@@ -429,8 +429,11 @@ function scheduleName_(item, products, spareSpecs, L) {
  * GST quoted as extra prints as the word, with no total after it, as theirs does. An offer
  * set to "GST included" prints the tax and the total instead, for the customer who needs the
  * figure on the page.
+ *
+ * Freight is printed once, here: the amount when the offer charges it (a charge line called
+ * Freight, which is not listed among the items — isFreightCharge_), else the standing terms.
  */
-function compressorTotals_(q, co, address, items, gross, netGoods, L) {
+function compressorTotals_(q, co, address, items, gross, netGoods, L, freightAmount) {
   var rows = [[esc_(L('packageTotal', 'Total Package Price')), inr_(gross), '']];
   if (gross - netGoods > 0.005) {
     // "(40% Less)" only when that is the whole story. With line discounts as well, the
@@ -443,9 +446,10 @@ function compressorTotals_(q, co, address, items, gross, netGoods, L) {
   }
   var pf = Number(q.pfAmount) || 0;
   rows.push([esc_(L('pf', 'P&F @')), pf > 0 ? inr_(pf) : esc_(L('pfNil', '0.00')), '']);
-  // Freight terms, not the delivery time: standing wording, the same on every offer.
-  rows.push([esc_(L('freight', 'Freight')),
-             esc_(L('freightNote', 'Extra from Ex-works Coimbatore')), '']);
+  // Freight terms, not the delivery time: the amount when it is charged, else the standing
+  // wording, the same on every offer.
+  rows.push([esc_(L('freight', 'Freight')), freightAmount > 0.005 ? inr_(freightAmount)
+    : esc_(L('freightNote', 'Extra from Ex-works Coimbatore')), '']);
 
   if (String(q.taxMode || 'Extra') === 'Extra') {
     var rate = Number(headlineTaxRate_(items)) || 0;
@@ -976,11 +980,20 @@ function buildQuotationHtml(quotationId) {
   // here rather than stored on the line, so correcting a mapping corrects the offers
   // that have not gone out yet.
   var theirCodes = customerCodeMap_(q.customerId);
+  // A compressor offer's freight goes in the totals, after P&F, not among the items.
+  var freightCharged = Number(q.freight) || 0;
+  var freightDiscount = 0;
   items.forEach(function (i) {
     var isCharge = i.lineType === 'Charge';
     var qty = Number(i.qty) || 0;
     var unit = Number(i.unitPrice) || 0;
     var lineTotal = unit * qty;
+    if (isCompressor && isFreightCharge_(i, q.businessStream)) {
+      var net = i.lineTotal === '' || i.lineTotal === undefined || i.lineTotal === null ? lineTotal : Number(i.lineTotal) || 0;
+      freightCharged += net;
+      freightDiscount += lineTotal - net;
+      return;
+    }
     gross += lineTotal;
     var hsn = isCharge ? '' : esc_(hsnFor_(i, products, spareHsn));
 
@@ -1016,9 +1029,9 @@ function buildQuotationHtml(quotationId) {
   var pkgPct = Number(q.packageDiscountPct) || 0;
   // recalcQuotation_ stores line discounts and the package discount together, so the net of
   // both is what the customer pays for goods.
-  var netGoods = gross - (Number(q.discountAmt) || 0);
+  var netGoods = gross - ((Number(q.discountAmt) || 0) - freightDiscount);
   var totals = isCompressor
-    ? compressorTotals_(q, co, address, items, gross, netGoods, L)
+    ? compressorTotals_(q, co, address, items, gross, netGoods, L, freightCharged)
     : spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L);
 
   if (isCompressor) {

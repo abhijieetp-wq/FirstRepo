@@ -1487,22 +1487,38 @@ function quotationLines_(quotationId) {
   });
 }
 
+/**
+ * Freight on a compressor offer: a charge line called Freight. PIE's compressor offers carry
+ * freight once, in the row after P&F, and the package discount is struck off the goods, not
+ * the lorry. So on a compressor offer such a line stays out of the package discount, and the
+ * printed offer (QuotationDocument.gs) shows it in that row instead of among the items. A
+ * spares offer lists its carting and freight among the parts, as it always has.
+ */
+function isFreightCharge_(line, stream) {
+  return String(stream || '') === STREAM_COMPRESSOR && String(line.lineType) === 'Charge' &&
+    /^\s*freight\b/i.test(String(line.description || ''));
+}
+
 function recalcQuotation_(quotationId) {
   var lines = quotationLines_(quotationId);
+  var quote = quotationRow_(quotationId);
+  var stream = quote ? quote.businessStream : '';
 
   var subtotal = 0, discountAmt = 0, taxAmt = 0;
+  var freightNet = 0, freightTax = 0;
   lines.forEach(function (l) {
     var qty = Number(l.qty) || 0;
     var unit = Number(l.unitPrice) || 0;
     var disc = Number(l.discountPct) || 0;
     var gross = unit * qty;
     var net = Number(l.lineTotal) || 0;
+    var tax = net * (Number(l.taxPct) || 0) / 100;
     subtotal += gross;
     discountAmt += gross - net;
-    taxAmt += net * (Number(l.taxPct) || 0) / 100;
+    taxAmt += tax;
+    if (isFreightCharge_(l, stream)) { freightNet += net; freightTax += tax; }
   });
 
-  var quote = quotationRow_(quotationId);
   var freight = quote ? (Number(quote.freight) || 0) : 0;
   var pf = quote ? (Number(quote.pfAmount) || 0) : 0;
 
@@ -1511,11 +1527,16 @@ function recalcQuotation_(quotationId) {
   // discount applies after them.
   var pkgPct = quote ? (Number(quote.packageDiscountPct) || 0) : 0;
   var afterLines = subtotal - discountAmt;
-  var pkgDiscount = pkgPct > 0 ? afterLines * pkgPct / 100 : 0;
+  // Freight on a compressor offer is not discounted (isFreightCharge_).
+  var discountable = afterLines - freightNet;
+  var pkgDiscount = pkgPct > 0 ? discountable * pkgPct / 100 : 0;
   var netGoods = afterLines - pkgDiscount;
 
-  // A package discount changes the taxable value, so the line tax has to move with it.
-  if (pkgPct > 0 && afterLines > 0) taxAmt = taxAmt * (netGoods / afterLines);
+  // A package discount changes the taxable value, so the line tax has to move with it — the
+  // goods' tax, that is: the freight's is on an amount the discount did not touch.
+  if (pkgPct > 0 && discountable > 0) {
+    taxAmt = (taxAmt - freightTax) * ((discountable - pkgDiscount) / discountable) + freightTax;
+  }
 
   // Their compressor offer quotes a pre-tax figure and notes "18% GST EXTRA"; the grand total
   // then excludes tax. The spares offer added it in. Which one applies is per quotation.

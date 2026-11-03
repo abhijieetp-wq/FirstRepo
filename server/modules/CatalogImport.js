@@ -22,6 +22,12 @@
  * Existing rows are updated in place (so ids, history and links survive), unknown codes are
  * appended, and rows missing a required field are skipped and reported rather than guessed at.
  *
+ * A compressor's code can be changed by the same file: a `previousProductCode` column names the
+ * code a product has now. When the new code is not in the catalogue yet and the previous one
+ * is, that product is updated and takes the new code — the same product, its prices, stock and
+ * offers kept — rather than a second one added. PIE moved its compressors to ELGi's TPL codes
+ * this way. Two lines never land on one product: the second is skipped and said so.
+ *
  * Performance: Apps Script kills any single call at six minutes, and one of these files is
  * 3,500 parts with up to 7,000 prices behind them — comfortably past it. So the commit runs
  * in chunks: the client asks for a few hundred rows at a time and keeps asking until the
@@ -73,7 +79,9 @@ var IMPORT_SPECS = {
     columns: ['productCode', 'hsnCode', 'model', 'family', 'series', 'description', 'category',
       'hpRating', 'fad', 'workingPressure', 'capacityCfm', 'maxPressure', 'motorKw',
       'starterType', 'dimensionsMm', 'weightKg', 'spcKw100Cfm', 'gstPct', 'piePrice',
-      'elgiPrice', 'warrantyMonths', 'leadTimeDays', 'uom', 'notes'],
+      'elgiPrice', 'warrantyMonths', 'leadTimeDays', 'uom', 'notes', 'previousProductCode'],
+    // The code a product has now, when the file gives it a new one (see the top of the file).
+    renameField: 'previousProductCode',
     masterFields: ['productCode', 'hsnCode', 'model', 'family', 'series', 'description',
       'category', 'hpRating', 'fad', 'workingPressure', 'capacityCfm', 'maxPressure',
       'motorKw', 'starterType', 'dimensionsMm', 'weightKg', 'spcKw100Cfm', 'gstPct',
@@ -115,8 +123,10 @@ async function previewCatalogImport(itemType, csvText) {
     priceChangeCount: analysis.priceChanges.length,
     skipped: analysis.skipped.slice(0, 50),
     skippedTruncated: analysis.skipped.length > 50,
+    renamedCount: analysis.updates.filter(function (u) { return u.renamedFrom; }).length,
     sample: analysis.creates.concat(analysis.updates).slice(0, 10).map(function (r) {
-      return { action: r.action, code: r.key, description: r.values.description || r.values.model || '' };
+      return { action: r.action, code: r.key, renamedFrom: r.renamedFrom || '',
+               description: r.values.description || r.values.model || '' };
     })
   };
 }
@@ -220,8 +230,10 @@ async function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
              priceLevel: p.level, price: p.price };
   }), 'Bulk catalog import');
 
+  var renamed = analysis.updates.filter(function (u) { return u.renamedFrom; }).length;
   await audit_('Update', spec.tab, '(bulk import)', '', '',
-    analysis.creates.length + ' new, ' + analysis.updates.length + ' updated, ' +
+    analysis.creates.length + ' new, ' + analysis.updates.length + ' updated' +
+    (renamed ? ' (' + renamed + ' with a new code)' : '') + ', ' +
     pricesWritten + ' price revisions, ' + analysis.skipped.length + ' skipped',
     'Bulk catalog import by ' + user.email +
     (analysis.chunked ? ' (rows ' + (analysis.fromRow + 1) + '–' + analysis.nextRow + ' of ' +
@@ -233,6 +245,7 @@ async function commitCatalogImport(itemType, csvText, fromRow, maxRows) {
   return {
     newCount: analysis.creates.length,
     updateCount: analysis.updates.length,
+    renamedCount: renamed,
     reactivatedCount: analysis.updates.filter(function (u) { return u.wasInactive; }).length,
     priceChangeCount: pricesWritten,
     skippedCount: analysis.skipped.length,
@@ -287,6 +300,10 @@ async function analyseImport_(itemType, csvText, opts) {
   }
 
   var keyCol = header.indexOf(spec.keyField);
+  var prevCol = spec.renameField ? header.indexOf(spec.renameField) : -1;
+  var cellAt = function (line, col) {
+    return col === -1 ? '' : String(line[col] === undefined ? '' : line[col]).trim().toLowerCase();
+  };
 
   // Which data rows are real, and which key each carries — one pass, no sheet access, over
   // the whole file regardless of the chunk. `dataRows` holds indexes into `rows`.
@@ -316,6 +333,26 @@ async function analyseImport_(itemType, csvText, opts) {
     if (key) byKey[key] = { row: row, rowIndex: idx };
   });
 
+  // The product each line lands on: its own code's, or — when that is new — the one its
+  // previous code names. Worked out over the whole file, so two lines never write to one
+  // product whichever chunk they fall in.
+  var landsOn = function (line) {
+    var own = byKey[cellAt(line, keyCol)];
+    if (own) return { hit: own, renamed: false };
+    var prev = cellAt(line, prevCol);
+    return prev && byKey[prev] ? { hit: byKey[prev], renamed: true } : null;
+  };
+  var sameProductAs = {};
+  var firstLineOn = {};
+  dataRows.forEach(function (r) {
+    if (duplicateOf.hasOwnProperty(r)) return;
+    var at = landsOn(rows[r]);
+    if (!at) return;
+    var k = at.hit.rowIndex;
+    if (firstLineOn.hasOwnProperty(k)) sameProductAs[r] = firstLineOn[k];
+    else firstLineOn[k] = r + 1;
+  });
+
   var prices = options.comparePrices ? await priceMapFor_(itemType) : {};
   var creates = [], updates = [], skipped = [], priceChanges = [];
 
@@ -336,7 +373,8 @@ async function analyseImport_(itemType, csvText, opts) {
     // A part already in the catalogue needs only its code: a file that fills in some columns
     // for existing parts — the specification tables for the accessories, say — should not have
     // to repeat every description, which it would then overwrite. A new part still needs all.
-    var exists = !!byKey[key.toLowerCase()];
+    var at = landsOn(raw);
+    var exists = !!at;
     var missing = spec.required.filter(function (f) {
       return !values[f] && !(exists && f !== spec.keyField);
     });
@@ -356,19 +394,24 @@ async function analyseImport_(itemType, csvText, opts) {
       if (values[f] !== undefined && values[f] !== '') values[f] = Number(values[f]);
     });
 
-    var lower = key.toLowerCase();
     if (duplicateOf.hasOwnProperty(i)) {
       skipped.push({ line: lineNo, code: key,
                      reason: 'duplicate of line ' + duplicateOf[i] + ' in this file' });
       continue;
     }
+    if (sameProductAs.hasOwnProperty(i)) {
+      skipped.push({ line: lineNo, code: key,
+                     reason: 'line ' + sameProductAs[i] + ' already updates the same product' });
+      continue;
+    }
 
-    var match = byKey[lower];
+    var match = at ? at.hit : null;
     var itemId;
     if (match) {
       itemId = match.row.id;
       updates.push({ action: 'update', key: key, values: values, rowIndex: match.rowIndex,
                      id: itemId,
+                     renamedFrom: at.renamed ? String(match.row[spec.keyField] || '') : '',
                      wasInactive: String(match.row.active).toUpperCase() === 'FALSE' });
     } else {
       itemId = generateId_(spec.idPrefix);

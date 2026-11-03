@@ -706,7 +706,8 @@
             <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 12px;">
               A line that is not a catalog item — carting, packing, freight. It is taxed at the
               same rate as the goods unless you say otherwise, which is how your spares offers
-              treat carting.
+              treat carting. On a compressor offer, a charge called Freight prints once, in the
+              Freight row after P&amp;F, and the package discount is not taken off it.
             </p>
             <input type="hidden" id="qc-id" />
             <input type="hidden" id="qc-lineno" />
@@ -1103,7 +1104,7 @@
     <h3 id="unit-modal-title" style="margin-bottom:16px;">Add Product</h3>
     <input type="hidden" id="um-id" />
     <div class="grid grid-3">
-      <div class="field"><label>Product Code *</label><input id="um-modelcode" /></div>
+      <div class="field"><label>TPL Code *</label><input id="um-modelcode" placeholder="ELGi's TPL number, e.g. S019334" /></div>
       <div class="field"><label>Model *</label><input id="um-modelname" /></div>
       <div class="field"><label>HSN Code</label><input id="um-hsn" class="mono" /></div>
     </div>

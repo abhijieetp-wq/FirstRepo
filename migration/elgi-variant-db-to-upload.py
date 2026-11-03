@@ -1,7 +1,8 @@
 """ELGi 'Specification Database' workbook (sheet Variant_DB, one row per variant) -> the portal's
 compressor upload.
 
-usage: python3 -I migration/elgi-variant-db-to-upload.py <in.xlsx> <out.csv>
+usage: python3 -I migration/elgi-variant-db-to-upload.py <in.xlsx> <out.csv> [--codes=model]
+           [--keep-names-of=<an earlier upload.csv>]
 
 Then: Catalogue -> Compressors -> Import price list -> the .csv. The preview says how many are new
 and how many update an existing code; nothing is written until it is confirmed.
@@ -11,10 +12,21 @@ spec sheets confidential. Needs openpyxl.
 
 This is the later layout of ELGi's specs: field names on row 5 of Variant_DB, a Variant ID per
 row, separate columns for length, width and height, and the VFD part-load figures on their own
-sheet (VFD_PartLoad). The older one-sheet layout is elgi-specs-to-upload.py. Both make the same
-codes, so a variant loaded from either updates the same product: EG 11-7.5 DM -> EG11-7.5,
-EQ 11 7.5 V -> EQ11-7.5V, EG 55PM 8 V -> EG55PM-8V, EG 75SP 8 V on an IE4 motor ->
-EG75SP-8V-IE4, and a VFD with an integrated dryer carries DV: EG 30PM 7.5 DV -> EG30PM-7.5DV.
+sheet (VFD_PartLoad). The older one-sheet layout is elgi-specs-to-upload.py.
+
+CODES. PIE quote a compressor by ELGi's TPL number, so the code is the TPL number: S019334.
+ELGi give one TPL to every pressure of a permanent-magnet VFD machine (the pressure is set on
+its controller), and the catalogue needs one code per variant, so those carry the pressure too:
+S019034-8, S019034-13.5. Each line also gives, as previousProductCode, the code the earlier
+uploads made from the model — EG 11-7.5 DM -> EG11-7.5, EQ 11 7.5 V -> EQ11-7.5V, EG 55PM 8 V ->
+EG55PM-8V, EG 75SP 8 V on an IE4 motor -> EG75SP-8V-IE4, EG 30PM 7.5 DV -> EG30PM-7.5DV — so a
+compressor already in the catalogue under that code takes its TPL code and stays the same
+product, with its prices, stock and offers. --codes=model makes the earlier codes instead.
+
+NAMES. A compressor's model is PIE's price-list wording, which may have been typed into the
+catalogue by hand. --keep-names-of=<an earlier upload> leaves model and description blank for
+every variant that upload already loaded (a blank never overwrites), so this file changes their
+codes and specifications and nothing they are called; a variant new since then gets both.
 
 Columns are found by their heading, not their position. Prices, HSN and GST are left blank:
 a blank never overwrites what the catalogue already holds, and a quotation takes 18% GST when
@@ -25,7 +37,7 @@ import csv, io, re, sys, openpyxl
 COLUMNS = ['productCode', 'hsnCode', 'model', 'family', 'series', 'description', 'category',
            'hpRating', 'fad', 'workingPressure', 'capacityCfm', 'maxPressure', 'motorKw',
            'starterType', 'dimensionsMm', 'weightKg', 'spcKw100Cfm', 'gstPct', 'piePrice',
-           'elgiPrice', 'warrantyMonths', 'leadTimeDays', 'uom', 'notes']
+           'elgiPrice', 'warrantyMonths', 'leadTimeDays', 'uom', 'notes', 'previousProductCode']
 
 # The workbook's own field names (row 5 of Variant_DB).
 F = {
@@ -84,7 +96,14 @@ def shown_name(sheet_name, ie):
 
 
 def main():
-    src, out_path = sys.argv[1], sys.argv[2]
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    by_model = '--codes=model' in sys.argv[1:]
+    loaded = set()
+    for a in sys.argv[1:]:
+        if a.startswith('--keep-names-of='):
+            for r in csv.DictReader(open(a.split('=', 1)[1], encoding='utf-8-sig')):
+                loaded.add(r['productCode'].strip().upper())
+    src, out_path = args[0], args[1]
     wb = openpyxl.load_workbook(src, data_only=True, read_only=True)
     if 'Variant_DB' not in wb.sheetnames:
         raise SystemExit('No Variant_DB sheet: for the older one-sheet layout use elgi-specs-to-upload.py.')
@@ -105,13 +124,28 @@ def main():
                 continue
             part.setdefault(norm(r[vi]), []).append('%s%% %s cfm %s kW' % (n(r[tdr]), n(r[cap]), n(r[kw])))
 
+    # How many variants share each TPL: those carry their pressure in the code.
+    tpl_count = {}
+    for r in rows[hr + 1:]:
+        if blank(r[at['id']]):
+            continue
+        t = norm(r[at['tpl']])
+        tpl_count[t] = tpl_count.get(t, 0) + 1
+
     out, seen = [], {}
     for r in rows[hr + 1:]:
         if blank(r[at['id']]):
             continue
         g = lambda k: r[at[k]]
         model = norm(g('model'))
-        code, fam, ie = code_for(model, g('bar'))
+        old_code, fam, ie = code_for(model, g('bar'))
+        tpl = norm(g('tpl'))
+        if by_model:
+            code = old_code
+        else:
+            if not re.match(r'^[A-Z0-9]+$', tpl):
+                raise SystemExit('Variant %s has no TPL number to make its code from' % norm(g('id')))
+            code = tpl if tpl_count.get(tpl, 0) == 1 else '%s-%s' % (tpl, n(g('bar')))
         if code in seen:
             raise SystemExit('Two rows make code %s: %s and %s' % (code, seen[code], norm(g('id'))))
         seen[code] = norm(g('id'))
@@ -153,6 +187,7 @@ def main():
 
         out.append({
             'productCode': code,
+            'previousProductCode': '' if by_model else old_code,
             'hsnCode': '',
             'model': shown,
             'family': 'Lubricated screw',
@@ -174,6 +209,9 @@ def main():
             'uom': 'Nos',
             'notes': ' '.join(notes),
         })
+        if old_code.upper() in loaded:
+            out[-1]['model'] = ''
+            out[-1]['description'] = ''
 
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=COLUMNS, lineterminator='\r\n', quoting=csv.QUOTE_MINIMAL)
@@ -182,7 +220,8 @@ def main():
     with open(out_path, 'w', encoding='utf-8-sig', newline='') as f:
         f.write(buf.getvalue())
     print(len(out), 'variants written to', out_path, '| with part-load table:',
-          sum(1 for o in out if 'Part load' in o['notes']))
+          sum(1 for o in out if 'Part load' in o['notes']),
+          '| names kept (blank):', sum(1 for o in out if not o['model']))
 
 
 if __name__ == '__main__':

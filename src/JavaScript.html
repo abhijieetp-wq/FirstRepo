@@ -785,7 +785,7 @@
       ]);
     }
     return [
-      { key: "productCode", label: "Product Code", cls: "mono" },
+      { key: "productCode", label: "TPL Code", cls: "mono" },
       { key: "hsnCode", label: "HSN", cls: "mono" },
       { key: "model", label: "Model" },
       { key: "family", label: "Family" },
@@ -1180,7 +1180,7 @@
     var nameKey = CATALOG_MODE === "spares" ? "partNo" : "productCode";
     var descKey = CATALOG_MODE === "spares" ? "description" : "model";
     zone.innerHTML = '<div class="compare-strip"><div class="card-title" style="margin-bottom:12px;">Rate Comparison — ' + rows.length + " selected</div>" +
-      "<table><thead><tr><th>" + (CATALOG_MODE === "spares" ? "Part No." : "Product Code") + "</th><th>Description</th><th class=\"num\">Price</th>" +
+      "<table><thead><tr><th>" + (CATALOG_MODE === "spares" ? "Part No." : "TPL Code") + "</th><th>Description</th><th class=\"num\">Price</th>" +
       (CATALOG_MODE === "spares" ? '<th class="num">Alternate</th>' : "") +
       '<th class="num">Best Rate</th></tr></thead><tbody>' +
       rows.map(function (r) {
@@ -1375,7 +1375,7 @@
   $("btn-bulk-upload").addEventListener("click", function () {
     $("bulk-upload-panel").style.display = "";
     $("bulk-target").textContent = CATALOG_MODE === "spares" ? "Spares" : "Products (Compressors)";
-    $("bulk-key").textContent = CATALOG_MODE === "spares" ? "Part No." : "Product Code";
+    $("bulk-key").textContent = CATALOG_MODE === "spares" ? "Part No." : "TPL Code (productCode)";
     resetBulkState();
     srv.withSuccessHandler(function (tpl) {
       $("bulk-template").value = tpl.header + "\n" + tpl.example;
@@ -1432,6 +1432,11 @@
       bulkStat("Skipped", p.skippedCount, p.skippedCount ? "var(--red)" : "var(--steel)") +
       "</div>" +
       // A fifth tile would wrap the row on its own, and this only applies to some imports.
+      (p.renamedCount
+        ? '<p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">' +
+          p.renamedCount + " of those updates give a compressor a new code (from its previousProductCode) — " +
+          "the same product, with its prices, stock and offers.</p>"
+        : "") +
       (p.reactivatedCount
         ? '<p style="font-size:12px; color:var(--ink-soft); margin:0 0 12px;">' +
           p.reactivatedCount + " of those updates bring a deactivated item back into the " +
@@ -1457,7 +1462,7 @@
           return "<tr><td>" + (r.action === "new"
             ? '<span class="badge badge-won">New</span>'
             : '<span class="badge badge-quoted">Update</span>') +
-            '</td><td class="mono">' + escapeHtml(r.code) + "</td><td>" + escapeHtml(r.description) + "</td></tr>";
+            '</td><td class="mono">' + escapeHtml(r.renamedFrom ? r.renamedFrom + " → " + r.code : r.code) + "</td><td>" + escapeHtml(r.description) + "</td></tr>";
         }).join("") + "</tbody></table>";
     }
 
@@ -1808,7 +1813,7 @@
       message: "This removes the row and its price history from the sheet. It is refused if " +
         "any order, serial number, installed machine or selection names the product. " +
         "Type the product code to confirm.",
-      input: true, inputLabel: "Product code", okLabel: "Delete permanently", danger: true
+      input: true, inputLabel: "TPL code", okLabel: "Delete permanently", danger: true
     }, function (typed) {
       if (typed === null) return;
       if (String(typed).trim().toUpperCase() !== code.toUpperCase()) {
@@ -4883,15 +4888,28 @@
   function renderQuoteTotals(q) {
     var taxExtra = (q.taxMode || "Extra") === "Extra";
     var pkg = Number(q.packageDiscountPct) || 0;
+    // On a compressor offer a charge called Freight is not discounted and is shown after P&F,
+    // as the printed offer shows it (isFreightCharge_ in Quotations.gs).
+    var freight = Number(q.freight) || 0;
+    var freightGross = 0;
+    if (q.businessStream === "Compressor Sales") {
+      (q.items || []).forEach(function (i) {
+        if (i.lineType !== "Charge" || !/^\s*freight\b/i.test(String(i.description || ""))) return;
+        var gross = (Number(i.unitPrice) || 0) * (Number(i.qty) || 0);
+        freightGross += gross;
+        freight += i.lineTotal === "" || i.lineTotal === undefined || i.lineTotal === null ? gross : Number(i.lineTotal) || 0;
+      });
+    }
+    var discount = (Number(q.discountAmt) || 0) - (freightGross - (freight - (Number(q.freight) || 0)));
     var rows = [
-      ["Total package price", fmt(q.subtotal), ""]
+      ["Total package price", fmt((Number(q.subtotal) || 0) - freightGross), ""]
     ];
-    if (Number(q.discountAmt) > 0) {
+    if (discount > 0.005) {
       rows.push([pkg > 0 ? "Discount (incl. " + pkg + "% package)" : "Discount",
-                 "− " + fmt(q.discountAmt), ""]);
+                 "− " + fmt(discount), ""]);
     }
     if (Number(q.pfAmount) > 0) rows.push(["P&F", fmt(q.pfAmount), ""]);
-    if (Number(q.freight) > 0) rows.push(["Freight", fmt(q.freight), ""]);
+    if (freight > 0.005) rows.push(["Freight", fmt(freight), ""]);
     rows.push([taxExtra ? "GST (charged extra)" : "GST", fmt(q.taxAmt), ""]);
     rows.push([taxExtra ? "Grand Total (before GST)" : "Grand Total", fmt(q.grand), "grand"]);
 

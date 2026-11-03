@@ -306,6 +306,39 @@ const SPEC_CSV = '﻿' + [
   ok('a line discount as well: the row, without a percentage that would not add up',
     !!rowWith(tbl, 'Discounted Price') && !/% Less/.test(tbl), rows(tbl).map((r) => cells(r)[0]));
 
+  console.log('\nFREIGHT ONCE, AFTER P&F');
+  const fiveLines = [['Product', 'PR-EG'], ['Spare', 'SP-RCV'], ['Spare', 'SP-DRY'], ['Spare', 'SP-FLT'], ['Spare', 'SP-HOSE']];
+  await offer(fiveLines);
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 40, pfAmount: 0, taxMode: 'Extra' });
+  const goodsTax = (await p.getQuotation(lastQuoteId)).taxAmt;
+  await offer(fiveLines);
+  await p.saveQuotationCharge({ quotationId: lastQuoteId, description: 'Freight', amount: 25000 });
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 40, pfAmount: 0, taxMode: 'Extra' });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  const freightRows = rows(tbl).filter((r) => /freight/i.test(cells(r)[0]));
+  ok('one Freight row, with the amount, straight after P&F', freightRows.length === 1 && cells(freightRows[0])[1] === '₹ 25,000.00' &&
+    rows(tbl).indexOf(freightRows[0]) === rows(tbl).indexOf(rowWith(tbl, 'P&amp;F @')) + 1, rows(tbl).map((r) => cells(r)));
+  ok('not among the items, nor in the package price', rows(tbl).length === 11 &&
+    JSON.stringify(cells(rowWith(tbl, 'Total Package Price') || '')) === JSON.stringify(['Total Package Price', '₹ 19,96,400.00']),
+    rows(tbl).map((r) => cells(r)[0]));
+  ok('the 40% struck off the goods, not the freight', (cells(rowWith(tbl, 'Discounted Price (40% Less)') || '')[1]) === '₹ 11,97,840.00');
+  const fq = await p.getQuotation(lastQuoteId);
+  ok('the quotation’s total: the discounted goods and the freight', fq.grand === 1222840 && fq.discountAmt === 798560,
+    { grand: fq.grand, discountAmt: fq.discountAmt });
+  ok('GST on the freight as well as the goods', Math.abs(fq.taxAmt - (goodsTax + 4500)) < 0.02, { taxAmt: fq.taxAmt, goodsTax });
+  await p.saveQuotationHeader({ id: lastQuoteId, taxMode: 'Included' });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('with GST included, the total to pay counts the freight once', (cells(rowWith(tbl, 'Total amount') || '')[1]) ===
+    '₹ ' + (1222840 + goodsTax + 4500).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    cells(rowWith(tbl, 'Total amount') || ''));
+  await offer([['Spare', 'SP-DRY']], 'Spare Sales');
+  await p.saveQuotationCharge({ quotationId: lastQuoteId, description: 'Freight', amount: 1000 });
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 10 });
+  const sq = await p.getQuotation(lastQuoteId);
+  const spareDoc = await p.buildQuotationHtml(lastQuoteId);
+  ok('a spares offer still lists its freight among the parts, discounted with them', sq.discountAmt === 33300 &&
+    /<td>Freight<\/td>/.test(spareDoc.slice(spareDoc.indexOf('<table class="price">'))), sq.discountAmt);
+
   console.log('\nA SPARES OFFER KEEPS ITS OWN SCHEDULE');
   html = await offer([['Spare', 'SP-DRY']], 'Spare Sales');
   ok('not PIE’s compressor grid', html.indexOf('class="price pie"') === -1 && html.indexOf('class="price"') !== -1);

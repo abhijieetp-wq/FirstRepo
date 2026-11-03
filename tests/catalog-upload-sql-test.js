@@ -111,6 +111,37 @@ const CSV = '﻿' + [HEADER,
     ok('the printed table has ' + v, html.indexOf(v) !== -1);
   }
 
+  console.log('\nA NEW CODE FOR A COMPRESSOR ALREADY ON FILE');
+  // PIE's compressors moved to ELGi's TPL codes: previousProductCode names the code a product
+  // has now, so the product keeps its id, price and offers and takes the new code.
+  const renameRow = (code, model, prev) => [code, '', model].concat(Array(20).fill('')).concat([prev]).join(',');
+  const RENAME = '\uFEFF' + [HEADER + ',previousProductCode',
+    renameRow('T0000001', 'TX 20-7.5 DM', 'TX20-7.5'),     // the one on file from the start
+    renameRow('T0000002', 'TX 20-10 DM', 'TX20-10'),       // the one the upload above added
+    renameRow('T0000003', 'TX 30-7.5 DM', 'TX30-7.5'),     // no such code on file: a new product
+    renameRow('T0000004', 'TX 20-7.5 DM', 'TX20-7.5')      // a second line onto the first product
+  ].join('\r\n') + '\r\n';
+  const rp = await p.previewCatalogImport('Product', RENAME);
+  ok('the preview: two take a new code, one is new, a second line onto one product is refused',
+    rp.newCount === 1 && rp.updateCount === 2 && rp.renamedCount === 2 && rp.skippedCount === 1 &&
+    /line 2 already updates the same product/.test(rp.skipped[0].reason), rp);
+  ok('each named old code → new', rp.sample.some((x) => x.code === 'T0000001' && x.renamedFrom === 'TX20-7.5'), rp.sample);
+  const rc = await p.commitCatalogImport('Product', RENAME);
+  ok('the commit says the same', rc.newCount === 1 && rc.updateCount === 2 && rc.renamedCount === 2, rc);
+  const after = await db.readTable('Products');
+  const byId = (id) => after.find((x) => x.id === id) || {};
+  ok('the same product, with the new code', byId('PR-OLD').productCode === 'T0000001' &&
+    !after.some((x) => x.productCode === 'TX20-7.5') && after.filter((x) => x.productCode === 'T0000002').length === 1, after.map((x) => x.id + ':' + x.productCode));
+  ok('and nothing added for the two it renamed', after.length === 3, after.length);
+  const prices = await p.priceMapFor_('Product');
+  ok('its price still in force', prices['PR-OLD'] && prices['PR-OLD'].ELGI && prices['PR-OLD'].ELGI.price === 345678, prices['PR-OLD']);
+  const lines = await db.readTable('QuotationItems');
+  ok('an offer already made keeps the code it was made with', lines.some((l) => l.itemId === 'PR-OLD' && l.itemCode === 'TX20-7.5'), lines.map((l) => l.itemCode));
+  const again = await p.previewCatalogImport('Product', RENAME.split('\r\n').slice(0, 4).join('\r\n'));
+  ok('the same file again: updates by the new codes, nothing renamed', again.newCount === 0 && again.updateCount === 3 && again.renamedCount === 0, again);
+  const logged = (await db.q("SELECT new_value FROM audit_log WHERE tenant_id = $1 AND record_id = '(bulk import)' ORDER BY timestamp DESC LIMIT 1", [TENANT])).rows[0] || {};
+  ok('and the audit says how many took a new code', /2 with a new code/.test(String(logged.new_value || '')), logged);
+
   await clean();
   await db.pool.end();
   console.log('\n' + (failures.length
