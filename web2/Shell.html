@@ -10,7 +10,9 @@
  *   - names the Service Due Calls screen "SDR", as PIE asked for 2.0: in the menu, on the
  *     screen's heading, in the breadcrumb and in the browser tab;
  *   - marks the app's name "2.0";
- *   - puts a way back to the current look at the foot of the menu, for anyone previewing.
+ *   - puts a way back to the current look at the foot of the menu, for anyone previewing;
+ *   - adds the light/dark switch to the top bar. The choice is the person's, kept on their
+ *     browser (localStorage "erp.theme"); web2/Theme.html applies it before the page is drawn.
  *
  * Every part is wrapped, as in web/Shell.html, so a fault here costs a decoration and never a
  * screen. What 2.0 changes in how a screen is worked (the SDR rows) is JavaScript.html's, behind
@@ -106,6 +108,52 @@
     bar.appendChild(a);
   }
 
+  var SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+  var MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+
+  function isDark() { return document.documentElement.getAttribute("data-theme") === "dark"; }
+
+  /** The switch shows where it would take you: a moon in light mode, a sun in dark. */
+  function paintThemeSwitch(btn) {
+    var dark = isDark();
+    var say = dark ? "Switch to light mode" : "Switch to dark mode";
+    btn.innerHTML = dark ? SUN : MOON;
+    btn.title = say;
+    btn.setAttribute("aria-label", say);
+    btn.setAttribute("aria-pressed", String(dark));
+  }
+
+  function addThemeSwitch() {
+    var tools = document.querySelector("#ws-bar .ws-tools");
+    if (!tools || $("v2-theme")) return;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "v2-theme";
+    btn.className = "v2-theme";
+    paintThemeSwitch(btn);
+    btn.addEventListener("click", function () {
+      var dark = !isDark();
+      if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      else document.documentElement.removeAttribute("data-theme");
+      try { localStorage.setItem("erp.theme", dark ? "dark" : "light"); } catch (e) { /* this visit only */ }
+      paintThemeSwitch(btn);
+    });
+    tools.insertBefore(btn, tools.querySelector(".ws-date"));
+  }
+
+  // A screen printed from the browser goes on white paper: light for the print, then back.
+  var printedDark = false;
+  window.addEventListener("beforeprint", function () {
+    printedDark = isDark();
+    if (printedDark) document.documentElement.removeAttribute("data-theme");
+  });
+  window.addEventListener("afterprint", function () {
+    if (printedDark) document.documentElement.setAttribute("data-theme", "dark");
+    printedDark = false;
+  });
+
   var pending = false;
   function soon() {
     if (pending) return;
@@ -115,6 +163,7 @@
       safely("rename", renameMenu);
       safely("title", renameTitle);
       safely("brand", markBrand);
+      safely("theme", addThemeSwitch);
     }, 0);
   }
 
@@ -128,6 +177,7 @@
     var title = document.querySelector("title");
     if (title) new MutationObserver(soon).observe(title, { childList: true, characterData: true, subtree: true });
     addWayBack();
+    addThemeSwitch();
     soon();
   });
 

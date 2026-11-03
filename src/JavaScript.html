@@ -15847,6 +15847,17 @@
       if (open) { pdOpen(open.dataset.pdOpen, open.dataset.id); return; }
       var go = e.target.closest("[data-pd-go]");
       if (go) { if (visibleLeaves().some(function (t) { return t.view === go.dataset.pdGo; })) goToTab(go.dataset.pdGo); return; }
+      var act = e.target.closest("[data-pd-act]");
+      if (act) { pdAct(act.dataset.pdAct, act.dataset.pdButton || ""); return; }
+      if (e.target.closest("[data-pd-task]")) { tkNew(null); return; }
+      var stream = e.target.closest("[data-pd-stream]");
+      if (stream) {
+        dashStream = stream.dataset.pdStream;
+        $("dash-stream").querySelectorAll("button").forEach(function (b) { b.classList.toggle("active", b.dataset.stream === dashStream); });
+        loadDashboard(false);
+        return;
+      }
+      if (e.target.closest("[data-pd-refresh]")) { loadDashboard(true); return; }
       var who = e.target.closest("[data-pd-as]");
       if (who) { pd.as = who.dataset.pdAs; pdLoad(); window.scrollTo(0, 0); }
     });
@@ -15882,15 +15893,167 @@
     return (h < 12 ? "Good morning, " : h < 17 ? "Good afternoon, " : "Good evening, ") + String(name || "").split(" ")[0];
   }
 
-  function pdRender() {
-    var d = pd.data;
-    var host = pdHost();
+  // ---- ERP 2.0's dashboard, as the 2.0 demo draws it ----
+  // A green hero with the day's buttons; for Management the money (the control tower's four
+  // figures) and the work in the period, eight tiles; then the demo's panels. Management's
+  // panels mix this desk (PersonDashboard.gs) with the control tower's nine checks and its
+  // receivables ageing (Dashboard.gs). The rest of the control tower follows, under "More
+  // figures"; everybody else keeps it whole under their desk, as before.
+
+  /** The hero's buttons, per desk: what it says, the screen, and the button there that starts it. */
+  var PD_ACTS = {
+    boss: [["+ Compressor enquiry", "compressor", "btn-new-lead"], ["+ Spare enquiry", "enquiries", "btn-new-enquiry"],
+      ["+ Service call", "service", "btn-new-breakdown"], ["Quotations", "quotations"]],
+    coordinator: [["+ Compressor enquiry", "compressor", "btn-new-lead"], ["+ Spare enquiry", "enquiries", "btn-new-enquiry"],
+      ["SDR list", "servicedue"]],
+    salesEngineer: [["+ Plan a visit", "visits"], ["+ Compressor enquiry", "compressor", "btn-new-lead"]],
+    serviceCoordinator: [["+ Service call", "service", "btn-new-breakdown"], ["Tomorrow’s plan", "plan"]],
+    serviceEngineer: [["My calls", "service"]]
+  };
+  /** The count beside a panel's title, in the demo's colours. */
+  var PD_COUNT_TONE = { decisions: "sig", due: "bad", installations: "acc", fresh: "sig", reports: "sig", approve: "sig",
+    engineer: "sig", breakdowns: "bad", amc: "sig" };
+
+  function pdMayGo(view) {
+    return view === "plan" ? visibleLeaves().some(function (t) { return t.view === "service"; })
+      : visibleLeaves().some(function (t) { return t.view === view; });
+  }
+
+  /** Opens a screen and, once it has decided whether to show it, presses the button that starts the job. */
+  function pdAct(view, button) {
+    if (!pdMayGo(view)) return;
+    goToTab(view);
+    if (!button) return;
+    var tries = 0;
+    (function press() {
+      var b = $(button);
+      if (b && b.style.display !== "none" && !b.disabled && b.offsetParent !== null) { b.click(); return; }
+      if (++tries < 20) setTimeout(press, 100);
+    })();
+  }
+
+  function pdChip(text, tone) { return '<span class="dv-chip' + (tone ? " " + tone : "") + '">' + escapeHtml(text) + "</span>"; }
+
+  function pdKpi(t) {
+    var tag = t.go ? "button" : "div";
+    var value = t.valueMoney !== undefined ? fmtShort(t.valueMoney) : String(t.value);
+    var sub = t.subHtml !== undefined ? t.subHtml
+      : (t.money !== undefined ? "<b>" + escapeHtml(fmtShort(t.money)) + "</b> " : "") + escapeHtml(t.sub || "");
+    return "<" + tag + (t.go ? ' type="button" data-pd-go="' + escapeHtml(t.go) + '"' : "") +
+      ' class="dv-kpi' + (t.tone === "bad" ? " bad" : t.tone === "warn" ? " sig" : "") + '" data-pd-tile="' + escapeHtml(t.key) + '">' +
+      '<span class="dv-l">' + escapeHtml(t.label) + "</span>" +
+      '<span class="dv-v">' + escapeHtml(value) + "</span>" +
+      '<span class="dv-s">' + sub + "</span></" + tag + ">";
+  }
+
+  function pdPanel(key, title, body, right, cls) {
+    return '<section class="dv-panel' + (cls ? " " + cls : "") + '" data-pd-list="' + escapeHtml(key) + '">' +
+      "<header><h2>" + escapeHtml(title) + "</h2>" + (right || "") + "</header>" +
+      '<div class="dv-body">' + body + "</div></section>";
+  }
+
+  function pdRowHtml(r) {
+    var right = typeof r.right === "number" ? (r.right ? ebMoney(r.right) : "") : String(r.right || "");
+    var tone = r.tone === "bad" ? "dv-over" : r.tone === "warn" ? "dv-sig" : "";
+    var below = r.chip ? pdChip(r.rightSub, r.chip)
+      : r.rightSub ? '<span class="' + (right ? "dv-muted" : tone || "dv-muted") + '">' + escapeHtml(r.rightSub) + "</span>" : "";
+    return '<button type="button" class="dv-row"' + (r.open ? ' data-pd-open="' + escapeHtml(r.open.kind) + '" data-id="' + escapeHtml(r.open.id) + '"' : "") + ">" +
+      '<span class="dv-lt">' + escapeHtml(r.title) + "</span>" +
+      '<span class="dv-ls">' + escapeHtml(r.sub) + "</span>" +
+      '<span class="dv-lr">' + (right ? '<b class="' + tone + '">' + escapeHtml(right) + "</b>" : "") +
+        (right && below ? "<br>" : "") + below + "</span></button>";
+  }
+
+  function pdListPanel(l) {
+    var right = l.addTask ? '<button type="button" class="btn btn-sm" data-pd-task="new">+ Task</button>'
+      : l.key === "amc" ? '<button type="button" class="btn btn-sm" data-pd-go="amc">All dues</button>'
+      : pdChip(String(l.count), l.count ? PD_COUNT_TONE[l.key] || "" : "");
+    var body = l.rows.length
+      ? '<div class="dv-rows">' + l.rows.map(pdRowHtml).join("") + "</div>" +
+        (l.count > l.rows.length ? '<p class="dv-note">and ' + (l.count - l.rows.length) + " more</p>" : "")
+      : '<p class="dv-note">' + escapeHtml(l.empty || "Nothing here.") + "</p>";
+    return pdPanel(l.key, l.title, body, right);
+  }
+
+  /** The control tower's four figures, as the demo's Money row. */
+  function pdMoneyTiles(t) {
+    var h = t.headline;
+    var rate = h.invoicedThisMonth > 0 ? Math.round(h.collectedThisMonth / h.invoicedThisMonth * 100) : null;
+    var spare = t.stream === "Spare";
+    return [
+      { key: "outstanding", label: "Outstanding", value: fmtShort(h.outstanding), go: "collections",
+        subHtml: h.overduePct ? '<span class="dv-over">' + h.overduePct + "% overdue</span> · " + escapeHtml(fmtShort(h.overdueAmount)) : "nothing overdue" },
+      { key: "orderbook", label: "Open order book", value: fmtShort(h.openOrderValue), go: "orders",
+        sub: h.openOrderCount + (h.openOrderCount === 1 ? " order" : " orders") + " not yet closed" },
+      { key: "invoiced", label: "Invoiced this month", value: fmtShort(h.invoicedThisMonth), go: "dispatch",
+        sub: "collected " + fmtShort(h.collectedThisMonth) + (rate !== null ? " · " + rate + "% of billing" : "") },
+      spare
+        ? { key: "pipeline", label: "Open quotations", value: fmtShort(h.openQuotationValue), go: "quotations", sub: h.openQuotationCount + " live" }
+        : { key: "pipeline", label: "Weighted pipeline", value: fmtShort(h.weightedPipeline), go: "quotations",
+            sub: h.openQuotationCount + " live quotations · " + fmtShort(h.openQuotationValue) }
+    ];
+  }
+
+  /** The control tower's nine checks, as the demo's Needs attention. */
+  function pdAttention(t) {
+    var rows = (t.exceptions || []).map(function (e) {
+      var ic = e.severity === "critical" ? "bad" : e.severity === "serious" ? "sig" : "watch";
+      return '<button type="button" class="dv-att" data-pd-go="' + escapeHtml(e.view) + '">' +
+        '<span class="dv-ic ' + ic + '">' + (SEV_ICON[e.severity] || "•") + "</span>" +
+        "<span><b>" + escapeHtml(e.label) + '</b><span class="dv-small"><b class="' + (ic === "bad" ? "dv-over" : "") + '">' +
+          escapeHtml(SEV_WORD[e.severity] || "") + "</b> · " + escapeHtml(e.detail || "") + (e.oldestDays ? " · oldest " + e.oldestDays + " days" : "") + "</span></span>" +
+        '<span class="dv-r"><b>' + e.count + "</b>" + (e.value ? '<span class="dv-small dv-muted">' + escapeHtml(fmtShort(e.value)) + "</span>" : "") + "</span></button>";
+    }).join("");
+    return pdPanel("attention", "Needs attention", rows || '<p class="dv-note">All clear. Every order, dispatch and invoice is moving.</p>',
+      '<span class="dv-small dv-muted">ERP 1’s nine checks</span>');
+  }
+
+  /** The control tower's receivables ageing, as the demo's bars: green to red as it gets older. */
+  function pdAgeing(t) {
+    var rows = t.ageing || [];
+    var mx = Math.max.apply(null, rows.map(function (r) { return Number(r.value) || 0; }).concat([1]));
+    var tones = ["var(--dv-lime)", "var(--dv-sdr)", "var(--dv-spare)", "var(--dv-bad)"];
+    var body = rows.map(function (r, i) {
+      var tone = tones[Math.max(0, tones.length - rows.length + i)];
+      return '<div class="dv-hbar" title="' + escapeHtml(r.label + ": " + fmtShort(r.value)) + '"><span>' + escapeHtml(r.label) + "</span>" +
+        '<span class="dv-track"><i style="width:' + ((Number(r.value) || 0) / mx * 100) + "%;background:" + tone + '"></i></span>' +
+        '<span class="dv-num">' + escapeHtml(fmtShort(r.value)) + "</span></div>";
+    }).join("") + '<p class="dv-note">Worked out from issued invoices minus receipts, never typed in.</p>';
+    return pdPanel("ageing", "Receivables ageing", body, '<button type="button" class="btn btn-sm" data-pd-go="collections">Collections</button>');
+  }
+
+  function pdTeam(d) {
+    return pdPanel("team", "The team", '<div class="dv-tw"><table class="pd-team"><thead><tr><th>Person</th><th class="num">Open enquiries</th>' +
+      '<th class="num">Past their date</th><th class="num">Out with customers</th><th class="num">Booked</th><th class="num">SDR to call</th></tr></thead><tbody>' +
+      (d.team.length ? d.team.map(function (t) {
+        return '<tr><td><button type="button" class="pd-link" data-pd-as="' + escapeHtml(t.email) + '">' + escapeHtml(t.name) + "</button>" +
+          '<div class="pd-muted">' + escapeHtml(t.role) + "</div></td>" +
+          '<td class="num">' + t.open + '<div class="pd-muted">' + escapeHtml(t.openValue ? fmtShort(t.openValue) : "") + "</div></td>" +
+          '<td class="num' + (t.late ? " pd-bad" : "") + '">' + t.late + "</td>" +
+          '<td class="num">' + t.waiting + '<div class="pd-muted">' + escapeHtml(t.waitingValue ? fmtShort(t.waitingValue) : "") + "</div></td>" +
+          '<td class="num">' + t.booked + '<div class="pd-muted">' + escapeHtml(t.bookedValue ? fmtShort(t.bookedValue) : "") + "</div></td>" +
+          '<td class="num">' + (t.sdr || "—") + "</td></tr>";
+      }).join("") : '<tr><td colspan="6" class="empty">No sales coordinators or engineers in Users yet.</td></tr>') +
+      "</tbody></table></div>", '<span class="dv-small dv-muted">Pick a name to open their desk.</span>', "dv-wide");
+  }
+
+  function pdHero(d) {
     var day = new Date(d.today + "T00:00:00");
-    var html = '<div class="pd-hero"><div>' +
-      '<div class="pd-date">' + escapeHtml(day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })) + "</div>" +
+    var say = d.kind === "boss"
+      ? "PIE at a glance for " + (d.period && d.period.key === "month" ? day.toLocaleDateString("en-IN", { month: "long" }) : (d.periodWord || "the period").replace(/^(this|in the) /, "the ")) +
+        ". Money comes from orders, invoices and receipts; open items are as of today."
+      : PD_SAY[d.kind] || "";
+    var acts = d.self ? (PD_ACTS[d.kind] || []).filter(function (a) { return pdMayGo(a[1]); }) : [];
+    var html = '<section class="dv-hero" aria-label="Today"><div class="dv-hero-text">' +
+      '<span class="dv-eyebrow">' + escapeHtml(day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })) + "</span>" +
       "<h1>" + escapeHtml(d.self ? pdGreeting(d.person.name) : d.person.name + "’s desk") + "</h1>" +
-      "<p>" + escapeHtml(d.self ? PD_SAY[d.kind] || "" : d.person.role + (d.person.stream && d.person.stream !== "All" ? " · " + d.person.stream : "") +
-        ". What they see when they open the ERP.") + "</p></div>";
+      "<p>" + escapeHtml(d.self ? say : d.person.role + (d.person.stream && d.person.stream !== "All" ? " · " + d.person.stream : "") +
+        ". What they see when they open the ERP.") + "</p>" +
+      (acts.length ? '<div class="dv-acts">' + acts.map(function (a, i) {
+        return '<button type="button" class="dv-btn' + (i === 0 ? " pri" : "") + '" data-pd-act="' + escapeHtml(a[1]) + '"' +
+          (a[2] ? ' data-pd-button="' + escapeHtml(a[2]) + '"' : "") + ">" + escapeHtml(a[0]) + "</button>";
+      }).join("") + "</div>" : "") + "</div>";
+    html += '<div class="dv-hero-side">';
     if (d.canViewAs) {
       html += '<div class="pd-as"><label for="pd-as">Dashboard of</label><select id="pd-as">' +
         d.everyone.map(function (p) {
@@ -15899,7 +16062,7 @@
             ((mine && d.self) || (!mine && p.email.toLowerCase() === d.person.email.toLowerCase()) ? " selected" : "") + ">" +
             escapeHtml(mine ? "Me (" + p.name + ")" : p.name + " · " + p.role) + "</option>";
         }).join("") + "</select>" +
-        (d.self ? "" : '<button type="button" class="btn btn-sm" data-pd-as="">Back to mine</button>') + "</div>";
+        (d.self ? "" : '<button type="button" class="dv-btn" data-pd-as="">Back to mine</button>') + "</div>";
     }
     // ERP 2's period selector: what the "this month" figures cover.
     if (d.periods) {
@@ -15909,49 +16072,47 @@
         (d.period.key === "custom" ? '<input type="date" id="pd-from" value="' + escapeHtml(d.period.from) + '" aria-label="From" />' +
           '<input type="date" id="pd-to" value="' + escapeHtml(d.period.to) + '" aria-label="To" />' : "") + "</div>";
     }
-    html += "</div>";
+    return html + "</div></section>";
+  }
 
-    html += '<div class="pd-tiles">' + d.tiles.map(function (t) {
-      var tag = t.go ? "button" : "div";
-      return "<" + tag + (t.go ? ' type="button" data-pd-go="' + escapeHtml(t.go) + '"' : "") +
-        ' class="pd-tile' + (t.tone ? " " + t.tone : "") + '" data-pd-tile="' + escapeHtml(t.key) + '">' +
-        '<span class="pd-label">' + escapeHtml(t.label) + "</span>" +
-        '<span class="pd-value">' + escapeHtml(t.value) + "</span>" +
-        '<span class="pd-sub">' + (t.money !== undefined ? "<b>" + escapeHtml(fmtShort(t.money)) + "</b> " : "") + escapeHtml(t.sub || "") + "</span>" +
-        "</" + tag + ">";
+  /** Management's own desk on a desk that sees both streams: the Money row's switch. */
+  function pdStreamSwitch(d) {
+    if (!d.self || (currentUser.businessStream && currentUser.businessStream !== "All")) return "";
+    return '<div class="dv-seg" role="group" aria-label="Stream">' + [["", "Combined"], ["Compressor Sales", "Compressor"], ["Spare Sales", "Spares"]].map(function (s) {
+      return '<button type="button" data-pd-stream="' + s[0] + '" aria-pressed="' + (dashStream === s[0]) + '">' + s[1] + "</button>";
     }).join("") + "</div>";
+  }
 
-    if (d.team) {
-      html += '<div class="pd-panel"><div class="pd-panel-head"><h3>The team</h3><span class="pd-note">Pick a name to open their desk.</span></div>' +
-        '<div class="pd-table-wrap"><table class="pd-team"><thead><tr><th>Person</th><th class="num">Open enquiries</th>' +
-        '<th class="num">Past their date</th><th class="num">Out with customers</th><th class="num">Booked this month</th><th class="num">SDR to call</th></tr></thead><tbody>' +
-        (d.team.length ? d.team.map(function (t) {
-          return '<tr><td><button type="button" class="pd-link" data-pd-as="' + escapeHtml(t.email) + '">' + escapeHtml(t.name) + "</button>" +
-            '<div class="pd-muted">' + escapeHtml(t.role) + "</div></td>" +
-            '<td class="num">' + t.open + '<div class="pd-muted">' + escapeHtml(t.openValue ? fmtShort(t.openValue) : "") + "</div></td>" +
-            '<td class="num' + (t.late ? " pd-bad" : "") + '">' + t.late + "</td>" +
-            '<td class="num">' + t.waiting + '<div class="pd-muted">' + escapeHtml(t.waitingValue ? fmtShort(t.waitingValue) : "") + "</div></td>" +
-            '<td class="num">' + t.booked + '<div class="pd-muted">' + escapeHtml(t.bookedValue ? fmtShort(t.bookedValue) : "") + "</div></td>" +
-            '<td class="num">' + (t.sdr || "—") + "</td></tr>";
-        }).join("") : '<tr><td colspan="6" class="empty">No sales coordinators or engineers in Users yet.</td></tr>') +
-        "</tbody></table></div></div>";
+  function pdRender() {
+    var d = pd.data;
+    var host = pdHost();
+    var t = dashData;
+    var html = pdHero(d);
+    var lists = {};
+    d.lists.forEach(function (l) { lists[l.key] = l; });
+    if (d.kind === "boss") {
+      var stamp = t && t.generatedAt ? "As at " + new Date(t.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Loading…";
+      html += '<div class="dv-eyebrow-row"><span class="dv-eyebrow">Money</span><span class="dv-row-acts">' + pdStreamSwitch(d) +
+        '<span class="dv-small dv-muted" id="pd-stamp">' + escapeHtml(stamp) + '</span><button type="button" class="btn btn-sm" data-pd-refresh="1">Refresh</button></span></div>' +
+        '<div class="dv-kpis" id="pd-money">' + (t ? pdMoneyTiles(t).map(pdKpi).join("") : '<div class="dv-note">Loading the money…</div>') + "</div>" +
+        '<div class="dv-eyebrow-row"><span class="dv-eyebrow">Work ' + escapeHtml(d.periodWord || "this month") + "</span></div>";
     }
-
-    if (d.lists.length) {
-      html += '<div class="pd-lists">' + d.lists.map(function (l) {
-        return '<div class="pd-panel" data-pd-list="' + escapeHtml(l.key) + '"><div class="pd-panel-head"><h3>' + escapeHtml(l.title) + "</h3>" +
-          '<span class="pd-count">' + l.count + "</span></div>" +
-          (l.rows.length ? l.rows.map(function (r) {
-            return '<button type="button" class="pd-row"' + (r.open ? ' data-pd-open="' + escapeHtml(r.open.kind) + '" data-id="' + escapeHtml(r.open.id) + '"' : "") + ">" +
-              '<span class="pd-row-main"><b>' + escapeHtml(r.title) + "</b><span>" + escapeHtml(r.sub) + "</span></span>" +
-              '<span class="pd-row-side' + (r.tone ? " " + r.tone : "") + '"><b>' + escapeHtml(typeof r.right === "number" ? (r.right ? ebMoney(r.right) : "") : r.right) + "</b>" +
-                "<span>" + escapeHtml(r.rightSub) + "</span></span></button>";
-          }).join("") + (l.count > l.rows.length ? '<div class="pd-note">and ' + (l.count - l.rows.length) + " more</div>" : "")
-            : '<div class="pd-empty">' + escapeHtml(l.empty) + "</div>") + "</div>";
-      }).join("") + "</div>";
+    html += '<div class="dv-kpis" id="pd-tiles">' + d.tiles.map(pdKpi).join("") + "</div>";
+    var panels;
+    if (d.kind === "boss") {
+      var wait = '<p class="dv-note">Loading…</p>';
+      panels = [lists.decisions ? pdListPanel(lists.decisions) : "",
+        t ? pdAttention(t) : pdPanel("attention", "Needs attention", wait),
+        lists.due ? pdListPanel(lists.due) : "", lists.tasks ? pdListPanel(lists.tasks) : "",
+        lists.amc ? pdListPanel(lists.amc) : "", lists.installations ? pdListPanel(lists.installations) : "",
+        t ? pdAgeing(t) : pdPanel("ageing", "Receivables ageing", wait)];
+    } else {
+      panels = d.lists.map(pdListPanel);
     }
+    html += '<div class="dv-cols">' + panels.join("") + (d.team ? pdTeam(d) : "") + "</div>";
     host.innerHTML = html;
     pdSyncTower(d);
+    if (dashData) renderTowerBody();
   }
 
   var PD_TOWER_PARTS = ["#view-dashboard > .page-head", "#view-dashboard > .dash-head", "#dash-body"];
@@ -15978,6 +16139,11 @@
       if (el) el.style.display = hide ? "none" : "";
     });
     if (hide) return;
+    // On Management's desk the control tower's heading and switch are in the Money row above.
+    PD_TOWER_PARTS.slice(0, 2).forEach(function (sel) {
+      var el = document.querySelector(sel);
+      if (el) el.style.display = d.kind === "boss" ? "none" : "";
+    });
     var first = String(p.name || "").split(" ")[0];
     $("dash-stream").style.display = stream !== "All" ? "none" : "";
     $("dash-stream").querySelectorAll("button").forEach(function (b) { b.classList.toggle("active", b.dataset.stream === want); });
@@ -15988,6 +16154,8 @@
   /** Opens the ERP 1 record a line is about. */
   function pdOpen(kind, id) {
     if (kind === "visits") { goToTab("visits"); return; }
+    if (kind === "task") { tkOpen(id); return; }
+    if (kind === "amc") { goToTab("amc"); return; }
     if (kind === "quotation") { openQuotation(id); return; }
     if (kind === "job") { openServiceJobModal(id); return; }
     ebGo(kind, id);
@@ -16052,13 +16220,27 @@
     $("dash-stamp").textContent = "As at " + stamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) +
       (d.fromCache ? " (cached)" : "");
 
-    $("dash-body").innerHTML =
-      renderHeadline(d) +
-      renderExceptions(d) +
-      '<div class="two-col">' + renderOrderPipelineCard(d) + renderAgeingChart(d) + "</div>" +
-      renderTrend(d) +
-      '<div class="two-col">' + renderFunnels(d) + renderTopCustomers(d) + "</div>";
+    // On 2.0 the desk above draws the money, the nine checks and the ageing for Management,
+    // and lays the rest of the tower out under it (renderTowerBody).
+    if (FACE_V2 && pd.data) { pdRender(); return; }
+    renderTowerBody();
+  }
 
+  function renderTowerBody() {
+    var d = dashData;
+    if (!d) return;
+    if (FACE_V2 && pd.data && pd.data.kind === "boss") {
+      $("dash-body").innerHTML = '<div class="dv-eyebrow-row"><span class="dv-eyebrow">More figures</span></div>' +
+        '<div class="two-col">' + renderOrderPipelineCard(d) + renderFunnels(d) + "</div>" +
+        renderTrend(d) + renderTopCustomers(d);
+    } else {
+      $("dash-body").innerHTML =
+        renderHeadline(d) +
+        renderExceptions(d) +
+        '<div class="two-col">' + renderOrderPipelineCard(d) + renderAgeingChart(d) + "</div>" +
+        renderTrend(d) +
+        '<div class="two-col">' + renderFunnels(d) + renderTopCustomers(d) + "</div>";
+    }
     wireDashboardLinks();
   }
 

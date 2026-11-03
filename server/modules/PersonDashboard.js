@@ -99,9 +99,13 @@ async function getPersonDashboard(options) {
   else if (kind === 'serviceCoordinator') await pdServiceCoordinator_(ctx, out);
   else if (kind === 'serviceEngineer') await pdServiceEngineer_(ctx, out);
   else await pdBoss_(ctx, out);
-  await pdTasks_(ctx, out, kind === 'boss');
-  if (kind === 'boss' || kind === 'coordinator' || kind === 'salesEngineer') await pdEscalations_(ctx, out, kind === 'boss');
-  if (kind === 'boss' || kind === 'coordinator' || kind === 'salesEngineer') await pdVisits_(ctx, out, kind);
+  // Management's tasks, escalations and visits are among the demo's eight tiles (pdBoss_).
+  if (kind !== 'boss') {
+    await pdTasks_(ctx, out, false);
+    if (kind === 'coordinator' || kind === 'salesEngineer') await pdEscalations_(ctx, out, false);
+    if (kind === 'coordinator' || kind === 'salesEngineer') await pdVisits_(ctx, out, kind);
+  }
+  await pdTaskList_(ctx, out, kind === 'boss');
 
   if (boss) {
     out.canViewAs = true;
@@ -158,6 +162,51 @@ async function pdVisits_(ctx, out, kind) {
     go: 'visits' });
 }
 
+/**
+ * The demo's tasks panel: tasks overdue or due today. The person's own; for Management,
+ * everybody's, each with whose it is.
+ */
+async function pdTaskList_(ctx, out, everyone) {
+  var all = [];
+  try { all = (await readTable_('Tasks')).filter(taskLive_); } catch (err) { return; }
+  var scoring = await taskScoring_();
+  var rows = all.filter(function (t) {
+    if (!everyone && !pdSame_(t.assigneeEmail, ctx.email)) return false;
+    var s = taskState_(t, scoring, ctx.today).state;
+    return s === 'overdue' || s === 'today';
+  }).sort(function (a, b) { return String(a.dueDate).localeCompare(String(b.dueDate)) || String(a.title).localeCompare(String(b.title)); });
+  out.lists.push({ key: 'tasks', title: everyone ? 'Overdue and due today' : 'My tasks', count: rows.length,
+    empty: 'Nothing overdue or due today.', addTask: true,
+    rows: rows.slice(0, 8).map(function (t) {
+      var due = String(t.dueDate || '').slice(0, 10);
+      var over = due < ctx.today;
+      return pdRow_(String(t.title || ''), (everyone ? personLine_(t.assigneeEmail, ctx.people) + ' · ' : '') + String(t.priority || 'Normal'),
+        '', over ? pdDay_(due) : 'Today', '', { kind: 'task', id: String(t.id) }, over ? 'bad' : 'warn');
+    }) });
+}
+
+/** A day as the demo writes it on a panel: "09 Oct", with the year only when it is not this one. */
+var PD_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function pdDay_(iso) {
+  var d = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  return d.slice(8, 10) + ' ' + PD_MONTHS[Number(d.slice(5, 7)) - 1] + (d.slice(0, 4) !== todayIso_().slice(0, 4) ? ' ' + d.slice(0, 4) : '');
+}
+
+/** AMC visits overdue or due within a week (Amc.gs), for whoever may see them. */
+async function pdAmcDues_() {
+  try { return (await listAmc({ window: 7 })).dues; } catch (err) { return []; }
+}
+
+function pdAmcRow_(d, ctx) {
+  var late = d.state === 'Overdue';
+  var lateBy = late ? daysBetween_(d.dueDate, ctx.today) : 0;
+  return pdRow_(d.customerName, [d.serialNo || d.machineModel, 'AMC visit ' + d.visitNo + ' of ' + (d.visitOf || d.visitNo), d.amcType].filter(Boolean).join(' · '),
+    pdDay_(d.dueDate) + (late ? ' · ' + lateBy + ' d late' : ''),
+    d.state === 'Call made' ? 'Call made' : 'Make a call', late ? 'bad' : '',
+    { kind: 'amc', id: d.contractId }, d.state === 'Call made' ? 'service' : 'warn');
+}
+
 // ------------------------------------------------------------------ shared readings
 
 function pdSame_(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); }
@@ -207,8 +256,10 @@ async function pdOrdersThisMonth_(ctx) {
 }
 
 /** One line on a list: what, where it stands, and what opens it. */
-function pdRow_(title, sub, right, rightSub, tone, open) {
-  return { title: title || '—', sub: sub || '', right: right || '', rightSub: rightSub || '', tone: tone || '', open: open || null };
+function pdRow_(title, sub, right, rightSub, tone, open, chip) {
+  // `chip`: show rightSub as a chip of that tone (bad, warn, good, service), as the demo does.
+  return { title: title || '—', sub: sub || '', right: right || '', rightSub: rightSub || '', tone: tone || '', open: open || null,
+    chip: chip || '' };
 }
 
 function pdQuoteRow_(q, customers, ctx, mode) {
@@ -397,7 +448,8 @@ async function pdServiceCoordinator_(ctx, out) {
     { key: 'breakdowns', label: 'Breakdowns open', value: String(breakdowns.length), sub: 'machines stopped', tone: breakdowns.length ? 'bad' : '', go: 'service' }
   ];
   // AMC visits falling due this week that nobody has made a job of yet (Amc.gs).
-  var amcDue = (await listAmc({ window: 7 })).dues.filter(function (d) { return d.state !== 'Call made'; });
+  var amcAll = await pdAmcDues_();
+  var amcDue = amcAll.filter(function (d) { return d.state !== 'Call made'; });
   var amcLate = amcDue.filter(function (d) { return d.state === 'Overdue'; }).length;
   out.tiles.push({ key: 'amc', label: 'AMC visits due', value: String(amcDue.length), sub: amcLate + ' overdue, this week’s too',
     tone: amcLate ? 'bad' : amcDue.length ? 'warn' : '', go: 'amc' });
@@ -409,6 +461,8 @@ async function pdServiceCoordinator_(ctx, out) {
     rows: soon.slice(0, 8).map(function (j) { return pdJobRow_(j, ctx, true); }) });
   out.lists.push({ key: 'breakdowns', title: 'Breakdowns open', count: breakdowns.length, empty: 'No machine is down.',
     rows: breakdowns.slice(0, 8).map(function (j) { return pdJobRow_(j, ctx, true); }) });
+  out.lists.push({ key: 'amc', title: 'AMC and service dues (overdue + 7 days)', count: amcAll.length, empty: 'No visits due.',
+    rows: amcAll.slice(0, 8).map(function (d) { return pdAmcRow_(d, ctx); }) });
 }
 
 function pdEngineerCount_(jobs) {
@@ -489,13 +543,95 @@ async function pdBoss_(ctx, out) {
     };
   }).sort(function (a, b) { return b.openValue - a.openValue || a.name.localeCompare(b.name); });
 
-  var open = cards.filter(function (c) { return c.stage !== 'lost' && c.stage !== 'dispatched'; });
-  var late = open.filter(function (c) { return c.followUp && c.followUp < ctx.today; });
-  var waiting = quotes.filter(function (q) { return PD_OUT_STATUSES.indexOf(String(q.status)) !== -1; });
+  await pdBossDesk_(ctx, out, cards, quotes, orders);
+}
+
+/**
+ * Management's desk as the 2.0 demo draws it: eight tiles for the work in the period (the
+ * money ones above them come from the control tower, getDashboard), and the panels —
+ * decisions waiting, follow-ups due across the team, AMC dues and installations coming up.
+ * The nine checks and the receivables ageing are the control tower's too.
+ */
+async function pdBossDesk_(ctx, out, cards, quotes, orders) {
+  var customers = await pdCustomerNames_();
+  var allowed = { };
+  allowed[STREAM_SPARE] = streamAllowed_(ctx.viewer, STREAM_SPARE);
+  allowed[STREAM_COMPRESSOR] = streamAllowed_(ctx.viewer, STREAM_COMPRESSOR);
+
+  var received = cards.filter(function (c) { return pdIn_(c.date, ctx); });
+  var nUnit = received.filter(function (c) { return c.stream === STREAM_COMPRESSOR; }).length;
+  var sent = quotes.filter(function (q) {
+    return allowed[String(q.businessStream)] !== false && String(q.status) !== 'Draft' && pdIn_(q.submittedDate || q.emailSentDate, ctx);
+  });
+  var declined = quotes.filter(function (q) { return String(q.status) === 'Lost' && pdIn_(q.lostDate, ctx); });
+  var lost = cards.filter(function (c) { return c.stage === 'lost' && pdIn_(c.lastDate, ctx); });
+
+  var escOpen = (await escRows_()).filter(function (e) { return String(e.status) === 'Open'; })
+    .sort(function (a, b) { return String(a.createdAt).localeCompare(String(b.createdAt)); })
+    .map(function (e) { return escOut_(e, ctx.viewer, ctx.people, ctx.today); });
+  var escLong = escOpen.filter(function (e) { return e.waitingDays > 3; }).length;
+
+  var jobs = await pdJobs_();
+  var jobsIn = jobs.filter(function (j) { return pdIn_(j.date || j.createdAt, ctx); });
+  var jobsOpen = jobs.filter(pdJobOpen_);
+  var jobsClosed = jobsIn.filter(function (j) { return String(j.status) === 'Completed'; });
+  var amc = await pdAmcDues_();
+  var amcLate = amc.filter(function (d) { return d.state === 'Overdue'; }).length;
+  var visits = await visitSummary_(ctx.email, true) || { planned: 0, visited: 0, enquiries: 0 };
+  var tasks = await taskSummary_(ctx.email, true, ctx.period) || { open: 0, overdue: 0, score: null };
+
   out.tiles = [
-    { key: 'open', label: 'Open enquiries', value: String(open.length), money: pdSum_(open, function (c) { return c.value; }), sub: 'in play, both desks', go: 'enquiries' },
-    { key: 'late', label: 'Follow-ups past their date', value: String(late.length), sub: 'across the team', tone: late.length ? 'bad' : '' },
-    { key: 'waiting', label: 'Waiting for customers’ answers', value: String(waiting.length), money: pdSum_(waiting, function (q) { return q.grand; }), sub: 'offered', go: 'quotations' },
-    { key: 'orders', label: 'Orders ' + ctx.word, value: String(orders.length), money: pdSum_(orders, function (o) { return o.grand; }), sub: 'booked', go: 'orders' }
+    { key: 'enquiries', label: 'Enquiries received', value: String(received.length),
+      sub: nUnit + ' compressor · ' + (received.length - nUnit) + ' spares', go: allowed[STREAM_COMPRESSOR] ? 'compressor' : 'enquiries' },
+    { key: 'quotes', label: 'Quotations sent', value: String(sent.length), money: pdSum_(sent, function (q) { return q.grand; }),
+      sub: 'offered · ' + declined.length + ' declined', go: 'quotations' },
+    { key: 'orders', label: 'Orders won', value: String(orders.length), valueMoney: pdSum_(orders, function (o) { return o.grand; }),
+      sub: orders.length + ' won · ' + lost.length + ' lost', go: 'orders' },
+    { key: 'escalations', label: 'Escalated, open now', value: String(escOpen.length), money: pdSum_(escOpen, function (e) { return e.value; }),
+      sub: 'waiting for a decision' + (escLong ? ' · ' + escLong + ' over 3 days' : ''), tone: escOpen.length ? 'warn' : '', go: 'escalations' },
+    { key: 'service', label: 'Service calls', value: String(jobsIn.length),
+      sub: jobsClosed.length + ' closed · ' + jobsOpen.length + ' open now', go: 'service' },
+    { key: 'amc', label: 'AMC dues, next 7 days', value: String(amc.length), sub: amcLate + ' overdue',
+      tone: amcLate ? 'warn' : '', go: 'amc' },
+    { key: 'visits', label: 'Sales visits this week', value: visits.visited + ' / ' + visits.planned,
+      sub: visits.enquiries + (visits.enquiries === 1 ? ' enquiry' : ' enquiries') + ' from visits', go: 'visits' },
+    { key: 'tasks', label: 'Task score', value: tasks.score === null ? '—' : tasks.score + '%',
+      sub: tasks.overdue + ' overdue · ' + tasks.open + ' open', go: 'tasks' }
   ];
+
+  out.lists.push({ key: 'decisions', title: 'Waiting for your decision', count: escOpen.length,
+    empty: 'Nothing waiting. Escalated deals appear here.',
+    rows: escOpen.slice(0, 8).map(function (e) {
+      return pdRow_(e.customerName, [e.label, e.desk, e.ownerName].filter(Boolean).join(' · '), e.value === '' ? '' : e.value,
+        e.waitingDays + (e.waitingDays === 1 ? ' day' : ' days') + ' waiting', e.waitingDays > 3 ? 'warn' : '',
+        { kind: e.kind, id: e.recordId });
+    }) });
+
+  var due = cards.filter(function (c) { return c.stage !== 'lost' && c.stage !== 'dispatched' && c.followUp && c.followUp <= ctx.tomorrow; })
+    .sort(function (a, b) { return String(a.followUp).localeCompare(String(b.followUp)); });
+  out.lists.push({ key: 'due', title: 'Follow-ups due', count: due.length, empty: 'No follow-ups due today or tomorrow.',
+    rows: due.slice(0, 8).map(function (c) {
+      var r = pdCardRow_(c, ctx);
+      r.sub = c.no + ' · ' + (c.what || (c.stream === STREAM_COMPRESSOR ? 'Compressor' : 'Spares')) + ' · ' + (c.ownerName || '—');
+      r.right = (c.followUp < ctx.today ? pdDay_(c.followUp) + ' · ' + daysBetween_(c.followUp, ctx.today) + ' d late'
+        : c.followUp === ctx.today ? 'Today' : 'Tomorrow');
+      r.rightSub = c.flag || '';
+      r.tone = c.followUp < ctx.today ? 'bad' : '';
+      r.chip = c.flag ? (/hot/i.test(c.flag) ? 'bad' : 'warn') : '';
+      return r;
+    }) });
+
+  out.lists.push({ key: 'amc', title: 'AMC and service dues (overdue + 7 days)', count: amc.length, empty: 'No visits due.',
+    rows: amc.slice(0, 8).map(function (d) { return pdAmcRow_(d, ctx); }) });
+
+  var fits = jobsOpen.filter(function (j) { return (String(j.jobType || '') || 'Installation') === 'Installation'; })
+    .sort(function (a, b) { return String(a.scheduledDate || '9999').localeCompare(String(b.scheduledDate || '9999')); });
+  out.lists.push({ key: 'installations', title: 'Installations coming up', count: fits.length, empty: 'No installations waiting.',
+    rows: fits.slice(0, 8).map(function (j) {
+      return pdRow_(String(j.customerName || (customers[String(j.customerId)] || {}).name || ''),
+        [j.jobNo, j.machineModel, j.serialNo].filter(Boolean).join(' · '),
+        j.engineerEmail ? personLine_(j.engineerEmail, ctx.people) : '',
+        j.engineerEmail ? (j.scheduledDate ? pdDay_(j.scheduledDate) : 'not scheduled') : 'Not assigned',
+        '', { kind: 'job', id: String(j.id) }, j.engineerEmail ? '' : 'warn');
+    }) });
 }

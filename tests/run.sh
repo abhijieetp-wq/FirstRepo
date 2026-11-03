@@ -42,6 +42,7 @@ run_ui "portal-ui-test.js (new design)" tests/portal-ui-test.js "$tmp/base-web.h
 run_ui "portal-ui-test.js (2.0)" tests/portal-ui-test.js "$tmp/base-v2.html"
 run_ui "shell-ui-test.js" tests/shell-ui-test.js "$tmp/show.html" "$tmp/show-classic.html"
 run_ui "v2-ui-test.js" tests/v2-ui-test.js "$tmp/show-v2.html"
+run_ui "theme-v2-ui-test.js" tests/theme-v2-ui-test.js "$tmp/show-v2.html" "$tmp/show.html"
 run_ui "refinements-ui-test.js (classic)" tests/refinements-ui-test.js "$tmp/base.html"
 run_ui "refinements-ui-test.js (new design)" tests/refinements-ui-test.js "$tmp/base-web.html"
 run_ui "refinements-ui-test.js (2.0)" tests/refinements-ui-test.js "$tmp/base-v2.html"

@@ -306,6 +306,23 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   `ANTHROPIC_API_KEY` on the server (never stored in the database or the browser); without it the
   bar is off, and Management is told why. Speech uses the browser's own recognition (Chrome sends
   the audio to Google to turn it into text).
+- **The Dashboard as the 2.0 demo draws it**: a green hero with the greeting, what the desk is for
+  and the day's buttons (Management: + Compressor enquiry, + Spare enquiry, + Service call,
+  Quotations; a coordinator: their desk's enquiry and the SDR list; a sales engineer: + Plan a visit;
+  service: + Service call and Tomorrow's plan, or My calls), with "Dashboard of" and "Figures for"
+  beside it. Management's desk: Money — the control tower's four figures, with its Combined /
+  Compressor / Spares switch — then Work this month, eight tiles (enquiries received, quotations
+  sent and declined, orders won and lost, escalated and open, service calls, AMC dues in the next
+  7 days, sales visits this week, task score), then the demo's panels: Waiting for your decision,
+  Needs attention (ERP 1's nine checks), Follow-ups due across the team, Overdue and due today
+  (tasks, with + Task), AMC and service dues, Installations coming up and Receivables ageing; the
+  team; and the rest of the control tower under "More figures". Everybody else gets their own desk
+  in the same tiles and panels, now with a tasks panel, and ERP 1's control tower under it as
+  before. Every tile and row opens where it is worked.
+- **Light and dark** (`web2/Theme.html`, `web2/Shell.html`): a sun / moon switch in the top bar.
+  Dark redefines the same tokens (the demo's dark palette), so every screen follows; it is each
+  person's own choice, kept on their browser and applied in the page's head so it never flashes.
+  Light unless they choose dark. Printed and PDF documents are not affected.
 
 ## The rule for each screen that moves to 2.0
 
@@ -320,7 +337,12 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/enquiry-board-ui-test.js`, `tests/enquiry-board-sql-test.js` — the board on 2.0 (and
   the lists unchanged on the others), and every stage read correctly from the records.
 - `tests/person-dashboard-ui-test.js`, `tests/person-dashboard-sql-test.js` — each position's
-  desk, Management's team and view of anybody's, and ERP 1's Dashboard unchanged elsewhere.
+  desk, Management's team and view of anybody's, and ERP 1's Dashboard unchanged elsewhere; the
+  demo's hero and buttons, Management's Money and Work tiles and its panels (the nine checks, the
+  ageing, decisions, follow-ups across the team, tasks, AMC dues, installations), each opening
+  where it is worked, and the control tower's switch in the Money row.
+- `tests/theme-v2-ui-test.js` — the light/dark switch: light by default, the page following,
+  kept on the browser and back before the page is drawn, and not on the other faces.
 - `tests/service-desk-ui-test.js`, `tests/service-desk-sql-test.js` — the statuses read from
   ERP 1's, the report, closing, cancelling, and ERP 1's job window unchanged elsewhere.
 - `tests/amc-ui-test.js`, `tests/amc-sql-test.js` — contracts, the visit schedule, visits made

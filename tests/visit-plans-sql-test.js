@@ -170,7 +170,7 @@ const TABLES = ['users', 'customers', 'sales_visits', 'leads', 'lead_requirement
   ok('the engineer’s week, visited of planned', rd && rd.label === 'Visits this week' && /^\d+ of \d+$/.test(rd.value) && /planned today · \d+ enquir/.test(rd.sub) &&
     rd.go === 'visits', rd);
   const md = tile(await mona.getPersonDashboard({}));
-  ok('Management, the team’s', md && md.label === 'Team visits this week' && /^\d+ of \d+$/.test(md.value), md);
+  ok('Management, the team’s', md && md.label === 'Sales visits this week' && /^\d+ \/ \d+$/.test(md.value) && /from visits$/.test(md.sub), md);
 
   await clean();
   await db.pool.end();

@@ -158,9 +158,13 @@ const CP = 'Compressor Sales';
   ok('and theirs waiting on somebody', pd && pd.value === '0' && /^1 of yours waiting/.test(pd.sub), pd);
   await neha.escalateCard({ ref: 'LD:L1', toEmail: MONA.email, note: 'Second question on the same lead' });
   await db.q("UPDATE escalations SET created_at = now() - interval '5 days' WHERE tenant_id=$1 AND status='Open' AND card_ref='LD:L1'", [TENANT]);
-  const md = tile(await mona.getPersonDashboard({}));
-  ok('Management: everything waiting, and what has waited long', md && md.label === 'Waiting for a decision' && md.value === '2' &&
-    md.sub === '1 waiting over 3 days' && md.tone === 'warn', md);
+  const mdash = await mona.getPersonDashboard({});
+  const md = tile(mdash);
+  ok('Management: everything waiting, and what has waited long', md && md.label === 'Escalated, open now' && md.value === '2' &&
+    md.sub === 'waiting for a decision · 1 over 3 days' && md.tone === 'warn', md);
+  const dl = mdash.lists.find((l) => l.key === 'decisions') || { rows: [] };
+  ok('and the demo’s Waiting for your decision, the oldest first', dl.count === 2 && /5 days waiting/.test(dl.rows[0].rightSub) &&
+    dl.rows[0].tone === 'warn' && !!dl.rows[0].open.kind, dl);
   ok('nothing for somebody with nothing waiting', !tile(await as(ROHAN).getPersonDashboard({})));
 
   await clean();

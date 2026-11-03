@@ -146,6 +146,22 @@ const plus = (n) => new Date(Date.parse(today + 'T00:00:00Z') + n * 86400000).to
   const isha = d.team.find((t) => t.name === 'Isha');
   ok('each with what is open, late, out and booked', isha.open === 7 && isha.late === 1 && isha.waiting === 2 && isha.booked === 1 && isha.sdr === 1, isha);
   ok('and anybody’s own dashboard to pick', d.canViewAs && d.everyone.length === 6);
+  // The demo's desk: eight tiles for the work in the period and its panels. A range, so the
+  // figures do not move at the turn of a month.
+  const b = await as(P.anil).getPersonDashboard({ period: 'custom', from: plus(-10), to: today });
+  if (process.env.SHOW) console.log(JSON.stringify(b, null, 1).slice(0, 6000));
+  ok('the demo’s eight tiles, in its order', b.tiles.map((t) => t.key).join() === 'enquiries,quotes,orders,escalations,service,amc,visits,tasks', b.tiles);
+  ok('quotations sent, with what was offered', tile(b, 'quotes').value === '1' && tile(b, 'quotes').money === 5000, tile(b, 'quotes'));
+  ok('orders won, the value as the figure', tile(b, 'orders').value === '1' && tile(b, 'orders').valueMoney === 4720 && /^1 won · \d+ lost$/.test(tile(b, 'orders').sub), tile(b, 'orders'));
+  ok('service calls logged, closed and open now', tile(b, 'service').value === '7' && tile(b, 'service').sub === '1 closed · 6 open now', tile(b, 'service'));
+  ok('the demo’s panels', b.lists.map((l) => l.key).join() === 'decisions,due,amc,installations,tasks', b.lists.map((l) => l.key));
+  const fit = list(b, 'installations');
+  ok('installations coming up: open fitting jobs, one not yet given to anybody', fit.count === 5 &&
+    fit.rows.some((r) => r.rightSub === 'Not assigned' && r.chip === 'warn') && fit.rows.every((r) => r.open.kind === 'job'), fit);
+  const fu = list(b, 'due');
+  ok('follow-ups due across the team, each with whose it is, the late ones red', fu.count === 4 &&
+    fu.rows.map((r) => r.sub.split(' · ').pop()).join() === 'Dev,Isha,Isha,Isha' && fu.rows[0].tone === 'bad' && /2 d late$/.test(fu.rows[0].right) &&
+    fu.rows[2].right === 'Today' && fu.rows[3].right === 'Tomorrow' && fu.rows[3].tone === '', fu);
   const hers = await as(P.anil).getPersonDashboard({ as: P.isha.email });
   ok('which is exactly what they see', hers.kind === 'coordinator' && hers.self === false && tile(hers, 'open').value === '7' && tile(hers, 'orders').money === 4720);
   ok('somebody not in Users is said so', await refused(() => as(P.anil).getPersonDashboard({ as: 'nobody@pie.in' }), /nobody with that address/));

@@ -177,8 +177,15 @@ const TABLES = ['users', 'customers', 'service_jobs', 'tasks', 'config_lists', '
   const td = tile(await tej.getPersonDashboard({}));
   ok('the person’s open tasks and how many are overdue', td.label === 'My tasks' && td.value === '2' && /^1 overdue · (score \d+%|no score yet) this month$/.test(td.sub) &&
     td.tone === 'bad' && td.go === 'tasks', td);
-  const md = tile(await mona.getPersonDashboard({}));
-  ok('Management: everybody’s overdue, the team’s score', md.label === 'Tasks overdue' && md.value === '3' && /^4 open · team (score \d+%|no score yet) this month$/.test(md.sub), md);
+  const mdash = await mona.getPersonDashboard({});
+  const md = tile(mdash);
+  ok('Management: the team’s score, everybody’s overdue', md.label === 'Task score' && /^(\d+%|—)$/.test(md.value) && md.sub === '3 overdue · 4 open' &&
+    md.go === 'tasks', md);
+  const ml = mdash.lists.find((l) => l.key === 'tasks') || { rows: [] };
+  ok('and the demo’s panel: everybody’s overdue tasks, whose each is', ml.title === 'Overdue and due today' && ml.count === 3 &&
+    ml.rows.every((r) => r.chip === 'bad' && / · (High|Normal|Low)$/.test(r.sub) && r.open.kind === 'task'), ml);
+  const tjl = (await tej.getPersonDashboard({})).lists.find((l) => l.key === 'tasks') || {};
+  ok('a person’s own, as My tasks', tjl.title === 'My tasks' && tjl.count === 1, tjl);
 
   await clean();
   await db.pool.end();

@@ -52,21 +52,24 @@ const ok = (label, cond, detail) => {
     console.log('A COORDINATOR OPENS ON THEIR OWN DESK');
     ok('2.0 opens on the dashboard', (await active(page)) === 'view-dashboard');
     ok('greeting them by name', /^Good (morning|afternoon|evening), Priya$/.test(await page.textContent('#pd-host h1')), await page.textContent('#pd-host h1'));
-    const tiles = await page.$$eval('#pd-host [data-pd-tile]', (t) => t.map((x) => x.querySelector('.pd-label').textContent));
+    const tiles = await page.$$eval('#pd-host [data-pd-tile]', (t) => t.map((x) => x.querySelector('.dv-l').textContent));
     ok('their six figures', tiles.join(' | ') === 'My open enquiries | Follow-ups due | Waiting for the customer’s answer | ' +
       'Drafts to approve and send | My orders this month | SDR calls to make', tiles);
     ok('a late figure stands out', await page.$eval('[data-pd-tile="due"]', (e) => e.classList.contains('bad')));
     ok('money in lakhs where it is money', /₹1\.82 L/.test(await page.textContent('[data-pd-tile="open"]')), await page.textContent('[data-pd-tile="open"]'));
     ok('nobody else’s desk on offer', !(await page.$('#pd-as')));
+    ok('the demo’s green hero, with their desk’s buttons', await page.$eval('#pd-host .dv-hero', (e) => getComputedStyle(e).backgroundImage.indexOf('gradient') !== -1) &&
+      (await page.$$eval('#pd-host [data-pd-act]', (b) => b.map((x) => x.textContent))).join('|') === '+ Spare enquiry|SDR list',
+      await page.$$eval('#pd-host [data-pd-act]', (b) => b.map((x) => x.textContent)));
     ok('ERP 1’s control tower is still under it', !!(await page.$('#pd-host + .page-head')) && !!(await page.$('#dash-body')));
-    ok('their lists, each with its count', (await page.$$eval('[data-pd-list] .pd-panel-head h3', (h) => h.map((x) => x.textContent))).join() ===
+    ok('their lists, each with its count', (await page.$$eval('[data-pd-list] > header h2', (h) => h.map((x) => x.textContent))).join() ===
       'Follow-ups due,Drafts to approve and send,Waiting for the customer’s answer');
     ok('an empty list says so', /No offers out with customers/.test(await page.textContent('[data-pd-list="waiting"]')));
-    await page.click('[data-pd-list="due"] .pd-row');
+    await page.click('[data-pd-list="due"] .dv-row');
     await page.waitForTimeout(500);
     ok('a follow-up opens its enquiry', await page.evaluate(() => document.getElementById('enquiry-modal-backdrop').classList.contains('show')));
     await page.evaluate(() => document.getElementById('enquiry-modal-backdrop').classList.remove('show'));
-    await page.click('[data-pd-list="approve"] .pd-row');
+    await page.click('[data-pd-list="approve"] .dv-row');
     await page.waitForTimeout(600);
     ok('a draft opens the quotation', (await active(page)) === 'view-quote', await active(page));
     await page.evaluate(() => document.querySelector('[data-view="dashboard"]').click());
@@ -95,8 +98,56 @@ const ok = (label, cond, detail) => {
     await ctx.close();
 
     if (SHOWCASE) {
-      console.log('\nMANAGEMENT SEES THE TEAM, AND ANYBODY’S DESK');
+      console.log('\nMANAGEMENT’S DESK, AS THE DEMO DRAWS IT');
       const boss = await open(SHOWCASE);
+      const labels = (sel) => boss.$$eval(sel + ' .dv-kpi .dv-l', (t) => t.map((x) => x.textContent));
+      const shown = (sel) => boss.evaluate((x) => { const e = document.querySelector(x); return !!e && e.offsetParent !== null; }, sel);
+      const isOpen = (id) => boss.evaluate((i) => document.getElementById(i).classList.contains('show'), id);
+      const shut = (id) => boss.evaluate((i) => document.getElementById(i).classList.toggle('show', false), id);
+      const goDash = async () => { await boss.evaluate(() => document.querySelector('[data-view="dashboard"]').click()); await boss.waitForTimeout(800); };
+      ok('the hero: the greeting, the day’s buttons, whose desk and which period', /^Good (morning|afternoon|evening), Anil$/.test(await boss.textContent('#pd-host h1')) &&
+        (await boss.$$eval('#pd-host [data-pd-act]', (b) => b.map((x) => x.textContent))).join('|') === '+ Compressor enquiry|+ Spare enquiry|+ Service call|Quotations' &&
+        !!(await boss.$('.dv-hero #pd-as')) && !!(await boss.$('.dv-hero #pd-period')));
+      ok('Money: the control tower’s four figures', (await labels('#pd-money')).join('|') === 'Outstanding|Open order book|Invoiced this month|Weighted pipeline' &&
+        /₹42\.87 L/.test(await boss.textContent('#pd-money [data-pd-tile="outstanding"]')) && /23% overdue/.test(await boss.textContent('#pd-money [data-pd-tile="outstanding"]')),
+        await labels('#pd-money'));
+      ok('Work this month: the demo’s eight tiles', (await labels('#pd-tiles')).join('|') ===
+        'Enquiries received|Quotations sent|Orders won|Escalated, open now|Service calls|AMC dues, next 7 days|Sales visits this week|Task score' &&
+        (await boss.textContent('[data-pd-tile="orders"] .dv-v')) === '₹38.65 L' && await boss.$eval('[data-pd-tile="escalations"]', (e) => e.classList.contains('sig')),
+        await labels('#pd-tiles'));
+      ok('the demo’s panels, in its order', (await boss.$$eval('#pd-host [data-pd-list] > header h2', (h) => h.map((x) => x.textContent))).join('|') ===
+        'Waiting for your decision|Needs attention|Follow-ups due|Overdue and due today|AMC and service dues (overdue + 7 days)|Installations coming up|Receivables ageing|The team',
+        await boss.$$eval('#pd-host [data-pd-list] > header h2', (h) => h.map((x) => x.textContent)));
+      ok('Needs attention is ERP 1’s nine checks', (await boss.$$('[data-pd-list="attention"] .dv-att')).length === 4 &&
+        /Invoices more than 60 days overdue/.test(await boss.textContent('[data-pd-list="attention"]')));
+      ok('the ageing in the demo’s bars, and a row’s chip in its colour', (await boss.$$('[data-pd-list="ageing"] .dv-hbar')).length === 4 &&
+        await boss.$eval('[data-pd-list="installations"] .dv-chip.warn', (e) => e.textContent) === 'Not assigned');
+      ok('the control tower’s heading and switch folded into Money, the rest under More figures', !(await shown('#view-dashboard > .page-head')) &&
+        !(await shown('#view-dashboard > .dash-head')) && await shown('#dash-body') && /More figures/.test(await boss.textContent('#dash-body')) &&
+        /Order Pipeline/.test(await boss.textContent('#dash-body')) && !(await boss.$('#dash-body .hero-card')) && !(await boss.$('#dash-body .exc-row')));
+      await boss.click('#pd-host [data-pd-task]');
+      await boss.waitForTimeout(600);
+      ok('+ Task gives a task from the desk', await isOpen('tk-modal-backdrop'));
+      await shut('tk-modal-backdrop');
+      await boss.click('[data-pd-list="tasks"] [data-pd-open="task"][data-id="TK-2"]');
+      await boss.waitForTimeout(600);
+      ok('a task opens the task', await isOpen('tk-modal-backdrop') && (await boss.textContent('#tk-m-title')) !== 'New task', await boss.textContent('#tk-m-title'));
+      await shut('tk-modal-backdrop');
+      await boss.click('[data-pd-list="amc"] .dv-row');
+      await boss.waitForTimeout(700);
+      ok('an AMC due opens AMC & Dues', (await active(boss)) === 'view-amc', await active(boss));
+      await goDash();
+      await boss.click('#pd-money [data-pd-tile="outstanding"]');
+      await boss.waitForTimeout(700);
+      ok('the money goes where it is chased', (await active(boss)) === 'view-collections', await active(boss));
+      await goDash();
+      await boss.click('#pd-host [data-pd-act="enquiries"]');
+      await boss.waitForTimeout(1500);
+      ok('+ Spare enquiry opens Spare Sales and its new-enquiry form', (await active(boss)) === 'view-enquiries' && await isOpen('enquiry-modal-backdrop'), await active(boss));
+      await shut('enquiry-modal-backdrop');
+      await goDash();
+
+      console.log('\nMANAGEMENT SEES THE TEAM, AND ANYBODY’S DESK');
       ok('the team, one row a person', (await boss.$$eval('.pd-team tbody tr', (r) => r.length)) === 3);
       ok('late follow-ups stand out', await boss.$eval('.pd-team tbody tr td.pd-bad', (e) => e.textContent) === '2');
       await boss.evaluate(() => { window.__calls = []; });
@@ -127,8 +178,10 @@ const ok = (label, cond, detail) => {
       await boss.click('#pd-host [data-pd-as=""]');
       await boss.waitForTimeout(500);
       t = await tower();
-      ok('back on their own desk, Management get both again', t.title === 'Control Tower' && t.switch && t.active === '' && await towerAsked() === '', t);
-      await boss.click('#dash-stream [data-stream="Compressor Sales"]');
+      const moneySwitch = () => boss.$$eval('#pd-host [data-pd-stream]', (b) => b.map((x) => x.dataset.pdStream + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')).join('|'));
+      ok('back on their own desk, Management get both again, the switch in the Money row', t.title === 'Control Tower' && t.active === '' &&
+        await moneySwitch() === '*|Compressor Sales|Spare Sales' && await towerAsked() === '', t);
+      await boss.click('#pd-host [data-pd-stream="Compressor Sales"]');
       await boss.waitForTimeout(300);
       await boss.selectOption('#pd-as', 'kiran@pie.in');
       await boss.waitForTimeout(500);
@@ -136,7 +189,7 @@ const ok = (label, cond, detail) => {
       await boss.click('#pd-host [data-pd-as=""]');
       await boss.waitForTimeout(500);
       t = await tower();
-      ok('and that pick comes back with them', t.active === 'Compressor Sales' && t.switch && await towerAsked() === 'Compressor Sales', t);
+      ok('and that pick comes back with them', t.active === 'Compressor Sales' && await moneySwitch() === '|Compressor Sales*|Spare Sales' && await towerAsked() === 'Compressor Sales', t);
       await boss.evaluate(() => {
         const D = window.__data;
         const base = D.getPersonDashboard;
