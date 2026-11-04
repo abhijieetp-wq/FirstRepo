@@ -100,6 +100,9 @@ function getPersonDashboard(options) {
   if (out.self) {
     var approver = customerApprover_();
     if (seesCustomerApprovals_(user, approver)) out.approvals = customerApprovalsFor_(user, approver, '');
+    // And theirs that were rejected, until they dismiss it.
+    var rejected = rejectedCustomerNotices_(user);
+    if (rejected.length) out.rejectedCustomers = rejected;
   }
 
   if (boss) {

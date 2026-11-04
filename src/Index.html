@@ -2566,17 +2566,19 @@
         <label>Username *</label>
         <input id="usr-username" autocapitalize="none" spellcheck="false" placeholder="priya" />
         <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">
-          What they type to sign in. Letters, numbers, dots, dashes and underscores.
+          What they type to sign in. Letters, numbers, dots, dashes and underscores. Left blank,
+          it is made from their first name.
         </p>
       </div>
     </div>
     <div class="grid grid-2" style="margin-top:12px;">
       <div class="field">
-        <label>Email *</label>
-        <input id="usr-email" type="email" placeholder="name@company.com" />
+        <label>ERP ID</label>
+        <input id="usr-email" type="text" autocapitalize="none" spellcheck="false" placeholder="Leave blank: made from the username" />
         <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">
-          Not used to sign in. It is where a customer's reply to their quotation goes, and how
-          their work is identified in the audit trail.
+          Not an e-mail and not used to sign in. It is how every record knows whose work it is,
+          so each person needs their own. Left blank, it is made from the username
+          (e.g. priya@pie.invalid), and nothing is ever sent to it.
         </p>
       </div>
       <div></div>

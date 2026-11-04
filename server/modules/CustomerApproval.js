@@ -31,6 +31,9 @@
  *   - a panel on their dashboard and on Customers, with the same tick boxes.
  * Management and ERP Admin see the same list on their dashboard, as a notice only.
  *
+ * Whoever added a customer that is rejected is told on their own dashboard, with the reason,
+ * until they dismiss it. Not by e-mail: PIE's people have no mailboxes of their own.
+ *
  * The e-mail is a courtesy, never a condition: if no mailbox is connected the customer is
  * still saved and the dashboard still asks.
  */
@@ -53,7 +56,9 @@ async function customerApprover_() {
   if (!u) return null;
   var mail = String(PropertiesService.getScriptProperties()
     .getProperty(CUSTOMER_APPROVAL_PROPS.MAIL_TO) || '').trim();
-  return { email: String(u.email), name: String(u.name || u.email), role: String(u.role || ''), mailTo: mail || String(u.email) };
+  // Their ERP ID only when it is a mailbox; a made-up one (Settings.gs, ERP_ID_DOMAIN) is not.
+  return { email: String(u.email), name: String(u.name || u.email), role: String(u.role || ''),
+    mailTo: mail || (isMailbox_(u.email) ? String(u.email) : '') };
 }
 
 /** Whether this person decides on new customers: the approver, or with none chosen, Management. */
@@ -174,10 +179,16 @@ async function decideCustomers(input) {
   (await readTable_('Customers')).forEach(function (c) { byId[String(c.id)] = c; });
   var done = 0;
   var skipped = 0;
+  var creators = {};
+  var names = await userNameMap_();
   var at = nowIso_();
   for (var id of ids) {
     var c = byId[id];
     if (!c || !customerPending_(c)) { skipped++; continue; }
+    var by = String(c.createdBy || '').trim().toLowerCase();
+    if (outcome === CUSTOMER_APPROVAL.REJECTED && by && by !== String(user.email).trim().toLowerCase()) {
+      creators[personLine_(c.createdBy, names)] = true;
+    }
     var patch = { approvalStatus: outcome, approvedBy: user.email, approvedAt: at, approvalNote: note };
     if (outcome === CUSTOMER_APPROVAL.REJECTED) patch.active = 'FALSE';
     await updateRowById_('Customers', 'id', id, patch,
@@ -189,7 +200,41 @@ async function decideCustomers(input) {
   out.decided = done;
   out.skipped = skipped;
   out.outcome = outcome;
+  // Who will see the rejection on their dashboard, for the message after it.
+  out.creators = Object.keys(creators).sort();
   return out;
+}
+
+// ------------------------------------------------------------- the rejection, on the desk
+
+/**
+ * Customers this person added that were rejected and they have not yet dismissed, for their
+ * dashboard: what, who rejected it, when, and why. One they rejected themselves is not news.
+ */
+async function rejectedCustomerNotices_(user) {
+  var me = String(user.email || '').trim().toLowerCase();
+  var names = await userNameMap_();
+  return (await readTable_('Customers')).filter(function (c) {
+    return String(c.approvalStatus || '') === CUSTOMER_APPROVAL.REJECTED && !String(c.rejectionSeenAt || '') &&
+      String(c.createdBy || '').trim().toLowerCase() === me && String(c.approvedBy || '').trim().toLowerCase() !== me;
+  }).sort(function (a, b) { return String(b.approvedAt || '').localeCompare(String(a.approvedAt || '')); })
+    .map(function (c) {
+      return { id: String(c.id), customerCode: String(c.customerCode || ''), name: String(c.name || ''),
+        by: personLine_(c.approvedBy, names), at: String(c.approvedAt || '').slice(0, 10), note: String(c.approvalNote || '') };
+    });
+}
+
+/** "Got it": the notice leaves this person's dashboard. Only their own; the rejection stays. */
+async function dismissRejectedCustomers(ids) {
+  var user = getCurrentUser();
+  var mine = {};
+  (await rejectedCustomerNotices_(user)).forEach(function (n) { mine[n.id] = true; });
+  var at = nowIso_();
+  for (var id of (ids || []).map(String)) {
+    if (!mine[id]) continue;
+    await updateRowById_('Customers', 'id', id, { rejectionSeenAt: at }, 'Rejection seen by ' + user.email);
+  }
+  return await rejectedCustomerNotices_(user);
 }
 
 // ---------------------------------------------------------------------------------- e-mail
@@ -270,6 +315,9 @@ async function notifyNewCustomers_(records, user, approver, how, batch) {
   var pending = records.filter(function (r) { return r.approvalStatus === CUSTOMER_APPROVAL.PENDING; });
   if (!pending.length) return { emailed: '', reason: '' };
   if (!approver) return { emailed: '', reason: 'No approver is chosen yet (Settings → Users), so Management decide on the dashboard.' };
+  if (!approver.mailTo) {
+    return { emailed: '', reason: approver.name + ' has no e-mail address set (Settings → Users → New customer approvals), so it waits on their dashboard.' };
+  }
   var cities = await customerCities_();
   var names = await userNameMap_();
   var rows = pending.map(function (r) { return customerApprovalRow_(r, cities, names); });
@@ -307,7 +355,7 @@ async function saveCustomerApprover(input) {
     })[0];
     if (!u) throw new Error('There is nobody with that address in Users.');
     if (String(u.active).toUpperCase() === 'FALSE') throw new Error(String(u.name || email) + ' is not an active user.');
-    if (mailTo && !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(mailTo)) throw new Error('That does not look like an e-mail address: ' + mailTo);
+    if (mailTo && !isMailbox_(mailTo)) throw new Error('That does not look like an e-mail address anybody reads: ' + mailTo);
     props.setProperty(CUSTOMER_APPROVAL_PROPS.APPROVER, String(u.email));
     if (mailTo) props.setProperty(CUSTOMER_APPROVAL_PROPS.MAIL_TO, mailTo);
     else props.deleteProperty(CUSTOMER_APPROVAL_PROPS.MAIL_TO);

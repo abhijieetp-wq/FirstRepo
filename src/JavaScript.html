@@ -2046,7 +2046,8 @@
     askDialog({
       title: (approve ? "Approve " : "Reject ") + n + "?",
       message: approve ? "They stop showing “Pending approval”. Your name and the time are recorded."
-        : "Rejected customers are deactivated: they leave the customer list and the pickers. Anything already raised against them stays.",
+        : "Rejected customers are deactivated: they leave the customer list and the pickers. Anything already raised against them stays. " +
+          "Whoever added them sees it on their dashboard, with your reason.",
       input: !approve, inputLabel: "Why (optional)", required: false,
       okLabel: approve ? "Approve" : "Reject", danger: !approve
     }, function (answer) {
@@ -2058,8 +2059,10 @@
         caPaint();
         customersLoaded = false;
         if (currentView === "customers") loadCustomers();
+        var told = res.creators || [];
         showMsg(res.decided + (res.decided === 1 ? " customer " : " customers ") + (approve ? "approved." : "rejected.") +
-          (res.skipped ? " " + res.skipped + " had already been decided." : ""), "success");
+          (res.skipped ? " " + res.skipped + " had already been decided." : "") +
+          (told.length ? " " + told.join(", ") + (told.length === 1 ? " sees" : " see") + " it on their dashboard." : ""), "success");
       }).withFailureHandler(onServerError).decideCustomers({ ids: ids, outcome: outcome, note: approve ? "" : String(answer || ""), batch: ca.batch });
     });
   }
@@ -2089,6 +2092,41 @@
     var all = rows.every(function (r) { return ca.picked[r.id]; });
     rows.forEach(function (r) { ca.picked[r.id] = !all; });
     caPaint();
+  });
+
+  // ---- Customers this person added that were rejected (CustomerApproval.gs) ----
+  // On their own dashboard, with who rejected it, when and why, until they press Dismiss.
+  function crPanelHtml(list) {
+    if (!list || !list.length) return "";
+    var rows = list.map(function (n) {
+      return '<div class="ca-row cr-row"><span class="ca-dot cr-dot" aria-hidden="true"></span><div class="cr-text"><b>' + escapeHtml(n.name) + "</b>" +
+        (n.customerCode ? ' <span class="mono">' + escapeHtml(n.customerCode) + "</span>" : "") +
+        '<span class="ca-sub">Rejected by ' + escapeHtml(n.by || "the approver") + (n.at ? " on " + ebDate(n.at) : "") + ". It has been deactivated.</span>" +
+        (n.note ? '<span class="cr-why">Reason: ' + escapeHtml(n.note) + "</span>" : "") + "</div>" +
+        '<button type="button" class="btn btn-sm" data-cr-dismiss="' + escapeHtml(n.id) + '">Dismiss</button></div>';
+    }).join("");
+    return '<section class="dv-panel dv-wide ca-panel cr-panel">' +
+      "<header><h2>Customers not approved</h2>" +
+        (list.length > 1 ? '<button type="button" class="btn btn-sm" data-cr-dismiss="*">Dismiss all</button>' : ebChip("1", "bad")) + "</header>" +
+      '<div class="dv-body"><p class="dv-note ca-note">' + (list.length === 1 ? "A customer you added was" : list.length + " customers you added were") +
+        " not approved. If that is a mistake, speak to whoever rejected it.</p>" +
+        '<div class="ca-list">' + rows + "</div></div></section>";
+  }
+
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-cr-dismiss]");
+    if (!b || !pd || !pd.data) return;
+    var list = pd.data.rejectedCustomers || [];
+    var ids = b.dataset.crDismiss === "*" ? list.map(function (n) { return n.id; }) : [b.dataset.crDismiss];
+    b.disabled = true;
+    srv.withSuccessHandler(function (left) {
+      pd.data.rejectedCustomers = left;
+      var host = document.querySelector("[data-cr-host]");
+      if (host) {
+        if (left.length) host.innerHTML = crPanelHtml(left);
+        else host.parentNode.removeChild(host);
+      }
+    }).withFailureHandler(function (err) { b.disabled = false; onServerError(err); }).dismissRejectedCustomers(ids);
   });
 
   /** Refetches the customer list, bypassing the cache flag — used after a bulk import. */
@@ -16339,6 +16377,8 @@
     // New customers waiting (CustomerApproval.gs), first: the approver decides here.
     if (d.approvals) { ca.data = d.approvals; ca.picked = {}; }
     var approvals = d.self && d.approvals && d.approvals.count ? '<div class="ca-dash" data-ca-host="dash">' + caPanelHtml(d.approvals, "dash") + "</div>" : "";
+    // Customers this person added that were rejected, until they dismiss them.
+    if (d.self && d.rejectedCustomers && d.rejectedCustomers.length) approvals = '<div class="ca-dash" data-cr-host="1">' + crPanelHtml(d.rejectedCustomers) + "</div>" + approvals;
     html += approvals + '<div class="dv-cols">' + panels.join("") + (d.team ? pdTeam(d) : "") + "</div>";
     host.innerHTML = html;
     pdSyncTower(d);
@@ -16963,7 +17003,7 @@
     var rows = setData.users;
     var body = rows.length
       ? '<div style="overflow-x:auto;"><table><thead><tr><th>Name</th><th>Username</th>' +
-        "<th>Email</th><th>Role</th>" +
+        "<th>ERP ID</th><th>Role</th>" +
         "<th>Stream</th><th>Status</th><th>Password</th><th></th></tr></thead><tbody>" +
         rows.map(function (u) {
           var active = String(u.active).toUpperCase() !== "FALSE";
@@ -16991,7 +17031,7 @@
               // Deliberately not inside the Edit form. Retyping the address there changes one
               // cell and strands every record the person has ever touched, so the address is
               // read-only in that form and changed here, where it can say what it will move.
-              '<button class="btn btn-sm" data-user-email="' + u.id + '">Change address</button>' +
+              '<button class="btn btn-sm" data-user-email="' + u.id + '">Change ERP ID</button>' +
               "</td>" +
             "</tr>";
         }).join("") + "</tbody></table></div>"
@@ -17000,11 +17040,9 @@
     $("set-panel").innerHTML = panelCard(
       "Users",
       "This list decides who gets in and what they may do. People sign in with the username " +
-        "here and a password you set. The address is not a login and nothing is sent to it " +
-        "(except the new-customer approval e-mail, when no other address is given below) — it " +
-        "is how the records know whose work is whose, so it need not be a real " +
-        "mailbox, and since offers now carry the letterhead address it reaches no customer " +
-        "either.",
+        "here and a password you set. The ERP ID is not an e-mail and not a login: it is how every " +
+        "record knows whose work it is, so each person needs their own. Leave it blank when adding " +
+        "somebody and one is made from the username. Nothing is ever sent to it.",
       '<button class="btn btn-primary btn-sm" id="btn-add-user">+ Add User</button>',
       body) + approverCard();
 
@@ -17044,13 +17082,13 @@
     return '<div id="set-approver">' + panelCard("New customer approvals",
       "Every new customer, added by hand or by a bulk upload, waits for this person to approve or reject it. " +
         "It can be used meanwhile. They get an e-mail (one per bulk upload, listing every customer) and the list on their dashboard. " +
-        "Management see the list on theirs. A rejected customer is deactivated.",
+        "Management see the list on theirs. A rejected customer is deactivated, and whoever added it sees that on their dashboard.",
       "",
       '<div class="grid grid-2"><div class="field"><label>Approver</label><select id="ca-approver">' + opts + "</select></div>" +
         '<div class="field"><label>Send the e-mail to</label><input id="ca-mailto" type="email" value="' + escapeHtml(cfg.mailTo || "") +
-        '" placeholder="Their address in Users, unless you type another" /></div></div>' +
-        '<p class="hint" style="margin:6px 0 10px;">Addresses in Users need not be real mailboxes; if theirs is not, put the one they read here. ' +
-        "The e-mail goes through Settings → Email.</p>" +
+        '" placeholder="e.g. the inbox they read" /></div></div>' +
+        '<p class="hint" style="margin:6px 0 10px;">An ERP ID is not a mailbox, so put the inbox they read here (it may be the office Gmail). ' +
+        "Left blank, there is no e-mail and the list waits on their dashboard. The e-mail goes through Settings → Email.</p>" +
         '<button class="btn btn-primary btn-sm" id="btn-save-approver">Save</button>') + "</div>";
   }
 
@@ -17067,12 +17105,12 @@
     var u = setData.users.filter(function (x) { return String(x.id) === String(id); })[0];
     if (!u) return;
     askDialog({
-      title: "Change the address for " + u.name,
+      title: "Change the ERP ID for " + u.name,
       message: "They sign in with their username, so this does not change how they get in, " +
-        "and nothing is ever sent here — it is how the records know whose work is whose. It " +
-        "does not have to be a real mailbox. Currently " + u.email + ".",
-      input: true, inputLabel: "New address — e.g. " +
-        (u.username || "name") + "@premierindia.internal",
+        "and nothing is ever sent here — it is how the records know whose work is whose, and " +
+        "everything they have done moves with it. Each person needs their own. Currently " + u.email + ".",
+      input: true, inputLabel: "New ERP ID — e.g. " +
+        (u.username || "name") + "@pie.invalid",
       value: u.email, okLabel: "Check what would change"
     }, function (val) {
       if (val === null) return;
@@ -17130,6 +17168,7 @@
     $("user-modal-title").textContent = u ? "Edit User" : "Add User";
     $("usr-id").value = u ? u.id : "";
     $("usr-email").value = u ? u.email : "";
+    $("usr-email").placeholder = u ? "" : "Leave blank: made from the username";
     // Read-only on an existing person: the server refuses a change here, because the
     // address has to move together with everything they have already done. "Change
     // address" on their row does both.
@@ -17155,7 +17194,7 @@
       ? "This is your own account. You cannot deactivate it or drop your own ERP Admin role."
       : (u ? "" : "They sign in with the username and password above. Where the Google " +
           "requirement is on, any account on its list opens the portal for them — this " +
-          "address is not checked against it.");
+          "ERP ID is not checked against it.");
     $("user-modal-backdrop").classList.add("show");
   }
 

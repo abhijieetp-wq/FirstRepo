@@ -197,7 +197,10 @@ function userRowByLogin_(login) {
  * system they were using yesterday.
  */
 function derivedUsername_(row) {
+  // From the address when there is one; a new person's ERP ID is made from the username, so
+  // then it comes from their first name instead.
   var fromEmail = String(row.email || '').split('@')[0];
+  if (!fromEmail) fromEmail = String(row.name || '').trim().split(/\s+/)[0];
   var base = (fromEmail || String(row.name || '')).toLowerCase().replace(/[^a-z0-9._-]/g, '');
   return base || String(row.id || '').toLowerCase();
 }

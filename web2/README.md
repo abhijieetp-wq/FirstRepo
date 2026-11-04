@@ -157,9 +157,18 @@ spares offer's, as before. An enquiry with no type reads as Spares.
     those customers, each with a tick box, and Approve ticked / Reject ticked. Mail clients
     remove tick boxes from e-mails, so the ticking is in the ERP. A mailbox that fails never fails
     the save; the save says so and the audit trail keeps it.
+  - A rejected customer is shown to whoever added it, on their own dashboard ("Customers not
+    approved": who rejected it, when, why) until they dismiss it. Not by e-mail: PIE's staff have
+    no mailboxes. One more Customers column, rejectionSeenAt.
+  - The approver's e-mail goes only to an inbox given for it; their ERP ID is not one.
   - The same list heads the approver's dashboard and Customers. Other Management and ERP Admin
     see it on their dashboard as a notice. Five new Customers columns: approvalStatus,
     approvalBatch, approvedBy, approvedAt, approvalNote. Blank means from before, and approved.
+- **The ERP ID** (Settings → Users; `Users.email`). Staff have no mailboxes of their own, so the
+  address field is the ERP ID: how every record knows whose work it is, never a login and never
+  sent to. A person added with none gets one made from their username at `pie.invalid` (a domain
+  reserved never to receive mail), and a blank username comes from their first name. Each person
+  needs their own; the shared office Gmail belongs in Letterhead and Settings → Email, not on a user.
 - **Visit plans** (`src/VisitPlans.gs`), under Sales, at `/visit-plans` — only in a 2.0 menu.
   - Sales engineers plan customer visits by week (Monday to Sunday) or month: engineer, date,
     company (a customer in the master or a prospect by name), area, purpose. "+ Add" on a day,
@@ -383,6 +392,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/customer-approval-ui-test.js`, `tests/customer-approval-sql-test.js` — who decides, the
   one e-mail per save and per upload, the batch link, approving and rejecting, the dashboard and
   Customers lists, a mailbox that fails, and an approver renamed or gone.
+- `tests/users-erp-id-sql-test.js` — ERP IDs and usernames made for a person left blank, each
+  person's own, checked when typed, kept on an edit.
 - `tests/visit-plans-ui-test.js`, `tests/visit-plans-sql-test.js` — planning, who sees whose, the
   visit report, areas, copying last week, a visit made into a lead through ERP 1's lead save, the
   dashboard tile, and no visit plans on the other faces.

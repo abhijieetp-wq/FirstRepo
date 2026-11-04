@@ -44,12 +44,25 @@ const seed = (mode) => {
     window.__ca.decided.push(input);
     const before = window.__ca.waiting.length;
     window.__ca.waiting = window.__ca.waiting.filter((r) => input.ids.indexOf(r.id) === -1);
-    return Object.assign(state(input.batch), { decided: before - window.__ca.waiting.length, skipped: 0, outcome: input.outcome });
+    return Object.assign(state(input.batch), { decided: before - window.__ca.waiting.length, skipped: 0, outcome: input.outcome,
+      creators: input.outcome === 'Rejected' ? ['Kiran Patil'] : [] });
+  };
+  // Whoever added a customer that was rejected: the notices on their dashboard.
+  window.__ca.notices = mode === 'creator' ? [
+    { id: 'CU-R1', customerCode: 'C2611-004', name: 'Satara Steel Rolling', by: 'Meera Joshi', at: '2026-11-04', note: 'Duplicate of an existing account' },
+    { id: 'CU-R2', customerCode: 'C2611-005', name: 'Karad Sugar Works', by: 'Meera Joshi', at: '2026-11-03', note: '' }] : [];
+  window.__data.dismissRejectedCustomers = (ids) => {
+    window.__ca.dismissed = (window.__ca.dismissed || []).concat(ids);
+    window.__ca.notices = window.__ca.notices.filter((n) => ids.indexOf(n.id) === -1);
+    return window.__ca.notices.slice();
   };
   const dash = window.__data.getPersonDashboard;
   window.__data.getPersonDashboard = function (o) {
     const d = dash.apply(null, arguments);
-    if (!(o && o.as)) d.approvals = state('');
+    if (!(o && o.as)) {
+      if (mode !== 'creator') d.approvals = state('');
+      if (window.__ca.notices.length) d.rejectedCustomers = window.__ca.notices.slice();
+    }
     return d;
   };
   const list = window.__data.listCustomers;
@@ -130,12 +143,14 @@ const seed = (mode) => {
   await page.click(panel + ' [data-ca-decide="Rejected"]');
   await page.waitForTimeout(200);
   ok('rejecting asks why, and says what it does', /Reject 1 customer\?/.test(await text(page, '#ask-title')) && /deactivated/.test(await text(page, '#ask-message')) &&
+    /Whoever added them sees it on their dashboard, with your reason/.test(await text(page, '#ask-message')) &&
     await page.isVisible('#ask-input'));
   await page.fill('#ask-input', 'Duplicate of an existing account');
   await page.click('#ask-ok');
   await page.waitForTimeout(400);
   calls = await page.evaluate(() => window.__ca.decided);
   ok('rejected, with the reason', calls.length === 2 && calls[1].outcome === 'Rejected' && calls[1].ids.join() === 'CU-N2' && calls[1].note === 'Duplicate of an existing account', calls);
+  ok('and says who will see it on their dashboard', /1 customer rejected\. Kiran Patil sees it on their dashboard\./.test(await text(page, '#msg-box')), await text(page, '#msg-box'));
   ok('nothing left: the panel goes', !(await page.$(panel)));
   await page.close();
 
@@ -146,6 +161,27 @@ const seed = (mode) => {
   ok('and says nothing is blocked', /Waiting for Meera’s approval\. Nothing is blocked meanwhile\./.test(await text(page, panel)));
   ok('no tick boxes, no buttons', !(await page.$(panel + ' input[data-ca-pick]')) && !(await page.$(panel + ' [data-ca-decide]')));
   await shot(page, 'approvals-notice', panel);
+  await page.close();
+
+  console.log('\nWHOEVER ADDED A REJECTED CUSTOMER');
+  page = await open('', 'creator');
+  await go(page, 'dashboard');
+  const cr = '#pd-host [data-cr-host] .cr-panel';
+  ok('their dashboard says so, above the rest', !!(await page.$(cr)) && /^Customers not approved/.test(await text(page, cr + ' header')) &&
+    await page.evaluate(() => { const p = document.querySelector('#pd-host [data-cr-host]'); const c = document.querySelector('#pd-host .dv-cols'); return !!p && !!c && (p.compareDocumentPosition(c) & 4) !== 0; }));
+  const first = await text(page, cr + ' .cr-row');
+  ok('each: the customer, who rejected it and when, and why', /Satara Steel Rolling C2611-004/.test(first) &&
+    /Rejected by Meera Joshi on 04-11-2026\. It has been deactivated\./.test(first) && /Reason: Duplicate of an existing account/.test(first), first);
+  ok('one with no reason gives none', !/Reason/.test(await page.evaluate(() => document.querySelectorAll('#pd-host .cr-row')[1].textContent)));
+  ok('and no approval list for somebody who does not approve', !(await page.$('#pd-host [data-ca-host]')));
+  await shot(page, 'rejected-notice', cr);
+  await page.click(cr + ' [data-cr-dismiss="CU-R1"]');
+  await page.waitForTimeout(300);
+  ok('Dismiss takes one off', (await page.$$(cr + ' .cr-row')).length === 1 &&
+    JSON.stringify(await page.evaluate(() => window.__ca.dismissed)) === '["CU-R1"]');
+  await page.click(cr + ' [data-cr-dismiss]');
+  await page.waitForTimeout(300);
+  ok('and the last one takes the panel with it', !(await page.$('#pd-host [data-cr-host]')));
   await page.close();
 
   console.log('\nFROM THE E-MAIL: THE BATCH, ON CUSTOMERS');
@@ -203,6 +239,17 @@ const seed = (mode) => {
   const saved = await page.evaluate(() => window.__calls.filter((c) => c.fn === 'saveCustomerApprover').map((c) => c.args[0]));
   ok('saved: who, and where the e-mail goes', saved.length === 1 && saved[0].email === 'kiran@pie.in' && saved[0].mailTo === 'kiran.ops@example.com', saved);
   await shot(page, 'approvals-settings', '#set-approver');
+
+  console.log('\nTHE ERP ID, IN USERS');
+  ok('the list calls it ERP ID, and its button says so', (await page.$$eval('#set-panel th', (t) => t.map((x) => x.textContent))).indexOf('ERP ID') !== -1 &&
+    /Change ERP ID/.test(await text(page, '#set-panel')) && /Nothing is ever sent to it/.test(await text(page, '#set-panel')));
+  await page.click('#btn-add-user');
+  await page.waitForTimeout(300);
+  ok('a new person: the ERP ID may be left blank', !(await page.$eval('#usr-email', (i) => i.required)) &&
+    /Leave blank: made from the username/.test(await page.getAttribute('#usr-email', 'placeholder')) &&
+    (await page.evaluate(() => document.getElementById('usr-email').closest('.field').querySelector('label').textContent)).trim() === 'ERP ID');
+  await shot(page, 'users-erp-id', '#user-modal-backdrop .modal');
+  await page.click('#btn-cancel-user');
 
   console.log('\nIN THE DARK');
   await page.evaluate(() => { document.documentElement.setAttribute('data-theme', 'dark'); });

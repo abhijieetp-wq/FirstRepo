@@ -121,8 +121,15 @@ function saveUser(input) {
   var user = getCurrentUser();
   requireRole_(user, SETTINGS_ROLES);
 
+  // The ERP ID (stored as `email`): how every record knows whose it is. PIE's people have no
+  // mailboxes of their own, so a new person left blank gets one made from their username, at a
+  // domain that can never receive mail (ERP_ID_DOMAIN). Each person needs their own: two people
+  // on one ID would be one person to every screen and to the audit trail.
   var email = String(input.email || '').trim().toLowerCase();
-  if (!email || email.indexOf('@') === -1) throw new Error('A valid email address is required.');
+  if (email && (email.indexOf('@') < 1 || /\s/.test(email))) {
+    throw new Error('An ERP ID looks like name@something, with no spaces. Leave it blank to have one made from the username.');
+  }
+  if (!email && input.id) throw new Error('This person’s ERP ID is missing from the form. Close it and open their row again.');
   if (!String(input.name || '').trim()) throw new Error('Enter the person’s name.');
   if (ALL_ROLES.indexOf(input.role) === -1) throw new Error('Pick one of the five roles.');
 
@@ -141,6 +148,7 @@ function saveUser(input) {
   }
 
   var users = readTable_('Users');
+  if (!email) email = freeErpId_(username, users);
   // By id when there is one, by address only when deciding whether a new person is already
   // here. Looking an existing row up by its address meant that retyping the address made
   // `existing` undefined, and everything hanging off it silently stopped: the session was not
@@ -153,7 +161,7 @@ function saveUser(input) {
       })[0];
 
   if (!input.id && existing) {
-    throw new Error(email + ' is already on the list. Edit that row instead of adding a second one.');
+    throw new Error(email + ' is already somebody’s ERP ID. Each person needs their own: leave it blank and one is made from the username.');
   }
 
   // An address is not a field on this form, whatever the form appears to offer. It is the name
@@ -217,6 +225,26 @@ function saveUser(input) {
     appendRow_('Users', record, 'User added');
   }
   return getSettings();
+}
+
+/** Where made-up ERP IDs live: `.invalid` is reserved (RFC 2606), so nothing is ever delivered there. */
+var ERP_ID_DOMAIN = 'pie.invalid';
+
+/** An ERP ID nobody has, made from the username: priya@pie.invalid, then priya2@pie.invalid. */
+function freeErpId_(username, users) {
+  var taken = {};
+  (users || readTable_('Users')).forEach(function (u) { taken[String(u.email || '').trim().toLowerCase()] = true; });
+  var base = String(username || '').toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'user';
+  var id = base + '@' + ERP_ID_DOMAIN;
+  var n = 2;
+  while (taken[id]) { id = base + n + '@' + ERP_ID_DOMAIN; n++; }
+  return id;
+}
+
+/** Whether an address can receive mail at all: a made-up ERP ID cannot. */
+function isMailbox_(address) {
+  var a = String(address || '').trim();
+  return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(a) && !/\.invalid$/i.test(a);
 }
 
 /**

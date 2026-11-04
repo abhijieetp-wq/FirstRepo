@@ -150,7 +150,9 @@ var SCHEMA = {
       'advanceRule', 'riskStatus', 'brand', 'lastOrderDate', 'notes', 'active', 'createdAt',
       'createdBy',
       // New customers wait for the approver (CustomerApproval.gs). Blank: from before that.
-      'approvalStatus', 'approvalBatch', 'approvedBy', 'approvedAt', 'approvalNote']
+      'approvalStatus', 'approvalBatch', 'approvedBy', 'approvedAt', 'approvalNote',
+      // When whoever added a rejected customer dismissed the notice on their dashboard.
+      'rejectionSeenAt']
   },
   CustomerContacts: {
     label: 'Purchase / maintenance / accounts / owner contacts (FR-002)',

@@ -112,6 +112,9 @@ async function getPersonDashboard(options) {
   if (out.self) {
     var approver = await customerApprover_();
     if (seesCustomerApprovals_(user, approver)) out.approvals = await customerApprovalsFor_(user, approver, '');
+    // And theirs that were rejected, until they dismiss it.
+    var rejected = await rejectedCustomerNotices_(user);
+    if (rejected.length) out.rejectedCustomers = rejected;
   }
 
   if (boss) {

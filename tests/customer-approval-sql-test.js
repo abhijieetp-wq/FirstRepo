@@ -5,8 +5,10 @@
  *   - the approver gets ONE e-mail per save, and ONE for a whole bulk upload listing every
  *     customer it added, with a link to that batch;
  *   - only the approver decides; Management see the list as a notice; others see nothing;
- *   - approving stamps who and when; rejecting deactivates; a decided customer is not decided
- *     twice;
+ *   - approving stamps who and when; rejecting deactivates and tells whoever added it on their
+ *     dashboard (not by e-mail: staff have no mailboxes) until they dismiss it; a decided customer
+ *     is not decided twice;
+ *   - an approver whose ERP ID is not a mailbox gets the e-mail only at an inbox given for it;
  *   - a mailbox that fails never fails the save;
  *   - with nobody chosen (or the chosen one gone), Management decide.
  *
@@ -144,14 +146,27 @@ const BASE = 'https://erp.example.com';
   ok('two approved', yes.decided === 2 && yes.skipped === 0 && yes.count === 3 && yes.batch.count === 1, yes);
   const gr = await row(g);
   ok('stamped with who and when', gr.approval_status === 'Approved' && gr.approved_by === MEERA.email && !!gr.approved_at && gr.active === true, gr);
+  sent = [];
   const no = await meera.decideCustomers({ ids: [t], outcome: 'Rejected', note: 'Duplicate of an existing account' });
   ok('one rejected', no.decided === 1 && no.count === 2, no);
+  ok('nobody is e-mailed about it: staff have no mailboxes', sent.length === 0);
+  ok('the decision says who will see it on their dashboard', JSON.stringify(no.creators) === '["Anil Rao"]', no.creators);
+  const told = (await anil.getPersonDashboard({})).rejectedCustomers || [];
+  ok('whoever added it sees it on their dashboard: who rejected it, when, and why', told.length === 1 && told[0].id === t &&
+    told[0].name === 'Tapi Engineering Works' && told[0].by === 'Meera Joshi' && /^\d{4}-\d\d-\d\d$/.test(told[0].at) &&
+    told[0].note === 'Duplicate of an existing account', told);
+  ok('nobody else does', !(await kiran.getPersonDashboard({})).rejectedCustomers && !(await meera.getPersonDashboard({})).rejectedCustomers);
   const tr = await row(t);
   ok('a rejected customer is deactivated, with the reason', tr.approval_status === 'Rejected' && tr.active === false &&
     tr.approval_note === 'Duplicate of an existing account', tr);
   ok('and drops out of the customer list', !(await kiran.listCustomers()).some((c) => c.id === t));
   const again = await meera.decideCustomers({ ids: [g, t], outcome: 'Rejected' });
   ok('a customer already decided is not decided again', again.decided === 0 && again.skipped === 2 && (await row(g)).approval_status === 'Approved');
+  ok('somebody else cannot dismiss it', (await kiran.dismissRejectedCustomers([t])).length === 0 &&
+    ((await anil.getPersonDashboard({})).rejectedCustomers || []).length === 1);
+  ok('Dismiss takes it off their dashboard', (await anil.dismissRejectedCustomers([t])).length === 0 &&
+    !(await anil.getPersonDashboard({})).rejectedCustomers && !!(await row(t)).rejection_seen_at);
+  ok('and the customer stays rejected', (await row(t)).approval_status === 'Rejected' && (await row(t)).active === false);
   const trail = (await db.q("SELECT reason FROM audit_log WHERE tenant_id = $1 AND table_name = 'Customers' AND record_id = $2", [TENANT, t])).rows.map((r) => r.reason);
   ok('the decision is in the audit trail', trail.some((r) => /New customer rejected by meera@pie\.in: Duplicate/.test(r)), trail);
 
@@ -179,6 +194,19 @@ const BASE = 'https://erp.example.com';
   ok('another admin’s: the same, as a notice', da.approvals && !da.approvals.canDecide && da.approvals.count === 3 && da.approvals.approver.name === 'Meera Joshi');
   ok('a coordinator’s: none', !(await kiran.getPersonDashboard({})).approvals);
   ok('nor on somebody else’s desk looked at by Management', !(await anil.getPersonDashboard({ as: KIRAN.email })).approvals);
+
+  console.log('\nAN APPROVER WHOSE ERP ID IS NOT A MAILBOX');
+  await db.appendRow('Users', { id: 'U-Ravi', email: 'ravi@pie.invalid', name: 'Ravi Kulkarni', role: 'Management', businessStream: 'All', active: 'TRUE' });
+  ok('a made-up address will not do as the inbox', await refuses(() => anil.saveCustomerApprover({ email: 'ravi@pie.invalid', mailTo: 'ravi@pie.invalid' }), /anybody reads/));
+  await anil.saveCustomerApprover({ email: 'ravi@pie.invalid' });
+  sent = [];
+  const quiet = await kiran.saveCustomer({ name: 'Satara Steel Rolling' });
+  ok('with no inbox given, nothing is sent to the ERP ID, and the save says it waits on the dashboard', sent.length === 0 &&
+    quiet.approval && quiet.approval.emailed === '' && /Ravi Kulkarni has no e-mail address set/.test(quiet.approval.reason), quiet.approval);
+  await anil.saveCustomerApprover({ email: 'ravi@pie.invalid', mailTo: 'office@example.com' });
+  await kiran.saveCustomer({ name: 'Karad Sugar Works' });
+  ok('given one, the e-mail goes there', sent.length === 1 && sent[0].to === 'office@example.com');
+  await anil.saveCustomerApprover({ email: MEERA.email, mailTo: 'meera.ops@example.com' });
 
   console.log('\nTHE APPROVER MOVES ON');
   await anil.changeUserEmail({ userId: 'U-Meera', newEmail: 'meera.joshi@pie.in' });
