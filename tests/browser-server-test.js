@@ -131,7 +131,9 @@ const ok = (label, cond, detail) => {
   ok('with no script errors of our own on the way', ours().length === 0, ours().slice(0, 3));
 
   console.log('\nAND THE SCREEN IT LANDS ON IS THE DASHBOARD');
-  ok('the Control Tower is up', /Control Tower/.test(await page.innerText('body')));
+  // ERP 2.0's dashboard, the only look: the greeting over the person's own desk.
+  ok('the 2.0 dashboard is up', await page.isVisible('#pd-host .dv-hero') &&
+    /Good (morning|afternoon|evening)/.test(await page.innerText('#pd-host')));
   ok('with the navigation beside it', /Quotations/.test(await page.innerText('body')));
 
   console.log('\nAND PIE\u2019S OWN DATA IS ON THE SCREEN');
@@ -143,10 +145,11 @@ const ok = (label, cond, detail) => {
   // through the swapped transport and renders what comes back — not the dropdown's CSS,
   // which the existing portal-ui-test already covers.
   await page.$eval('[data-view="quotations"]', (el) => el.click());
-  await page.waitForFunction(
-    () => /PIE\/ELGI\/QUOT/.test(document.body.innerText), null, { timeout: 15000 });
+  // 2.0's list writes the number short ("PIE/…/26-27/401") with the whole of it as its title.
+  await page.waitForFunction(() => /26-27\/401/.test(document.body.innerText), null, { timeout: 15000 });
   const text = await page.innerText('body');
-  ok('a real quotation number is shown', /PIE\/ELGI\/QUOT\/26-27\/401/.test(text));
+  ok('a real quotation number is shown', /PIE\/…\/26-27\/401/.test(text) &&
+    await page.evaluate(() => Array.from(document.querySelectorAll('[title]')).some((e) => /PIE\/ELGI\/QUOT/.test(e.title))));
   ok('and the customer on it', /Bharat Forge/.test(text), text.slice(0, 300));
 
   console.log('\nAND EVERY ONE OF THOSE WENT THROUGH THE NEW TRANSPORT');
@@ -182,11 +185,12 @@ const ok = (label, cond, detail) => {
   // the file arrived, and fail on a font that was only late.
   const faces = await page.evaluate(async () => (await document.fonts.ready, {
     inter: document.fonts.check('600 14px Inter'),
-    jakarta: document.fonts.check('700 26px "Plus Jakarta Sans"'),
+    // ERP 2.0's faces: Archivo for headings, IBM Plex Sans for reading.
+    jakarta: document.fonts.check('700 26px "Archivo"') && document.fonts.check('400 14px "IBM Plex Sans"'),
     plex: document.fonts.check('400 13px \"IBM Plex Mono\"')
   }));
   ok('Inter is loaded, not substituted', faces.inter === true, faces);
-  ok('and so is Plus Jakarta Sans, for the headings', faces.jakarta === true, faces);
+  ok('and so are Archivo and IBM Plex Sans, 2.0’s headings and reading', faces.jakarta === true, faces);
   ok('and so is IBM Plex Mono', faces.plex === true, faces);
   // Not a count: a browser fetches a face only once something on screen uses it, so how many
   // arrive depends on the screen. What must hold is where every one of them came from.

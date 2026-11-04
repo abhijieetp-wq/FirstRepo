@@ -116,7 +116,7 @@ const ok = (label, cond, detail) => {
   console.log('\nAN ADDRESS TYPED IN BEFORE SIGNING IN IS WHERE YOU ARRIVE');
   await page.goto(base + '/quotations', { waitUntil: 'networkidle' });
   await signIn('boss');
-  await page.waitForFunction(() => /PIE\/ELGI\/QUOT/.test(document.body.innerText), null, { timeout: 15000 });
+  await page.waitForFunction(() => /26-27\/401/.test(document.body.innerText), null, { timeout: 15000 });
   ok('the Quotations screen, not the Dashboard', (await onScreen()) === 'quotations', await onScreen());
   ok('and the address is still /quotations', (await where()) === '/quotations', await where());
   ok('the tab is titled for the screen',
@@ -153,14 +153,13 @@ const ok = (label, cond, detail) => {
   // ------------------------------------------------------------- one quotation
   console.log('\nA QUOTATION HAS AN ADDRESS OF ITS OWN');
   await click('#tabs [data-view="quotations"]');
-  await page.waitForFunction(() => /PIE\/ELGI\/QUOT/.test(document.body.innerText), null, { timeout: 15000 });
+  await page.waitForFunction(() => /26-27\/401/.test(document.body.innerText), null, { timeout: 15000 });
   await page.waitForTimeout(300);
+  // 2.0's All Quotations: a row opens its quotation.
   const opener = await page.evaluate(() => {
-    const row = Array.from(document.querySelectorAll('#quotations-tbody tr'))
-      .filter((tr) => /QUOT\/26-27\/401/.test(tr.textContent))[0];
-    const btn = row && Array.from(row.querySelectorAll('button')).filter((b) =>
-      /open|edit|✎/i.test(b.textContent + ' ' + (b.title || '')))[0];
-    if (btn) { btn.click(); return btn.textContent.trim() || btn.title; }
+    const row = Array.from(document.querySelectorAll('[data-qv-open]'))
+      .filter((tr) => /26-27\/401/.test(tr.textContent))[0];
+    if (row) { row.click(); return row.textContent.replace(/\s+/g, ' ').trim().slice(0, 40); }
     return null;
   });
   ok('the quotation can be opened from the list', !!opener, opener);
@@ -183,8 +182,9 @@ const ok = (label, cond, detail) => {
   await page.waitForTimeout(1500);
   ok('the screen says it is not found', /not found/i.test(await page.innerText('#msg-box').catch(() => '')),
     await page.innerText('#msg-box').catch(() => ''));
-  ok('and leaves you on a real screen with a real address', (await where()) === '/quotation' &&
-    (await onScreen()) === 'quote', { at: await where(), screen: await onScreen() });
+  // 2.0 has no empty quotation screen: it is All Quotations, with + New quotation.
+  ok('and leaves you on a real screen with a real address', (await where()) === '/quotations' &&
+    (await onScreen()) === 'quotations', { at: await where(), screen: await onScreen() });
   // The server answered that with an error status, which the browser logs. Correct, and
   // cleared here beside its cause so everything after is judged on its own.
   errors.length = 0;
@@ -249,8 +249,9 @@ const ok = (label, cond, detail) => {
   await signIn('priya');
   ok('a Spare Sales coordinator is not shown Compressor Sales', (await onScreen()) !== 'compressor',
     await onScreen());
+  // 2.0 opens everybody on their own dashboard.
   ok('she lands on her own first screen, and the address says so',
-    (await onScreen()) === 'enquiries' && (await where()) === '/spare-sales',
+    (await onScreen()) === 'dashboard' && (await where()) === '/dashboard',
     { at: await where(), screen: await onScreen() });
   await page.goto(base + '/settings', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
