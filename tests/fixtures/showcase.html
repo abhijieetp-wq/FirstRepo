@@ -325,6 +325,27 @@
           task("TK-2", "Send revised offer after the price decision", "neha@pie.in", "Neha Rao", "2026-10-25", "High", "overdue", "Overdue"),
           task("TK-3", "Check stock for EG22 separator before Wednesday", "sanjay@pie.in", "Sanjay Kale", "2026-10-28", "Normal", "today", "Due today")] };
     },
+    // ERP 1's compressor funnel (CompressorSales.gs), for the pipeline above 2.0's board: open
+    // opportunities at four of its stages, one won and one lost, and leads at each status.
+    listOpportunities: function () {
+      var opp = function (id, stage, value, prob, owner, overdue) {
+        return { id: id, opportunityNo: "OP2610-00" + id.slice(3), customerId: C[0].id, customerName: C[0].name, title: "Compressor for a new line",
+          stage: stage, expectedValue: value, probability: prob, weightedValue: Math.round(value * prob) / 100, ownerEmail: owner,
+          nextActionDate: overdue ? "2026-10-20" : "2026-11-05", overdue: !!overdue, quotations: [] };
+      };
+      return [opp("OP-1", "Requirement Identified", 900000, 10, "kiran@pie.in"), opp("OP-2", "Technical Discussion", 1400000, 25, "neha@pie.in", true),
+        opp("OP-3", "Technical Discussion", 600000, 25, "kiran@pie.in"), opp("OP-4", "Quotation", 2200000, 50, "anil@pie.in"),
+        opp("OP-5", "Negotiation", 1100000, 75, "neha@pie.in"), opp("OP-6", "Won", 500000, 100, "kiran@pie.in"),
+        opp("OP-7", "Lost", 700000, 0, "neha@pie.in")];
+    },
+    listLeads: function () {
+      var lead = function (id, status, owner, overdue) {
+        return { id: id, leadNo: "LD2610-01" + id.slice(3), customerName: C[1].name, status: status, ownerEmail: owner,
+          nextActionDate: overdue ? "2026-10-21" : "2026-11-03", overdue: !!overdue };
+      };
+      return [lead("LD-1", "New", "kiran@pie.in"), lead("LD-2", "New", "neha@pie.in", true), lead("LD-3", "Contacted", "kiran@pie.in"),
+        lead("LD-4", "Qualified", "anil@pie.in")];
+    },
     // ERP 2.0's enquiry board (EnquiryBoard.gs): a desk's worth of invented cards on every stage.
     getEnquiryBoard: function (opts) {
       var compressor = opts && opts.stream === "Compressor Sales";

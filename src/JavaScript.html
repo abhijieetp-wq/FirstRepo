@@ -10236,6 +10236,7 @@
 
   function ebLoad(desk) {
     var host = ebHost(desk);
+    if (desk === "compressor") cspLoad();
     if (!eb[desk].data) host.innerHTML = '<div class="empty">Loading the board…</div>';
     srv.withSuccessHandler(function (d) {
       eb[desk].data = d;
@@ -10288,7 +10289,67 @@
       '<label class="eb2-chk"><input type="checkbox" data-eb-lost="1" /> <span class="eb2-lostn">Show lost</span></label>' +
       '<span class="eb2-legend">' + ebChip("set by hand") + ebChip("moves by itself", "auto") + ebChip("goes to the owner", "sig") + "</span>" +
       '<span class="eb2-rename-slot"></span></div>' +
+      (desk === "compressor" ? '<div class="csp" data-csp="1"></div>' : "") +
       '<div class="eb-sum"></div><div class="eb2-body"></div>';
+  }
+
+  // ---- 2.0's compressor pipeline: ERP 1's Pipeline and Leads figures, above the board ----
+  // What ERP 1's Pipeline and Leads tabs summed and the board's ten stages do not: the open
+  // opportunities, their value and that value weighted by the chance of winning each, those past
+  // their next action, how many sit at each of ERP 1's opportunity stages, and the leads not yet
+  // converted, by status. It follows the board's owner filter, so "Mine" is a coordinator's own.
+  function cspLoad() {
+    var pipe = { opps: null, leads: null, failed: false };
+    var left = 2;
+    var done = function () { if (--left) return; eb.compressor.pipe = pipe; cspRender(); };
+    srv.withSuccessHandler(function (rows) { pipe.opps = rows || []; done(); })
+      .withFailureHandler(function () { pipe.opps = []; pipe.failed = true; done(); }).listOpportunities({});
+    srv.withSuccessHandler(function (rows) { pipe.leads = rows || []; done(); })
+      .withFailureHandler(function () { pipe.leads = []; pipe.failed = true; done(); }).listLeads({});
+  }
+
+  function cspRender() {
+    var host = $("eb-compressor");
+    var slot = host && host.querySelector("[data-csp]");
+    var p = eb.compressor.pipe;
+    if (!slot || !p) return;
+    if (p.failed && !p.opps.length && !p.leads.length) {
+      slot.innerHTML = '<p class="eb-note">The pipeline figures could not be loaded. The board below is unaffected.</p>';
+      return;
+    }
+    var owner = eb.compressor.owner || "";
+    var me = String((eb.compressor.data && eb.compressor.data.me) || currentUser.email || "").toLowerCase();
+    var theirs = function (r) {
+      var who = String(r.ownerEmail || "").toLowerCase();
+      return !owner || (owner === "__mine" ? who === me : who === owner);
+    };
+    var open = p.opps.filter(function (o) { return ["Won", "Lost"].indexOf(o.stage) === -1 && theirs(o); });
+    var leads = p.leads.filter(function (l) { return ["Converted", "Disqualified"].indexOf(l.status) === -1 && theirs(l); });
+    var sum = function (rows, f) { return rows.reduce(function (s, r) { return s + (Number(r[f]) || 0); }, 0); };
+    var late = open.filter(function (o) { return o.overdue; }).length;
+    var leadsLate = leads.filter(function (l) { return l.overdue; }).length;
+    var byStatus = ["New", "Contacted", "Qualified"].map(function (st) {
+      var n = leads.filter(function (l) { return l.status === st; }).length;
+      return n ? n + " " + st.toLowerCase() : "";
+    }).filter(Boolean).join(" · ");
+    var tile = function (key, label, value, sub, tone) {
+      return '<div class="qv-kpi' + (tone ? " " + tone : "") + '" data-csp-tile="' + key + '"><span class="qv-l">' + escapeHtml(label) +
+        '</span><span class="qv-v">' + escapeHtml(value) + '</span><span class="qv-s">' + escapeHtml(sub) + "</span></div>";
+    };
+    var stages = STAGES.filter(function (st) { return ["Won", "Lost"].indexOf(st) === -1; }).map(function (st) {
+      var here = open.filter(function (o) { return o.stage === st; });
+      var v = sum(here, "expectedValue");
+      return '<span class="csp-stage' + (here.length ? "" : " none") + '" data-csp-stage="' + escapeHtml(st) + '"><b>' + escapeHtml(st) + "</b> " + here.length +
+        (v ? ' <span class="csp-v">' + escapeHtml(ebLakh(v)) + "</span>" : "") + "</span>";
+    }).join("");
+    slot.innerHTML = '<div class="qv-kpis csp-kpis">' +
+      tile("open", "Open opportunities", String(open.length), "won and lost left out") +
+      tile("value", "Pipeline value", ebLakh(sum(open, "expectedValue")) || "₹0", "what they are expected to be worth") +
+      tile("weighted", "Weighted pipeline", ebLakh(sum(open, "weightedValue")) || "₹0", "value × the chance of winning each") +
+      tile("late", "Needs follow-up", String(late), late ? "next action date has passed" : "nothing past its next action", late ? "bad" : "") +
+      tile("leads", "Open leads", String(leads.length), (byStatus || "none waiting") + (leadsLate ? " · " + leadsLate + " late" : ""), leadsLate ? "sig" : "") +
+      "</div>" +
+      '<div class="csp-stages" aria-label="Open opportunities by stage">' + stages + "</div>";
   }
 
   /** The cards the toolbar's search, owner and lost box leave. */
@@ -10315,6 +10376,7 @@
     var host = ebHost(desk);
     if (!d) return;
     ebTools(desk);
+    if (desk === "compressor") cspRender();
     var cards = ebShown(desk);
     var showLost = !!eb[desk].lost;
     var allCols = d.stages.concat(showLost ? [{ key: d.closed.key, label: d.closed.label, how: "closed" }] : []);

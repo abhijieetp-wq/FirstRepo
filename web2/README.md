@@ -319,6 +319,10 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   team; and the rest of the control tower under "More figures". Everybody else gets their own desk
   in the same tiles and panels, now with a tasks panel, and ERP 1's control tower under it as
   before. Every tile and row opens where it is worked.
+- **Compressor Sales' pipeline**, above the board in Board and List: what ERP 1's Pipeline and Leads
+  tabs summed — open opportunities, pipeline value, weighted pipeline (value × the chance of winning
+  each), needs follow-up, open leads by status, and the count and value at each of ERP 1's
+  opportunity stages. It follows the board's owner filter.
 - **Light and dark** (`web2/Theme.html`, `web2/Shell.html`): a sun / moon switch in the top bar.
   Dark redefines the same tokens (the demo's dark palette), so every screen follows; it is each
   person's own choice, kept on their browser and applied in the page's head so it never flashes.
@@ -341,6 +345,8 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   demo's hero and buttons, Management's Money and Work tiles and its panels (the nine checks, the
   ageing, decisions, follow-ups across the team, tasks, AMC dues, installations), each opening
   where it is worked, and the control tower's switch in the Money row.
+- `tests/compressor-pipeline-v2-ui-test.js` — the pipeline's figures, the owner filter, the List
+  view, and ERP 1's own tabs on the other faces.
 - `tests/theme-v2-ui-test.js` — the light/dark switch: light by default, the page following,
   kept on the browser and back before the page is drawn, and not on the other faces.
 - `tests/service-desk-ui-test.js`, `tests/service-desk-sql-test.js` — the statuses read from
