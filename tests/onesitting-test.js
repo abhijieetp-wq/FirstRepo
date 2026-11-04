@@ -27,7 +27,7 @@ const sb={ console, Logger:{log(){}},
   Utilities:{formatDate:()=>'2026-10-02', getUuid:(function(){let n=0;return()=>'u'+(++n);})()} };
 vm.createContext(sb);
 for (const f of ['Auth.gs','Schema.gs','SheetService.gs','StreamAccess.gs','SalesPolicy.gs',
-                 'Pricing.gs','CompanyProfile.gs','Customers.gs'])
+                 'Pricing.gs','CompanyProfile.gs','Customers.gs','CustomerApproval.gs'])
   vm.runInContext(fs.readFileSync(`${SRC}/${f}`,'utf8'), sb, {filename:f});
 sb.getCurrentUser=()=>({email:'p@pie.in',name:'Priya',role:'Sales Coordinator',businessStream:'Spare Sales'});
 sb.requireRole_=()=>{};
