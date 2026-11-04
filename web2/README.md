@@ -146,6 +146,20 @@ spares offer's, as before. An enquiry with no type reads as Spares.
     still marks it won or lost, with ERP 1's own steps.
   - Sales work only; service sees none of it. A tile on Management's and the sales side's
     dashboards counts what waits. One new table, Escalations.
+- **New customer approval** (`src/CustomerApproval.gs`).
+  - Every new customer, added by hand or by Customers' bulk upload, is saved, usable at once and
+    marked "Pending approval" until one person approves or rejects it. Rejected means deactivated.
+  - Who approves is Settings → Users → New customer approvals, with the address their e-mail goes
+    to (a Users address need not be a mailbox). Nobody chosen, or the one chosen has left:
+    Management decide. The approver's own additions are approved as they are made.
+  - The approver gets one e-mail per customer added by hand and ONE per bulk upload listing every
+    customer it added, through Settings → Email. Its button opens `/customers?approve=<batch>`:
+    those customers, each with a tick box, and Approve ticked / Reject ticked. Mail clients
+    remove tick boxes from e-mails, so the ticking is in the ERP. A mailbox that fails never fails
+    the save; the save says so and the audit trail keeps it.
+  - The same list heads the approver's dashboard and Customers. Other Management and ERP Admin
+    see it on their dashboard as a notice. Five new Customers columns: approvalStatus,
+    approvalBatch, approvedBy, approvedAt, approvalNote. Blank means from before, and approved.
 - **Visit plans** (`src/VisitPlans.gs`), under Sales, at `/visit-plans` — only in a 2.0 menu.
   - Sales engineers plan customer visits by week (Monday to Sunday) or month: engineer, date,
     company (a customer in the master or a prospect by name), area, purpose. "+ Add" on a day,
@@ -366,6 +380,9 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/escalations-ui-test.js`, `tests/escalations-sql-test.js` — escalating a card, who answers
   and how, withdrawing, who sees what, the board and dashboard, nothing escalating by itself, no
   quotation changed, and no escalations on the other faces.
+- `tests/customer-approval-ui-test.js`, `tests/customer-approval-sql-test.js` — who decides, the
+  one e-mail per save and per upload, the batch link, approving and rejecting, the dashboard and
+  Customers lists, a mailbox that fails, and an approver renamed or gone.
 - `tests/visit-plans-ui-test.js`, `tests/visit-plans-sql-test.js` — planning, who sees whose, the
   visit report, areas, copying last week, a visit made into a lead through ERP 1's lead save, the
   dashboard tile, and no visit plans on the other faces.

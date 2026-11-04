@@ -160,7 +160,9 @@ var SCHEMA = {
     columns: ['id', 'customerCode', 'name', 'legalName', 'gstin', 'pan', 'industry', 'segment',
       'assignedSalesperson', 'territory', 'paymentTerms', 'creditLimit', 'creditDays',
       'advanceRule', 'riskStatus', 'brand', 'lastOrderDate', 'notes', 'active', 'createdAt',
-      'createdBy']
+      'createdBy',
+      // New customers wait for the approver (CustomerApproval.gs). Blank: from before that.
+      'approvalStatus', 'approvalBatch', 'approvedBy', 'approvedAt', 'approvalNote']
   },
   CustomerContacts: {
     label: 'Purchase / maintenance / accounts / owner contacts (FR-002)',

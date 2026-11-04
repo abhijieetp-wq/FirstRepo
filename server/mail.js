@@ -92,23 +92,37 @@ function buildMessage(m) {
 
   const attachments = (m.attachments || []).filter(Boolean);
   const bodyText = String(m.body === undefined || m.body === null ? '' : m.body);
-
-  if (!attachments.length) {
-    return head.concat([
-      'Content-Type: text/plain; charset=UTF-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      wrap(Buffer.from(bodyText, 'utf8').toString('base64'))
-    ]).join('\r\n') + '\r\n';
-  }
-
-  const parts = [
-    '--' + boundary,
+  const html = m.htmlBody ? String(m.htmlBody) : '';
+  const textPart = [
     'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: base64',
     '',
     wrap(Buffer.from(bodyText, 'utf8').toString('base64'))
   ];
+  // MailApp's htmlBody: the same message twice, plain text for a client that wants it and the
+  // HTML for the rest, as multipart/alternative (the last part is the preferred one).
+  let bodyPart = textPart;
+  if (html) {
+    const alt = '--erp-alt-' + crypto.randomBytes(12).toString('hex');
+    bodyPart = [
+      'Content-Type: multipart/alternative; boundary="' + alt + '"',
+      '',
+      '--' + alt
+    ].concat(textPart, [
+      '--' + alt,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      wrap(Buffer.from(html, 'utf8').toString('base64')),
+      '--' + alt + '--'
+    ]);
+  }
+
+  if (!attachments.length) {
+    return head.concat(bodyPart).join('\r\n') + '\r\n';
+  }
+
+  const parts = ['--' + boundary].concat(bodyPart);
   for (const a of attachments) {
     const bytes = typeof a.getBytes === 'function' ? a.getBytes() : a.bytes;
     const buf = Buffer.isBuffer(bytes) ? bytes

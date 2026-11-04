@@ -79,7 +79,8 @@ function commitTallyImport(kind, csvText) {
       (analysis.errors[0] ? 'First problem: ' + analysis.errors[0].message : ''));
   }
 
-  if (kind === 'Customer') commitCustomerImport_(analysis, user);
+  var approval = null;
+  if (kind === 'Customer') approval = commitCustomerImport_(analysis, user);
   else if (kind === 'OpeningStock') commitOpeningStockImport_(analysis, user);
   else if (kind === 'OpenInvoice') commitOpenInvoiceImport_(analysis, user);
   else throw new Error('Unknown import type.');
@@ -95,7 +96,8 @@ function commitTallyImport(kind, csvText) {
     updated: analysis.updated,
     rejected: analysis.errors.length,
     reconciliation: analysis.reconciliation,
-    errors: analysis.errors.slice(0, 50)
+    errors: analysis.errors.slice(0, 50),
+    approval: approval
   };
 }
 
@@ -243,6 +245,11 @@ function analyseCustomers_(rows, reader) {
 }
 
 function commitCustomerImport_(analysis, user) {
+  // Every customer the upload adds waits for the approver together, and is announced in ONE
+  // e-mail (CustomerApproval.gs), whatever the number.
+  var approver = customerApprover_();
+  var batch = generateId_('CUB-');
+  var added = [];
   for (var row of analysis.valid) {
     var record = {
       name: row.name,
@@ -268,9 +275,12 @@ function commitCustomerImport_(analysis, user) {
       record.notes = row.notes;
       record.createdAt = todayIso_();
       record.createdBy = user.email;
+      stampNewCustomer_(record, user, approver, batch);
       appendRow_('Customers', record, 'Imported from Tally');
+      added.push(record);
     }
   }
+  return added.length ? notifyNewCustomers_(added, user, approver, 'upload', batch) : null;
 }
 
 // -------------------------------------------------------------------------- opening stock

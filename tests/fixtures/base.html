@@ -129,6 +129,8 @@
       appSubtitle: "Compressor & Spare Sales", appMark: "EL", build: "test" },
 
     listCustomers: function () { return CUSTOMERS; },
+    // A Sales Coordinator sees no approvals list (CustomerApproval.gs).
+    listCustomerApprovals: { visible: false },
     // The enquiry screen asks for everything it needs in one call, which is the shape the
     // rest of the portal should be moving towards.
     spareSalesScreen: function () {

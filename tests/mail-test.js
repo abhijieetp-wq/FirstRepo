@@ -106,6 +106,32 @@ ok('typed as a PDF', report.type === 'application/pdf');
 ok('and the bytes are exactly the PDF we attached',
   report.sha === require('crypto').createHash('sha256').update(PDF).digest('hex'));
 
+console.log('\nWITH AN HTML BODY: BOTH, AS ALTERNATIVES');
+const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'erp-mail-test-'));
+const altParse = (m) => {
+  const f = path.join(tmp2, 'a.eml');
+  fs.writeFileSync(f, buildMessage(m));
+  return JSON.parse(execFileSync('python3', ['-I', '-c', `
+import email, email.policy, json, sys
+m = email.message_from_binary_file(open(sys.argv[1],'rb'), policy=email.policy.default)
+print(json.dumps({
+  'type': m.get_content_type(),
+  'plain': m.get_body(preferencelist=('plain',)).get_content(),
+  'html': m.get_body(preferencelist=('html',)).get_content(),
+  'attachments': len(list(m.iter_attachments())),
+}))
+`, f], { encoding: 'utf8' }));
+};
+const alt = altParse({ from: 'a@b.com', to: 'c@d.com', subject: 'x', body: 'Two customers ₹', htmlBody: '<p>Two <b>customers</b> ₹</p>' });
+ok('multipart/alternative', alt.type === 'multipart/alternative', alt);
+ok('the plain text for a client that wants it', alt.plain.trim() === 'Two customers ₹', alt);
+ok('and the HTML for the rest', alt.html.trim() === '<p>Two <b>customers</b> ₹</p>', alt);
+const altAtt = altParse({ from: 'a@b.com', to: 'c@d.com', subject: 'x', body: 'y', htmlBody: '<p>y</p>',
+  attachments: [{ name: 'a.pdf', mimeType: 'application/pdf', bytes: Buffer.from('%PDF') }] });
+ok('with an attachment too: mixed, holding the two and the file', altAtt.type === 'multipart/mixed' &&
+  altAtt.plain.trim() === 'y' && altAtt.html.trim() === '<p>y</p>' && altAtt.attachments === 1, altAtt);
+fs.rmSync(tmp2, { recursive: true, force: true });
+
 console.log('\nUNCONFIGURED, IT SAYS SO RATHER THAN PRETENDING');
 const silent = mailer({ settings: { url: '', user: '', password: '', from: '' } });
 let refused = '';

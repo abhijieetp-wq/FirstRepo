@@ -165,6 +165,13 @@ async function findDuplicateCustomers(input, excludeId) {
 }
 
 async function saveCustomer(input) {
+  var record = await saveCustomerRecord_(input);
+  if (record.isNew) record.approval = await notifyNewCustomers_([record], getCurrentUser(), await customerApprover_(), 'one', record.approvalBatch);
+  return record;
+}
+
+/** The save itself; a new customer is stamped for approval (CustomerApproval.gs) but not yet announced. */
+async function saveCustomerRecord_(input) {
   var user = getCurrentUser();
   requireRole_(user, CUSTOMER_EDITORS);
 
@@ -213,7 +220,9 @@ async function saveCustomer(input) {
     record.customerCode = await nextCustomerCode_();
     record.createdAt = todayIso_();
     record.createdBy = user.email;
+    stampNewCustomer_(record, user, await customerApprover_(), record.id);
     await appendRow_('Customers', record, 'Customer created');
+    record.isNew = true;
   }
   return record;
 }
@@ -237,8 +246,8 @@ async function saveCustomer(input) {
  * first line is somebody who did not have it to hand, not an empty address to be stored.
  */
 async function saveCustomerWithDetails(input) {
-  getCurrentUser();                       // saveCustomer re-checks the role properly
-  var customer = await saveCustomer((input && input.customer) || {});
+  getCurrentUser();                       // saveCustomerRecord_ re-checks the role properly
+  var customer = await saveCustomerRecord_((input && input.customer) || {});
 
   var address = (input && input.address) || null;
   if (address && String(address.line1 || '').trim()) {
@@ -257,6 +266,10 @@ async function saveCustomerWithDetails(input) {
     await saveCustomerContact(contact);
   }
 
+  // Announced once the address is in, so the approver's e-mail can say where they are.
+  if (customer.isNew) {
+    customer.approval = await notifyNewCustomers_([customer], getCurrentUser(), await customerApprover_(), 'one', customer.approvalBatch);
+  }
   return customer;
 }
 

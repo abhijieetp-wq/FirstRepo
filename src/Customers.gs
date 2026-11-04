@@ -153,6 +153,13 @@ function findDuplicateCustomers(input, excludeId) {
 }
 
 function saveCustomer(input) {
+  var record = saveCustomerRecord_(input);
+  if (record.isNew) record.approval = notifyNewCustomers_([record], getCurrentUser(), customerApprover_(), 'one', record.approvalBatch);
+  return record;
+}
+
+/** The save itself; a new customer is stamped for approval (CustomerApproval.gs) but not yet announced. */
+function saveCustomerRecord_(input) {
   var user = getCurrentUser();
   requireRole_(user, CUSTOMER_EDITORS);
 
@@ -201,7 +208,9 @@ function saveCustomer(input) {
     record.customerCode = nextCustomerCode_();
     record.createdAt = todayIso_();
     record.createdBy = user.email;
+    stampNewCustomer_(record, user, customerApprover_(), record.id);
     appendRow_('Customers', record, 'Customer created');
+    record.isNew = true;
   }
   return record;
 }
@@ -225,8 +234,8 @@ function saveCustomer(input) {
  * first line is somebody who did not have it to hand, not an empty address to be stored.
  */
 function saveCustomerWithDetails(input) {
-  getCurrentUser();                       // saveCustomer re-checks the role properly
-  var customer = saveCustomer((input && input.customer) || {});
+  getCurrentUser();                       // saveCustomerRecord_ re-checks the role properly
+  var customer = saveCustomerRecord_((input && input.customer) || {});
 
   var address = (input && input.address) || null;
   if (address && String(address.line1 || '').trim()) {
@@ -245,6 +254,10 @@ function saveCustomerWithDetails(input) {
     saveCustomerContact(contact);
   }
 
+  // Announced once the address is in, so the approver's e-mail can say where they are.
+  if (customer.isNew) {
+    customer.approval = notifyNewCustomers_([customer], getCurrentUser(), customerApprover_(), 'one', customer.approvalBatch);
+  }
   return customer;
 }
 

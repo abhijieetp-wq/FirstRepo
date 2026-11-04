@@ -21,6 +21,8 @@
  *   - Management and the sales side: a tile for escalated deals waiting for a decision
  *     (Escalations.gs).
  *   - A tile for this week's customer visits, visited of planned (VisitPlans.gs).
+ *   - New customers waiting for approval (CustomerApproval.gs), on the approver's own desk and
+ *     Management's.
  *
  * Nothing here writes. A figure is a count, a value and where to go to act on it.
  */
@@ -94,6 +96,11 @@ function getPersonDashboard(options) {
     if (kind === 'coordinator' || kind === 'salesEngineer') pdVisits_(ctx, out, kind);
   }
   pdTaskList_(ctx, out, kind === 'boss');
+  // New customers waiting (CustomerApproval.gs): the approver decides here; Management are told.
+  if (out.self) {
+    var approver = customerApprover_();
+    if (seesCustomerApprovals_(user, approver)) out.approvals = customerApprovalsFor_(user, approver, '');
+  }
 
   if (boss) {
     out.canViewAs = true;

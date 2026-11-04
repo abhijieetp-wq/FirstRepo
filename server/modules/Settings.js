@@ -114,6 +114,7 @@ async function getSettings() {
       // The credential itself never leaves the server — only whether one exists.
       hasCredential: !!props.getProperty(TALLY_PROPS.CREDENTIAL)
     },
+    customerApproval: customerApprovalSettings_(),
     system: await systemInfo_()
   };
 }

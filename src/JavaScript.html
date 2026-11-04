@@ -1840,7 +1840,7 @@
     // Bulk upload writes over the master, so it sits with the other master-data privileges.
     $("btn-customer-bulk").style.display = canRemoveFromCatalog() ? "inline-flex" : "none";
     if (!configLists) loadConfigLists();
-    if (FACE_V2) cuvLoadSummaries();
+    if (FACE_V2) { cuvLoadSummaries(); caLoad(); }
     if (customersLoaded) { renderCustomers(); return; }
     loadCustomers();
   }
@@ -1873,7 +1873,7 @@
     var host = qvHost("view-customers", "cuv-host");
     host.innerHTML = '<div class="eb2-tools cuv-tools"><input type="search" class="eb2-search cuv-search" data-cuv-q="1" placeholder="Search name, code, GSTIN, phone, city or serial" aria-label="Search customers" />' +
       '<select data-cuv-sel="seg" aria-label="Segment"></select><select data-cuv-sel="sp" aria-label="Salesperson"></select>' +
-      '<label class="eb2-chk cuv-due"><input type="checkbox" data-cuv-due="1" /> Has overdue dues</label></div><div class="cuv-body"></div>';
+      '<label class="eb2-chk cuv-due"><input type="checkbox" data-cuv-due="1" /> Has overdue dues</label></div><div class="cuv-approvals" data-ca-host="customers"></div><div class="cuv-body"></div>';
   }
 
   function cuvRender() {
@@ -1916,7 +1916,8 @@
       var open = (s.openEnquiries ? ebChip(s.openEnquiries + (s.openEnquiries === 1 ? " enquiry" : " enquiries"), "c-unit") + " " : "") +
         (s.openCalls ? ebChip(s.openCalls + (s.openCalls === 1 ? " call" : " calls"), "c-service") : "");
       return '<tr class="qv-row" data-edit-cust="' + escapeHtml(c.id) + '"><td><span class="mono">' + escapeHtml(c.customerCode || "—") + "</span></td>" +
-        "<td><b>" + escapeHtml(c.name) + "</b>" + (sub ? '<br><span class="eb2-kind">' + escapeHtml(sub) + "</span>" : "") + "</td>" +
+        "<td><b>" + escapeHtml(c.name) + "</b>" + (String(c.approvalStatus) === "Pending" ? " " + ebChip("Pending approval", "warn") : "") +
+          (sub ? '<br><span class="eb2-kind">' + escapeHtml(sub) + "</span>" : "") + "</td>" +
         '<td class="num">' + (s.machines || "—") + "</td>" +
         "<td>" + escapeHtml(c.assignedSalesperson || "—") + "</td>" +
         (cuv.money ? '<td class="num">' + owed + "</td>" : "") +
@@ -1945,6 +1946,150 @@
       cuvRender();
     });
   }
+
+  // ---- New customers waiting for approval (CustomerApproval.gs) ----
+  // One list, drawn on the approver's dashboard and at the top of Customers: each customer
+  // with a tick box, and Approve ticked / Reject ticked. Management who do not approve see it
+  // as a notice. The approver's e-mail links to /customers?approve=<batch>, which opens the
+  // customers that e-mail was about, with a way to see everybody waiting.
+  var ca = { data: null, batch: "", all: false, picked: {}, scrolled: false };
+  try {
+    var caAsked = /[?&]approve=([A-Za-z0-9_-]{1,64})/.exec(location.search || "");
+    if (caAsked) ca.batch = caAsked[1];
+  } catch (e) { /* no address to read */ }
+
+  function caLoad() {
+    srv.withSuccessHandler(function (d) { ca.data = d; ca.picked = {}; caPaint(); })
+      .withFailureHandler(function () { /* the panel is a convenience; the list still works */ })
+      .listCustomerApprovals({ batch: ca.batch });
+  }
+
+  /** A save's word on approval, for the message after it. */
+  function caSavedNote(approval) {
+    if (!approval) return "";
+    if (approval.emailed) return " It waits for approval; the approver was e-mailed.";
+    return " It waits for approval" + (approval.reason ? " (no e-mail: " + approval.reason.replace(/\.$/, "") + ")" : "") + ".";
+  }
+
+  function caRows(d, where) {
+    var rows = d.waiting || [];
+    if (where === "customers" && ca.batch && !ca.all) rows = rows.filter(function (r) { return r.batch === ca.batch; });
+    return rows;
+  }
+
+  function caPanelHtml(d, where) {
+    if (!d || !d.visible) return "";
+    var rows = caRows(d, where);
+    var fromMail = where === "customers" && ca.batch && !ca.all;
+    if (!d.count && !fromMail) return "";
+    var who = d.approver ? d.approver.name : "Management";
+    var first = d.approver ? String(d.approver.name).split(" ")[0] + "’s" : "Management’s";
+    var cap = where === "dash" ? 8 : rows.length;
+    var shown = rows.slice(0, cap);
+    var picked = shown.filter(function (r) { return ca.picked[r.id]; }).length;
+    var note = d.canDecide
+      ? "Already in use. Each shows “Pending approval” until you decide. Tick the ones to approve or reject."
+      : "Waiting for " + first + " approval. Nothing is blocked meanwhile.";
+    var batchLine = "";
+    if (where === "customers" && ca.batch) {
+      var inBatch = (d.waiting || []).filter(function (r) { return r.batch === ca.batch; }).length;
+      batchLine = '<p class="ca-batch">' + (ca.all
+        ? "Showing everybody waiting. " + '<button type="button" class="btn btn-sm" data-ca-scope="mail">Only the ones from the e-mail</button>'
+        : (inBatch ? "The " + inBatch + (inBatch === 1 ? " customer" : " customers") + " from the e-mail."
+          : "Everybody from that e-mail has been decided.") +
+          (d.count > inBatch ? ' <button type="button" class="btn btn-sm" data-ca-scope="all">Show all ' + d.count + " waiting</button>" : "")) + "</p>";
+    }
+    var list = shown.map(function (r) {
+      var sub = [r.place, r.industry, r.gstin ? "GSTIN " + r.gstin : "no GSTIN", "added by " + (r.createdByName || r.createdBy || "—") + (r.createdAt ? " on " + ebDate(r.createdAt) : "")]
+        .filter(Boolean).join(" · ");
+      return '<div class="ca-row' + (ca.picked[r.id] ? " ca-on" : "") + '">' +
+        (d.canDecide ? '<input type="checkbox" data-ca-pick="' + escapeHtml(r.id) + '"' + (ca.picked[r.id] ? " checked" : "") +
+          ' aria-label="Tick ' + escapeHtml(r.name) + '" />' : '<span class="ca-dot" aria-hidden="true"></span>') +
+        '<button type="button" class="ca-name" data-ca-open="' + escapeHtml(r.id) + '"><b>' + escapeHtml(r.name) + "</b>" +
+          (r.customerCode ? ' <span class="mono">' + escapeHtml(r.customerCode) + "</span>" : "") +
+          '<span class="ca-sub">' + escapeHtml(sub) + "</span></button></div>";
+    }).join("");
+    var more = rows.length > shown.length
+      ? '<p class="dv-note">and ' + (rows.length - shown.length) + ' more. <button type="button" class="btn btn-sm" data-ca-all-on-customers="1">Open all on Customers</button></p>' : "";
+    var acts = d.canDecide && shown.length
+      ? '<div class="ca-acts"><button type="button" class="btn btn-sm" data-ca-tick="1">' + (picked === shown.length ? "Untick all" : "Tick all") + "</button>" +
+        '<span class="ca-n">' + picked + " ticked</span>" +
+        '<button type="button" class="btn btn-sm btn-danger" data-ca-decide="Rejected"' + (picked ? "" : " disabled") + ">Reject ticked</button>" +
+        '<button type="button" class="btn btn-sm btn-primary" data-ca-decide="Approved"' + (picked ? "" : " disabled") + ">Approve ticked</button></div>"
+      : "";
+    return '<section class="dv-panel dv-wide ca-panel" data-ca-panel="' + where + '">' +
+      "<header><h2>" + (d.canDecide ? "New customers to approve" : "New customers waiting for " + escapeHtml(who)) + "</h2>" +
+        ebChip(String(d.count), d.count ? "warn" : "") + "</header>" +
+      '<div class="dv-body"><p class="dv-note ca-note">' + escapeHtml(note) + "</p>" + batchLine +
+        (list ? '<div class="ca-list">' + list + "</div>" : "") + more + acts + "</div></section>";
+  }
+
+  function caPaint() {
+    document.querySelectorAll("[data-ca-host]").forEach(function (h) {
+      h.innerHTML = caPanelHtml(ca.data, h.dataset.caHost);
+    });
+    // Arriving from the e-mail: the list is what they came for.
+    if (ca.batch && !ca.scrolled && currentView === "customers") {
+      var el = document.querySelector('[data-ca-host="customers"] .ca-panel');
+      if (el) { ca.scrolled = true; try { el.scrollIntoView({ block: "start" }); } catch (e) { /* fine */ } }
+    }
+  }
+
+  function caDecide(outcome) {
+    var where = document.querySelector('[data-ca-host="customers"] .ca-panel') && currentView === "customers" ? "customers" : "dash";
+    // Only what is on show and ticked: the dashboard shows the first eight.
+    var ids = caRows(ca.data || {}, where).slice(0, where === "dash" ? 8 : undefined)
+      .filter(function (r) { return ca.picked[r.id]; }).map(function (r) { return r.id; });
+    if (!ids.length) return;
+    var n = ids.length + (ids.length === 1 ? " customer" : " customers");
+    var approve = outcome === "Approved";
+    askDialog({
+      title: (approve ? "Approve " : "Reject ") + n + "?",
+      message: approve ? "They stop showing “Pending approval”. Your name and the time are recorded."
+        : "Rejected customers are deactivated: they leave the customer list and the pickers. Anything already raised against them stays.",
+      input: !approve, inputLabel: "Why (optional)", required: false,
+      okLabel: approve ? "Approve" : "Reject", danger: !approve
+    }, function (answer) {
+      if (answer === null) return;
+      srv.withSuccessHandler(function (res) {
+        ca.data = res;
+        ca.picked = {};
+        if (pd && pd.data) pd.data.approvals = res;
+        caPaint();
+        customersLoaded = false;
+        if (currentView === "customers") loadCustomers();
+        showMsg(res.decided + (res.decided === 1 ? " customer " : " customers ") + (approve ? "approved." : "rejected.") +
+          (res.skipped ? " " + res.skipped + " had already been decided." : ""), "success");
+      }).withFailureHandler(onServerError).decideCustomers({ ids: ids, outcome: outcome, note: approve ? "" : String(answer || ""), batch: ca.batch });
+    });
+  }
+
+  document.addEventListener("change", function (e) {
+    var box = e.target.closest("[data-ca-pick]");
+    if (!box) return;
+    ca.picked[box.dataset.caPick] = box.checked;
+    caPaint();
+  });
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-ca-tick],[data-ca-decide],[data-ca-open],[data-ca-scope],[data-ca-all-on-customers]");
+    if (!t) return;
+    if (t.dataset.caDecide) { caDecide(t.dataset.caDecide); return; }
+    if (t.dataset.caScope) { ca.all = t.dataset.caScope === "all"; ca.picked = {}; caPaint(); return; }
+    if (t.dataset.caAllOnCustomers) { ca.batch = ""; ca.all = true; goToTab("customers"); return; }
+    if (t.dataset.caOpen) {
+      var id = t.dataset.caOpen;
+      var open = function () { openCustomerModal(id); };
+      if (customersLoaded && customersCache.some(function (c) { return c.id === id; })) { open(); return; }
+      srv.withSuccessHandler(function (rows) { customersCache = rows; customersLoaded = true; open(); })
+        .withFailureHandler(onServerError).listCustomers();
+      return;
+    }
+    var host = t.closest("[data-ca-host]");
+    var rows = caRows(ca.data || {}, host ? host.dataset.caHost : "dash").slice(0, host && host.dataset.caHost === "dash" ? 8 : undefined);
+    var all = rows.every(function (r) { return ca.picked[r.id]; });
+    rows.forEach(function (r) { ca.picked[r.id] = !all; });
+    caPaint();
+  });
 
   /** Refetches the customer list, bypassing the cache flag — used after a bulk import. */
   function loadCustomers() {
@@ -2506,11 +2651,13 @@
         // working. Somebody with a second address to add reopens it from the row.
         if (!isNew || handOff || hadDetails) {
           $("customer-modal-backdrop").classList.remove("show");
-          showMsg("Customer " + saved.name + " saved.", "success");
+          showMsg("Customer " + saved.name + " saved." + caSavedNote(saved.approval), "success");
+          if (saved.approval && FACE_V2) caLoad();
           return;
         }
-        showMsg("Customer " + saved.name + " created. Add their contacts and addresses below, " +
+        showMsg("Customer " + saved.name + " created." + caSavedNote(saved.approval) + " Add their contacts and addresses below, " +
           "or press Close.", "success");
+        if (saved.approval && FACE_V2) caLoad();
       }).withFailureHandler(onServerError).listCustomers();
     }).withFailureHandler(onServerError);
 
@@ -16189,7 +16336,10 @@
     } else {
       panels = d.lists.map(pdListPanel);
     }
-    html += '<div class="dv-cols">' + panels.join("") + (d.team ? pdTeam(d) : "") + "</div>";
+    // New customers waiting (CustomerApproval.gs), first: the approver decides here.
+    if (d.approvals) { ca.data = d.approvals; ca.picked = {}; }
+    var approvals = d.self && d.approvals && d.approvals.count ? '<div class="ca-dash" data-ca-host="dash">' + caPanelHtml(d.approvals, "dash") + "</div>" : "";
+    html += approvals + '<div class="dv-cols">' + panels.join("") + (d.team ? pdTeam(d) : "") + "</div>";
     host.innerHTML = html;
     pdSyncTower(d);
     if (dashData) renderTowerBody();
@@ -16850,12 +17000,13 @@
     $("set-panel").innerHTML = panelCard(
       "Users",
       "This list decides who gets in and what they may do. People sign in with the username " +
-        "here and a password you set. The address is not a login and nothing is ever sent to " +
-        "it — it is how the records know whose work is whose, so it need not be a real " +
+        "here and a password you set. The address is not a login and nothing is sent to it " +
+        "(except the new-customer approval e-mail, when no other address is given below) — it " +
+        "is how the records know whose work is whose, so it need not be a real " +
         "mailbox, and since offers now carry the letterhead address it reaches no customer " +
         "either.",
       '<button class="btn btn-primary btn-sm" id="btn-add-user">+ Add User</button>',
-      body);
+      body) + approverCard();
 
     $("btn-add-user").addEventListener("click", function () { openUserModal(null); });
     $("set-panel").querySelectorAll("[data-user]").forEach(function (btn) {
@@ -16867,6 +17018,40 @@
     $("set-panel").querySelectorAll("[data-user-email]").forEach(function (btn) {
       btn.addEventListener("click", function () { changeAddressFor(btn.dataset.userEmail); });
     });
+    $("btn-save-approver").addEventListener("click", function () {
+      srv.withSuccessHandler(function (saved) {
+        setData.customerApproval = saved;
+        renderUsersPanel();
+        showMsg(saved.approver ? "New customers now go to " + userLabel(saved.approver) + " for approval." :
+          "No approver: Management decide on new customers.", "success");
+      }).withFailureHandler(onServerError).saveCustomerApprover({ email: $("ca-approver").value, mailTo: $("ca-mailto").value.trim() });
+    });
+  }
+
+  function userLabel(email) {
+    var u = (setData.users || []).filter(function (x) { return String(x.email).toLowerCase() === String(email).toLowerCase(); })[0];
+    return u ? u.name : email;
+  }
+
+  /** Who approves new customers (CustomerApproval.gs), and where their e-mail goes. */
+  function approverCard() {
+    var cfg = setData.customerApproval || { approver: "", mailTo: "" };
+    var people = (setData.users || []).filter(function (u) { return String(u.active).toUpperCase() !== "FALSE"; });
+    var opts = '<option value="">Nobody chosen: Management decide</option>' + people.map(function (u) {
+      return '<option value="' + escapeHtml(u.email) + '"' + (String(u.email).toLowerCase() === String(cfg.approver).toLowerCase() ? " selected" : "") + ">" +
+        escapeHtml(u.name + " · " + u.role) + "</option>";
+    }).join("");
+    return '<div id="set-approver">' + panelCard("New customer approvals",
+      "Every new customer, added by hand or by a bulk upload, waits for this person to approve or reject it. " +
+        "It can be used meanwhile. They get an e-mail (one per bulk upload, listing every customer) and the list on their dashboard. " +
+        "Management see the list on theirs. A rejected customer is deactivated.",
+      "",
+      '<div class="grid grid-2"><div class="field"><label>Approver</label><select id="ca-approver">' + opts + "</select></div>" +
+        '<div class="field"><label>Send the e-mail to</label><input id="ca-mailto" type="email" value="' + escapeHtml(cfg.mailTo || "") +
+        '" placeholder="Their address in Users, unless you type another" /></div></div>' +
+        '<p class="hint" style="margin:6px 0 10px;">Addresses in Users need not be real mailboxes; if theirs is not, put the one they read here. ' +
+        "The e-mail goes through Settings → Email.</p>" +
+        '<button class="btn btn-primary btn-sm" id="btn-save-approver">Save</button>') + "</div>";
   }
 
   /**
@@ -17591,7 +17776,11 @@
       var kind = $("ti-kind").value;
       srv.withSuccessHandler(function (result) {
         showMsg(result.imported + " row(s) imported from " + importFileName +
-          (result.rejected ? ", " + result.rejected + " rejected." : "."), "success");
+          (result.rejected ? ", " + result.rejected + " rejected." : ".") +
+          (result.approval ? " The " + result.created + " new customer(s) wait for approval" +
+            (result.approval.emailed ? "; the approver was sent one e-mail listing them all." : result.approval.reason ? " (no e-mail: " + result.approval.reason.replace(/\.$/, "") + ")." : ".") : ""),
+          "success");
+        if (kind === "Customer" && FACE_V2) caLoad();
         $("tallyimport-modal-backdrop").classList.remove("show");
         clearImportFile();
         // Refresh whichever screen asked for the import.

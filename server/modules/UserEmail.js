@@ -245,6 +245,7 @@ async function changeUserEmail(input) {
     }
 
     total += await rewriteUserEmailColumn_('Users', 'email', plan.oldEmail, plan.newEmail);
+    renameCustomerApprover_(plan.oldEmail, plan.newEmail);
 
     // Sessions carry the address and the cache carries the user built from it, so a live
     // session would go on asking for a row that no longer answers to that name. Ending them is

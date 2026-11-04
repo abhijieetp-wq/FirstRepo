@@ -86,6 +86,8 @@ run_ui "board-extras-ui-test.js" tests/board-extras-ui-test.js "$tmp/base-v2.htm
 run_ui "dashboard-extras-ui-test.js" tests/dashboard-extras-ui-test.js "$tmp/base-v2.html"
 # And the form builder: fields of your own on each form.
 run_ui "form-fields-ui-test.js" tests/form-fields-ui-test.js "$tmp/base-v2.html"
+# And new customers waiting for the approver: dashboard, Customers, the e-mail's batch, Settings.
+run_ui "customer-approval-ui-test.js" tests/customer-approval-ui-test.js "$tmp/show-v2.html"
 # And the Ask bar: a request in plain words, read by Claude, done only once ticked.
 run_ui "ai-commands-ui-test.js" tests/ai-commands-ui-test.js "$tmp/base-v2.html"
 
