@@ -145,73 +145,36 @@ const ok = (label, cond, detail) => {
   const posted = await post('/fonts/inter-latin-var.woff2', {});
   ok('and a POST to it is not a thing', posted.status === 404, posted.status);
 
-  console.log('\nAND IT WEARS THE NEW DESIGN, WITH THE OLD ONE A SWITCH AWAY');
-  // The new design is web/Stylesheet.html and web/Shell.html over the same markup and
-  // behaviour. ERP_UI=classic serves exactly what Apps Script serves, from the same files,
-  // so the new look can be switched off in a minute without a deployment.
-  ok('the page carries the new shell', /function buildPalette/.test(page.text));
-  ok('and the new stylesheet, not the one Apps Script serves',
-    /\.ws-bar\{/.test(page.text) && !/fonts\.googleapis\.com\/css2/.test(page.text));
-  ok('and the heading face it names is here to be fetched',
-    (await fetch(base + '/fonts/jakarta-latin-var.woff2')).status === 200);
-  const classicServer = build({ db, tenant: TENANT, ui: 'classic' });
-  await new Promise((r) => classicServer.listen(0, '127.0.0.1', r));
-  const classic = await (await fetch('http://127.0.0.1:' + classicServer.address().port + '/')).text();
-  await new Promise((r) => classicServer.close(r));
-  ok('switched to classic, the shell is gone', !/function buildPalette/.test(classic));
-  ok('and the stylesheet is the one Apps Script serves, byte for byte',
-    classic.indexOf(fs.readFileSync(path.join(__dirname, '..', 'src', 'Stylesheet.html'), 'utf8')) !== -1);
-  ok('with the same behaviour underneath', classic.indexOf(
-    fs.readFileSync(path.join(__dirname, '..', 'src', 'JavaScript.html'), 'utf8')) !== -1 &&
-    page.text.indexOf(fs.readFileSync(path.join(__dirname, '..', 'src', 'JavaScript.html'), 'utf8')) !== -1);
-
-  console.log('\nAND ERP 2.0 IS A THIRD LOOK OVER THE SAME PORTAL');
+  console.log('\nAND IT WEARS ERP 2.0, THE ONLY LOOK');
+  // 2.0 is web/Stylesheet.html and web/Shell.html with web2/ on top, over the same markup and
+  // behaviour. The looks before it were retired: nothing chooses them any more.
   const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
   const is2 = (html) => html.indexOf(read('web2/Theme.html')) !== -1 && html.indexOf(read('web2/Shell.html')) !== -1;
-  ok('not served unless asked for', !is2(page.text));
-  const v2Server = build({ db, tenant: TENANT, ui: 'v2' });
-  await new Promise((r) => v2Server.listen(0, '127.0.0.1', r));
-  const v2Base = 'http://127.0.0.1:' + v2Server.address().port;
-  const v2 = await (await fetch(v2Base + '/')).text();
-  ok('ERP_UI=v2 serves its theme and its shell', is2(v2));
-  ok('over the new design and the same behaviour, byte for byte', v2.indexOf(read('web/Stylesheet.html')) !== -1 &&
-    v2.indexOf(read('web/Shell.html')) !== -1 && v2.indexOf(read('src/JavaScript.html')) !== -1);
-  ok('the theme after the stylesheet, so its tokens win', v2.indexOf(read('web2/Theme.html')) > v2.indexOf(read('web/Stylesheet.html')));
-  ok('the 2.0 shell after the shell it builds on', v2.indexOf(read('web2/Shell.html')) > v2.indexOf(read('web/Shell.html')));
-  ok('and the health check says which look', JSON.parse(await (await fetch(v2Base + '/health')).text()).look === 'v2');
-  // What JavaScript.html reads for the few things only 2.0 has (the SDR rows worked in place).
-  ok('the page says which face it is', /<html data-face="v2"/.test(v2) && /<html data-face="web"/.test(page.text) &&
-    /<html data-face="classic"/.test(classic));
-  ok('a choice kept while 2.0 was being previewed no longer holds a browser on the old look',
-    is2(await (await fetch(v2Base + '/', { headers: { cookie: 'erp_look=web' } })).text()));
-  await new Promise((r) => v2Server.close(r));
-  for (const typed of [' V2 ', '"v2"', '2.0']) {
-    const loose = build({ db, tenant: TENANT, ui: typed });
-    await new Promise((r) => loose.listen(0, '127.0.0.1', r));
-    const lb = 'http://127.0.0.1:' + loose.address().port;
-    ok('ERP_UI typed as ' + JSON.stringify(typed) + ' still means 2.0', is2(await (await fetch(lb + '/')).text()) &&
-      JSON.parse(await (await fetch(lb + '/health')).text()).look === 'v2');
-    await new Promise((r) => loose.close(r));
+  ok('the page is 2.0: its theme and its shell', is2(page.text) && /<html data-face="v2"/.test(page.text));
+  ok('over the design it builds on and the same behaviour, byte for byte', page.text.indexOf(read('web/Stylesheet.html')) !== -1 &&
+    page.text.indexOf(read('web/Shell.html')) !== -1 && page.text.indexOf(read('src/JavaScript.html')) !== -1);
+  ok('the theme after the stylesheet, so its tokens win', page.text.indexOf(read('web2/Theme.html')) > page.text.indexOf(read('web/Stylesheet.html')));
+  ok('the 2.0 shell after the shell it builds on', page.text.indexOf(read('web2/Shell.html')) > page.text.indexOf(read('web/Shell.html')));
+  ok('and never the stylesheet Apps Script served', page.text.indexOf(read('src/Stylesheet.html')) === -1 &&
+    !/fonts\.googleapis\.com\/css2/.test(page.text));
+  ok('the health check says so', JSON.parse(await (await fetch(base + '/health')).text()).look === 'v2');
+  for (const ui of ['classic', 'web', ' V2 ']) {
+    const old = build({ db, tenant: TENANT, ui });
+    await new Promise((r) => old.listen(0, '127.0.0.1', r));
+    ok('ERP_UI=' + JSON.stringify(ui) + ' chooses nothing: still 2.0', is2(await (await fetch('http://127.0.0.1:' + old.address().port + '/')).text()));
+    await new Promise((r) => old.close(r));
   }
-  const fonts2 = await Promise.all(['archivo-latin-var', 'plexsans-latin-400', 'plexsans-latin-500', 'plexsans-latin-600',
-    'plexsans-latin-700'].map((n) => fetch(base + '/fonts/' + n + '.woff2').then((r) => r.status)));
-  ok('the faces 2.0 names are here to be fetched', fonts2.every((x) => x === 200), fonts2);
-
-  console.log('\nAND ONE BROWSER CAN TRY IT WITHOUT ANYBODY ELSE SEEING IT');
-  const tried = await fetch(base + '/quotations?look=2');
-  const cookie = tried.headers.get('set-cookie') || '';
-  ok('?look=2 serves 2.0', is2(await tried.text()));
-  ok('and remembers it for this browser only', /^erp_look2=v2;/.test(cookie) && /HttpOnly/.test(cookie) &&
-    /SameSite=Lax/.test(cookie) && /Path=\//.test(cookie), cookie);
-  ok('the next page in that browser is 2.0 too', is2(await (await fetch(base + '/customers', { headers: { cookie: 'erp_look2=v2' } })).text()));
-  ok('another browser still gets the current look', !is2(await (await fetch(base + '/customers')).text()));
-  const back = await fetch(base + '/?look=web', { headers: { cookie: 'erp_look2=v2' } });
-  ok('?look=web goes back', !is2(await back.text()) && /^erp_look2=web;/.test(back.headers.get('set-cookie') || ''));
-  const forget = await fetch(base + '/?look=default', { headers: { cookie: 'erp_look2=v2' } });
-  ok('?look=default forgets the choice', !is2(await forget.text()) && /Max-Age=0/.test(forget.headers.get('set-cookie') || ''),
-    forget.headers.get('set-cookie'));
-  ok('a cookie naming no look is ignored', !is2(await (await fetch(base + '/', { headers: { cookie: 'erp_look2=<script>' } })).text()));
-  ok('and the same address with no ?look sets nothing', !(await fetch(base + '/')).headers.get('set-cookie'));
+  for (const look of ['web', 'classic', 'default']) {
+    ok('?look=' + look + ' chooses nothing either', is2(await (await fetch(base + '/quotations?look=' + look)).text()));
+  }
+  const kept = await fetch(base + '/customers', { headers: { cookie: 'erp_look2=web; erp_look=classic' } });
+  const cleared = kept.headers.get('set-cookie') || '';
+  ok('a look a browser kept from before is cleared, and it gets 2.0', is2(await kept.text()) &&
+    /erp_look2=;[^,]*Max-Age=0/.test(cleared) && /erp_look=;[^,]*Max-Age=0/.test(cleared), cleared);
+  ok('and a browser with none is told nothing', !(await fetch(base + '/')).headers.get('set-cookie'));
+  ok('the heading faces 2.0 names are here to be fetched', (await Promise.all(['archivo-latin-var', 'plexsans-latin-400',
+    'plexsans-latin-500', 'plexsans-latin-600', 'plexsans-latin-700'].map((n) => fetch(base + '/fonts/' + n + '.woff2')
+    .then((r) => r.status)))).every((x) => x === 200));
 
   console.log('\nAND SIGNING IN WORKS');
   const login = await post('/api/login', { username: 'boss', password });

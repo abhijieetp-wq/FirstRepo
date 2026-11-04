@@ -1,6 +1,10 @@
 # The new design
 
-The portal has two faces over the same markup and the same behaviour:
+**Retired as a look of its own.** ERP 2.0 (`web2/`) is the portal's only look and is built on
+these two files, so they stay and every change to them shows in 2.0. What follows describes how
+they were served before 2.0; `ERP_UI` and `?look=` no longer choose a face.
+
+The portal had two faces over the same markup and the same behaviour:
 
 | face | who serves it | files |
 |---|---|---|
@@ -29,11 +33,7 @@ costs a decoration, never a screen.
 
 ## Switching back
 
-```
-ERP_UI=classic node server/index.js
-```
-
-serves exactly what Apps Script serves. No deployment, nothing lost; unset it to return.
+No longer possible by a setting: the server serves ERP 2.0 only. Redeploy an older commit to go back.
 
 ## Looking at it without a database
 

@@ -76,11 +76,10 @@ const ok = (label, cond, detail) => {
   ok('and the command palette finds it as SDR', found.some((t) => t.indexOf('SDR') === 0) && !found.some((t) => /Service Due/.test(t)), found);
   await page.keyboard.press('Escape');
 
-  console.log('\nTHE MARK AND THE WAY BACK');
+  console.log('\nTHE MARK, AND NO WAY BACK TO A RETIRED LOOK');
   ok('"2.0" beside the app’s name', (await text('#app-name .v2-tag')) === '2.0');
   ok('the name itself is the company’s', /ELGi Sales ERP/.test(await text('#app-name')), await text('#app-name'));
-  const back = await page.evaluate(() => { const a = document.querySelector('.topbar .v2-back'); return a ? { href: a.getAttribute('href'), t: a.textContent } : null; });
-  ok('a way back to the current look at the foot of the menu', back && back.href === '?look=web' && /current look/.test(back.t), back);
+  ok('no link back to the old looks: 2.0 is the only one', !(await page.$('.v2-back')) && !(await page.$('a[href*="look="]')));
 
   console.log('\nNOTHING OF ERP 1 IS LOST UNDER IT');
   await go('catalog');

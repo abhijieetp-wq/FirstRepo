@@ -10,7 +10,6 @@
  *   - names the Service Due Calls screen "SDR", as PIE asked for 2.0: in the menu, on the
  *     screen's heading, in the breadcrumb and in the browser tab;
  *   - marks the app's name "2.0";
- *   - puts a way back to the current look at the foot of the menu, for anyone previewing;
  *   - adds the light/dark switch to the top bar. The choice is the person's, kept on their
  *     browser (localStorage "erp.theme"); web2/Theme.html applies it before the page is drawn.
  *
@@ -98,16 +97,6 @@
     }
   }
 
-  function addWayBack() {
-    var bar = document.querySelector(".topbar");
-    if (!bar || document.querySelector(".v2-back")) return;
-    var a = document.createElement("a");
-    a.className = "v2-back";
-    a.href = "?look=web";
-    a.textContent = "Back to the current look";
-    bar.appendChild(a);
-  }
-
   var SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
   var MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -176,7 +165,6 @@
     if (name) new MutationObserver(soon).observe(name, { childList: true });
     var title = document.querySelector("title");
     if (title) new MutationObserver(soon).observe(title, { childList: true, characterData: true, subtree: true });
-    addWayBack();
     addThemeSwitch();
     soon();
   });

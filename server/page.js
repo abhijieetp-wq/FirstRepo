@@ -5,7 +5,12 @@
  * — Apps Script's templating, evaluated server-side before the page is sent. There is no Apps
  * Script here, so the same substitution happens in this file.
  *
- * TWO FACES, ONE PORTAL. The markup and the 10,900 lines of behaviour are the live files in
+ * ERP 2.0 IS THE ONLY FACE NOW. The 'web' and 'classic' faces below were retired once 2.0 had
+ * everything they had; render() serves 'v2' whatever it is asked for. 2.0 is still built in
+ * layers — src/, then web/Stylesheet.html and web/Shell.html, then web2/ — so those files all
+ * stay. src/Stylesheet.html is what Apps Script served, kept with the frozen Apps Script project.
+ *
+ * TWO FACES, ONE PORTAL (as it was). The markup and the 10,900 lines of behaviour are the live files in
  * src/, shared with Apps Script, because a second copy of either is a second copy that drifts.
  * What differs is how it looks:
  *
@@ -95,13 +100,13 @@ function assemble(ui) {
 
 /**
  * @param vars     what doGet set on the template: title, googlePass.
- * @param options  { ui: 'web' | 'classic' | 'v2', inject: html placed after the stylesheet }
+ * @param options  { inject: html placed after the stylesheet } — the face is always 'v2'
  * @return         { html, warnings, ui }
  */
 function render(vars, options) {
   const v = vars || {};
   const o = options || {};
-  const ui = UIS.indexOf(o.ui) !== -1 ? o.ui : 'web';
+  const ui = 'v2';
 
   // A function rather than a string as the replacement, here and below: a string replacement
   // reads `$&` and `$'` inside it as instructions, so a fixture or a company name containing

@@ -64,8 +64,6 @@ const BUILD = (() => {
  * was being written, and it cost twenty minutes of testing the previous version of the code
  * without realising it.
  */
-/** What ERP_UI and ?look= may name, each to a face. */
-const LOOK_NAMES = { 2: 'v2', '2.0': 'v2', v2: 'v2', web: 'web', current: 'web', classic: 'classic' };
 
 function build(options) {
   const o = options || {};
@@ -128,16 +126,11 @@ function build(options) {
   }) : undefined));
 
   /**
-   * Which face of the portal to serve. The new design by default; ERP_UI=classic serves
-   * exactly what Apps Script serves, from the same files, and ERP_UI=v2 serves ERP 2.0's look
-   * to everyone. Same behaviour in all three — only the stylesheet and the shell differ — so
-   * this is a way to switch a look on or off in a minute, without a deployment and without
-   * losing anything. One browser can also choose for itself (lookFor), which is how 2.0 is
-   * looked at on the live portal before anyone else sees it.
+   * ERP 2.0 is the portal's only look. The two before it — the Apps Script design and the new
+   * design 2.0 was drawn over — were retired once 2.0 had everything they had, so ERP_UI and
+   * ?look= no longer choose anything (server/page.js).
    */
-  // Read loosely: " V2 ", "2.0" or a value pasted with quotes round it all mean 2.0.
-  const asked = LOOK_NAMES[String(o.ui || process.env.ERP_UI || '').trim().replace(/^["']|["']$/g, '').trim().toLowerCase()];
-  const ui = asked || 'web';
+  const ui = 'v2';
 
   /**
    * Attachments and e-mail.
@@ -325,28 +318,15 @@ function failed(res, err, where) {
  * is reading the log at three in the afternoon wondering what broke.
  */
 /**
- * The face one browser has asked for, if any.
- *
- * `?look=2` on any address shows ERP 2.0's look and remembers it for this browser; `?look=web`
- * or `?look=classic` one of the others; `?look=default` forgets the choice and goes back to
- * whatever the server serves everyone. Nobody else's screen changes, which is what lets 2.0 be
- * tried on the live portal by one person at a time. The cookie names a look and nothing else —
- * every face is the same portal with the same permissions — so it carries no risk if forged.
+ * The cookies the retired look switch left in browsers (?look=, "Back to the current look"),
+ * to be cleared. They choose nothing now; clearing them keeps a stale one from looking as if
+ * it did.
  */
-// Renamed when 2.0 became the look everyone gets: a choice a browser kept while 2.0 was being
-// previewed ("Back to the current look") would otherwise hold it on the old look for a year.
-const LOOK_COOKIE = 'erp_look2';
-function lookFor(req, url, serverDefault) {
-  const tail = '; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly';
-  const want = url.searchParams.get('look');
-  if (want !== null) {
-    const look = LOOK_NAMES[String(want).trim().toLowerCase()];
-    if (look) return { ui: look, cookie: LOOK_COOKIE + '=' + look + tail };
-    return { ui: serverDefault, cookie: LOOK_COOKIE + '=' + tail.replace('Max-Age=31536000', 'Max-Age=0') };
-  }
-  const kept = new RegExp('(?:^|;\\s*)' + LOOK_COOKIE + '=([a-z0-9]+)').exec(String(req.headers.cookie || ''));
-  const look = kept && ['web', 'classic', 'v2'].indexOf(kept[1]) !== -1 ? kept[1] : '';
-  return { ui: look || serverDefault, cookie: '' };
+const OLD_LOOK_COOKIES = ['erp_look', 'erp_look2'];
+function staleLookCookies(req) {
+  const jar = String(req.headers.cookie || '');
+  return OLD_LOOK_COOKIES.filter((name) => new RegExp('(?:^|;\\s*)' + name + '=').test(jar))
+    .map((name) => name + '=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly');
 }
 
 function statusFor(message) {
@@ -399,9 +379,9 @@ function statusFor(message) {
           // it is logged and the portal is served, which leaves the password in front of it.
           console.error('[page] ' + (err && err.message));
         }
-        const look = lookFor(req, url, ui);
-        if (look.cookie) res.setHeader('Set-Cookie', look.cookie);
-        const page = render({ title, googlePass }, { ui: look.ui });
+        const stale = staleLookCookies(req);
+        if (stale.length) res.setHeader('Set-Cookie', stale);
+        const page = render({ title, googlePass }, { ui });
         if (page.warnings.length) {
           console.error('Template tags the renderer does not understand: ' +
             page.warnings.join(' '));
@@ -926,10 +906,8 @@ if (require.main === module) {
       ? 'Gmail, as ' + server.gmail.status().sender
       : server.smtpReady ? 'SMTP mailbox'
         : 'not connected — Settings \u2192 Email \u2192 Connect Gmail to send quotations')));
-    console.log('  look:     ' + (server.ui === 'classic'
-      ? 'classic (ERP_UI=classic) — the Apps Script design'
-      : server.ui === 'v2' ? 'ERP 2.0 (ERP_UI=v2)' : 'the new design') +
-      ' — one browser can try another with ?look=2, ?look=web or ?look=classic');
+    console.log('  look:     ERP 2.0' + (process.env.ERP_UI
+      ? ' (ERP_UI is set but no longer chooses anything — it can be deleted)' : ''));
     console.log('  database: ' +
       String(process.env.DATABASE_URL).replace(/:[^:@/]*@/, ':****@'));
   });

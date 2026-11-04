@@ -9,10 +9,10 @@
  * the thing under test is the real client, not a copy of it that has drifted.
  *
  *   node tests/build-preview.js tests/fixtures/base.html /tmp/preview.html [googlePass]
- *        [--ui=classic|web|v2] [--title="ELGi Sales ERP"]
+ *        [--title="ELGi Sales ERP"]
  *
- * --ui=classic (the default) is exactly what Apps Script serves. --ui=web is the Node server's
- * face: the same markup and behaviour, dressed by web/Stylesheet.html and web/Shell.html.
+ * Always ERP 2.0's face, the portal's only one (server/page.js). --ui=... from older commands
+ * is accepted and ignored.
  *
  * The googlePass argument stands in for a browser arriving back from Google's sign-in; doGet
  * fills that scriptlet in, and so does this.
@@ -31,7 +31,8 @@ for (const a of process.argv.slice(2)) {
 const fixture = fs.readFileSync(positional[0], 'utf8');
 const outPath = positional[1];
 const pass = positional[2] || '';
-const ui = flags.ui === 'web' || flags.ui === 'v2' ? flags.ui : 'classic';
+// ERP 2.0 is the only face (server/page.js); --ui is accepted and ignored.
+const ui = 'v2';
 
 const page = render({ title: flags.title || 'ERP', googlePass: pass }, { ui, inject: fixture });
 if (page.warnings.length) {

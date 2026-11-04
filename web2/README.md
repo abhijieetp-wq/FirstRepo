@@ -1,12 +1,17 @@
 # ERP 2.0
 
-ERP 2.0 is a third face of the same portal, built screen by screen over ERP 1:
+ERP 2.0 is the portal's only look, built screen by screen over ERP 1:
 
-| face | files |
+| layer | files |
 |---|---|
-| **2.0** (`v2`) | `web/Stylesheet.html` + **`web2/Theme.html`**, `src/JavaScript.html`, `web/Shell.html` + **`web2/Shell.html`** |
-| new design (`web`, the default) | `web/Stylesheet.html`, `src/JavaScript.html`, `web/Shell.html` |
-| classic | `src/` only — what Apps Script serves |
+| ERP 1's markup and behaviour | `src/Index.html`, `src/JavaScript.html`, the server |
+| the design 2.0 is drawn over | `web/Stylesheet.html`, `web/Shell.html` |
+| **2.0** | **`web2/Theme.html`**, **`web2/Shell.html`** |
+
+The two looks before it — the new design on its own, and the classic look Apps Script served —
+were retired once 2.0 had everything they had (`server/page.js` serves 2.0 whatever it is asked
+for). Their layers stay because 2.0 is built on them; `src/Stylesheet.html` stays with the frozen
+Apps Script project.
 
 Same markup, same behaviour, same server. Every screen, rule, permission, bulk import and
 printed or e-mailed quotation is ERP 1's own; 2.0 changes how it looks and, screen by screen
@@ -14,10 +19,9 @@ from here, how it is laid out. Nothing in `web2/` can reach Apps Script (`clasp`
 
 ## Switching it on
 
-- **One browser:** add `?look=2` to any address. That browser keeps 2.0 until `?look=web`
-  (back to the new design) or `?look=default` (whatever the server serves everyone). Nobody
-  else's screen changes. The menu has a "Back to the current look" link at its foot.
-- **Everyone:** `ERP_UI=v2`. Unset it to go back. No deployment of code either way.
+It is always on. `ERP_UI` and `?look=` no longer choose anything, and the cookie a browser kept
+from the "Back to the current look" link is cleared on its next visit. Going back to an older
+look now means redeploying an older commit.
 
 ## What is in each file
 
@@ -405,4 +409,4 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
 - `tests/service-due-sql-test.js`, `tests/offer-kind-sql-test.js` — the remark, the type, and
   the AMC renewal and service headings on the printed offer.
 - `tests/run.sh` runs every screen suite against the 2.0 face as well as the other two.
-- `tests/server-test.js` — `ERP_UI=v2`, `?look=`, and the cookie.
+- `tests/server-test.js` — 2.0 served to everyone whatever `ERP_UI` or `?look=` say, and the old look cookies cleared.

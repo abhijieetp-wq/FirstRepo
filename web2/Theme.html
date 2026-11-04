@@ -667,6 +667,9 @@
   .amc-table td.empty{ text-align:center; color:var(--eb-muted); padding:24px; }
   .amc-row{ cursor:pointer; }
   .amc-m-foot{ display:flex; gap:10px; align-items:center; margin-top:20px; }
+  /* At the foot of a window it stays put while the form scrolls, as ERP 1's button rows do. */
+  .modal > .amc-m-foot:last-child{ position:sticky; bottom:0; z-index:5; margin:auto -30px 0; padding:16px 30px;
+    background:rgba(255,255,255,.94); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); border-top:1px solid var(--gray-150); }
   .amc-visits{ width:100%; font-size:13px; }
   .amc-visits td, .amc-visits th{ padding:6px 8px; }
 
@@ -868,10 +871,6 @@
   .brand-text h1 .v2-tag{ display:inline-block; flex:none; width:auto; overflow:visible; margin-left:6px; padding:0 6px; border-radius:5px;
     font:700 10px/1.5 var(--font-sans); letter-spacing:.04em; color:#08200B; background:var(--brand-400);
     vertical-align:1px; }
-  .v2-back{ display:block; margin:8px 8px 0; padding:7px 10px; border-radius:6px; text-align:center;
-    font:500 12px/1.3 var(--font-sans); color:var(--night-200) !important; text-decoration:none !important;
-    border:1px dashed rgba(255,255,255,.18); }
-  .v2-back:hover{ color:#fff !important; border-color:var(--brand-400); }
 
   /* ---- the light/dark switch in the top bar (web2/Shell.html) ---- */
   .v2-theme{ display:grid; place-items:center; flex:none; width:40px; height:40px; padding:0; cursor:pointer;
@@ -932,7 +931,8 @@
   :root[data-theme="dark"] .btn-danger{ border-color:var(--bad-200); }
   :root[data-theme="dark"] .field input:hover, :root[data-theme="dark"] .field select:hover, :root[data-theme="dark"] .field textarea:hover{ border-color:var(--gray-300); }
   :root[data-theme="dark"] .page-ico{ background:var(--brand-50); box-shadow:none; }
-  :root[data-theme="dark"] .modal > h3:first-child, :root[data-theme="dark"] .modal-actions{ background:rgba(18,32,18,.94); }
+  :root[data-theme="dark"] .modal > h3:first-child, :root[data-theme="dark"] .modal-actions,
+  :root[data-theme="dark"] .modal > .amc-m-foot:last-child{ background:rgba(18,32,18,.94); }
   :root[data-theme="dark"] .modal-backdrop{ background:rgba(0,0,0,.55); }
   :root[data-theme="dark"] .kpi-card.alert{ background:linear-gradient(180deg, var(--bad-50), var(--gray-0)); }
   :root[data-theme="dark"] .kpi-ico-2, :root[data-theme="dark"] .kpi-ico-3, :root[data-theme="dark"] .kpi-ico-4{ border-color:var(--gray-200); }

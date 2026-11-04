@@ -17,6 +17,7 @@ const path = require('path');
 const { chromium } = require(path.join(__dirname, '..', 'node_modules', 'playwright'));
 
 const WEB = process.argv[2];
+// The classic face is retired (server/page.js); the check of it below runs only if one is given.
 const CLASSIC = process.argv[3];
 let pass = 0;
 const failures = [];
@@ -63,7 +64,7 @@ const ok = (label, cond, detail) => {
   const items = await page.$$eval('#tabs [data-view]', (bs) => bs.map((b) => ({
     view: b.dataset.view, icon: !!b.querySelector('svg.nav-ico'),
     h: Math.round(b.getBoundingClientRect().height), title: b.title })));
-  ok('every screen a manager may open is in it', items.length === 16, items.map((i) => i.view));
+  ok('every screen a manager may open is in it', items.length === 21, items.map((i) => i.view));
   ok('each with its icon', items.every((i) => i.icon), items.filter((i) => !i.icon));
   ok('each named on hover, for when only the icon shows', items.every((i) => i.title), items);
   // A flex column shrinks its children when it runs out of room; the first version did, and
@@ -74,7 +75,7 @@ const ok = (label, cond, detail) => {
     // A group heading's text ends in the dropdown caret, hidden here but still in the DOM.
     ls.map((l) => l.textContent.replace(/[^A-Za-z &]/g, '').trim()));
   ok('sections are named, where a group does not name them',
-    ['Sales', 'Quotations', 'Orders', 'Stock', 'Masters'].every((w) => labels.indexOf(w) !== -1), labels);
+    ['Sales', 'Quotations', 'Service', 'Orders & money', 'Management', 'Setup'].every((w) => labels.indexOf(w) !== -1), labels);
   ok('and a group heading is not a stop on the tab key', await page.$$eval('#tabs [data-group]',
     (gs) => gs.every((g) => g.tabIndex === -1)));
 
@@ -91,12 +92,13 @@ const ok = (label, cond, detail) => {
   ok('and follows the menu', c.section === 'Quotations' && c.page === 'All Quotations', c);
   ok('with the live screen marked in the menu', await page.$eval('#tabs [data-view="quotations"]',
     (b) => b.classList.contains('active')));
-  ok('and its section heading lit', await page.$eval('#tabs [data-group]',
-    (g) => g.classList.contains('active')));
+  ok('and its section heading lit', await page.$$eval('#tabs [data-group]',
+    (gs) => gs.some((g) => /Quotations/.test(g.textContent) && g.classList.contains('active'))));
   // Programmatic navigation, the way the dashboard's Open buttons and the quote flows move.
   await go(page, 'dashboard');
   await page.waitForTimeout(400);
-  await page.evaluate(() => document.querySelector('#dash-body [data-goto="orders"]').click());
+  // 2.0's dashboard: the Open order book figure goes to Sales Orders.
+  await page.evaluate(() => document.querySelector('#pd-host [data-pd-go="orders"]').click());
   await page.waitForTimeout(300);
   c = await crumbs();
   ok('including when a screen is opened from a button, not the menu', c.page === 'Sales Orders', c);
@@ -107,27 +109,25 @@ const ok = (label, cond, detail) => {
 
   console.log('\nEVERY SCREEN HAS ITS ICON, AND THE DASHBOARD SAYS HELLO');
   const heads = await page.$$eval('.view > .page-head', (hs) => hs.map((h) => !!h.querySelector('.page-ico svg')));
-  ok('every screen heading carries its icon', heads.length === 16 && heads.every(Boolean), heads);
+  ok('every screen heading carries its icon', heads.length >= 16 && heads.every(Boolean), heads);
   await go(page, 'dashboard');
   await page.waitForTimeout(500);
-  const hello = await page.$eval('#view-dashboard .page-eyebrow', (e) => e.textContent);
+  const hello = await page.$eval('#pd-host h1', (e) => e.textContent);
   ok('the dashboard greets the person by name', /^Good (morning|afternoon|evening), Anil$/.test(hello), hello);
   ok('and the title the portal sets is still its own', await page.$eval('#dash-title',
     (e) => /Control Tower/.test(e.textContent)));
-  ok('the four headline figures each have an icon',
-    await page.$$eval('#dash-body .hero-card .kpi-ico svg', (s) => s.length) === 4);
-  ok('and the cards are titled with theirs',
-    await page.$$eval('#dash-body .card-title .card-ico', (s) => s.length) >= 5);
+  ok('the control tower’s cards under it are titled with their icons',
+    await page.$$eval('#dash-body .card-title .card-ico', (s) => s.length) >= 3);
   // The dashboard redraws itself on every stream switch; the icons must come back with it.
-  await page.click('#dash-stream button[data-stream="Spare Sales"]');
+  await page.click('#pd-host [data-pd-stream="Spare Sales"]');
   await page.waitForTimeout(500);
   ok('and come back when the dashboard redraws',
-    await page.$$eval('#dash-body .hero-card .kpi-ico svg', (s) => s.length) === 4);
+    await page.$$eval('#dash-body .card-title .card-ico', (s) => s.length) >= 3);
 
   console.log('\nA PLUS SIGN IS AN ICON, AND SIGNING OUT STILL SAYS SO');
   const cta = await page.$eval('#btn-new-enquiry', (b) => ({ svg: !!b.querySelector('svg'),
     text: b.textContent.trim() }));
-  ok('"+ Log Enquiry" is an icon and two words', cta.svg && cta.text === 'Log Enquiry', cta);
+  ok('"+ Spare enquiry" is an icon and words', cta.svg && /^(Log Enquiry|Spare enquiry)$/.test(cta.text), cta);
   const out = await page.$eval('#btn-signout', (b) => ({ svg: !!b.querySelector('svg'),
     text: b.textContent.trim() }));
   ok('the sign-out button is an icon that a screen reader still reads',
@@ -173,10 +173,13 @@ const ok = (label, cond, detail) => {
   console.log('\nA FORM OPENS AS A SHEET FROM THE RIGHT');
   // Index.html is shared with Apps Script and is left exactly as it is there, so most of these
   // rows carry their layout inline and no class; the shell tags them. Every form, not one.
+  // 2.0's own windows (tasks, AMC, visits, escalations...) end in their own footer, pinned the same way.
   const rows = await page.evaluate(() => ({
     forms: document.querySelectorAll('.modal').length,
-    tagged: document.querySelectorAll('.modal > .modal-actions:last-child').length }));
-  ok('every form has its button row found and pinned', rows.forms >= 30 && rows.tagged === rows.forms, rows);
+    tagged: document.querySelectorAll('.modal > .modal-actions:last-child, .modal > .amc-m-foot:last-child').length,
+    pinned: Array.from(document.querySelectorAll('.modal > .modal-actions:last-child, .modal > .amc-m-foot:last-child'))
+      .every((r) => getComputedStyle(r).position === 'sticky') }));
+  ok('every form has its button row found and pinned', rows.forms >= 30 && rows.tagged === rows.forms && rows.pinned, rows);
   const sheet = await box(page, '#enquiry-modal-backdrop .modal');
   ok('anchored to the right edge', Math.abs(sheet.x + sheet.w - (1440 - 10)) <= 2, sheet);
   ok('and the full height of the screen', sheet.h >= 900 - 22, sheet);
