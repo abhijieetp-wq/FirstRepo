@@ -85,10 +85,8 @@ const ok = (label, cond, detail) => {
       await page.$eval('#amc-mode [data-amc-mode="due"]', (b) => b.getAttribute('aria-pressed')) === 'true' &&
       !!(await page.$('#amc-body .eb-chip.bad')) && /106 days late/.test(rows[0]) && /in 8 days/.test(rows[1]) &&
       /Make call/.test(await page.textContent('[data-amc-call="AMV-2"]')) && /Open call/.test(await page.textContent('[data-amc-job="SVJ-9"]')), rows);
-    await page.evaluate(() => { window.__calls = []; });
-    await page.selectOption('#amc-window', '7');
-    await page.waitForTimeout(300);
-    ok('the window is the server’s to apply', JSON.stringify(await lastCall('listAmc')) === JSON.stringify([{ window: 7 }]));
+    ok('the next 45 days, as the demo lists them, with nothing to pick or search',
+      JSON.stringify(await lastCall('listAmc')) === JSON.stringify([{ window: 45 }]) && !(await page.$('#amc-window')) && !(await page.$('#amc-search')));
     await page.click('[data-amc-call="AMV-2"]');
     await page.waitForTimeout(400);
     ok('a due visit becomes a service job with one press', JSON.stringify(await lastCall('makeAmcVisitCall')) === '["AMV-2"]' &&
@@ -97,7 +95,9 @@ const ok = (label, cond, detail) => {
     console.log('\nCONTRACTS');
     await page.click('[data-amc-mode="contracts"]');
     await page.waitForTimeout(200);
-    ok('the list, with value, visits done and the next', (await page.$$('#amc-body tbody tr')).length === 2 &&
+    ok('the demo’s columns', (await page.$$eval('#amc-body thead th', (t) => t.map((x) => x.textContent))).join('|') ===
+      'Customer|Machine|Type|Period|Value a year|Visits done|State');
+    ok('the list, with value and visits done', (await page.$$('#amc-body tbody tr')).length === 2 &&
       /₹64,000/.test(await page.textContent('#amc-body')) && /1 of 4/.test(await page.textContent('#amc-body')));
     await page.click('[data-amc-contract="AMC-1"]');
     await page.waitForTimeout(500);

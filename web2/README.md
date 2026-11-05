@@ -99,7 +99,8 @@ spares offer's, as before. An enquiry with no type reads as Spares.
     service is four visits, the last on the final day), running hours, contact, area, value a
     year. Saving lays out the visits; changing the schedule lays out again only the visits
     nobody has made a job of. Edit and delete; a contract with a visit made into a job stays.
-  - Visits due within 7, 15, 30 or 60 days, and every overdue one. "Make service job" turns a
+  - Visits due in the next 45 days, and every overdue one, as the demo lists them (no window to
+    pick and no search box). "Make service job" turns a
     visit into a job (type AMC visit) in the Service Jobs queue; the visit reads its state from
     that job — Call made, Done when the job is closed, Due again if it is cancelled.
   - Renewals: contracts ending within 60 days. "Prepare renewal quotation" logs an AMC renewal

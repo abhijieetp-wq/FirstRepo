@@ -33,7 +33,7 @@
 var AMC_TYPES = ['Comprehensive', 'Non-comprehensive', 'Labour only', 'Service reminder'];
 var AMC_EDITORS = [ROLES.SERVICE_COORDINATOR, ROLES.SALES_COORDINATOR, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
 /** How far ahead "due" looks, in days. ERP 2 offered these four. */
-var AMC_WINDOWS = [7, 15, 30, 60];
+var AMC_WINDOWS = [7, 15, 30, 45, 60];   // the 2.0 page asks for 45, as the demo lists
 var AMC_RENEWAL_DAYS = 60;
 
 function amcActive_(row) { return String(row.active).toUpperCase() !== 'FALSE'; }

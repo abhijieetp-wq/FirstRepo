@@ -6769,7 +6769,8 @@
   // ================= AMC (2.0) =================
   // ERP 2.0's AMC contracts and the visits they promise (Amc.gs). A screen of its own, on the
   // 2.0 face only: the other faces have no AMC and do not offer it.
-  var amc = { data: null, mode: "due", window: 30, open: null, machines: [] };
+  // Visits due in the next 45 days, as the 2.0 demo lists them: no window to pick, no search.
+  var amc = { data: null, mode: "due", window: 45, open: null, machines: [] };
 
   if (FACE_V2 && !$("view-amc")) {
     (function () {
@@ -6783,9 +6784,7 @@
         '<div id="amc-kpis" class="qv-kpis amc-kpis"></div>' +
         '<div class="eb2-tools amc-bar"><div class="eb2-seg" id="amc-mode" role="group" aria-label="Show">' +
           '<button type="button" data-amc-mode="due">Visits due</button><button type="button" data-amc-mode="contracts">Contracts</button>' +
-          '<button type="button" data-amc-mode="renewals">Renewals</button></div>' +
-          '<label class="amc-window" id="amc-window-wrap">Due within <select id="amc-window"></select></label>' +
-          '<input type="search" class="eb2-search" id="amc-search" placeholder="Search customer, machine, contract or area" aria-label="Search AMC" /></div>' +
+          '<button type="button" data-amc-mode="renewals">Renewals</button></div></div>' +
         '<div class="qv-table amc-table"><div id="amc-body"></div></div>';
       var after = $("view-service");
       after.parentNode.insertBefore(view, after.nextSibling);
@@ -6820,9 +6819,6 @@
     srv.withSuccessHandler(function (d) {
       amc.data = d;
       $("btn-new-amc").style.display = d.canEdit ? "" : "none";
-      $("amc-window").innerHTML = d.windows.map(function (w) {
-        return '<option value="' + w + '"' + (w === d.window ? " selected" : "") + ">" + w + " days</option>";
-      }).join("");
       renderAmc();
       sdvStrip("amc");
     }).withFailureHandler(onServerError).listAmc({ window: amc.window });
@@ -6846,11 +6842,7 @@
         t[1] + '</span><span class="qv-s">' + escapeHtml(t[2]) + "</span></div>";
     }).join("");
     $("amc-mode").querySelectorAll("[data-amc-mode]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.amcMode === amc.mode)); });
-    $("amc-window-wrap").style.display = amc.mode === "due" ? "" : "none";
-    var q = ($("amc-search").value || "").trim().toLowerCase();
-    var hit = function (r) {
-      return !q || [r.customerName, r.machineModel, r.serialNo, r.contractNo, r.area, r.amcType].join(" ").toLowerCase().indexOf(q) !== -1;
-    };
+    var hit = function () { return true; };
     var html = "";
     if (amc.mode === "due") {
       var rows = d.dues.filter(hit);
@@ -6873,7 +6865,7 @@
     } else if (amc.mode === "contracts") {
       var cs = d.contracts.filter(hit);
       html = '<table><thead><tr><th>Customer</th><th>Machine</th><th>Type</th><th>Period</th>' +
-        (d.money ? '<th class="num">Value a year</th>' : "") + '<th>Visits done</th><th>Next visit</th><th>State</th></tr></thead><tbody>' +
+        (d.money ? '<th class="num">Value a year</th>' : "") + '<th>Visits done</th><th>State</th></tr></thead><tbody>' +
         (cs.length ? cs.map(function (c) {
           var tone = /^Ends/.test(c.state) ? "sig" : c.state === "Ended" ? "bad" : "good";
           return '<tr class="amc-row qv-row" data-amc-contract="' + escapeHtml(c.id) + '">' +
@@ -6884,9 +6876,8 @@
             '<td class="amc-due">' + (c.endDate ? escapeHtml(ebDay(c.startDate)) + " – " + escapeHtml(ebDay(c.endDate, true)) : "from " + escapeHtml(ebDay(c.startDate, true))) + "</td>" +
             (d.money ? '<td class="num">' + escapeHtml(amcMoney(c.contractValue)) + "</td>" : "") +
             "<td>" + c.visitsDone + " of " + c.visitsTotal + "</td>" +
-            '<td class="amc-due">' + escapeHtml(c.nextVisit ? ebDay(c.nextVisit, true) : "—") + "</td>" +
             "<td>" + ebChip(c.state, tone) + "</td></tr>";
-        }).join("") : '<tr><td colspan="8" class="empty">No AMC contracts yet' + (d.canEdit ? " — add the first with + AMC contract." : ".") + "</td></tr>") +
+        }).join("") : '<tr><td colspan="7" class="empty">No AMC contracts yet' + (d.canEdit ? " — add the first with + AMC contract." : ".") + "</td></tr>") +
         "</tbody></table>";
     } else {
       var rs = d.renewals.filter(hit);
@@ -6914,8 +6905,6 @@
       var b = e.target.closest("[data-amc-mode]");
       if (b) { amc.mode = b.dataset.amcMode; renderAmc(); }
     });
-    $("amc-window").addEventListener("change", function () { amc.window = Number($("amc-window").value); loadAmc(); });
-    $("amc-search").addEventListener("input", renderAmc);
     $("amc-body").addEventListener("click", function (e) {
       var call = e.target.closest("[data-amc-call]");
       if (call) {
