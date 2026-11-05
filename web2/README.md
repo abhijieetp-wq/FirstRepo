@@ -316,9 +316,9 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   Next-day plan — with the same strip under the AMC and next-day screens' headings, so the three read
   as one page; Tomorrow's plan and + Service call; five totals (open calls, breakdowns open with those
   over 24 hours, installations to do, reports in and not closed, closed this month with the average
-  days to close); the six call types, engineer, status, Local / Outstation and search; and every
+  days to close); the six call types, engineer, status and search, as the demo has them; and every
   call in one table (call, type, customer and area, machine and what is wrong, opened, engineer,
-  visit and how often it moved, status). A row opens the same job window. Engineer reports is the
+  visit, status); how often a visit moved, and why, is in the job window. A row opens it. Engineer reports is the
   calls whose report is in, waiting for the coordinator. A service engineer sees their own calls.
 - **The menu as the 2.0 demo lays it out**: Dashboard; Sales (Compressor Sales, Spare Sales, SDR,
   Visit Plans); Quotations (All Quotations, Quotation Progress); Service (Service Desk, AMC & Dues —

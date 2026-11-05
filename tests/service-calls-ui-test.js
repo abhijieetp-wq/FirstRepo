@@ -103,16 +103,10 @@ const ok = (label, cond, detail) => {
       sent.scopeText === 'Change the separator element' && /logged as Spare change/.test(await msg()), sent);
 
     console.log('\nTHE LIST');
-    ok('each call’s area, and how often it moved', /Wardha · Outstation/.test(await page.textContent('#sdv-tbody')) && /moved 1×/.test(await page.textContent('#sdv-tbody')));
+    ok('each call’s area; how often it moved is left to the call, as in the demo', /Wardha · Outstation/.test(await page.textContent('#sdv-tbody')) &&
+      !/moved 1×/.test(await page.textContent('#sdv-tbody')));
     ok('the new call types to filter by', (await page.$$eval('#sdv-host [data-sdv-type]', (o) => o.map((x) => x.dataset.sdvType))).filter((x) => ['Regular service', 'Spare change', 'Commissioning'].indexOf(x) !== -1).length === 3);
-    await page.selectOption('#sdv-host [data-sdv-sel="area"]', 'Local');
-    await page.waitForTimeout(200);
-    const local = await page.$$eval('#sdv-tbody tr[data-open-job]', (r) => r.map((x) => x.textContent));
-    ok('only the local calls', local.length === 1 && /SVJ-J2/.test(local[0]), local);
-    await page.selectOption('#sdv-host [data-sdv-sel="area"]', 'Outstation');
-    await page.waitForTimeout(200);
-    ok('or the outstation ones', (await page.$$eval('#sdv-tbody tr[data-open-job]', (r) => r.map((x) => x.textContent))).every((t) => /SVJ-J1/.test(t)));
-    await page.selectOption('#sdv-host [data-sdv-sel="area"]', '');
+    ok('no Local / Outstation dropdown on the list: the demo has none', !(await page.$('#sdv-host [data-sdv-sel="area"]')));
 
     console.log('\nTHE JOB WINDOW');
     await page.click('[data-open-job="J1"]');

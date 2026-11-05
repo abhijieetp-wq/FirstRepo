@@ -200,6 +200,28 @@ const call = (id, extra) => Object.assign({
     const prep2 = await lastCall('prepareServiceDueQuotation');
     ok('and sends it', prep2 && prep2[0] === '2' && prep2[1] === 'Service', prep2);
 
+    console.log('\nTHE REMARK, IN THE CALL WINDOW TOO');
+    await page.evaluate(() => { document.querySelectorAll('.modal-backdrop.show').forEach((m) => m.classList.remove('show')); });
+    await page.evaluate(() => document.querySelector('#sdc-tbody tr[data-sdc="1"] td:nth-child(2)').click());
+    await page.waitForTimeout(500);
+    ok('a Remark box, saying what it is for', await open() &&
+      (await page.evaluate(() => document.getElementById('sdc-call-notes').closest('.field').querySelector('label').textContent.trim())) === 'Remark' &&
+      (await page.getAttribute('#sdc-call-notes', 'placeholder')) === 'Anything the next caller should know');
+    await page.fill('#sdc-call-notes', 'Ask for the maintenance head');
+    await page.evaluate(() => { window.__calls = []; });
+    await page.click('#btn-sdc-save-call');
+    await page.waitForTimeout(400);
+    const winRemark = (await lastCall('saveServiceDueCall') || [])[0] || {};
+    ok('saved on its own, before anybody has rung', winRemark.id === '1' && winRemark.callNotes === 'Ask for the maintenance head' &&
+      winRemark.callResponse === undefined && winRemark.callDate === undefined, winRemark);
+    ok('and said so, in the window', /Remark saved/.test(await page.textContent('#sdc-msg')));
+    await page.evaluate(() => { document.querySelectorAll('.modal-backdrop.show').forEach((m) => m.classList.remove('show')); });
+    await page.evaluate(() => document.querySelector('#sdc-tbody tr[data-sdc="3"] td:nth-child(2)').click());
+    await page.waitForTimeout(500);
+    ok('a closed call shows its remark, and it can still be added to', (await page.inputValue('#sdc-call-notes')) === 'Old remark' &&
+      !(await page.$eval('#sdc-call-notes', (i) => i.disabled)) && await page.$eval('#sdc-call-response', (i) => i.disabled));
+    await page.evaluate(() => { document.querySelectorAll('.modal-backdrop.show').forEach((m) => m.classList.remove('show')); });
+
     console.log('\nTHE ENQUIRY FORM');
     ok('asks what the quotation will be for', JSON.stringify(await page.$$eval('#em-type option', (o) => o.map((x) => x.value))) ===
       '["Spares","AMC renewal","Service"]');

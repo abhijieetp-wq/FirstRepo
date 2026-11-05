@@ -1,7 +1,7 @@
 /**
  * ERP 2.0's Service Desk, as the 2.0 demo draws it, in a browser against the real client: the
  * four tabs (Calls, Engineer reports, AMC and dues, Next-day plan) on all three screens; the
- * five totals; the call types, engineer, status, area and search; the table; a row opening the
+ * five totals; the call types, engineer, status and search; the table; a row opening the
  * job; Tomorrow's plan and + Service call. The other faces keep ERP 1's Service Jobs list.
  *
  *   node tests/build-preview.js tests/fixtures/showcase.html /tmp/show-v2.html --ui=v2
@@ -66,7 +66,7 @@ const ok = (label, cond, detail) => {
     ok('a breakdown open a day is marked', await page.$eval('#sdv-tbody tr', (r) => r.classList.contains('sdv-hot')));
     const second = await page.$eval('#sdv-tbody tr:nth-child(2)', (r) => r.innerText.replace(/\s+/g, ' '));
     ok('the engineer by name, the visit, and a visit today says so', /Sagar Raut/.test(second) && /29 Oct 10:00/.test(second) && /Visit today/.test(second), second);
-    ok('a moved visit says how often', /moved 1×/.test(await page.$eval('#sdv-tbody tr:nth-child(3)', (r) => r.innerText)));
+    ok('the visit as the demo shows it: day and time, nothing more', !/moved/.test(await page.$eval('#sdv-tbody tr:nth-child(3)', (r) => r.innerText)));
 
     console.log('\nTHE FILTERS');
     ok('the six call types, and all', (await page.$$eval('#sdv-host [data-sdv-type]', (b) => b.map((x) => x.textContent))).join('|') ===
@@ -85,9 +85,8 @@ const ok = (label, cond, detail) => {
     await pick('status', 'Closed');
     ok('a status, closed ones too', JSON.stringify(await rows()) === '["SVJ2610-024","SVJ2610-023"]', await rows());
     await pick('status', 'open');
-    await pick('area', 'Outstation');
-    ok('outstation calls', JSON.stringify(await rows()) === '["SVJ2610-029","SVJ2610-028","SVJ2610-025"]', await rows());
-    await pick('area', '');
+    ok('the demo’s toolbar: types, engineer, status and search, and no area dropdown',
+      (await page.$$eval('#sdv-host .sdv-tools select', (s) => s.map((x) => x.dataset.sdvSel))).join() === 'eng,status');
     await page.fill('#sdv-host [data-sdv-q]', 'godavari');
     await page.waitForTimeout(150);
     ok('search, keeping the box', JSON.stringify(await rows()) === '["SVJ2610-029","SVJ2610-028"]' && await page.evaluate(() => document.activeElement.matches('[data-sdv-q]')));

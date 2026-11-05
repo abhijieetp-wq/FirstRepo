@@ -6058,7 +6058,6 @@
       (sdvMine() ? "" : '<select data-sdv-sel="eng" aria-label="Engineer"></select>') +
       '<select data-sdv-sel="status" aria-label="Status"><option value="open">Open calls</option>' +
         SDV_STATUSES.map(function (x) { return '<option value="' + x + '">' + x + "</option>"; }).join("") + '<option value="all">All calls</option></select>' +
-      '<select data-sdv-sel="area" aria-label="Local or outstation"><option value="">Local and outstation</option><option value="Local">Local</option><option value="Outstation">Outstation</option></select>' +
       '<input type="search" class="eb2-search" data-sdv-q="1" placeholder="Search call, customer or serial" aria-label="Search calls" /></div>' +
       '<div class="sdv-body"></div>';
     // The engineers to pick from: everybody who is one, and anybody on a call.
@@ -6112,7 +6111,6 @@
       engSel.value = sdv.eng;
     }
     tools.querySelector('[data-sdv-sel="status"]').value = sdv.status;
-    tools.querySelector('[data-sdv-sel="area"]').value = sdv.area;
 
     var q = String(sdv.q || "").trim().toLowerCase();
     var rows = all.filter(function (j) {
@@ -6122,7 +6120,6 @@
       if (sdv.eng && sdv.eng !== "__none" && who !== sdv.eng) return false;
       if (sdv.status === "open" && !sdvOpen(j)) return false;
       if (sdv.status !== "open" && sdv.status !== "all" && j.deskStatus !== sdv.status) return false;
-      if (sdv.area && j.areaType !== sdv.area) return false;
       if (q && [j.jobNo, j.customerName, j.serialNo, j.machineModel, j.engineerName, j.engineerEmail, j.scopeText, j.area].join(" ").toLowerCase().indexOf(q) === -1) return false;
       return true;
     }).sort(function (a, b) {
@@ -6145,8 +6142,8 @@
           (source ? '<br><span class="eb2-kind">' + escapeHtml(source) + "</span>" : "") + "</td>" +
         '<td class="' + (hot ? "qv-late" : "") + '">' + escapeHtml(ebDay(j.date)) + (hot ? " · " + age * 24 + " h" : "") + "</td>" +
         "<td>" + (j.engineerEmail ? escapeHtml(j.engineerName || j.engineerEmail) : '<span class="eb2-kind">—</span>') + "</td>" +
-        "<td>" + (j.scheduledDate ? escapeHtml(ebDay(j.scheduledDate) + (j.scheduledTime ? " " + j.scheduledTime : "")) : "—") +
-          (j.rescheduleCount ? '<br><span class="eb2-kind">moved ' + j.rescheduleCount + "×</span>" : "") + "</td>" +
+        // How often a visit moved, and why, is in the call; the list keeps to the demo's columns.
+        "<td>" + (j.scheduledDate ? escapeHtml(ebDay(j.scheduledDate) + (j.scheduledTime ? " " + j.scheduledTime : "")) : "—") + "</td>" +
         "<td>" + ebChip(sdvStatusText(j), sdvStatusTone(j)) + "</td></tr>";
     }).join("");
     host.querySelector(".sdv-body").innerHTML = '<div class="qv-table sdv-table"><table><thead><tr><th>Call</th><th>Type</th><th>Customer</th>' +
@@ -11663,9 +11660,11 @@
     }).join("");
     $("sdc-call-response").value = c.callResponse || "";
     $("sdc-call-notes").value = c.callNotes || "";
-    ["sdc-call-date", "sdc-call-contact", "sdc-call-response", "sdc-call-notes"].forEach(function (id) {
+    ["sdc-call-date", "sdc-call-contact", "sdc-call-response"].forEach(function (id) {
       $(id).disabled = closed;
     });
+    // The remark, as on the row: anybody who works the list may write it, called or not, open or closed.
+    $("sdc-call-notes").disabled = d.canEdit === false;
 
     // The quotation.
     if (c.quotationId) {
@@ -11823,7 +11822,11 @@
   $("btn-sdc-save-call").addEventListener("click", function () {
     var c = sdc.open;
     var input = { id: c.id, customerId: $("sdc-customer").value, ownerEmail: $("sdc-owner-pick").value };
-    if (!c.outcome && $("sdc-call-response").value) {
+    // The call is logged when something about it changed (or it is to cover the other machines);
+    // a remark alone is kept on its own, as the row's box keeps it.
+    var callChanged = $("sdc-call-response").value !== (c.callResponse || "") || $("sdc-call-date").value !== (c.callDate || "") ||
+      $("sdc-call-contact").value.trim() !== (c.contactName || "") || ($("sdc-siblings") && $("sdc-siblings").checked);
+    if (!c.outcome && $("sdc-call-response").value && callChanged) {
       input.callDate = $("sdc-call-date").value;
       input.callResponse = $("sdc-call-response").value;
       input.callNotes = $("sdc-call-notes").value;
@@ -11831,8 +11834,12 @@
       var match = (c.contacts || []).filter(function (p) { return p.name === input.contactName; })[0];
       input.contactId = match ? match.id : "";
       input.alsoIds = sdcAlsoIds();
+    } else if ($("sdc-call-notes").value !== (c.callNotes || "")) {
+      // No call to log: the remark on its own, as the row's box saves it.
+      input.callNotes = $("sdc-call-notes").value;
     }
-    sdcRun(function (h) { h.saveServiceDueCall(input); }, input.callResponse ? "Call saved." : "Saved.");
+    sdcRun(function (h) { h.saveServiceDueCall(input); }, input.callResponse ? "Call saved." :
+      input.callNotes !== undefined ? "Remark saved." : "Saved.");
   });
 
   $("btn-sdc-fu-add").addEventListener("click", function () {
