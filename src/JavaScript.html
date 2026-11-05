@@ -17044,7 +17044,7 @@
         "record knows whose work it is, so each person needs their own. Leave it blank when adding " +
         "somebody and one is made from the username. Nothing is ever sent to it.",
       '<button class="btn btn-primary btn-sm" id="btn-add-user">+ Add User</button>',
-      body) + approverCard();
+      erpIdBanner() + body) + approverCard();
 
     $("btn-add-user").addEventListener("click", function () { openUserModal(null); });
     $("set-panel").querySelectorAll("[data-user]").forEach(function (btn) {
@@ -17056,6 +17056,7 @@
     $("set-panel").querySelectorAll("[data-user-email]").forEach(function (btn) {
       btn.addEventListener("click", function () { changeAddressFor(btn.dataset.userEmail); });
     });
+    if ($("btn-erpid-all")) $("btn-erpid-all").addEventListener("click", erpIdCleanup);
     $("btn-save-approver").addEventListener("click", function () {
       srv.withSuccessHandler(function (saved) {
         setData.customerApproval = saved;
@@ -17069,6 +17070,54 @@
   function userLabel(email) {
     var u = (setData.users || []).filter(function (x) { return String(x.email).toLowerCase() === String(email).toLowerCase(); })[0];
     return u ? u.name : email;
+  }
+
+  // ---- Everybody onto an ERP ID of their own (UserEmail.gs, applyErpIdCleanup) ----
+  var ERP_ID_SUFFIX = "@pie.invalid";
+  function erpIdPending() {
+    return (setData.users || []).filter(function (u) {
+      var e = String(u.email || "").trim().toLowerCase();
+      return e && e.slice(-ERP_ID_SUFFIX.length) !== ERP_ID_SUFFIX;
+    });
+  }
+
+  /** Above the list, while anybody is still known by an e-mail address. Only ERP Admin can move them. */
+  function erpIdBanner() {
+    var left = erpIdPending();
+    if (!left.length || currentUser.role !== "ERP Admin") return "";
+    return '<div class="erpid-banner"><div><b>' + left.length + (left.length === 1 ? " person is" : " people are") +
+      " still known by an e-mail address.</b> Give each their own ERP ID (e.g. " + escapeHtml((left[0].username || "name") + ERP_ID_SUFFIX) +
+      "), with everything they have done. You see the list before anything changes.</div>" +
+      '<button class="btn btn-primary btn-sm" id="btn-erpid-all" type="button">Give them ERP IDs…</button></div>';
+  }
+
+  function erpIdCleanup() {
+    srv.withSuccessHandler(function (plan) {
+      var people = plan.people || [];
+      if (!people.length) { showMsg("Everybody already has an ERP ID.", "success"); return; }
+      var self = people.some(function (p) { return p.isSelf; });
+      var lines = people.map(function (p) {
+        return "• " + p.name + (p.active ? "" : " (inactive)") + ": " + p.oldEmail + " → " + p.newEmail +
+          " (" + p.records + (p.records === 1 ? " record" : " records") + ")";
+      }).join("\n");
+      askDialog({
+        title: "Give " + people.length + (people.length === 1 ? " person" : " people") + " an ERP ID?",
+        message: lines + "\n\nEverything each person has done moves with them, the audit log too. " +
+          "Their usernames and passwords stay the same; everybody moved is signed out and signs in again." +
+          (self ? " That includes you: you will be signed out at the end." : ""),
+        okLabel: "Change " + people.length, danger: true
+      }, function (go) {
+        if (go === null) return;
+        showMsg("Moving " + people.length + (people.length === 1 ? " person" : " people") + "…", "info", true);
+        srv.withSuccessHandler(function (r) {
+          var done = r.changed.length + (r.changed.length === 1 ? " person now has" : " people now have") + " an ERP ID." +
+            (r.keptInbox ? " The new-customer approval e-mail still goes to " + r.keptInbox + "." : "");
+          if (r.selfChanged) { signOut(); showSignIn(done + " Sign in again with your username and password."); return; }
+          loadSettings();
+          showMsg(done, "success");
+        }).withFailureHandler(onServerError).applyErpIdCleanup({ people: people.map(function (p) { return { userId: p.userId, newEmail: p.newEmail }; }) });
+      });
+    }).withFailureHandler(onServerError).previewErpIdCleanup();
   }
 
   /** Who approves new customers (CustomerApproval.gs), and where their e-mail goes. */

@@ -169,6 +169,9 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   sent to. A person added with none gets one made from their username at `pie.invalid` (a domain
   reserved never to receive mail), and a blank username comes from their first name. Each person
   needs their own; the shared office Gmail belongs in Letterhead and Settings → Email, not on a user.
+  Users shows ERP Admin "Give them ERP IDs…" while anybody is still on an e-mail address: the list
+  of who goes from what to what, then each moved with all their work as "Change ERP ID" does
+  (`applyErpIdCleanup`, UserEmail.gs). The approver of new customers keeps their inbox.
 - **Visit plans** (`src/VisitPlans.gs`), under Sales, at `/visit-plans` — only in a 2.0 menu.
   - Sales engineers plan customer visits by week (Monday to Sunday) or month: engineer, date,
     company (a customer in the master or a prospect by name), area, purpose. "+ Add" on a day,
@@ -393,7 +396,7 @@ ERP 1 column of the gap audit is the checklist. The quotation that is printed or
   one e-mail per save and per upload, the batch link, approving and rejecting, the dashboard and
   Customers lists, a mailbox that fails, and an approver renamed or gone.
 - `tests/users-erp-id-sql-test.js` — ERP IDs and usernames made for a person left blank, each
-  person's own, checked when typed, kept on an edit.
+  person's own, checked when typed, kept on an edit; and everybody moved onto one at once.
 - `tests/visit-plans-ui-test.js`, `tests/visit-plans-sql-test.js` — planning, who sees whose, the
   visit report, areas, copying last week, a visit made into a lead through ERP 1's lead save, the
   dashboard tile, and no visit plans on the other faces.

@@ -78,6 +78,13 @@ const seed = (mode) => {
     return s;
   };
   window.__data.saveCustomerApprover = (input) => ({ approver: input.email, mailTo: input.mailTo });
+  // ERP Admin, moving everybody still on an e-mail address onto an ERP ID (UserEmail.gs).
+  if (mode === 'admin') window.__data.bootstrap = Object.assign({}, window.__data.bootstrap, { role: 'ERP Admin' });
+  window.__data.previewErpIdCleanup = () => ({ domain: 'pie.invalid', people: [
+    { userId: 'U-2', name: 'Kiran Patil', username: 'kiran', role: 'Sales Coordinator', active: true, oldEmail: 'kiran@pie.in', newEmail: 'kiran@pie.invalid', records: 41, isSelf: false },
+    { userId: 'U-3', name: 'Neha Rao', username: 'neha', role: 'Sales Engineer', active: true, oldEmail: 'neha@pie.in', newEmail: 'neha@pie.invalid', records: 1, isSelf: false }] });
+  window.__data.applyErpIdCleanup = (input) => ({ changed: input.people.map((x) => ({ name: x.userId, newEmail: x.newEmail, total: 1 })),
+    selfChanged: false, keptInbox: '' });
 };
 
 (async () => {
@@ -250,6 +257,32 @@ const seed = (mode) => {
     (await page.evaluate(() => document.getElementById('usr-email').closest('.field').querySelector('label').textContent)).trim() === 'ERP ID');
   await shot(page, 'users-erp-id', '#user-modal-backdrop .modal');
   await page.click('#btn-cancel-user');
+
+  ok('Management are not offered the ERP ID move', !(await page.$('.erpid-banner')));
+
+  console.log('\nERP ADMIN: EVERYBODY ONTO AN ERP ID');
+  const adm = await open('', 'admin');
+  await go(adm, 'settings');
+  const subA = await adm.$('#subtab-users');
+  if (subA) { await subA.click(); await adm.waitForTimeout(400); }
+  ok('the list says how many are still on an e-mail address', /3 people are still known by an e-mail address/.test(await text(adm, '.erpid-banner')), await text(adm, '.erpid-banner'));
+  await shot(adm, 'erpid-banner', '.erpid-banner');
+  await adm.click('#btn-erpid-all');
+  await adm.waitForTimeout(400);
+  const msg = await adm.evaluate(() => document.getElementById('ask-message').innerText);
+  ok('the list is shown first: who, from what, to what, and how much moves', /Give 2 people an ERP ID\?/.test(await text(adm, '#ask-title')) &&
+    /Kiran Patil: kiran@pie\.in → kiran@pie\.invalid \(41 records\)/.test(msg) && /Neha Rao: neha@pie\.in → neha@pie\.invalid \(1 record\)/.test(msg) &&
+    /usernames and passwords stay the same/.test(msg), msg);
+  await shot(adm, 'erpid-confirm', '#ask-modal-backdrop .modal');
+  const before = await adm.evaluate(() => window.__calls.filter((c) => c.fn === 'getSettings').length);
+  await adm.click('#ask-ok');
+  await adm.waitForTimeout(600);
+  const sentA = await adm.evaluate(() => window.__calls.filter((c) => c.fn === 'applyErpIdCleanup').map((c) => c.args[0]));
+  ok('confirmed: the very list shown goes to the server', sentA.length === 1 &&
+    JSON.stringify(sentA[0].people) === JSON.stringify([{ userId: 'U-2', newEmail: 'kiran@pie.invalid' }, { userId: 'U-3', newEmail: 'neha@pie.invalid' }]), sentA);
+  ok('and Users is read again, saying so', /2 people now have an ERP ID\./.test(await text(adm, '#msg-box')) &&
+    (await adm.evaluate(() => window.__calls.filter((c) => c.fn === 'getSettings').length)) > before);
+  await adm.close();
 
   console.log('\nIN THE DARK');
   await page.evaluate(() => { document.documentElement.setAttribute('data-theme', 'dark'); });

@@ -256,3 +256,90 @@ function changeUserEmail(input) {
     lock.releaseLock();
   }
 }
+
+// ------------------------------------------------------------ everybody onto an ERP ID
+
+/**
+ * Everybody still known by an e-mail address, moved onto an ERP ID of their own in one go.
+ *
+ * PIE's people were set up with personal addresses, or the office Gmail, because the form
+ * asked for an e-mail. They have no mailboxes of their own and nothing is sent to these, so
+ * each moves to username@pie.invalid (Settings.gs, ERP_ID_DOMAIN), with everything they have
+ * done, exactly as "Change ERP ID" moves one person. Anybody already on one is left alone.
+ */
+function erpIdCleanupPlan_() {
+  var users = readTable_('Users');
+  var taken = {};
+  users.forEach(function (u) { taken[String(u.email || '').trim().toLowerCase()] = true; });
+  var suffix = '@' + ERP_ID_DOMAIN;
+  var out = [];
+  users.slice().sort(function (a, b) { return String(a.name || '').localeCompare(String(b.name || '')); })
+    .forEach(function (u) {
+      var old = String(u.email || '').trim().toLowerCase();
+      if (!old || old.slice(-suffix.length) === suffix) return;
+      var base = String(u.username || derivedUsername_({ name: u.name, id: u.id }) || 'user')
+        .toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'user';
+      var id = base + suffix;
+      var n = 2;
+      while (taken[id]) { id = base + n + suffix; n++; }
+      taken[id] = true;
+      out.push({ userId: String(u.id), name: String(u.name || ''), username: String(u.username || ''),
+        role: String(u.role || ''), active: String(u.active).toUpperCase() !== 'FALSE', oldEmail: old, newEmail: id });
+    });
+  return out;
+}
+
+/** Who would move, to what, and how much of their work moves with them. Changes nothing. */
+function previewErpIdCleanup() {
+  var actor = getCurrentUser();
+  requireRole_(actor, USER_EMAIL_ROLES);
+  var people = erpIdCleanupPlan_();
+  var columns = userIdentityColumns_();
+  for (var p of people) {
+    var total = 0;
+    for (var spec of columns) {
+      if (spec.tab === 'Users' && spec.column === 'email') continue;   // their own row, not their work
+      total += userEmailMatches_(spec.tab, spec.column, p.oldEmail).length;
+    }
+    p.records = total;
+    p.isSelf = p.oldEmail === String(actor.email || '').trim().toLowerCase();
+  }
+  return { people: people, domain: ERP_ID_DOMAIN };
+}
+
+/**
+ * Does it: one person at a time through changeUserEmail, each its own move under the lock.
+ *
+ * @param input { people: [{ userId, newEmail }] } — what the preview showed. If the list has
+ *        changed since (somebody added, renamed), nothing is done and it says to look again,
+ *        because the admin agreed to that list and no other.
+ * The admin's own move goes last, so the audit lines for everybody else still name them as
+ * they were signed in. The approver of new customers keeps their e-mail: when their old ID was
+ * a mailbox and no other inbox is set, that old address becomes the inbox.
+ */
+function applyErpIdCleanup(input) {
+  var actor = getCurrentUser();
+  requireRole_(actor, USER_EMAIL_ROLES);
+  var plan = erpIdCleanupPlan_();
+  var seen = ((input && input.people) || []).map(function (p) { return String(p.userId) + '>' + String(p.newEmail).toLowerCase(); }).sort().join('|');
+  var now = plan.map(function (p) { return p.userId + '>' + p.newEmail; }).sort().join('|');
+  if (!plan.length) throw new Error('Everybody already has an ERP ID. Nothing to change.');
+  if (seen !== now) throw new Error('The list of people has changed since you looked. Press the button again to see it as it is now.');
+
+  var me = String(actor.email || '').trim().toLowerCase();
+  plan.sort(function (a, b) { return (a.oldEmail === me ? 1 : 0) - (b.oldEmail === me ? 1 : 0); });
+
+  var props = PropertiesService.getScriptProperties();
+  var keptInbox = '';
+  var changed = [];
+  for (var p of plan) {
+    var approver = String(props.getProperty(CUSTOMER_APPROVAL_PROPS.APPROVER) || '').trim().toLowerCase();
+    if (approver === p.oldEmail && !String(props.getProperty(CUSTOMER_APPROVAL_PROPS.MAIL_TO) || '').trim() && isMailbox_(p.oldEmail)) {
+      props.setProperty(CUSTOMER_APPROVAL_PROPS.MAIL_TO, p.oldEmail);
+      keptInbox = p.oldEmail;
+    }
+    var r = changeUserEmail({ userId: p.userId, newEmail: p.newEmail });
+    changed.push({ name: r.name, oldEmail: r.oldEmail, newEmail: r.newEmail, total: r.total });
+  }
+  return { changed: changed, selfChanged: plan.some(function (p) { return p.oldEmail === me; }), keptInbox: keptInbox };
+}
