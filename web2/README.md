@@ -257,6 +257,11 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   PIE price (cost, Management and the ERP Admin only), HSN, GST, stock, and whether a compressor's
   specification is in. ERP 1's search, compare, delete, bulk upload ("Import price list"), paging
   and item window work as before.
+  - Accessories have their own form ("+ Add accessory", `saveAccessory` in Spares.gs): Type,
+    Model and Capacity (both required), normal working pressure, package weight, maximum pressure
+    and dimensions, as ELGi's CDOC sheet gives them. The type goes in `category`; the offer names
+    it "ELGi make" + type + model. A new one is keyed by its model. Price, HSN and GST are left to
+    the accessories price list, still to come.
 - **Customers as the 2.0 demo draws it**: search by name, code, GSTIN, a contact's phone or city;
   segment (ERP 1's Industry), salesperson and Has overdue dues; and a table of code, customer (city,
   segment, "no GSTIN yet"), machines, salesperson, what is owed (red when overdue; only for whoever

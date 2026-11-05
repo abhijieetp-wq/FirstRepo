@@ -506,6 +506,43 @@ const SPEC_CSV = '﻿' + [
   ok('a new section with no series is for every series',
     added.find((t) => t.title === 'Why the EQ?').appliesTo === '');
 
+  console.log('\nTHE ACCESSORY FORM (saveAccessory)');
+  const refuseAcc = async (fn, re) => { try { await fn(); return false; } catch (e) { return re.test(String(e.message)) || e.message; } };
+  ok('model is required', (await refuseAcc(() => p.saveAccessory({ capacity: '309 cfm' }), /Model is required/)) === true);
+  ok('capacity is required', (await refuseAcc(() => p.saveAccessory({ model: 'AR 0310NS A2_INDIA' }), /Capacity is required/)) === true);
+  const acc = await p.saveAccessory({ type: 'Air Dryer', model: ' AR 0310NS  A2_INDIA ', capacity: '309 cfm', workingPressure: '7 bar',
+    maxPressure: '16 bar', dimensions: '600 x 454 x 1496 mm' });
+  const accRow = async () => (await db.q('SELECT * FROM spares WHERE tenant_id = $1 AND id = $2', [TENANT, acc.id])).rows[0];
+  let ar = await accRow();
+  ok('saved with the type, the model and what was given; weight left blank', ar.category === 'Air Dryer' && ar.spec_model === 'AR 0310NS A2_INDIA' &&
+    ar.spec_title === 'Air Dryer AR 0310NS A2_INDIA' && ar.spec_capacity === '309 cfm' && ar.spec_working_pressure === '7 bar' &&
+    ar.spec_max_pressure === '16 bar' && ar.spec_dimensions === '600 x 454 x 1496 mm' && !ar.spec_weight, ar);
+  ok('keyed by its model until the price list gives it a part number, and active', ar.part_no === 'AR 0310NS A2_INDIA' &&
+    ar.description === 'Air Dryer AR 0310NS A2_INDIA' && ar.active === true, ar);
+  ok('it is on the Accessories tab', (await p.listSpares()).some((x) => x.id === acc.id && x.specTitle === 'Air Dryer AR 0310NS A2_INDIA'));
+  ok('the same model twice is refused', (await refuseAcc(() => p.saveAccessory({ model: 'ar 0310ns a2_india', capacity: '1' }), /already in the catalogue/)) === true);
+  await p.saveAccessory({ id: acc.id, type: 'Air Dryer', model: 'AR 0310NS A2_INDIA', capacity: '310 cfm', weight: '110 kg' });
+  ar = await accRow();
+  ok('an edit changes the specification and blanks what was cleared', ar.spec_capacity === '310 cfm' && ar.spec_weight === '110 kg' &&
+    !ar.spec_working_pressure && !ar.spec_max_pressure, ar);
+  await p.saveAccessory({ id: acc.id, type: 'Refrigerated Air Dryer', model: 'AR 0310NS A3_INDIA', capacity: '310 cfm' });
+  ar = await accRow();
+  ok('a new model: the key and the heading follow it', ar.part_no === 'AR 0310NS A3_INDIA' && ar.spec_title === 'Refrigerated Air Dryer AR 0310NS A3_INDIA' &&
+    ar.description === 'Refrigerated Air Dryer AR 0310NS A3_INDIA', ar);
+  // One that came with a real part number (the dryer above, TST-DRY) keeps it.
+  const dryRow = (await db.q("SELECT id, part_no, description FROM spares WHERE tenant_id = $1 AND part_no = 'TST-DRY'", [TENANT])).rows[0];
+  if (dryRow) {
+    await p.saveAccessory({ id: dryRow.id, type: 'Air Dryer', model: 'TX 0300', capacity: '300 cfm' });
+    const d2 = (await db.q('SELECT part_no, spec_model, description FROM spares WHERE tenant_id = $1 AND id = $2', [TENANT, dryRow.id])).rows[0];
+    ok('a real part number and description are left alone', d2.part_no === 'TST-DRY' && d2.spec_model === 'TX 0300' && d2.description === dryRow.description, d2);
+  }
+  html = await offer([['Spare', acc.id]]);
+  ok('on a compressor offer: “ELGi make” + type + model, and the specification table with the rows given',
+    html.indexOf('ELGi make Refrigerated Air Dryer AR 0310NS A3_INDIA') !== -1 &&
+    html.indexOf('<div class="spec-title">Refrigerated Air Dryer AR 0310NS A3_INDIA</div>') !== -1 &&
+    /<td>Model<\/td><td>AR 0310NS A3_INDIA<\/td>/.test(html) && /<td>Capacity<\/td><td>310 cfm<\/td>/.test(html) &&
+    !/<td>Maximum pressure<\/td><td><\/td>/.test(html));
+
   await clean();
   await db.pool.end();
   console.log('\n' + (failures.length

@@ -65,9 +65,59 @@ const ok = (label, cond, detail) => {
 
     console.log('\nACCESSORIES AND SPARES');
     await tab('acc');
-    ok('accessories: the spares with a specification table', (await heads()).join('|') === 'Item|Description|Capacity|ELGi price (sell)|PIE price (cost)|HSN|GST|In stock' &&
-      (await rows()).length === 1 && /TX Air Dryer 300/.test((await rows())[0]) && /300 cfm · 7 to 13 bar/.test((await rows())[0]) &&
+    ok('accessories: the specification, as ELGi’s CDOC sheet gives it', (await heads()).join('|') ===
+      'Model|Capacity|Working pressure|Max pressure|Dimensions|Weight|ELGi price (sell)|PIE price (cost)|GST' &&
+      (await rows()).length === 1 && /TXD-300/.test((await rows())[0]) && /Dryer/.test((await rows())[0]) && /300 cfm 7 to 13 bar/.test((await rows())[0]) &&
       /1 accessory/.test(await page.textContent('#catalog-count')) && !(await shown('#catv-pick')), await rows());
+    ok('the button says what it adds', (await page.textContent('#btn-new-catalog-item')).trim() === '+ Add accessory');
+
+    console.log('\nADDING AN ACCESSORY');
+    const isOpen = (m) => page.evaluate((x) => document.getElementById(x + '-modal-backdrop').classList.contains('show'), m);
+    await page.evaluate(() => { window.__data.saveAccessory = (o) => ({ id: 'SP-NEW', specTitle: (o.type ? o.type + ' ' : '') + o.model }); });
+    await page.click('#btn-new-catalog-item');
+    await page.waitForTimeout(300);
+    ok('its own form, not the spare one', await isOpen('accessory') && !(await isOpen('part')) &&
+      (await page.textContent('#accessory-modal-title')) === 'Add Accessory');
+    const labels = await page.$$eval('#accessory-modal-backdrop label', (l) => l.map((x) => x.textContent.trim()));
+    ok('type, then the six fields: model and capacity required, the rest not', labels.join('|') ===
+      'Type|Model *|Capacity *|Normal working pressure|Package weight|Maximum pressure|Dimensions', labels);
+    ok('no part number, description, group, stock or price boxes', !(await page.$('#accessory-modal-backdrop input[id*="price"]')) &&
+      (await page.$$('#accessory-modal-backdrop input:not([type="hidden"])')).length === 7);
+    ok('ELGi’s types offered', (await page.$$eval('#accessory-types option', (o) => o.map((x) => x.value))).indexOf('Air Dryer') !== -1 &&
+      (await page.$$eval('#accessory-types option', (o) => o.map((x) => x.value))).indexOf('Dryer') !== -1);
+    await page.fill('#acc-type', 'Air Dryer');
+    await page.fill('#acc-capacity', '309 cfm');
+    await page.click('#btn-save-accessory');
+    await page.waitForTimeout(300);
+    ok('no model: refused before it is sent', /Model is required/.test(await page.textContent('#msg-box')) &&
+      !(await page.evaluate(() => window.__calls.some((c) => c.fn === 'saveAccessory'))));
+    await page.fill('#acc-model', 'AR 0310NS A2_INDIA');
+    await page.fill('#acc-capacity', '');
+    await page.click('#btn-save-accessory');
+    await page.waitForTimeout(300);
+    ok('no capacity: likewise', /Capacity is required/.test(await page.textContent('#msg-box')) &&
+      !(await page.evaluate(() => window.__calls.some((c) => c.fn === 'saveAccessory'))));
+    await page.fill('#acc-capacity', '309 cfm');
+    ok('it says how the quotation will name it', /ELGi make Air Dryer AR 0310NS A2_INDIA/.test(await page.textContent('#acc-heading-note')));
+    if (process.argv[3]) await page.screenshot({ path: process.argv[3], clip: await page.evaluate(() => { const r = document.querySelector('#accessory-modal-backdrop .modal').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }) });
+    await page.fill('#acc-workpressure', '7 bar');
+    await page.fill('#acc-maxpressure', '16 bar');
+    await page.fill('#acc-dimensions', '600 x 454 x 1496 mm');
+    await page.click('#btn-save-accessory');
+    await page.waitForTimeout(500);
+    const sentAcc = await page.evaluate(() => window.__calls.filter((c) => c.fn === 'saveAccessory').map((c) => c.args[0]));
+    ok('saved with what was typed, weight left out', sentAcc.length === 1 && sentAcc[0].model === 'AR 0310NS A2_INDIA' && sentAcc[0].type === 'Air Dryer' &&
+      sentAcc[0].capacity === '309 cfm' && sentAcc[0].workingPressure === '7 bar' && sentAcc[0].maxPressure === '16 bar' &&
+      sentAcc[0].dimensions === '600 x 454 x 1496 mm' && sentAcc[0].weight === '' && !sentAcc[0].id, sentAcc);
+    ok('and the form closes, saying so', !(await isOpen('accessory')) && /Air Dryer AR 0310NS A2_INDIA saved/.test(await page.textContent('#msg-box')));
+    await page.click('#catalog-tbody [data-edit="SP-11"]');
+    await page.waitForTimeout(400);
+    ok('editing one opens the accessory form with what it has', await isOpen('accessory') &&
+      (await page.textContent('#accessory-modal-title')) === 'Edit Accessory' && (await page.inputValue('#acc-model')) === 'TXD-300' &&
+      (await page.inputValue('#acc-type')) === 'Dryer' && (await page.inputValue('#acc-capacity')) === '300 cfm' &&
+      /ELGi price ₹1,68,000/.test(await page.textContent('#acc-price-note')));
+    await page.click('#btn-cancel-accessory');
+    await page.waitForTimeout(200);
     await tab('spares');
     const sp = await rows();
     ok('spares: every one, the dryer too, with group, GST and stock', (await heads()).join('|') === 'Part|Description|ELGi price (sell)|PIE price (cost)|Alternate|HSN|GST|In stock' &&

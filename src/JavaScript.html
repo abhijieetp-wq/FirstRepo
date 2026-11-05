@@ -981,7 +981,7 @@
       // "No items match your search" over an empty catalogue sends people hunting for a
       // filter that is not there. Say which of the two it is.
       var msg = FACE_V2 && catv.tab === "acc" && rows.length && !q
-        ? "No accessories yet. A spare given a specification table — a dryer, a filter, a receiver — shows here."
+        ? "No accessories yet. Add the first with + Add accessory: its model and capacity from ELGi’s CDOC sheet, and the rest it gives."
         : FACE_V2 && catv.tab === "units" && (catv.cfm || catv.bar) && rows.length
         ? "No compressor gives " + (catv.cfm ? catv.cfm + " cfm" : "") + (catv.cfm && catv.bar ? " at " : "") + (catv.bar ? catv.bar + " bar" : "") +
           " within 45% headroom. Try two smaller units, or Find by flow & pressure."
@@ -1068,15 +1068,18 @@
       ]);
     }
     if (catv.tab === "acc") {
+      var dash = function (k) { return function (r) { return escapeHtml(r[k] || "—"); }; };
       return [
-        { label: "Item", html: function (r) { return '<span class="mono">' + escapeHtml(r.partNo || "—") + "</span>"; } },
-        { label: "Description", html: function (r) { return "<b>" + escapeHtml(r.specTitle || r.description || "—") + "</b>" + (r.specTitle && r.description ? '<br><span class="eb2-kind">' + escapeHtml(r.description) + "</span>" : ""); } },
-        { label: "Capacity", html: function (r) { return escapeHtml([r.specCapacity, r.specWorkingPressure || r.specMaxPressure].filter(Boolean).join(" · ") || "—"); } },
+        { label: "Model", html: function (r) { return '<b class="mono">' + escapeHtml(r.specModel || r.partNo || "—") + "</b>" +
+          (r.category ? '<br><span class="eb2-kind">' + escapeHtml(r.category) + "</span>" : ""); } },
+        { label: "Capacity", html: dash("specCapacity") },
+        { label: "Working pressure", html: dash("specWorkingPressure") },
+        { label: "Max pressure", html: dash("specMaxPressure") },
+        { label: "Dimensions", html: dash("specDimensions") },
+        { label: "Weight", html: dash("specWeight") },
         { label: "ELGi price (sell)", num: true, html: function (r) { return catvMoney(r.price); } }
       ].concat(pie).concat([
-        { label: "HSN", html: catvHsn },
-        { label: "GST", num: true, html: catvGst },
-        { label: "In stock", num: true, html: function (r) { return String(r.available || 0); } }
+        { label: "GST", num: true, html: catvGst }
       ]);
     }
     return [
@@ -1139,6 +1142,7 @@
     }).join("");
     $("catv-pick").style.display = catv.tab === "units" ? "" : "none";
     $("btn-find-compressor").style.display = catv.tab === "units" ? "" : "none";
+    $("btn-new-catalog-item").textContent = catv.tab === "acc" ? "+ Add accessory" : "+ Add item";
   }
 
   // One listener for the whole table, set once, instead of two attached to every row on every
@@ -1339,8 +1343,84 @@
 
   $("btn-new-catalog-item").addEventListener("click", function () { openCatalogModal(null); });
   function openCatalogModal(id) {
+    // The Accessories tab has its own form: the specification ELGi's CDOC sheet gives.
+    if (FACE_V2 && catv.tab === "acc") { openAccessoryModal(id); return; }
     if (CATALOG_MODE === "spares") openSpareModal(id); else openProductModal(id);
   }
+
+  // ---- Accessory form (Spares.gs, saveAccessory) ----
+  var ACCESSORY_TYPES = ["Air Dryer", "Filter", "Air Receiver", "Auto Drain Valve", "Oil-Water Separator"];
+  var ACC_FIELDS = [["acc-model", "specModel"], ["acc-capacity", "specCapacity"], ["acc-workpressure", "specWorkingPressure"],
+    ["acc-weight", "specWeight"], ["acc-maxpressure", "specMaxPressure"], ["acc-dimensions", "specDimensions"]];
+
+  function accHeading() {
+    var t = $("acc-type").value.replace(/\s+/g, " ").trim(), m = $("acc-model").value.replace(/\s+/g, " ").trim();
+    $("acc-heading-note").textContent = m ? "On the quotation: “ELGi make " + (t ? t + " " : "") + m + "”." :
+      "The quotation names it “ELGi make” + type + model, e.g. “ELGi make Air Dryer AR 0310NS A2_INDIA”.";
+  }
+
+  function openAccessoryModal(id) {
+    var s = id ? (sparesCache || []).find(function (x) { return x.id === id; }) : null;
+    $("accessory-modal-title").textContent = s ? "Edit Accessory" : "Add Accessory";
+    $("acc-id").value = s ? s.id : "";
+    var types = ACCESSORY_TYPES.slice();
+    (sparesCache || []).forEach(function (x) {
+      var c = String(x.category || "").trim();
+      if (c && x.specTitle && types.map(function (t) { return t.toLowerCase(); }).indexOf(c.toLowerCase()) === -1) types.push(c);
+    });
+    $("accessory-types").innerHTML = types.map(function (t) { return '<option value="' + escapeHtml(t) + '">'; }).join("");
+    $("acc-type").value = s ? (s.category || "") : "";
+    ACC_FIELDS.forEach(function (f) { $(f[0]).value = s ? (s[f[1]] || "") : ""; });
+    // An accessory made from a spare before this form keeps what its row says.
+    if (s && !s.specModel) $("acc-model").value = s.partNo || "";
+    $("acc-price-note").textContent = s && s.price ? "ELGi price " + ebMoney(s.price) + (s.gstPct !== undefined && s.gstPct !== "" ? ", GST " + s.gstPct + "%" : "") +
+      ", from the price list." : "The price, HSN and GST come from the accessories price list, not this form.";
+    $("btn-delete-accessory").style.display = s && canRemoveFromCatalog() ? "inline-flex" : "none";
+    accHeading();
+    $("accessory-modal-backdrop").classList.add("show");
+    setTimeout(function () { $(s ? "acc-capacity" : "acc-type").focus(); }, 50);
+  }
+
+  ["acc-type", "acc-model"].forEach(function (k) { $(k).addEventListener("input", accHeading); });
+  $("btn-cancel-accessory").addEventListener("click", function () { $("accessory-modal-backdrop").classList.remove("show"); });
+  $("btn-save-accessory").addEventListener("click", function () {
+    var model = $("acc-model").value.trim(), capacity = $("acc-capacity").value.trim();
+    if (!model || !capacity) {
+      showMsg(!model ? "Model is required." : "Capacity is required.", "error");
+      $(!model ? "acc-model" : "acc-capacity").focus();
+      return;
+    }
+    var btn = $("btn-save-accessory");
+    btn.disabled = true;
+    srv.withSuccessHandler(function (saved) {
+      btn.disabled = false;
+      catalogLoaded.spares = false;
+      $("accessory-modal-backdrop").classList.remove("show");
+      loadCatalog();
+      showMsg(saved.specTitle + " saved.", "success");
+    }).withFailureHandler(function (err) { btn.disabled = false; onServerError(err); }).saveAccessory({
+      id: $("acc-id").value, type: $("acc-type").value, model: model, capacity: capacity,
+      workingPressure: $("acc-workpressure").value, weight: $("acc-weight").value,
+      maxPressure: $("acc-maxpressure").value, dimensions: $("acc-dimensions").value
+    });
+  });
+  $("btn-delete-accessory").addEventListener("click", function () {
+    var id = $("acc-id").value;
+    if (!id) return;
+    askDialog({
+      title: "Deactivate this accessory?",
+      message: "It stays in the catalogue so past quotations still resolve, and stops being offered on new ones.",
+      input: true, inputLabel: "Reason", okLabel: "Deactivate", danger: true
+    }, function (reason) {
+      if (reason === null) return;
+      srv.withSuccessHandler(function () {
+        catalogLoaded.spares = false;
+        $("accessory-modal-backdrop").classList.remove("show");
+        loadCatalog();
+        showMsg("Accessory deactivated.", "success");
+      }).withFailureHandler(onServerError).deleteSpare(id, reason);
+    });
+  });
 
 
   // ---- Bulk upload ----

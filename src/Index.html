@@ -1019,6 +1019,39 @@
 </div>
 
 <!-- Add / Edit Spare Modal -->
+<!-- An accessory (Spares.gs, saveAccessory): what ELGi's CDOC sheet gives, nothing else. -->
+<div class="modal-backdrop" id="accessory-modal-backdrop">
+  <div class="modal">
+    <h3 id="accessory-modal-title" style="margin-bottom:16px;">Add Accessory</h3>
+    <input type="hidden" id="acc-id" />
+    <div class="grid grid-2">
+      <div class="field"><label>Type</label><input id="acc-type" list="accessory-types" placeholder="e.g. Air Dryer, Filter, Air Receiver" />
+        <datalist id="accessory-types"></datalist></div>
+      <div class="field"><label>Model *</label><input id="acc-model" placeholder="e.g. AR 0310NS A2_INDIA" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Capacity *</label><input id="acc-capacity" placeholder="e.g. 309 cfm" /></div>
+      <div class="field"><label>Normal working pressure</label><input id="acc-workpressure" placeholder="e.g. 7 bar" /></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Package weight</label><input id="acc-weight" placeholder="e.g. 110 kg" /></div>
+      <div class="field"><label>Maximum pressure</label><input id="acc-maxpressure" placeholder="e.g. 16 bar" /></div>
+    </div>
+    <div class="field" style="margin-top:12px;"><label>Dimensions</label><input id="acc-dimensions" placeholder="e.g. 600 x 454 x 1496 mm" /></div>
+    <p class="field-note" id="acc-heading-note" style="margin-top:12px;"></p>
+    <p class="field-note" id="acc-price-note" style="margin-top:4px;"></p>
+    <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px; flex-wrap:wrap;">
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-danger" id="btn-delete-accessory" style="display:none;">Deactivate</button>
+      </div>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="btn-cancel-accessory">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-accessory">Save Accessory</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="part-modal-backdrop">
   <div class="modal">
     <h3 id="part-modal-title" style="margin-bottom:16px;">Add Spare</h3>

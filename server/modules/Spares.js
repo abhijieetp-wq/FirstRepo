@@ -192,6 +192,73 @@ async function saveSpare(input) {
 }
 
 /**
+ * An accessory: a dryer, filter or receiver with the specification table a compressor offer
+ * prints (QuotationDocument.gs, accessorySpecTable_). Its own form, because what PIE knows of
+ * one is ELGi's CDOC sheet: the type, the model, capacity, the two pressures, dimensions and the
+ * package weight. Model and capacity are required; the rest only when the sheet has them.
+ *
+ * Stored on the Spares row like any accessory: the type in `category`, the heading the offer
+ * prints ("Air Dryer AR 0310NS A2_INDIA") in specTitle and as the description. A new accessory
+ * is keyed by its model until the price list gives it a part number. Price, HSN and GST are not
+ * this form's: they are left exactly as they are, to come from the accessories price list.
+ */
+var ACCESSORY_TYPES = ['Air Dryer', 'Filter', 'Air Receiver', 'Auto Drain Valve', 'Oil-Water Separator'];
+
+async function saveAccessory(input) {
+  var user = getCurrentUser();
+  requireRole_(user, CATALOG_EDITORS);
+  var o = input || {};
+  var model = String(o.model || '').replace(/\s+/g, ' ').trim();
+  var capacity = String(o.capacity || '').trim();
+  if (!model) throw new Error('Model is required.');
+  if (!capacity) throw new Error('Capacity is required.');
+  var type = String(o.type || '').replace(/\s+/g, ' ').trim();
+  var title = (type ? type + ' ' : '') + model;
+
+  var all = await readTable_('Spares');
+  var existing = o.id ? all.filter(function (x) { return String(x.id) === String(o.id); })[0] : null;
+  if (o.id && !existing) throw new Error('That accessory is not in the catalogue any more.');
+  var same = function (a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); };
+  var clash = all.filter(function (x) {
+    return String(x.id) !== String(o.id || '') && String(x.active).toUpperCase() !== 'FALSE' &&
+      (same(x.specModel, model) || same(x.partNo, model));
+  })[0];
+  if (clash) throw new Error('Model ' + model + ' is already in the catalogue (' + (clash.specTitle || clash.description || clash.partNo) + '). Edit that one instead.');
+
+  var record = {
+    category: type,
+    specTitle: title,
+    specModel: model,
+    specCapacity: capacity,
+    specWorkingPressure: String(o.workingPressure || '').trim(),
+    specMaxPressure: String(o.maxPressure || '').trim(),
+    specDimensions: String(o.dimensions || '').trim(),
+    specWeight: String(o.weight || '').trim()
+  };
+  if (!existing) {
+    record.id = generateId_('SP-');
+    record.partNo = model;
+    record.description = title;
+    record.brand = 'ELGI';
+    record.uom = 'Nos';
+    record.defaultWarehouseId = 'WH-MAIN';
+    record.active = 'TRUE';
+    record.createdAt = todayIso_();
+    record.createdBy = user.email;
+    await appendRow_('Spares', record, 'Accessory added');
+  } else {
+    // Keyed by its old model, it follows the new one; a real part number is left alone. So is a
+    // description somebody wrote, unless it was only the old heading.
+    if (same(existing.partNo, existing.specModel)) record.partNo = model;
+    if (!String(existing.description || '').trim() || same(existing.description, existing.specTitle)) record.description = title;
+    record.id = String(existing.id);
+    await updateRowById_('Spares', 'id', record.id, record, 'Accessory updated');
+  }
+  invalidateCatalogCaches_();
+  return record;
+}
+
+/**
  * Soft delete: masters referenced by history are deactivated, never removed.
  *
  * The row keeps its place in the sheet so every quotation, order and stock movement that
