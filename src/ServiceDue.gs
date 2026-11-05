@@ -65,15 +65,21 @@ var SERVICE_DUE_PARTS = [['AF', 'AF'], ['OF', 'OF'], ['OIL', 'Oil'], ['AOS', 'AO
 function getServiceDueScreen(filter) {
   var user = requireServiceDueUser_();
   var f = filter || {};
-  var view = ['open', 'closed', 'all'].indexOf(f.view) !== -1 ? f.view : 'open';
+  // 'current' is the SDR page's own: the latest list, open and closed, and any older call still
+  // open, so nothing being followed up drops out of sight when a new week is uploaded.
+  var view = ['open', 'closed', 'all', 'current'].indexOf(f.view) !== -1 ? f.view : 'open';
   var listId = String(f.listId || '');
 
+  var names = userNameMap_();
   var lists = readTable_('ServiceDueLists').map(stripRow_)
-    .sort(function (a, b) { return String(b.listDate).localeCompare(String(a.listDate)); });
+    .sort(function (a, b) { return String(b.listDate).localeCompare(String(a.listDate)); })
+    .map(function (l) { l.uploadedByName = personLine_(l.createdBy, names); return l; });
+  var latest = lists.length ? String(lists[0].id) : '';
 
   var calls = readTable_('ServiceDueCalls').filter(function (c) {
     if (listId && serviceDueListIds_(c).indexOf(listId) === -1) return false;
     var closed = !!String(c.outcome || '');
+    if (view === 'current') return !closed || (!!latest && serviceDueListIds_(c).indexOf(latest) !== -1);
     if (view === 'open' && closed) return false;
     if (view === 'closed' && !closed) return false;
     return true;

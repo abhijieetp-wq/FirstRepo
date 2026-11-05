@@ -132,7 +132,7 @@ const call = (id, extra) => Object.assign({
     ok('logged as a call today, with the remark as it is', saved.id === '1' && saved.callResponse === 'Needs spares' &&
       saved.callDate === today && saved.callNotes === '', saved);
     ok('the row moves on to Called', /Called/.test(await page.textContent('#sdc-tbody tr[data-sdc="1"] td:last-child')));
-    ok('and so do the counts', await page.$eval('.sdc-tile[data-sdc-tile="Called"] .kpi-value', (e) => e.textContent) === '2');
+    ok('and so do the counts', await page.$eval('.sdc-tile[data-sdc-tile="Called"] b', (e) => e.textContent) === '2');
     ok('Not called yet is gone once it is', (await page.$$eval('[data-sdc-resp="1"] option', (o) => o.map((x) => x.value)))[0] === 'Needs spares');
     ok('it says it saved', /Saved: Needs spares/.test(await page.textContent('#msg-box')));
     ok('the call window stayed shut', !(await open()));
@@ -173,7 +173,7 @@ const call = (id, extra) => Object.assign({
     const types = await page.$$eval('[data-sdc-quote="1"] option', (o) => o.map((x) => x.textContent));
     ok('Spares, AMC renewal or Service', JSON.stringify(types) === '["Quote…","Spares","AMC renewal","Service"]', types);
     ok('not before the customer is linked', !(await page.$('[data-sdc-quote="4"]')) &&
-      /Link the customer first/.test(await page.textContent('#sdc-tbody tr[data-sdc="4"]')));
+      !!(await page.$('#sdc-tbody tr[data-sdc="4"] [title="Add them as a customer first, from the call"]')));
     ok('a quotation already made shows its number and what it is for',
       /SPARE\/26\/0005/.test(await page.textContent('#sdc-tbody tr[data-sdc="5"]')) &&
       (await page.textContent('#sdc-tbody tr[data-sdc="5"] .sdc-type')) === 'AMC renewal');

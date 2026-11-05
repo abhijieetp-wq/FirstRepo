@@ -146,14 +146,16 @@ const call = (id, extra) => Object.assign({
     const [STATUSES, calls] = args;
     const D = window.__data;
     const screen = {
-      lists: [{ id: 'SDL-1', listDate: '2026-10-19', machineCount: 438 }],
+      lists: [{ id: 'SDL-1', listDate: '2026-10-19', machineCount: 438, uploadedByName: 'Priya' },
+        { id: 'SDL-0', listDate: '2026-10-12', machineCount: 410, uploadedByName: 'Dhriti' }],
       calls, coordinators: [{ email: 'p@pie.in', name: 'Priya' }, { email: 'd@pie.in', name: 'Dhriti' }],
       statuses: STATUSES, responses: ['Needs spares', 'Not now'], modes: ['Call', 'WhatsApp'],
       followUpLimit: 6, me: 'p@pie.in', canEdit: true
     };
     const big = Object.assign({}, screen, { calls: Array.from({ length: 160 }, (x, i) => Object.assign({}, calls[0],
       { id: 'B' + i, fabNo: 'BIG' + i })) });
-    D.getServiceDueScreen = (f) => (f && f.view === 'closed' ? big : screen);
+    window.__sdcAsked = [];
+    D.getServiceDueScreen = (f) => { window.__sdcAsked.push(f); return f && f.view === 'all' && !f.listId ? big : screen; };
     D.deleteServiceDueList = (id) => ({ removed: 400, kept: 3, carried: 0, listDate: '2026-10-19' });
     D.getServiceDueCall = (id) => Object.assign({}, calls.find((c) => c.id === id), {
       followUps: [], contacts: [{ id: 'CC-1', name: 'Mr Rao', phone: '9800000001', email: 'rao@x.in' }],
@@ -186,13 +188,24 @@ const call = (id, extra) => Object.assign({
   await page.evaluate(() => document.querySelector('[data-view="servicedue"]').click());
   await page.waitForTimeout(600);
 
-  console.log('THE LIST');
+  console.log('THE LIST, AS THE 2.0 DEMO HAS IT');
   const rows = () => page.$$eval('#sdc-tbody tr[data-sdc]', (r) => r.map((x) => x.dataset.sdc));
-  ok('every machine on it', (await rows()).length === 4, await rows());
+  ok('the latest list, and any older call still open, is what it asks for', JSON.stringify((await page.evaluate(() => window.__sdcAsked))[0]) ===
+    JSON.stringify({ listId: '', view: 'current' }), await page.evaluate(() => window.__sdcAsked));
+  ok('a line says which list', /^List of 19-10-2026 · 438 machines · uploaded by Priya, and any older call still open/.test(await page.textContent('#sdc-listline')),
+    await page.textContent('#sdc-listline'));
+  ok('one search box, one coordinator picker, Select all: no other filters', await page.isVisible('#sdc-search') && await page.isVisible('#sdc-owner') &&
+    !(await page.$('#sdc-view')) && !(await page.$('#sdc-overdue')) && !(await page.$('#sdc-due')) && !(await page.isVisible('#sdc-status')) &&
+    !(await page.$('.sdc-totals')) && !(await page.$('#sdc-all')));
+  ok('the buttons as the demo names them', /Upload this week's list/.test(await page.textContent('#btn-sdc-import')) &&
+    (await page.textContent('#btn-sdc-download')).trim() === 'Download report');
+  ok('a coordinator starts on their own calls', await page.inputValue('#sdc-owner') === '__me' && JSON.stringify(await rows()) === '["1","2","4"]', await rows());
+  await page.selectOption('#sdc-owner', '');
+  ok('Everyone: every machine', (await rows()).length === 4, await rows());
   const tiles = await page.$$eval('.sdc-tile', (t) => t.map((x) => x.innerText.replace(/\s+/g, ' ').trim().toLowerCase()));
-  ok('a count for every stage', tiles[0] === 'all 4' && tiles.includes('to call 2') && tiles.includes('not closed 1') &&
-    tiles.includes('po rejected 1'), tiles);
-  ok('the reasons stand out on the list', await page.$$eval('.sdc-reason', (r) => r.map((x) => x.textContent)).then((t) =>
+  ok('a count for every stage, the number first', tiles[0] === '4 all' && tiles.includes('2 to call') && tiles.includes('1 not closed') &&
+    tiles.includes('1 po rejected'), tiles);
+  ok('the reasons are on the status, to read on hover', await page.$$eval('#sdc-tbody .eb-chip[title]', (r) => r.map((x) => x.title)).then((t) =>
     t.length === 2 && /Bought from a local supplier/.test(t.join()) && /Price above budget/.test(t.join())));
   ok('a customer not in Customers is marked', /Not in Customers yet/.test(await page.textContent('#sdc-tbody')));
   ok('overdue parts in red', (await page.$$('.sdc-due .sdc-late')).length >= 1);
@@ -200,11 +213,9 @@ const call = (id, extra) => Object.assign({
   ok('a tile filters to its stage', JSON.stringify(await rows()) === '["3"]', await rows());
   await page.click('.sdc-tile[data-sdc-tile=""]');
   await page.selectOption('#sdc-owner', '__me');
-  ok('Mine shows my calls', (await rows()).length === 3, await rows());
+  ok('Mine shows my calls, and the tiles count them', (await rows()).length === 3 &&
+    (await page.$$eval('.sdc-tile', (t) => t[0].innerText.replace(/\s+/g, ' ').trim())) === '3 All', await rows());
   await page.selectOption('#sdc-owner', '');
-  await page.check('#sdc-overdue');
-  ok('overdue only', !(await rows()).includes('2'), await rows());
-  await page.uncheck('#sdc-overdue');
   await page.fill('#sdc-search', 'unknown');
   await page.waitForTimeout(100);
   ok('search finds by ELGi’s spelling of the name', JSON.stringify(await rows()) === '["4"]', await rows());
@@ -217,9 +228,8 @@ const call = (id, extra) => Object.assign({
     /Select all 4/.test(await page.textContent('#sdc-selectall-text')), await page.textContent('#sdc-selectall-text'));
   ok('nothing to assign until something is ticked', !(await page.isVisible('#sdc-bulk-actions')));
   await page.check('#sdc-selectall');
-  ok('Select all ticks every call', (await ticked()).length === 4 && /4 calls ticked/.test(await page.textContent('#sdc-bulk-count')),
+  ok('Select all ticks every call', (await ticked()).length === 4 && /4 selected/.test(await page.textContent('#sdc-bulk-count')),
     await ticked());
-  ok('and the heading box agrees', await page.isChecked('#sdc-all'));
   await page.uncheck('#sdc-selectall');
   ok('and clears them again', (await ticked()).length === 0 && !(await page.isVisible('#sdc-bulk-actions')));
   await page.click('.sdc-tile[data-sdc-tile="Not closed"]');
@@ -234,15 +244,16 @@ const call = (id, extra) => Object.assign({
   await page.fill('#sdc-search', '');
   await page.waitForTimeout(100);
   ok('a tick a filter hid is dropped, so Assign only touches what was seen', (await ticked()).length === 0, await ticked());
-  await page.click('#sdc-all');
-  ok('the heading box selects all too', (await ticked()).length === 4);
+  await page.check('#sdc-selectall');
+  ok('Select all again', (await ticked()).length === 4);
   await page.click('#btn-sdc-clear');
   ok('Clear empties it', (await ticked()).length === 0 && !(await page.isChecked('#sdc-selectall')));
 
   console.log('\nHANDING CALLS OVER');
   await page.check('[data-sdc-tick="1"]');
   await page.check('[data-sdc-tick="2"]');
-  ok('ticking shows the assign bar', await page.isVisible('#sdc-bulk-actions') && /2 calls ticked/.test(await page.textContent('#sdc-bulk-count')));
+  ok('ticking shows Give to coordinator', await page.isVisible('#sdc-bulk-actions') && /2 selected/.test(await page.textContent('#sdc-bulk-count')) &&
+    /Give to coordinator/.test(await page.textContent('#btn-sdc-assign')));
   await page.selectOption('#sdc-bulk-owner', 'd@pie.in');
   await page.evaluate(() => { window.__calls = []; });
   await page.click('#btn-sdc-assign');
@@ -251,26 +262,29 @@ const call = (id, extra) => Object.assign({
   ok('assigned to who was picked', assigned && JSON.stringify(assigned[0].sort()) === '["1","2"]' && assigned[1] === 'd@pie.in', assigned);
 
   // A full week: more calls than the screen shows at once.
-  await page.selectOption('#sdc-view', 'closed');
+  await page.selectOption('#sdc-list', '__all');
   await page.waitForTimeout(500);
+  ok('Every list asks for everything, open and closed', JSON.stringify((await page.evaluate(() => window.__sdcAsked)).slice(-1)[0]) ===
+    JSON.stringify({ listId: '', view: 'all' }));
   ok('a long list shows the first page', (await rows()).length === 150, (await rows()).length);
   await page.check('#sdc-selectall');
   ok('Select all takes the whole list, not only the rows on screen',
-    /Select all 160/.test(await page.textContent('#sdc-selectall-text')) && /160 calls ticked/.test(await page.textContent('#sdc-bulk-count')),
+    /Select all 160/.test(await page.textContent('#sdc-selectall-text')) && /160 selected/.test(await page.textContent('#sdc-bulk-count')),
     await page.textContent('#sdc-bulk-count'));
   await page.evaluate(() => { window.__calls = []; });
   await page.click('#btn-sdc-assign');
   await page.waitForTimeout(400);
   const many = await page.evaluate(() => (window.__calls.find((c) => c.fn === 'assignServiceDueCalls') || {}).args);
   ok('and Assign sends all 160', many && many[0].length === 160, many && many[0].length);
-  await page.selectOption('#sdc-view', 'open');
+  await page.selectOption('#sdc-list', '');
   await page.waitForTimeout(500);
 
   console.log('\nTAKING A WRONG UPLOAD BACK OUT');
-  ok('no Remove button across every week', !(await page.isVisible('#btn-sdc-remove-list')));
+  ok('no Remove button on the latest list', !(await page.isVisible('#btn-sdc-remove-list')));
   await page.selectOption('#sdc-list', 'SDL-1');
   await page.waitForTimeout(400);
-  ok('a week picked: Remove this upload', await page.isVisible('#btn-sdc-remove-list'));
+  ok('a week picked: that week, and Remove this upload', await page.isVisible('#btn-sdc-remove-list') &&
+    JSON.stringify((await page.evaluate(() => window.__sdcAsked)).slice(-1)[0]) === JSON.stringify({ listId: 'SDL-1', view: 'all' }));
   await page.evaluate(() => { const m = document.querySelector('#msg-box'); if (m) m.classList.remove('show'); window.__calls = []; });
   await page.click('#btn-sdc-remove-list');
   await page.waitForTimeout(200);
@@ -282,7 +296,7 @@ const call = (id, extra) => Object.assign({
   ok('then removes that week', removed && removed[0] === 'SDL-1', removed);
   ok('and says what went and what stayed', /400 calls deleted/.test(await page.textContent('#msg-box')) &&
     /3 calls already worked on were kept/.test(await page.textContent('#msg-box')), await page.textContent('#msg-box'));
-  ok('back to every week', await page.inputValue('#sdc-list') === '' && !(await page.isVisible('#btn-sdc-remove-list')));
+  ok('back to the latest list', await page.inputValue('#sdc-list') === '' && !(await page.isVisible('#btn-sdc-remove-list')));
 
   console.log('\nA CALL');
   await page.evaluate(() => document.querySelector('#sdc-tbody tr[data-sdc="1"] td:nth-child(2)').click());

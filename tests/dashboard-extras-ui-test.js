@@ -93,12 +93,9 @@ const call = (id, extra) => Object.assign({ id, fabNo: 'FAB' + id, productModel:
     await page.waitForTimeout(600);
     ok('a visit opens Visit plans', (await page.evaluate(() => document.querySelector('.view.active').id)) === 'view-visits');
 
-    console.log('\nTHE SDR TOTALS');
+    console.log('\nTHE SDR PAGE, AS THE DEMO HAS IT');
     await go('servicedue');
-    const t = await page.$$eval('.sdc-totals .pd-tile', (x) => x.map((y) => y.innerText.replace(/\s+/g, ' ').trim()));
-    ok('customers in the list, called, quotations raised, converted', t.length === 4 && /^Customers in the list 4/.test(t[0]) &&
-      /^Called 3 60% of the list/.test(t[1]) && /^Quotations raised 2 ₹33K$/.test(t[2]) && /^Converted 1 ₹20K won$/.test(t[3]), t);
-    ok('above ERP 1’s count by status', !!(await page.$('.sdc-totals + .sdc-tiles')));
+    ok('no totals strip above the counts by status: the demo has none', !(await page.$('.sdc-totals')) && !!(await page.$('.sdc-tiles')));
   }
   ok('with no script errors', errors.length === 0, errors);
   await browser.close();

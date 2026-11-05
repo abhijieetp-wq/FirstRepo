@@ -284,6 +284,21 @@ const machine = (fabNo, customerName, extra) => Object.assign({
   comp.CURRENT_USER_ = { email: 'unit@pie.in', name: 'Unit', role: 'Sales Coordinator', businessStream: 'Compressor Sales' };
   ok('not the compressor desk', await refused(() => comp.getServiceDueScreen({}), /Spare Sales/));
 
+  console.log('\nTHE SDR PAGE’S OWN VIEW: THE LATEST LIST, AND ANY OLDER CALL STILL OPEN');
+  // Two weeks of lists, invented: an old call still open, one closed, and the latest week's.
+  await db.appendRow('ServiceDueLists', { id: 'SDL-OLD', listDate: '2026-12-28', machineCount: 2, createdBy: COORD.email });
+  await db.appendRow('ServiceDueLists', { id: 'SDL-NEW', listDate: '2027-01-04', machineCount: 2, createdBy: COORD.email });
+  await db.appendRow('ServiceDueCalls', { id: 'SDC-OPEN-OLD', listIds: 'SDL-OLD', fabNo: 'CUR-1', status: 'Quotation sent', outcome: '' });
+  await db.appendRow('ServiceDueCalls', { id: 'SDC-SHUT-OLD', listIds: 'SDL-OLD', fabNo: 'CUR-2', status: 'Not closed', outcome: 'Not closed' });
+  await db.appendRow('ServiceDueCalls', { id: 'SDC-SHUT-NEW', listIds: 'SDL-NEW', fabNo: 'CUR-3', status: 'PO received', outcome: 'PO received' });
+  await db.appendRow('ServiceDueCalls', { id: 'SDC-OPEN-NEW', listIds: 'SDL-NEW', fabNo: 'CUR-4', status: 'To call', outcome: '' });
+  const cur = await p.getServiceDueScreen({ view: 'current' });
+  const curFabs = cur.calls.map((c) => c.fabNo).filter((x) => /^CUR-/.test(x)).sort();
+  ok('the latest week open and closed, an older one only while still open', JSON.stringify(curFabs) === '["CUR-1","CUR-3","CUR-4"]', curFabs);
+  ok('the latest list first, saying who uploaded it', cur.lists[0].id === 'SDL-NEW' && cur.lists[0].uploadedByName === COORD.name, cur.lists[0]);
+  const allFabs = (await p.getServiceDueScreen({ view: 'all' })).calls.map((c) => c.fabNo).filter((x) => /^CUR-/.test(x));
+  ok('everything, when asked for', allFabs.length === 4, allFabs);
+
   await clean();
   await db.pool.end();
   console.log('\n' + (failures.length

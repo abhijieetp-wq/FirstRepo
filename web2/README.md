@@ -221,8 +221,13 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   tile ("My orders last month"); the tasks tile follows it. A coordinator sees the spare enquiries
   a service engineer raised that are still waiting for them, nothing quoted, with the days
   waiting; a sales engineer's desk opens with today's visits.
-- **SDR totals** on 2.0, above ERP 1's count by status: customers in the list, called, quotations
-  raised (with their value), converted (with the PO value).
+- **The SDR page as the 2.0 demo has it**, and no more: a line saying which list ("List of … ·
+  N machines · uploaded by …"), the count-then-label tiles by status (which filter), one toolbar —
+  search, coordinator (a coordinator starts on Mine, Management on Everyone), Select all, and Give to
+  coordinator once some are ticked — and the table. It shows the latest list, open and closed, and
+  any older call still open (`view: 'current'`); a small picker opens an older week or every list.
+  The totals strip, the open/closed and status dropdowns and the overdue / follow-up-due boxes were
+  taken out; the reason a call ended is on its status, on hover, and in the call.
 - **The enquiry board as the 2.0 demo draws it** (Compressor Sales and Spare Sales): the board's
   own toolbar (Board / List, search, owner, stage, Show lost with its count, the three rules), ten
   coloured stage columns with their totals, and cards with the flag, the town, the machine or

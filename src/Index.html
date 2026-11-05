@@ -364,42 +364,37 @@
     <!-- Service due calls: ELGi's weekly Service Due Report, worked call by call (ServiceDue.gs). -->
     <div class="view" id="view-servicedue">
       <div class="page-head">
-        <div><h2>Service Due Calls</h2><p>ELGi's weekly Service Due Report, one row per machine. Call the customer, send the spares quotation, follow it up, and close it — with a PO, or with the reason it did not happen.</p></div>
+        <div><h2>Service Due Calls</h2><p>ELGi's weekly Service Due Report: machines due for service. Call each customer and pick what they said and a remark right in the list, then quote spares, an AMC renewal or a service visit, follow up (up to six times) and close. Statuses move by themselves from what you record.</p></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn" id="btn-sdc-download" type="button">Download report (Excel)</button>
-          <button class="btn btn-amber" id="btn-sdc-import" type="button" style="display:none;">Upload weekly sheet</button>
+          <button class="btn" id="btn-sdc-import" type="button" style="display:none;">Upload this week's list</button>
+          <button class="btn" id="btn-sdc-download" type="button">Download report</button>
         </div>
       </div>
-      <div class="search-bar">
-        <select id="sdc-list" style="max-width:260px;" title="Which week's list"></select>
+      <!-- Which list: the latest, said in a line; an older week or everything only if asked for. -->
+      <div class="sdc-listline">
+        <span id="sdc-listline"></span>
+        <select id="sdc-list" class="sdc-listpick" title="Which list"></select>
         <button class="btn btn-sm" id="btn-sdc-remove-list" type="button" style="display:none;"
           title="Take this week's upload back out">Remove this upload</button>
-        <select id="sdc-view" style="max-width:150px;" title="Open or closed">
-          <option value="open">Open</option>
-          <option value="closed">Closed</option>
-          <option value="all">Open and closed</option>
-        </select>
-        <select id="sdc-status" style="max-width:190px;" title="Where it stands"></select>
-        <select id="sdc-owner" style="max-width:200px;" title="Whose calls"></select>
-        <input id="sdc-search" placeholder="Search customer, fab no. or model…" />
-        <label class="check-line"><input type="checkbox" id="sdc-overdue" /> Overdue parts only</label>
-        <label class="check-line"><input type="checkbox" id="sdc-due" /> Follow-up due</label>
       </div>
       <div id="sdc-summary"></div>
-      <div id="sdc-bulk" class="sdc-bulk">
-        <label class="check-line" style="margin:0;"><input type="checkbox" id="sdc-selectall" />
+      <select id="sdc-status" hidden aria-hidden="true"></select>
+      <div class="search-bar sdc-tools">
+        <input id="sdc-search" type="search" placeholder="Search customer or fab number" aria-label="Search the list" />
+        <select id="sdc-owner" title="Whose calls" aria-label="Coordinator"></select>
+        <label class="check-line sdc-bulk" id="sdc-bulk"><input type="checkbox" id="sdc-selectall" />
           <span id="sdc-selectall-text">Select all</span></label>
-        <span id="sdc-bulk-actions" style="display:none; align-items:center; gap:8px; flex-wrap:wrap;">
-          <span id="sdc-bulk-count"></span>
-          <select id="sdc-bulk-owner"></select>
-          <button class="btn btn-sm btn-primary" id="btn-sdc-assign" type="button">Assign</button>
+        <span id="sdc-bulk-actions" style="display:none;">
+          <span id="sdc-bulk-count" class="eb-chip acc"></span>
+          <select id="sdc-bulk-owner" aria-label="Give to"></select>
+          <button class="btn btn-sm btn-primary" id="btn-sdc-assign" type="button">Give to coordinator</button>
           <button class="btn btn-sm" id="btn-sdc-clear" type="button">Clear</button>
         </span>
       </div>
-      <div class="card" style="padding:0; overflow-x:auto;">
+      <div class="card sdc-list" style="padding:0; overflow-x:auto;">
         <table>
           <thead><tr>
-            <th style="width:28px;"><input type="checkbox" id="sdc-all" title="Select all" /></th>
+            <th style="width:28px;"></th>
             <th>Customer</th><th>Machine</th><th>Due</th><th>Coordinator</th><th>Call</th>
             <th>Quotation</th><th>Follow-ups</th><th>Status</th>
           </tr></thead>

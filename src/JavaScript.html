@@ -11165,7 +11165,9 @@
   // quotation sent whatever the answer, the follow-ups, and how it ended — a PO, or the reason
   // it did not happen. The two reasons stand out everywhere, because they are what the report
   // is read for. The server is ServiceDue.gs.
-  var sdc = { data: null, listId: "", view: "open", selected: {}, open: null, shown: 150 };
+  // listId "" and view "current": the latest list, and any older call still open, as the 2.0 demo
+  // has it. A week picked shows that week; "__all" everything, open and closed.
+  var sdc = { data: null, listId: "", view: "current", selected: {}, open: null, shown: 150, ownerSet: false };
   var SDC_PAGE = 150;
   // ERP 2.0 works each call from its row: what the customer said, a remark and the quotation's
   // type, without opening the call. Only on the 2.0 face (server/page.js marks the page); the
@@ -11181,7 +11183,8 @@
       fillServiceDueFilters();
       renderServiceDue();
       if (then) then();
-    }).withFailureHandler(onServerError).getServiceDueScreen({ listId: sdc.listId, view: sdc.view });
+    }).withFailureHandler(onServerError).getServiceDueScreen({ listId: sdc.listId === "__all" ? "" : sdc.listId,
+      view: sdc.listId === "__all" ? "all" : sdc.listId ? "all" : "current" });
   }
 
   function sdcToday() {
@@ -11201,8 +11204,10 @@
     "Quotation sent": "badge-sent", "Following up": "badge-sent", "PO received": "badge-won",
     "Not closed": "badge-lost", "PO rejected": "badge-lost"
   };
-  function sdcBadge(status) {
-    return '<span class="badge ' + (SDC_BADGE[status] || "badge-draft") + '">' + escapeHtml(status) + "</span>";
+  var SDC_CHIP = { "Called": "c-unit", "Quotation sent": "warn", "Following up": "warn", "PO received": "good",
+    "Not closed": "bad", "PO rejected": "bad" };
+  function sdcBadge(status, why) {
+    return ebChip(status, SDC_CHIP[status] || "", why || "");
   }
   /** The reason a call was not closed, or a PO rejected — highlighted wherever it shows. */
   function sdcReason(c) {
@@ -11215,12 +11220,17 @@
   function fillServiceDueFilters() {
     var d = sdc.data;
     var keep = function (id) { return $(id).value; };
-    $("sdc-list").innerHTML = '<option value="">Every week</option>' + d.lists.map(function (l) {
-      return '<option value="' + escapeHtml(l.id) + '">Week of ' + escapeHtml(sdcDate(l.listDate)) +
-        " · " + (Number(l.machineCount) || 0) + " machines</option>";
-    }).join("");
+    var latest = d.lists[0];
+    var on = (sdc.listId && sdc.listId !== "__all" ? d.lists.filter(function (l) { return l.id === sdc.listId; })[0] : null) || latest;
+    if (sdc.listId && sdc.listId !== "__all" && on !== d.lists.filter(function (l) { return l.id === sdc.listId; })[0]) sdc.listId = "";
+    $("sdc-listline").textContent = !d.lists.length ? "No list uploaded yet." :
+      (sdc.listId === "__all" ? "Every list, open and closed" : "List of " + ebDate(on.listDate) + " · " + (Number(on.machineCount) || 0) + " machines" +
+        (on.uploadedByName ? " · uploaded by " + on.uploadedByName : "")) + (sdc.listId ? "" : (d.lists.length > 1 ? ", and any older call still open" : ""));
+    $("sdc-list").innerHTML = '<option value="">Latest list</option>' + d.lists.map(function (l) {
+      return '<option value="' + escapeHtml(l.id) + '">Week of ' + escapeHtml(sdcDate(l.listDate)) + "</option>";
+    }).join("") + '<option value="__all">Every list, open and closed</option>';
     $("sdc-list").value = sdc.listId;
-    $("sdc-view").value = sdc.view;
+    $("sdc-list").style.display = d.lists.length > 1 ? "" : "none";
     var status = keep("sdc-status");
     $("sdc-status").innerHTML = '<option value="">Any status</option>' + d.statuses.map(function (s) {
       return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + "</option>";
@@ -11232,6 +11242,8 @@
         return '<option value="' + escapeHtml(p.email) + '">' + escapeHtml(p.name) + "</option>";
       }).join("");
     $("sdc-owner").innerHTML = people;
+    // As the demo: Management start on everybody's, a coordinator on their own.
+    if (!sdc.ownerSet) { sdc.ownerSet = true; owner = ["Management", "ERP Admin"].indexOf(currentUser.role) !== -1 ? "" : "__me"; }
     $("sdc-owner").value = owner;
     $("sdc-bulk-owner").innerHTML = d.coordinators.map(function (p) {
       return '<option value="' + escapeHtml(p.email) + '">' + escapeHtml(p.name) + "</option>";
@@ -11273,20 +11285,21 @@
     var status = $("sdc-status").value;
     var owner = $("sdc-owner").value === "__me" ? d.me : $("sdc-owner").value;
     var q = $("sdc-search").value.trim().toLowerCase();
-    var overdue = $("sdc-overdue").checked;
-    var due = $("sdc-due").checked;
-    var today = sdcToday();
-    return d.calls.filter(function (c) {
+    return serviceDueBase().filter(function (c) {
       if (status && c.status !== status) return false;
-      if (owner && c.ownerEmail !== owner) return false;
-      if (overdue && c.overdue !== "TRUE") return false;
-      if (due && !(c.nextFollowUpDate && c.nextFollowUpDate <= today && !c.outcome)) return false;
       if (q) {
         var hay = [c.customerName, c.sdrCustomerName, c.fabNo, c.productModel, c.quoteNo].join(" ").toLowerCase();
         if (hay.indexOf(q) === -1) return false;
       }
       return true;
     });
+  }
+
+  /** The calls the coordinator picked leaves: what the tiles count. */
+  function serviceDueBase() {
+    var d = sdc.data;
+    var owner = $("sdc-owner").value === "__me" ? d.me : $("sdc-owner").value;
+    return d.calls.filter(function (c) { return !owner || c.ownerEmail === owner; });
   }
 
   function renderServiceDue() {
@@ -11297,7 +11310,7 @@
     var body = rows.slice(0, sdc.shown).map(sdcRowHtml).join("");
     $("sdc-tbody").innerHTML = body || '<tr><td colspan="' + (SDC_INLINE ? 10 : 9) + '" class="empty">' +
       (d.calls.length ? "Nothing matches these filters." :
-        (d.lists.length ? "No calls here." : "No list uploaded yet. Press Upload weekly sheet and pick this week's Service Due Report.")) +
+        (d.lists.length ? "No calls here." : "No list uploaded yet. Press Upload this week's list and pick ELGi's Service Due Report.")) +
       "</td></tr>";
     $("sdc-more").innerHTML = rows.length > sdc.shown
       ? '<div style="text-align:center; margin:12px 0;"><button class="btn btn-sm" id="btn-sdc-more" type="button">Show ' +
@@ -11316,41 +11329,15 @@
   function renderServiceDueTiles() {
     var d = sdc.data;
     var counts = {};
-    d.calls.forEach(function (c) { counts[c.status] = (counts[c.status] || 0) + 1; });
+    var base = serviceDueBase();
+    base.forEach(function (c) { counts[c.status] = (counts[c.status] || 0) + 1; });
     var active = $("sdc-status").value;
-    // ERP 2's totals for the list on 2.0: customers in it, called, quotations raised, converted.
-    var strip = "";
-    if (FACE_V2) {
-      var custs = {};
-      var called = 0;
-      var quoted = [];
-      var won = [];
-      d.calls.forEach(function (c) {
-        custs[String(c.customerId || c.customerName || c.id).toLowerCase()] = true;
-        if (c.status !== "To call") called++;
-        if (c.quoteNo || c.quotationId) quoted.push(c);
-        if (c.status === "PO received") won.push(c);
-      });
-      var sum = function (list, k) { return list.reduce(function (n, c) { return n + (Number(c[k]) || 0); }, 0); };
-      strip = '<div class="sdc-totals">' + [
-        ["Customers in the list", Object.keys(custs).length, ""],
-        ["Called", called, d.calls.length ? Math.round(called / d.calls.length * 100) + "% of the list" : ""],
-        ["Quotations raised", quoted.length, sum(quoted, "quoteValue") ? fmtShort(sum(quoted, "quoteValue")) : ""],
-        ["Converted", won.length, sum(won, "poValue") ? fmtShort(sum(won, "poValue")) + " won" : ""]
-      ].map(function (t) {
-        return '<div class="pd-tile"><span class="pd-label">' + escapeHtml(t[0]) + '</span><span class="pd-value">' + t[1] +
-          '</span><span class="pd-sub">' + escapeHtml(t[2]) + "</span></div>";
-      }).join("") + "</div>";
-    }
-    $("sdc-summary").innerHTML = strip + '<div class="sdc-tiles">' +
-      '<button type="button" class="kpi-card sdc-tile' + (active ? "" : " on") + '" data-sdc-tile="">' +
-        '<div class="kpi-label">All</div><div class="kpi-value">' + d.calls.length + "</div></button>" +
-      d.statuses.map(function (s) {
-        var bad = s === "Not closed" || s === "PO rejected";
-        return '<button type="button" class="kpi-card sdc-tile' + (bad && counts[s] ? " alert" : "") +
-          (active === s ? " on" : "") + '" data-sdc-tile="' + escapeHtml(s) + '">' +
-          '<div class="kpi-label">' + escapeHtml(s) + '</div><div class="kpi-value">' + (counts[s] || 0) +
-          "</div></button>";
+    $("sdc-summary").innerHTML = '<div class="sdc-tiles">' +
+      '<button type="button" class="sdc-tile' + (active ? "" : " on") + '" data-sdc-tile=""><b>' + base.length + "</b><span>All</span></button>" +
+      d.statuses.map(function (st) {
+        var bad = st === "Not closed" || st === "PO rejected";
+        return '<button type="button" class="sdc-tile' + (bad && counts[st] ? " alert" : "") + (active === st ? " on" : "") +
+          '" data-sdc-tile="' + escapeHtml(st) + '"><b>' + (counts[st] || 0) + "</b><span>" + escapeHtml(st) + "</span></button>";
       }).join("") + "</div>";
     $("sdc-summary").querySelectorAll("[data-sdc-tile]").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -11386,7 +11373,7 @@
         escapeHtml(c.callResponse || "") + "</div>" : '<span class="sdc-muted">Not yet</span>') + "</td>" +
       "<td>" + (c.quoteNo ? sdcQuoteHtml(c) : '<span class="sdc-muted">—</span>') + "</td>") +
       "<td>" + (Number(c.followUpCount) || 0) + " of " + limit + dueNext + "</td>" +
-      "<td>" + sdcBadge(c.status) + sdcReason(c) + "</td>" +
+      "<td>" + sdcBadge(c.status, c.notClosedReason || c.poRejectedReason || "") + "</td>" +
       "</tr>";
   }
 
@@ -11423,7 +11410,7 @@
       : (c.callNotes ? escapeHtml(c.callNotes) : '<span class="sdc-muted">—</span>');
     var quote = c.quoteNo ? sdcQuoteHtml(c)
       : !live ? '<span class="sdc-muted">—</span>'
-      : !c.customerId ? '<span class="sdc-muted">Link the customer first</span>'
+      : !c.customerId ? '<span class="sdc-muted" title="Add them as a customer first, from the call">—</span>'
       : '<select class="sdc-inline" data-sdc-quote="' + id + '" aria-label="Prepare a quotation">' +
           '<option value="">Quote…</option>' + (d.quoteTypes || ["Spares"]).map(function (t) {
             return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + "</option>";
@@ -11549,7 +11536,7 @@
     var n = Object.keys(sdc.selected).length;
     var picked = shown.filter(function (c) { return sdc.selected[c.id]; }).length;
     var all = shown.length > 0 && picked === shown.length;
-    ["sdc-selectall", "sdc-all"].forEach(function (id) {
+    ["sdc-selectall"].forEach(function (id) {
       $(id).checked = all;
       $(id).indeterminate = picked > 0 && !all;
       $(id).disabled = !shown.length;
@@ -11558,7 +11545,7 @@
     $("sdc-bulk").style.display = d && d.canEdit ? "" : "none";
     $("sdc-bulk").classList.toggle("on", n > 0);
     $("sdc-bulk-actions").style.display = n ? "inline-flex" : "none";
-    $("sdc-bulk-count").textContent = n + (n === 1 ? " call ticked — assign to" : " calls ticked — assign to");
+    $("sdc-bulk-count").textContent = n + " selected";
   }
 
   /** Ticks, or clears, every call the filters leave — all of them, not only the rows shown. */
@@ -11580,7 +11567,6 @@
     var row = e.target.closest("[data-sdc]");
     if (row) openServiceDueCall(row.dataset.sdc);
   });
-  $("sdc-all").addEventListener("change", function () { selectAllServiceDue($("sdc-all").checked); });
   $("sdc-selectall").addEventListener("change", function () { selectAllServiceDue($("sdc-selectall").checked); });
   $("btn-sdc-clear").addEventListener("click", function () {
     sdc.selected = {};
@@ -11598,12 +11584,11 @@
     }).withFailureHandler(function (err) { done(); onServerError(err); }).assignServiceDueCalls(ids, to);
   });
 
-  ["sdc-status", "sdc-owner", "sdc-overdue", "sdc-due"].forEach(function (id) {
+  ["sdc-status", "sdc-owner"].forEach(function (id) {
     $(id).addEventListener("change", function () { sdc.shown = SDC_PAGE; renderServiceDue(); });
   });
   $("sdc-search").addEventListener("input", function () { sdc.shown = SDC_PAGE; renderServiceDue(); });
   $("sdc-list").addEventListener("change", function () { sdc.listId = $("sdc-list").value; sdc.shown = SDC_PAGE; loadServiceDue(); });
-  $("sdc-view").addEventListener("change", function () { sdc.view = $("sdc-view").value; sdc.shown = SDC_PAGE; loadServiceDue(); });
 
   // ---- One machine's call ----
   function openServiceDueCall(id) {
