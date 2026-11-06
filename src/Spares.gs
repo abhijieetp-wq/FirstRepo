@@ -186,9 +186,10 @@ function saveSpare(input) {
  * package weight. Model and capacity are required; the rest only when the sheet has them.
  *
  * Stored on the Spares row like any accessory: the type in `category`, the heading the offer
- * prints ("Air Dryer AR 0310NS A2_INDIA") in specTitle and as the description. A new accessory
- * is keyed by its model until the price list gives it a part number. Price, HSN and GST are not
- * this form's: they are left exactly as they are, to come from the accessories price list.
+ * prints ("Air Dryer AR 0310NS A2_INDIA") in specTitle and as the description. Its code is ELGi's
+ * TPL code (required, one per accessory), as a compressor's is, so the accessories price list can
+ * be matched to it. Price, HSN and GST are not this form's: they are left exactly as they are, to
+ * come from that price list.
  */
 var ACCESSORY_TYPES = ['Air Dryer', 'Filter', 'Air Receiver', 'Auto Drain Valve', 'Oil-Water Separator'];
 
@@ -196,8 +197,10 @@ function saveAccessory(input) {
   var user = getCurrentUser();
   requireRole_(user, CATALOG_EDITORS);
   var o = input || {};
+  var tpl = String(o.tplCode || '').replace(/\s+/g, '').trim().toUpperCase();
   var model = String(o.model || '').replace(/\s+/g, ' ').trim();
   var capacity = String(o.capacity || '').trim();
+  if (!tpl) throw new Error('TPL code is required.');
   if (!model) throw new Error('Model is required.');
   if (!capacity) throw new Error('Capacity is required.');
   var type = String(o.type || '').replace(/\s+/g, ' ').trim();
@@ -212,8 +215,11 @@ function saveAccessory(input) {
       (same(x.specModel, model) || same(x.partNo, model));
   })[0];
   if (clash) throw new Error('Model ' + model + ' is already in the catalogue (' + (clash.specTitle || clash.description || clash.partNo) + '). Edit that one instead.');
+  var tplClash = all.filter(function (x) { return String(x.id) !== String(o.id || '') && same(x.partNo, tpl); })[0];
+  if (tplClash) throw new Error('TPL code ' + tpl + ' already belongs to ' + (tplClash.specTitle || tplClash.description || 'another item') + '.');
 
   var record = {
+    partNo: tpl,
     category: type,
     specTitle: title,
     specModel: model,
@@ -225,7 +231,6 @@ function saveAccessory(input) {
   };
   if (!existing) {
     record.id = generateId_('SP-');
-    record.partNo = model;
     record.description = title;
     record.brand = 'ELGI';
     record.uom = 'Nos';
@@ -235,9 +240,7 @@ function saveAccessory(input) {
     record.createdBy = user.email;
     appendRow_('Spares', record, 'Accessory added');
   } else {
-    // Keyed by its old model, it follows the new one; a real part number is left alone. So is a
-    // description somebody wrote, unless it was only the old heading.
-    if (same(existing.partNo, existing.specModel)) record.partNo = model;
+    // A description somebody wrote is left alone, unless it was only the old heading.
     if (!String(existing.description || '').trim() || same(existing.description, existing.specTitle)) record.description = title;
     record.id = String(existing.id);
     updateRowById_('Spares', 'id', record.id, record, 'Accessory updated');

@@ -1070,6 +1070,7 @@
     if (catv.tab === "acc") {
       var dash = function (k) { return function (r) { return escapeHtml(r[k] || "—"); }; };
       return [
+        { label: "TPL Code", html: function (r) { return '<span class="mono">' + escapeHtml(r.partNo && r.partNo !== r.specModel ? r.partNo : "—") + "</span>"; } },
         { label: "Model", html: function (r) { return '<b class="mono">' + escapeHtml(r.specModel || r.partNo || "—") + "</b>" +
           (r.category ? '<br><span class="eb2-kind">' + escapeHtml(r.category) + "</span>" : ""); } },
         { label: "Capacity", html: dash("specCapacity") },
@@ -1371,25 +1372,23 @@
     $("accessory-types").innerHTML = types.map(function (t) { return '<option value="' + escapeHtml(t) + '">'; }).join("");
     $("acc-type").value = s ? (s.category || "") : "";
     ACC_FIELDS.forEach(function (f) { $(f[0]).value = s ? (s[f[1]] || "") : ""; });
-    // An accessory made from a spare before this form keeps what its row says.
-    if (s && !s.specModel) $("acc-model").value = s.partNo || "";
+    // The TPL code is the accessory's code. One saved before the TPL code was asked for was keyed
+    // by its model, and is left blank here so the TPL code gets typed in.
+    $("acc-tpl").value = s && s.partNo && s.partNo !== s.specModel ? s.partNo : "";
     $("acc-price-note").textContent = s && s.price ? "ELGi price " + ebMoney(s.price) + (s.gstPct !== undefined && s.gstPct !== "" ? ", GST " + s.gstPct + "%" : "") +
       ", from the price list." : "The price, HSN and GST come from the accessories price list, not this form.";
     $("btn-delete-accessory").style.display = s && canRemoveFromCatalog() ? "inline-flex" : "none";
     accHeading();
     $("accessory-modal-backdrop").classList.add("show");
-    setTimeout(function () { $(s ? "acc-capacity" : "acc-type").focus(); }, 50);
+    setTimeout(function () { $(s && $("acc-tpl").value ? "acc-capacity" : "acc-tpl").focus(); }, 50);
   }
 
   ["acc-type", "acc-model"].forEach(function (k) { $(k).addEventListener("input", accHeading); });
   $("btn-cancel-accessory").addEventListener("click", function () { $("accessory-modal-backdrop").classList.remove("show"); });
   $("btn-save-accessory").addEventListener("click", function () {
-    var model = $("acc-model").value.trim(), capacity = $("acc-capacity").value.trim();
-    if (!model || !capacity) {
-      showMsg(!model ? "Model is required." : "Capacity is required.", "error");
-      $(!model ? "acc-model" : "acc-capacity").focus();
-      return;
-    }
+    var tpl = $("acc-tpl").value.trim(), model = $("acc-model").value.trim(), capacity = $("acc-capacity").value.trim();
+    var missing = !tpl ? ["acc-tpl", "TPL code is required."] : !model ? ["acc-model", "Model is required."] : !capacity ? ["acc-capacity", "Capacity is required."] : null;
+    if (missing) { showMsg(missing[1], "error"); $(missing[0]).focus(); return; }
     var btn = $("btn-save-accessory");
     btn.disabled = true;
     srv.withSuccessHandler(function (saved) {
@@ -1399,7 +1398,7 @@
       loadCatalog();
       showMsg(saved.specTitle + " saved.", "success");
     }).withFailureHandler(function (err) { btn.disabled = false; onServerError(err); }).saveAccessory({
-      id: $("acc-id").value, type: $("acc-type").value, model: model, capacity: capacity,
+      id: $("acc-id").value, tplCode: tpl, type: $("acc-type").value, model: model, capacity: capacity,
       workingPressure: $("acc-workpressure").value, weight: $("acc-weight").value,
       maxPressure: $("acc-maxpressure").value, dimensions: $("acc-dimensions").value
     });

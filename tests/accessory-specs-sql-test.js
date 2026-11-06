@@ -508,33 +508,38 @@ const SPEC_CSV = '﻿' + [
 
   console.log('\nTHE ACCESSORY FORM (saveAccessory)');
   const refuseAcc = async (fn, re) => { try { await fn(); return false; } catch (e) { return re.test(String(e.message)) || e.message; } };
-  ok('model is required', (await refuseAcc(() => p.saveAccessory({ capacity: '309 cfm' }), /Model is required/)) === true);
-  ok('capacity is required', (await refuseAcc(() => p.saveAccessory({ model: 'AR 0310NS A2_INDIA' }), /Capacity is required/)) === true);
-  const acc = await p.saveAccessory({ type: 'Air Dryer', model: ' AR 0310NS  A2_INDIA ', capacity: '309 cfm', workingPressure: '7 bar',
+  ok('the TPL code is required', (await refuseAcc(() => p.saveAccessory({ model: 'AR 0310NS A2_INDIA', capacity: '309 cfm' }), /TPL code is required/)) === true);
+  ok('model is required', (await refuseAcc(() => p.saveAccessory({ tplCode: 'S900001', capacity: '309 cfm' }), /Model is required/)) === true);
+  ok('capacity is required', (await refuseAcc(() => p.saveAccessory({ tplCode: 'S900001', model: 'AR 0310NS A2_INDIA' }), /Capacity is required/)) === true);
+  ok('a TPL code another item has is refused', (await refuseAcc(() => p.saveAccessory({ tplCode: 'tst-dry', model: 'NEW 1', capacity: '1 cfm' }),
+    /TPL code TST-DRY already belongs to/)) === true);
+  const acc = await p.saveAccessory({ tplCode: ' s900001 ', type: 'Air Dryer', model: ' AR 0310NS  A2_INDIA ', capacity: '309 cfm', workingPressure: '7 bar',
     maxPressure: '16 bar', dimensions: '600 x 454 x 1496 mm' });
   const accRow = async () => (await db.q('SELECT * FROM spares WHERE tenant_id = $1 AND id = $2', [TENANT, acc.id])).rows[0];
   let ar = await accRow();
   ok('saved with the type, the model and what was given; weight left blank', ar.category === 'Air Dryer' && ar.spec_model === 'AR 0310NS A2_INDIA' &&
     ar.spec_title === 'Air Dryer AR 0310NS A2_INDIA' && ar.spec_capacity === '309 cfm' && ar.spec_working_pressure === '7 bar' &&
     ar.spec_max_pressure === '16 bar' && ar.spec_dimensions === '600 x 454 x 1496 mm' && !ar.spec_weight, ar);
-  ok('keyed by its model until the price list gives it a part number, and active', ar.part_no === 'AR 0310NS A2_INDIA' &&
+  ok('its code is the TPL code, in capitals, and it is active', ar.part_no === 'S900001' &&
     ar.description === 'Air Dryer AR 0310NS A2_INDIA' && ar.active === true, ar);
   ok('it is on the Accessories tab', (await p.listSpares()).some((x) => x.id === acc.id && x.specTitle === 'Air Dryer AR 0310NS A2_INDIA'));
-  ok('the same model twice is refused', (await refuseAcc(() => p.saveAccessory({ model: 'ar 0310ns a2_india', capacity: '1' }), /already in the catalogue/)) === true);
-  await p.saveAccessory({ id: acc.id, type: 'Air Dryer', model: 'AR 0310NS A2_INDIA', capacity: '310 cfm', weight: '110 kg' });
+  ok('the same model twice is refused', (await refuseAcc(() => p.saveAccessory({ tplCode: 'S900002', model: 'ar 0310ns a2_india', capacity: '1' }), /already in the catalogue/)) === true);
+  await p.saveAccessory({ id: acc.id, tplCode: 'S900001', type: 'Air Dryer', model: 'AR 0310NS A2_INDIA', capacity: '310 cfm', weight: '110 kg' });
   ar = await accRow();
   ok('an edit changes the specification and blanks what was cleared', ar.spec_capacity === '310 cfm' && ar.spec_weight === '110 kg' &&
     !ar.spec_working_pressure && !ar.spec_max_pressure, ar);
-  await p.saveAccessory({ id: acc.id, type: 'Refrigerated Air Dryer', model: 'AR 0310NS A3_INDIA', capacity: '310 cfm' });
+  await p.saveAccessory({ id: acc.id, tplCode: 'S900003', type: 'Refrigerated Air Dryer', model: 'AR 0310NS A3_INDIA', capacity: '310 cfm' });
   ar = await accRow();
-  ok('a new model: the key and the heading follow it', ar.part_no === 'AR 0310NS A3_INDIA' && ar.spec_title === 'Refrigerated Air Dryer AR 0310NS A3_INDIA' &&
+  ok('a new TPL code and model: the code and the heading follow them', ar.part_no === 'S900003' && ar.spec_title === 'Refrigerated Air Dryer AR 0310NS A3_INDIA' &&
     ar.description === 'Refrigerated Air Dryer AR 0310NS A3_INDIA', ar);
+  ok('keeping its own TPL code is not a clash with itself', !!(await p.saveAccessory({ id: acc.id, tplCode: 'S900003', type: 'Refrigerated Air Dryer',
+    model: 'AR 0310NS A3_INDIA', capacity: '310 cfm' })));
   // One that came with a real part number (the dryer above, TST-DRY) keeps it.
   const dryRow = (await db.q("SELECT id, part_no, description FROM spares WHERE tenant_id = $1 AND part_no = 'TST-DRY'", [TENANT])).rows[0];
   if (dryRow) {
-    await p.saveAccessory({ id: dryRow.id, type: 'Air Dryer', model: 'TX 0300', capacity: '300 cfm' });
+    await p.saveAccessory({ id: dryRow.id, tplCode: 'TST-DRY', type: 'Air Dryer', model: 'TX 0300', capacity: '300 cfm' });
     const d2 = (await db.q('SELECT part_no, spec_model, description FROM spares WHERE tenant_id = $1 AND id = $2', [TENANT, dryRow.id])).rows[0];
-    ok('a real part number and description are left alone', d2.part_no === 'TST-DRY' && d2.spec_model === 'TX 0300' && d2.description === dryRow.description, d2);
+    ok('its code kept, and a description somebody wrote left alone', d2.part_no === 'TST-DRY' && d2.spec_model === 'TX 0300' && d2.description === dryRow.description, d2);
   }
   html = await offer([['Spare', acc.id]]);
   ok('on a compressor offer: “ELGi make” + type + model, and the specification table with the rows given',

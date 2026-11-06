@@ -1021,19 +1021,22 @@
     <h3 id="accessory-modal-title" style="margin-bottom:16px;">Add Accessory</h3>
     <input type="hidden" id="acc-id" />
     <div class="grid grid-2">
+      <div class="field"><label>TPL Code *</label><input id="acc-tpl" class="mono" autocapitalize="characters" spellcheck="false" placeholder="ELGi's TPL number, e.g. S019334" /></div>
       <div class="field"><label>Type</label><input id="acc-type" list="accessory-types" placeholder="e.g. Air Dryer, Filter, Air Receiver" />
         <datalist id="accessory-types"></datalist></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Model *</label><input id="acc-model" placeholder="e.g. AR 0310NS A2_INDIA" /></div>
-    </div>
-    <div class="grid grid-2" style="margin-top:12px;">
       <div class="field"><label>Capacity *</label><input id="acc-capacity" placeholder="e.g. 309 cfm" /></div>
-      <div class="field"><label>Normal working pressure</label><input id="acc-workpressure" placeholder="e.g. 7 bar" /></div>
     </div>
     <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Normal working pressure</label><input id="acc-workpressure" placeholder="e.g. 7 bar" /></div>
       <div class="field"><label>Package weight</label><input id="acc-weight" placeholder="e.g. 110 kg" /></div>
-      <div class="field"><label>Maximum pressure</label><input id="acc-maxpressure" placeholder="e.g. 16 bar" /></div>
     </div>
-    <div class="field" style="margin-top:12px;"><label>Dimensions</label><input id="acc-dimensions" placeholder="e.g. 600 x 454 x 1496 mm" /></div>
+    <div class="grid grid-2" style="margin-top:12px;">
+      <div class="field"><label>Maximum pressure</label><input id="acc-maxpressure" placeholder="e.g. 16 bar" /></div>
+      <div class="field"><label>Dimensions</label><input id="acc-dimensions" placeholder="e.g. 600 x 454 x 1496 mm" /></div>
+    </div>
     <p class="field-note" id="acc-heading-note" style="margin-top:12px;"></p>
     <p class="field-note" id="acc-price-note" style="margin-top:4px;"></p>
     <div style="display:flex; justify-content:space-between; margin-top:22px; gap:10px; flex-wrap:wrap;">
