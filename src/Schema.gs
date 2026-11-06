@@ -405,6 +405,9 @@ var SCHEMA = {
       // A package discount off the total, the way their own offers are priced, plus whether
       // GST is added into the total or quoted as extra — their two documents differ on this.
       'packageDiscountPct', 'pfAmount', 'taxMode',
+      // Whether the offer prints the discount as a % beside the discounted price: some customers
+      // are shown it, some are not. Blank is shown. A customer's next quotation takes their last.
+      'discountPctShown',
       // Why this revision was made, asked before it can be (reviseQuotation). Blank on R0
       // and on revisions made before the question was compulsory.
       'revisionReason',

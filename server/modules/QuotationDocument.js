@@ -448,12 +448,14 @@ function scheduleName_(item, products, spareSpecs, L) {
 function compressorTotals_(q, co, address, items, gross, netGoods, L, freightAmount) {
   var rows = [[esc_(L('packageTotal', 'Total Package Price')), inr_(gross), '']];
   if (gross - netGoods > 0.005) {
-    // "(40% Less)" only when that is the whole story. With line discounts as well, the
-    // percentage would not take the package total to the discounted one.
+    // "(40% Less)" when the quotation shows the %, as some customers are shown it and some are
+    // not. One package discount prints as given; discounts on the lines, or both, print as the
+    // one % that takes the package total to the discounted price, so it always adds up.
     var pkgPct = Number(q.packageDiscountPct) || 0;
     var lineDiscounts = items.some(function (i) { return (Number(i.discountPct) || 0) > 0; });
-    var note = pkgPct > 0 && !lineDiscounts
-      ? ' ' + L('discountNote', '({pct}% Less)').replace('{pct}', String(pkgPct)) : '';
+    var pct = pkgPct > 0 && !lineDiscounts ? pkgPct : (gross > 0 ? (gross - netGoods) / gross * 100 : 0);
+    var note = showsDiscountPct_(q) && pct > 0
+      ? ' ' + L('discountNote', '({pct}% Less)').replace('{pct}', pctText_(pct)) : '';
     rows.push([esc_(L('discountedTotal', 'Discounted Price') + note), inr_(netGoods), 'hl']);
   }
   var pf = Number(q.pfAmount) || 0;
@@ -483,7 +485,7 @@ function spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L) {
   rows.push([esc_(L('packageTotal', 'Total package price')), inr_(gross), pkgPct > 0 ? '' : 'strong']);
   if (pkgPct > 0) {
     rows.push([esc_(L('discountedTotal', 'Total discounted price')) +
-      ' (' + pkgPct + '% less)', inr_(netGoods), 'strong']);
+      (showsDiscountPct_(q) ? ' (' + pctText_(pkgPct) + '% less)' : ''), inr_(netGoods), 'strong']);
   }
   // Their spares offer has no P&F row unless there is a charge, and no freight row at all:
   // carting is a line and term 2 covers the rest.

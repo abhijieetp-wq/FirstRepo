@@ -77,19 +77,24 @@ const ok = (label, cond, detail) => {
     ok('the offer’s terms beside it, printed on the offer', await inside('qbv-offer', ['qb-date', 'qb-validity', 'qb-validuntil', 'qb-paymentterms', 'qb-deliveryterms',
       'qb-deliveryperiod', 'qb-warrantyterms', 'qb-taxmode', 'qb-notes', 'btn-qb-save-header']) && /Printed on the offer/.test(await page.textContent('#qbv-offer header')));
     ok('the items, ERP 1’s table and buttons', (await page.$$('.qbv-items #qb-items tbody tr')).length === 2 && await shown('#btn-qb-add-item') && await shown('#btn-qb-add-charge'));
-    ok('the totals: package discount, P&F, the sums and GST', await inside('qbv-totals', ['qb-pkgdisc', 'qb-pf', 'qb-totals']) &&
+    ok('the totals: package discount, P&F, whether the % is shown, the sums and GST', await inside('qbv-totals', ['qb-pkgdisc', 'qb-pf', 'qb-showpct', 'qb-totals']) &&
       /Grand Total/.test(await page.textContent('#qb-totals')) && /GST extra/.test(await page.textContent('#qbv-totals header')));
     ok('what a spares customer receives', (await page.$$eval('#qbv-receives li', (l) => l.map((x) => x.textContent))).join('|') ===
       'Offer letter on PIE letterhead|Price schedule with part numbers|Terms');
     ok('ERP 1’s long card is put away, empty', await page.evaluate(() => { const c = document.querySelector('#qb-body > .card:not(.qbv-items)'); return !!c && c.style.display === 'none' && !c.querySelector('input'); }));
 
     console.log('\nSAVING, AND A LOCKED OFFER');
+    ok('the % is shown unless asked not to', await page.isChecked('#qb-showpct') &&
+      /Show the discount % on the offer/.test(await page.textContent('#qbv-totals')));
+    if (process.argv[3]) { const t = await page.$('#qbv-totals'); if (t) await t.screenshot({ path: process.argv[3] }); }
+    await page.uncheck('#qb-showpct');
     await page.fill('#qb-pf', '750');
     await page.evaluate(() => { window.__calls = []; });
     await page.click('#btn-qbv-save-totals');
     await page.waitForTimeout(400);
     const saved = await page.evaluate(() => { const c = window.__calls.filter((x) => x.fn === 'saveQuotationHeader'); return c.length ? c[c.length - 1].args : null; });
     ok('Save under the totals saves the offer’s details through ERP 1’s button', !!saved && JSON.stringify(saved).indexOf('750') !== -1, saved);
+    ok('with whether the discount % is shown', !!saved && saved[0].discountPctShown === false, saved);
     await page.evaluate(() => {
       window.__data.getQuotation = () => window.__quote({ status: 'Approved', locked: true, businessStream: 'Compressor Sales' });
     });

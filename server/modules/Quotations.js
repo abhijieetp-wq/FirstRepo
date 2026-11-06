@@ -353,6 +353,7 @@ async function createBlankQuotation(input) {
     createdAt: nowIso_(),
     createdBy: user.email
   };
+  quote.discountPctShown = await customerShowsDiscountPct_(quote.customerId);
   await appendRow_('Quotations', quote, 'Blank quotation started for ' + customer.name);
   return await getQuotation(quote.id);
 }
@@ -418,6 +419,7 @@ async function createQuotationFromEnquiry(spareEnquiryId) {
     createdAt: nowIso_(),
     createdBy: user.email
   };
+  quote.discountPctShown = await customerShowsDiscountPct_(quote.customerId);
   await appendRow_('Quotations', quote, 'Quotation created from enquiry ' + (enquiry.enquiryNo || ''));
 
   var prices = await priceMapFor_('Spare', quote.date);
@@ -683,6 +685,10 @@ async function saveQuotationHeader(input) {
     pfAmount: pf,
     taxMode: taxMode
   };
+  // Only when the form sends it, so a save from somewhere that does not show the box keeps it.
+  if (input.discountPctShown !== undefined) {
+    record.discountPctShown = input.discountPctShown === false || String(input.discountPctShown).toUpperCase() === 'FALSE' ? 'FALSE' : 'TRUE';
+  }
   Object.keys(patch).forEach(function (k) { record[k] = patch[k]; });
 
   await updateRowById_('Quotations', 'id', input.id, record, 'Quotation header updated');
@@ -692,6 +698,32 @@ async function saveQuotationHeader(input) {
   await recalcQuotation_(input.id);
 
   return await getQuotation(input.id);
+}
+
+/**
+ * Whether a new quotation for this customer shows the discount %: as their last one did, so a
+ * customer who is never shown it is not shown it by accident on the next offer. Shown when they
+ * have none yet.
+ */
+async function customerShowsDiscountPct_(customerId) {
+  var id = String(customerId || '');
+  if (!id) return 'TRUE';
+  var last = (await readTable_('Quotations')).filter(function (q) {
+    return String(q.customerId) === id && String(q.discountPctShown || '') !== '';
+  }).sort(function (a, b) {
+    return String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''));
+  })[0];
+  return last && String(last.discountPctShown).toUpperCase() === 'FALSE' ? 'FALSE' : 'TRUE';
+}
+
+/** Whether this quotation's offer prints the discount %. Blank, from before the choice, is yes. */
+function showsDiscountPct_(q) {
+  return String((q && q.discountPctShown) || '').toUpperCase() !== 'FALSE';
+}
+
+/** A percentage as an offer prints it: 40, 12.5, 7.25 — two places at most, no trailing zeros. */
+function pctText_(n) {
+  return String(Math.round(Number(n) * 100) / 100);
 }
 
 /**
@@ -1722,6 +1754,7 @@ async function createQuotationFromOpportunity(opportunityId) {
     createdAt: nowIso_(),
     createdBy: user.email
   };
+  quote.discountPctShown = await customerShowsDiscountPct_(quote.customerId);
   await appendRow_('Quotations', quote, 'Quotation created from opportunity ' + opportunity.opportunityNo);
 
   var prices = await priceMapFor_('Product', quote.date);

@@ -4261,10 +4261,11 @@
     $("qb-pkgdisc").value = Number(q.packageDiscountPct) || 0;
     $("qb-pf").value = Number(q.pfAmount) || 0;
     $("qb-taxmode").value = q.taxMode || "Extra";
+    $("qb-showpct").checked = String(q.discountPctShown || "").toUpperCase() !== "FALSE";
 
     ["qb-model", "qb-serial", "qb-date", "qb-validity", "qb-paymentterms",
      "qb-deliveryterms", "qb-deliveryperiod", "qb-warrantyterms", "qb-notes",
-     "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-customer-pick"].forEach(function (f) {
+     "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-showpct", "qb-customer-pick"].forEach(function (f) {
       $(f).disabled = !editable;
     });
     $("btn-qb-save-header").style.display = editable ? "" : "none";
@@ -4335,6 +4336,11 @@
     items.classList.add("qbv-items");
     var totals = panel("qbv-totals", "Totals");
     move(grid(totals), ["qb-pkgdisc", "qb-pf"]);
+    // Whether the offer prints the discount as a %, under the discount it is about.
+    var showPct = $("qb-showpct").closest("label");
+    showPct.className = "check-line qbv-showpct";
+    showPct.removeAttribute("style");
+    totals.querySelector(".qbv-body").appendChild(showPct);
     var hint = card.querySelector("p");
     if (hint) { hint.className = "qbv-hint"; hint.removeAttribute("style"); totals.querySelector(".qbv-body").appendChild(hint); }
     var box = $("qb-totals").parentNode;
@@ -4923,6 +4929,7 @@
       packageDiscountPct: $("qb-pkgdisc").value,
       pfAmount: $("qb-pf").value,
       taxMode: $("qb-taxmode").value,
+      discountPctShown: $("qb-showpct").checked,
       customerId: $("qb-customer-pick").value || openQuote.customerId
     });
   });

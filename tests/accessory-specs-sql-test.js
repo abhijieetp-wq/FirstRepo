@@ -303,8 +303,33 @@ const SPEC_CSV = '﻿' + [
     itemId: 'SP-HOSE', qty: 1, unitPrice: 500, discountPct: 10 });
   await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 40 });
   tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
-  ok('a line discount as well: the row, without a percentage that would not add up',
-    !!rowWith(tbl, 'Discounted Price') && !/% Less/.test(tbl), rows(tbl).map((r) => cells(r)[0]));
+  const money = (t) => Number(String(t || '').replace(/[^0-9.]/g, ''));
+  const pctRow = rows(tbl).find((r) => /^Discounted Price \([\d.]+% Less\)$/.test(cells(r)[0])) || '';
+  const shownPct = Number((/\(([\d.]+)% Less\)/.exec(cells(pctRow)[0] || '') || [])[1]);
+  const listTotal = money(cells(rowWith(tbl, 'Total Package Price') || '')[1]);
+  ok('a line discount as well: the one % that takes the package total to the discounted price',
+    !!pctRow && Math.abs(listTotal * (1 - shownPct / 100) - money(cells(pctRow)[1])) < listTotal * 0.0001,
+    rows(tbl).map((r) => cells(r)[0]));
+
+  console.log('\nSHOWING THE % IS THE QUOTATION’S CHOICE');
+  ok('shown unless asked not to', (await p.getQuotation(lastQuoteId)).discountPctShown === 'TRUE');
+  await p.saveQuotationHeader({ id: lastQuoteId, discountPctShown: false });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('turned off: the discounted price, and no %', !!rowWith(tbl, 'Discounted Price') && !/% Less/.test(tbl),
+    rows(tbl).map((r) => cells(r)[0]));
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 35 });
+  ok('another save that does not send it keeps it off', (await p.getQuotation(lastQuoteId)).discountPctShown === 'FALSE');
+  const nextForThem = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Compressor Sales' });
+  ok('the customer’s next quotation starts the same: not shown', nextForThem.discountPctShown === 'FALSE', nextForThem.discountPctShown);
+  // Back on for this customer, so the offers below are drawn as before.
+  await p.saveQuotationHeader({ id: nextForThem.id, discountPctShown: true });
+  await p.saveQuotationHeader({ id: lastQuoteId, discountPctShown: true, packageDiscountPct: 40 });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('turned back on, it is back', /Discounted Price \([\d.]+% Less\)/.test(tbl));
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 0 });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('a line discount alone shows its %, to two places at most', /Discounted Price \(\d+(\.\d{1,2})?% Less\)/.test(tbl),
+    rows(tbl).map((r) => cells(r)[0]));
 
   console.log('\nFREIGHT ONCE, AFTER P&F');
   const fiveLines = [['Product', 'PR-EG'], ['Spare', 'SP-RCV'], ['Spare', 'SP-DRY'], ['Spare', 'SP-FLT'], ['Spare', 'SP-HOSE']];

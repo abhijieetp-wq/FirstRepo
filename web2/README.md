@@ -165,6 +165,12 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   - The same list heads the approver's dashboard and Customers. Other Management and ERP Admin
     see it on their dashboard as a notice. Five new Customers columns: approvalStatus,
     approvalBatch, approvedBy, approvedAt, approvalNote. Blank means from before, and approved.
+- **The discount %, shown or not, per quotation** ("Show the discount % on the offer", under the
+  package discount; `Quotations.discountPctShown`). Shown, the offer prints "Discounted Price (40%
+  Less)": a single package discount as given, discounts on the lines (or both) as the one % that
+  takes the package total to the discounted price, two places at most. Not shown, the discounted
+  price alone. A customer's next quotation starts with their last one's choice; the spares offer
+  follows the same box.
 - **The ERP ID** (Settings → Users; `Users.email`). Staff have no mailboxes of their own, so the
   address field is the ERP ID: how every record knows whose work it is, never a login and never
   sent to. A person added with none gets one made from their username at `pie.invalid` (a domain
