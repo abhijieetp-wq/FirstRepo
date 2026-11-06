@@ -131,7 +131,9 @@ const ok = (label, cond, detail) => {
   ok('with no script errors of our own on the way', ours().length === 0, ours().slice(0, 3));
 
   console.log('\nAND THE SCREEN IT LANDS ON IS THE DASHBOARD');
-  // ERP 2.0's dashboard, the only look: the greeting over the person's own desk.
+  // ERP 2.0's dashboard, the only look: the greeting over the person's own desk. It is drawn when
+  // the desk's figures arrive, which on a busy machine is after the sign-in screen has gone.
+  await page.waitForSelector('#pd-host .dv-hero', { state: 'visible', timeout: 15000 }).catch(() => {});
   ok('the 2.0 dashboard is up', await page.isVisible('#pd-host .dv-hero') &&
     /Good (morning|afternoon|evening)/.test(await page.innerText('#pd-host')));
   ok('with the navigation beside it', /Quotations/.test(await page.innerText('body')));
