@@ -209,7 +209,8 @@ def main():
             'uom': 'Nos',
             'notes': ' '.join(notes),
         })
-        if old_code.upper() in loaded:
+        # Loaded before under either code: the model-made one (the first uploads) or the TPL code.
+        if old_code.upper() in loaded or out[-1]['productCode'].upper() in loaded:
             out[-1]['model'] = ''
             out[-1]['description'] = ''
 
