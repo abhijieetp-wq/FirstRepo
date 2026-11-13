@@ -125,6 +125,12 @@ const ok = (label, cond, detail) => {
       /ELGi price ₹1,68,000/.test(await page.textContent('#acc-price-note')));
     await page.click('#btn-cancel-accessory');
     await page.waitForTimeout(200);
+    await page.evaluate(() => { window.__data.getImportTemplate = (t) => ({ header: 'partNo,description', example: '', required: ['partNo', 'description'], type: t }); });
+    await page.click('#btn-bulk-upload');
+    await page.waitForTimeout(300);
+    ok('Import price list on Accessories says Accessories and TPL Code, and loads through the spares upload',
+      (await page.textContent('#bulk-target')) === 'Accessories' && /^TPL Code/.test(await page.textContent('#bulk-key')) &&
+      (await page.evaluate(() => window.__calls.filter((c) => c.fn === 'getImportTemplate').pop().args[0])) === 'Spare');
     await tab('spares');
     const sp = await rows();
     ok('spares: every one, the dryer too, with group, GST and stock', (await heads()).join('|') === 'Part|Description|ELGi price (sell)|PIE price (cost)|Alternate|HSN|GST|In stock' &&

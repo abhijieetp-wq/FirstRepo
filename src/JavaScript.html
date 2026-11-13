@@ -1453,8 +1453,11 @@
 
   $("btn-bulk-upload").addEventListener("click", function () {
     $("bulk-upload-panel").style.display = "";
-    $("bulk-target").textContent = CATALOG_MODE === "spares" ? "Spares" : "Products (Compressors)";
-    $("bulk-key").textContent = CATALOG_MODE === "spares" ? "Part No." : "TPL Code (productCode)";
+    // Accessories are spares with a specification table, loaded by the same upload; from their
+    // own tab the window says so in their words.
+    var accTab = FACE_V2 && catv.tab === "acc";
+    $("bulk-target").textContent = accTab ? "Accessories" : CATALOG_MODE === "spares" ? "Spares" : "Products (Compressors)";
+    $("bulk-key").textContent = accTab ? "TPL Code (partNo)" : CATALOG_MODE === "spares" ? "Part No." : "TPL Code (productCode)";
     resetBulkState();
     srv.withSuccessHandler(function (tpl) {
       $("bulk-template").value = tpl.header + "\n" + tpl.example;
