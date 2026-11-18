@@ -89,8 +89,8 @@ const ok = (label, cond, detail) => {
     ok('with every field the screen had', await shown('#qv-new-body #qs-customer') && await shown('#qv-new-body #btn-qs-new-customer') &&
       await shown('#qv-new-body #qs-stream') && await shown('#qv-new-body #qs-model') && await shown('#qv-new-body #qs-serial') &&
       await shown('#qv-new-body #qs-validity') && await shown('#qv-new-body #btn-qs-create'));
-    ok('customers and desks filled in', (await page.$$eval('#qs-customer option', (o) => o.length)) >= 1 &&
-      (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.value))).indexOf('Spare Sales') === -1);
+    ok('customers and desks filled in: both desks for somebody who works both', (await page.$$eval('#qs-customer option', (o) => o.length)) >= 1 &&
+      (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.value))).join('|') === 'Compressor Sales|Spare Sales');
     await page.click('#btn-qv-new-cancel');
     await page.waitForTimeout(200);
     ok('Cancel closes it', !(await page.evaluate(() => document.getElementById('qv-new-backdrop').classList.contains('show'))));
