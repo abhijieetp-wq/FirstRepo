@@ -433,7 +433,8 @@ function scheduleName_(item, products, spareSpecs, L) {
  * The totals under a compressor offer's price schedule, the way PIE's own offers set them:
  *
  *   Total Package Price            ₹20,23,700.00
- *   Discounted Price (40% Less)    ₹12,14,220.00   ← highlighted
+ *   Less: Discount @ 40%           ₹ 8,09,480.00   ← when the quotation shows the discount
+ *   Discounted Price               ₹12,14,220.00   ← highlighted
  *   P&F @                          0.00
  *   Freight                        Extra from Ex-works Coimbatore
  *   18% GST                        EXTRA
@@ -448,15 +449,17 @@ function scheduleName_(item, products, spareSpecs, L) {
 function compressorTotals_(q, co, address, items, gross, netGoods, L, freightAmount) {
   var rows = [[esc_(L('packageTotal', 'Total Package Price')), inr_(gross), '']];
   if (gross - netGoods > 0.005) {
-    // "(40% Less)" when the quotation shows the %, as some customers are shown it and some are
-    // not. One package discount prints as given; discounts on the lines, or both, print as the
-    // one % that takes the package total to the discounted price, so it always adds up.
+    // The calculation, when the quotation shows the discount (some customers are shown it, some
+    // are not): "Less: Discount @ 40%" and the amount, then the discounted price. One package
+    // discount prints as given; discounts on the lines, or both, as the one % that takes the
+    // package total to the discounted price, so the three rows always add up.
     var pkgPct = Number(q.packageDiscountPct) || 0;
     var lineDiscounts = items.some(function (i) { return (Number(i.discountPct) || 0) > 0; });
     var pct = pkgPct > 0 && !lineDiscounts ? pkgPct : (gross > 0 ? (gross - netGoods) / gross * 100 : 0);
-    var note = showsDiscountPct_(q) && pct > 0
-      ? ' ' + L('discountNote', '({pct}% Less)').replace('{pct}', pctText_(pct)) : '';
-    rows.push([esc_(L('discountedTotal', 'Discounted Price') + note), inr_(netGoods), 'hl']);
+    if (showsDiscountPct_(q) && pct > 0) {
+      rows.push([esc_(L('discountRow', 'Less: Discount @ {pct}%').replace('{pct}', pctText_(pct))), inr_(gross - netGoods), '']);
+    }
+    rows.push([esc_(L('discountedTotal', 'Discounted Price')), inr_(netGoods), 'hl']);
   }
   var pf = Number(q.pfAmount) || 0;
   rows.push([esc_(L('pf', 'P&F @')), pf > 0 ? inr_(pf) : esc_(L('pfNil', '0.00')), '']);
@@ -484,8 +487,11 @@ function spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L) {
   var rows = [];
   rows.push([esc_(L('packageTotal', 'Total package price')), inr_(gross), pkgPct > 0 ? '' : 'strong']);
   if (pkgPct > 0) {
-    rows.push([esc_(L('discountedTotal', 'Total discounted price')) +
-      (showsDiscountPct_(q) ? ' (' + pctText_(pkgPct) + '% less)' : ''), inr_(netGoods), 'strong']);
+    // The discount and its amount when the quotation shows it, then the discounted price.
+    if (showsDiscountPct_(q)) {
+      rows.push([esc_(L('discountRow', 'Less: discount @ {pct}%').replace('{pct}', pctText_(pkgPct))), inr_(gross - netGoods), '']);
+    }
+    rows.push([esc_(L('discountedTotal', 'Total discounted price')), inr_(netGoods), 'strong']);
   }
   // Their spares offer has no P&F row unless there is a charge, and no freight row at all:
   // carting is a line and term 2 covers the rest.

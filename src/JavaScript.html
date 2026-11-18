@@ -4079,13 +4079,14 @@
       $("btn-qs-create").disabled = !quoteCustomers.length;
     });
 
-    // Spare Sales is not offered here: a spares offer answers an enquiry, and this screen
-    // starts one from nothing. The server refuses it too — this is so nobody fills the form
-    // in first and is turned away at the end of it.
+    // Both desks for somebody who works both (Compressor Sales first); their own for anybody
+    // else. A spares offer started here gets its enquiry logged behind it by the server, so the
+    // spares desk's list still knows of it, and it is listed under Spares, a compressor one under
+    // Compressor (All Quotations).
     var mine = currentUser.businessStream || "All";
     $("qs-stream").innerHTML = BUSINESS_STREAMS
       .filter(function (st) {
-        return st !== "Spare Sales" && (mine === "All" || mine === st);
+        return mine === "All" || mine === st;
       })
       .map(function (st) {
         return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
@@ -4286,7 +4287,114 @@
     renderQuoteItems(q, editable);
     renderQuoteTotals(q);
     if (FACE_V2) qbV2Layout(q, editable);
+    if (FACE_V2) qbAccPanel(q, editable);
   }
+
+  // ---- Accessories on a unit quotation (Spares.gs, quotationAccessories) ----
+  // Under the items: for each compressor on the offer, the accessories that suit it (air flow
+  // and pressure), the right size first, to tick and add. The picker's Accessory choice lists
+  // them all. Loaded once per quotation; adding lines does not change the accessories.
+  var qbAcc = { quoteId: "", data: null, loading: false, waiting: [] };
+
+  function qbAccWith(then) {
+    var id = openQuote ? openQuote.id : "";
+    if (qbAcc.data && qbAcc.quoteId === id) { then(qbAcc.data); return; }
+    qbAcc.waiting.push(then);
+    if (qbAcc.loading) return;
+    qbAcc.loading = true;
+    srv.withSuccessHandler(function (d) {
+      qbAcc.loading = false; qbAcc.quoteId = id; qbAcc.data = d;
+      var w = qbAcc.waiting; qbAcc.waiting = [];
+      w.forEach(function (fn) { fn(d); });
+    }).withFailureHandler(function (err) {
+      qbAcc.loading = false; qbAcc.waiting = []; onServerError(err);
+    }).quotationAccessories(id);
+  }
+
+  /** An accessory as the picker shows a spare: its TPL code, its heading and what it is rated for. */
+  function qbAccRow(a) {
+    return { id: a.id, partNo: a.partNo, description: a.title, productGroup: [a.capacity, a.maxPressure].filter(Boolean).join(" · "),
+      price: a.price, hsnCode: a.hsnCode, uom: "Nos" };
+  }
+
+  function qbAccPanel(q, editable) {
+    var items = $("qb-items") && $("qb-items").closest(".card");
+    var panel = $("qbv-acc");
+    var products = (q.items || []).filter(function (i) { return i.itemType === "Product"; });
+    if (q.businessStream === "Spare Sales" || !products.length || !items) { if (panel) panel.style.display = "none"; return; }
+    if (!panel) {
+      panel = document.createElement("section");
+      panel.className = "qbv-panel qbv-acc";
+      panel.id = "qbv-acc";
+      panel.innerHTML = "<header><h2>Accessories that suit this compressor</h2><span class=\"qbv-note\"></span></header><div class=\"qbv-body\"></div>";
+      items.parentNode.insertBefore(panel, items.nextSibling);
+    }
+    panel.style.display = "";
+    // Re-fetched when the compressors change, since what suits them is worked out from them.
+    var sig = products.map(function (p) { return p.itemId; }).sort().join(",");
+    if (qbAcc.quoteId === q.id && qbAcc.sig !== sig) qbAcc.data = null;
+    qbAcc.sig = sig;
+    panel.querySelector(".qbv-body").innerHTML = '<p class="qbv-hint">Finding the accessories that suit it…</p>';
+    qbAccWith(function (d) { qbAccRender(q, editable, d); });
+  }
+
+  function qbAccRender(q, editable, d) {
+    var panel = $("qbv-acc");
+    if (!panel) return;
+    var byId = {};
+    d.accessories.forEach(function (a) { byId[a.id] = a; });
+    var onQuote = {};
+    (q.items || []).forEach(function (i) { if (i.itemType === "Spare") onQuote[i.itemId] = true; });
+    var any = false;
+    var html = d.compressors.map(function (c) {
+      var rows = [];
+      c.suits.forEach(function (g) {
+        g.items.forEach(function (id, n) {
+          var a = byId[id];
+          if (!a) return;
+          any = true;
+          var on = onQuote[a.id];
+          rows.push("<tr>" + '<td class="center">' + (on ? ebChip("On the offer", "good") : editable
+              ? '<input type="checkbox" data-qbacc="' + escapeHtml(a.id) + '" aria-label="Add ' + escapeHtml(a.title) + '" />' : "") + "</td>" +
+            "<td>" + escapeHtml(a.type || "—") + (n === 0 ? '<br><span class="eb2-kind">right size</span>' : "") + "</td>" +
+            '<td class="mono">' + escapeHtml(a.partNo) + "</td><td><b>" + escapeHtml(a.model) + "</b></td>" +
+            "<td>" + escapeHtml(a.capacity || "—") + "</td><td>" + escapeHtml(a.maxPressure || "—") + "</td>" +
+            '<td class="num">' + (a.price ? escapeHtml(fmt(a.price)) : '<span class="eb2-kind">no price yet</span>') + "</td></tr>");
+        });
+      });
+      var need = [c.cfm ? c.cfm + " cfm" : "", c.bar ? c.bar + " bar" : ""].filter(Boolean).join(", ");
+      return '<div class="qbv-acc-group"><div class="qbv-acc-for">For <b>' + escapeHtml(c.model) + "</b>" + (need ? " · needs " + escapeHtml(need) : "") + "</div>" +
+        (rows.length ? '<div class="qv-table"><table><thead><tr><th></th><th>Type</th><th>TPL Code</th><th>Model</th><th>Capacity</th><th>Max pressure</th><th class="num">Price</th></tr></thead><tbody>' +
+          rows.join("") + "</tbody></table></div>"
+          : '<p class="qbv-hint">No accessory in the catalogue is rated for this machine yet.</p>') + "</div>";
+    }).join("");
+    panel.querySelector(".qbv-note").textContent = any ? "the smallest that fit, per type" : "";
+    panel.querySelector(".qbv-body").innerHTML = html + (any && editable
+      ? '<div class="qbv-save"><span class="qbv-hint" id="qbacc-count">Tick the ones to offer. An accessory with no price yet goes on at ₹0: type its price on the line.</span>' +
+        '<button type="button" class="btn btn-sm btn-primary" id="btn-qbacc-add" disabled>Add ticked</button></div>' : "");
+  }
+
+  document.addEventListener("change", function (e) {
+    if (!e.target.closest("#qbv-acc [data-qbacc]")) return;
+    var n = document.querySelectorAll("#qbv-acc [data-qbacc]:checked").length;
+    var b = $("btn-qbacc-add");
+    if (b) { b.disabled = !n; b.textContent = n ? "Add " + n + " ticked" : "Add ticked"; }
+  });
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("#btn-qbacc-add");
+    if (!b || !openQuote) return;
+    var ids = Array.prototype.map.call(document.querySelectorAll("#qbv-acc [data-qbacc]:checked"), function (x) { return x.dataset.qbacc; });
+    if (!ids.length) return;
+    b.disabled = true;
+    b.textContent = "Adding…";
+    srv.withSuccessHandler(function (nq) {
+      openQuote = nq;
+      renderQuoteBuilder();
+      showMsg(quoteAddMsg(nq, ids.length), "success");
+    }).withFailureHandler(function (err) { b.disabled = false; b.textContent = "Add ticked"; onServerError(err); })
+      .saveQuotationItems({ quotationId: openQuote.id, itemType: "Spare",
+        lines: ids.map(function (id) { return { quotationId: openQuote.id, itemType: "Spare", itemId: id, qty: 1 }; }) });
+  });
 
   // ---- ERP 2.0's quotation page, laid out as the 2.0 demo has it ----
   // The same fields, buttons and rules as ERP 1's: only where they sit and how they look
@@ -5676,6 +5784,17 @@
   function runQuoteItemSearch() {
     var type = $("qi-type").value;
     $("qi-results").innerHTML = '<div class="empty" style="padding:12px;">Searching…</div>';
+    if (type === "Accessory") {
+      // The accessories alone (spares with a specification table), not thirteen thousand parts.
+      qbAccWith(function (d) {
+        var q = $("qi-search").value.trim().toLowerCase();
+        var rows = d.accessories.filter(function (a) {
+          return !q || [a.partNo, a.title, a.model, a.type, a.capacity].join(" ").toLowerCase().indexOf(q) !== -1;
+        });
+        renderQuoteItemResults(rows.slice(0, 50).map(qbAccRow), "Spare", rows.length, true);
+      });
+      return;
+    }
     if (type === "Spare") {
       withSpareCatalog(function () {
         var found = searchSpareCatalog($("qi-search").value, $("qi-group").value);
@@ -5741,7 +5860,7 @@
     return (added === 1 ? "One item added. " : added + " items added. ") + grew;
   }
 
-  function renderQuoteItemResults(rows, type, total) {
+  function renderQuoteItemResults(rows, type, total, accessories) {
     var zone = $("qi-results");
     if (!rows.length) {
       zone.innerHTML = '<div class="empty" style="padding:12px;">Nothing matched.</div>';
@@ -5760,7 +5879,7 @@
       "</div>" +
       '<table><thead><tr><th class="center"><input type="checkbox" id="qi-pick-all"></th>' +
       "<th>Code</th><th>Description</th>" +
-      (type === "Spare" ? "<th>Fit</th>" : "") +
+      (type === "Spare" && !accessories ? "<th>Fit</th>" : "") +
       '<th class="num">Price</th><th class="num">Available</th><th></th></tr></thead><tbody>' +
       rows.map(function (r) {
         var code = type === "Spare" ? r.partNo : r.productCode;
@@ -5775,7 +5894,7 @@
           "<td>" + escapeHtml(quoteItemDesc(r)) +
             (r.productGroup ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
               escapeHtml(r.productGroup) + "</span>" : "") + "</td>" +
-          (type === "Spare" ? "<td>" + (r.compatibilityConfirmed
+          (type === "Spare" && !accessories ? "<td>" + (r.compatibilityConfirmed
             ? '<span class="badge badge-won">Fits model</span>'
             : '<span class="badge badge-overdue">Unverified</span>') + "</td>" : "") +
           '<td class="num mono">' + (r.price ? fmt(r.price)

@@ -88,6 +88,8 @@ run_ui "dashboard-extras-ui-test.js" tests/dashboard-extras-ui-test.js "$tmp/bas
 run_ui "form-fields-ui-test.js" tests/form-fields-ui-test.js "$tmp/base-v2.html"
 # And new customers waiting for the approver: dashboard, Customers, the e-mail's batch, Settings.
 run_ui "customer-approval-ui-test.js" tests/customer-approval-ui-test.js "$tmp/show-v2.html"
+# And a unit quotation's accessories, and New quotation offering either desk.
+run_ui "quote-accessories-ui-test.js" tests/quote-accessories-ui-test.js "$tmp/show-v2.html"
 # And the Ask bar: a request in plain words, read by Claude, done only once ticked.
 run_ui "ai-commands-ui-test.js" tests/ai-commands-ui-test.js "$tmp/base-v2.html"
 

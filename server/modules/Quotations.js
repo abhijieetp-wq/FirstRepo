@@ -310,14 +310,25 @@ async function createBlankQuotation(input) {
     ? input.businessStream : STREAM_SPARE;
   requireStream_(user, stream, 'A quotation in that stream');
 
-  // A spares offer answers a request, and the request is the enquiry. Starting one here would
-  // be an offer with nothing recorded about what the customer actually asked for, how it
-  // reached PIE or who to ring about it — and the enquiry list, which is the spares desk's
-  // worklist, would not know the offer existed. Compressor offers still start here: their
-  // front door is a lead or an opportunity, not this rule.
+  // A spares offer answers a request, and the request is the enquiry: the spares desk's
+  // worklist, which must know the offer exists. Somebody who works both desks picks Spare Sales
+  // here, so the enquiry is logged for them behind the offer (source "Direct quotation") and
+  // the quotation raised from it, exactly as Create Quotation on the enquiry would.
   if (stream === STREAM_SPARE) {
-    throw new Error('A spares quotation starts from an enquiry. Log what the customer asked ' +
-      'for on the Spare Sales screen, then press Create Quotation on it.');
+    var enquiry = await saveSpareEnquiry({
+      customerId: customer.id, customerName: customer.name,
+      productModel: String(input.machineModel || '').trim(), serialNo: String(input.serialNo || '').trim(),
+      requirementText: String(input.notes || '').trim() || 'Quotation started directly from New quotation',
+      source: 'Direct quotation', enquiryType: 'Spares'
+    });
+    var fromEnquiry = await createQuotationFromEnquiry(enquiry.id);
+    var asked = clampValidity_(input.validityDays);
+    if (asked !== Number(fromEnquiry.validityDays)) {
+      await updateRowById_('Quotations', 'id', fromEnquiry.id,
+        { validityDays: asked, validUntil: addDays_(todayIso_(), asked) }, 'Validity as asked');
+      return await getQuotation(fromEnquiry.id);
+    }
+    return fromEnquiry;
   }
 
   var parties = await defaultPartiesFor_(customer.id);

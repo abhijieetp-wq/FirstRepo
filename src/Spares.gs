@@ -250,6 +250,67 @@ function saveAccessory(input) {
 }
 
 /**
+ * The accessories, and which of them suit the compressors on a quotation.
+ *
+ * A unit quotation offers the filters, dryers and receivers that go with the machine. Every
+ * accessory in the catalogue (a spare with a specification table) comes back for the picker's
+ * Accessory choice; and for each compressor on the quotation, the ones that suit it: rated for
+ * at least its air flow, and for at least its maximum pressure where both are known. Per type,
+ * the three smallest that fit, the first being the right size; a bigger one only costs more.
+ *
+ * @return { accessories: [...], compressors: [{ model, cfm, bar, suits: [{ type, items }] }] }
+ */
+function quotationAccessories(quotationId) {
+  getCurrentUser();
+  var prices = priceMapFor_('Spare');
+  var num = function (v) { var m = /[0-9]+(?:\.[0-9]+)?/.exec(String(v || '').replace(/,/g, '')); return m ? Number(m[0]) : null; };
+  var accessories = readTable_('Spares').filter(function (x) {
+    return String(x.specTitle || '').trim() && String(x.active).toUpperCase() !== 'FALSE';
+  }).map(function (x) {
+    var levels = prices[String(x.id)] || {};
+    return {
+      id: String(x.id), partNo: String(x.partNo || ''), type: String(x.category || ''),
+      title: String(x.specTitle || ''), model: String(x.specModel || ''),
+      capacity: String(x.specCapacity || ''), maxPressure: String(x.specMaxPressure || ''),
+      workingPressure: String(x.specWorkingPressure || ''), weight: String(x.specWeight || ''),
+      hsnCode: String(x.hsnCode || ''), gstPct: x.gstPct === '' ? '' : Number(x.gstPct),
+      price: levels[SELLING_PRICE_LEVEL] ? levels[SELLING_PRICE_LEVEL].price : null,
+      cfm: num(x.specCapacity), bar: num(x.specMaxPressure)
+    };
+  }).sort(function (a, b) {
+    return a.type.localeCompare(b.type) || (a.cfm || 0) - (b.cfm || 0) || a.model.localeCompare(b.model);
+  });
+
+  var compressors = [];
+  if (quotationId) {
+    var products = {};
+    readTable_('Products').forEach(function (p) { products[String(p.id)] = p; });
+    var seen = {};
+    quotationLines_(quotationId).filter(function (l) {
+      return String(l.itemType) === 'Product';
+    }).sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); }).forEach(function (l) {
+      var p = products[String(l.itemId)];
+      if (!p || seen[String(p.id)]) return;
+      seen[String(p.id)] = true;
+      var cfm = num(p.fad) || num(p.capacityCfm);
+      var bar = num(p.maxPressure) || num(p.workingPressure);
+      var byType = {};
+      accessories.forEach(function (a) {
+        if (cfm !== null && (a.cfm === null || a.cfm < cfm)) return;
+        if (bar !== null && a.bar !== null && a.bar < bar) return;
+        var t = a.type || 'Other';
+        (byType[t] = byType[t] || []).push(a.id);
+      });
+      compressors.push({
+        itemId: String(p.id), model: String(p.model || p.productCode || ''), cfm: cfm, bar: bar,
+        suits: Object.keys(byType).sort().map(function (t) { return { type: t, items: byType[t].slice(0, 3) }; })
+      });
+    });
+  }
+  return { accessories: accessories, compressors: compressors };
+}
+
+/**
  * Soft delete: masters referenced by history are deactivated, never removed.
  *
  * The row keeps its place in the sheet so every quotation, order and stock movement that

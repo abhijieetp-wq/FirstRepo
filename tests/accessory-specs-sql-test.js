@@ -35,7 +35,7 @@ const ok = (label, cond, detail) => {
 const TENANT = 'accessory-test';
 const BOSS = { email: 'boss@pie.in', name: 'Anil Shah', role: 'ERP Admin' };
 const TABLES = ['users', 'customers', 'customer_addresses', 'customer_contacts', 'products', 'spares',
-  'price_list', 'quotations', 'quotation_items', 'quote_templates', 'company_profile', 'audit_log'];
+  'price_list', 'quotations', 'quotation_items', 'quote_templates', 'company_profile', 'audit_log', 'spare_enquiries'];
 
 /** The table printed under a heading: from the heading to the end of its table. */
 const tableAfter = (html, title) => {
@@ -274,9 +274,11 @@ const SPEC_CSV = '﻿' + [
     rows(tbl).map((r) => cells(r)[0]));
   ok('Total Package Price, at list', JSON.stringify(cells(rowWith(tbl, 'Total Package Price') || '')) ===
     JSON.stringify(['Total Package Price', '₹ 19,96,400.00']), cells(rowWith(tbl, 'Total Package Price') || ''));
-  const disc = rowWith(tbl, 'Discounted Price (40% Less)') || '';
-  ok('Discounted Price (40% Less), highlighted', /class="hl"/.test(disc) &&
-    cells(disc)[1] === '₹ 11,97,840.00', disc);
+  const less = rowWith(tbl, 'Less: Discount @ 40%') || '';
+  ok('the discount worked out: Less: Discount @ 40% and its amount', cells(less)[1] === '₹ 7,98,560.00', less);
+  const disc = rowWith(tbl, 'Discounted Price') || '';
+  ok('then the Discounted Price, highlighted', /class="hl"/.test(disc) &&
+    cells(disc)[1] === '₹ 11,97,840.00' && rows(tbl).indexOf(less) + 1 === rows(tbl).indexOf(disc), disc);
   ok('the amounts span the columns after Basic price, as on theirs',
     /colspan="2"[^>]*>Total Package Price/.test(tbl) && /colspan="4">₹\u00A019,96,400\.00/.test(tbl.replace(/ class="num tot-val"/g, '')), tbl.slice(-900));
   ok('P&F @ 0.00', JSON.stringify(cells(rowWith(tbl, 'P&amp;F @') || '')) === JSON.stringify(['P&amp;F @', '0.00']),
@@ -284,7 +286,7 @@ const SPEC_CSV = '﻿' + [
   ok('Freight — Extra from Ex-works Coimbatore', (cells(rowWith(tbl, 'Freight') || '')[1]) ===
     'Extra from Ex-works Coimbatore');
   ok('18% GST — EXTRA', (cells(rowWith(tbl, '18% GST') || '')[1]) === 'EXTRA');
-  ok('and no total after it, as on theirs', !/Total amount/i.test(tbl) && rows(tbl).length === 11,
+  ok('and no total after it, as on theirs', !/Total amount/i.test(tbl) && rows(tbl).length === 12,
     rows(tbl).map((r) => cells(r)[0]));
 
   console.log('\nWITH GST INCLUDED, THE FIGURES COME BACK');
@@ -297,25 +299,26 @@ const SPEC_CSV = '﻿' + [
   console.log('\nTHE DISCOUNT ROW SAYS ONLY WHAT IS TRUE');
   await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 0, taxMode: 'Extra' });
   tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
-  ok('no discount, no discounted row', !/Discounted Price/.test(tbl));
+  ok('no discount, no discount rows', !/Discounted Price/.test(tbl) && !/Less: Discount/.test(tbl));
   const line = (await p.getQuotation(lastQuoteId)).items.find((i) => i.itemId === 'SP-HOSE');
   await p.saveQuotationItem({ id: line.id, quotationId: lastQuoteId, lineNo: line.lineNo, itemType: 'Spare',
     itemId: 'SP-HOSE', qty: 1, unitPrice: 500, discountPct: 10 });
   await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 40 });
   tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
   const money = (t) => Number(String(t || '').replace(/[^0-9.]/g, ''));
-  const pctRow = rows(tbl).find((r) => /^Discounted Price \([\d.]+% Less\)$/.test(cells(r)[0])) || '';
-  const shownPct = Number((/\(([\d.]+)% Less\)/.exec(cells(pctRow)[0] || '') || [])[1]);
+  const pctRow = rows(tbl).find((r) => /^Less: Discount @ [\d.]+%$/.test(cells(r)[0])) || '';
+  const shownPct = Number((/@ ([\d.]+)%/.exec(cells(pctRow)[0] || '') || [])[1]);
   const listTotal = money(cells(rowWith(tbl, 'Total Package Price') || '')[1]);
-  ok('a line discount as well: the one % that takes the package total to the discounted price',
-    !!pctRow && Math.abs(listTotal * (1 - shownPct / 100) - money(cells(pctRow)[1])) < listTotal * 0.0001,
-    rows(tbl).map((r) => cells(r)[0]));
+  const netTotal = money(cells(rowWith(tbl, 'Discounted Price') || '')[1]);
+  ok('a line discount as well: the one % that takes the package total to the discounted price, and the rows add up',
+    !!pctRow && Math.abs(listTotal * (1 - shownPct / 100) - netTotal) < listTotal * 0.0001 &&
+    Math.abs(listTotal - money(cells(pctRow)[1]) - netTotal) < 0.02, rows(tbl).map((r) => cells(r)));
 
   console.log('\nSHOWING THE % IS THE QUOTATION’S CHOICE');
   ok('shown unless asked not to', (await p.getQuotation(lastQuoteId)).discountPctShown === 'TRUE');
   await p.saveQuotationHeader({ id: lastQuoteId, discountPctShown: false });
   tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
-  ok('turned off: the discounted price, and no %', !!rowWith(tbl, 'Discounted Price') && !/% Less/.test(tbl),
+  ok('turned off: the discounted price, and no discount row', !!rowWith(tbl, 'Discounted Price') && !/Less: Discount/.test(tbl),
     rows(tbl).map((r) => cells(r)[0]));
   await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 35 });
   ok('another save that does not send it keeps it off', (await p.getQuotation(lastQuoteId)).discountPctShown === 'FALSE');
@@ -325,11 +328,44 @@ const SPEC_CSV = '﻿' + [
   await p.saveQuotationHeader({ id: nextForThem.id, discountPctShown: true });
   await p.saveQuotationHeader({ id: lastQuoteId, discountPctShown: true, packageDiscountPct: 40 });
   tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
-  ok('turned back on, it is back', /Discounted Price \([\d.]+% Less\)/.test(tbl));
+  ok('turned back on, it is back', /Less: Discount @ [\d.]+%/.test(tbl));
   await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 0 });
   tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
-  ok('a line discount alone shows its %, to two places at most', /Discounted Price \(\d+(\.\d{1,2})?% Less\)/.test(tbl),
+  ok('a line discount alone shows its %, to two places at most', /Less: Discount @ \d+(\.\d{1,2})?%</.test(tbl),
     rows(tbl).map((r) => cells(r)[0]));
+
+  console.log('\nACCESSORIES THAT SUIT THE COMPRESSOR (quotationAccessories)');
+  await p.saveAccessory({ tplCode: 'B900000177', type: 'Fine Filter', model: 'AF 0177F', capacity: '177 cfm', maxPressure: '20 bar' });
+  await p.saveAccessory({ tplCode: 'B900000235', type: 'Fine Filter', model: 'AF 0235F', capacity: '235 cfm', maxPressure: '20 bar' });
+  await p.saveAccessory({ tplCode: 'B900000120', type: 'Fine Filter', model: 'AF 0120F', capacity: '120 cfm', maxPressure: '20 bar' });
+  await p.saveAccessory({ tplCode: 'B900000LOW', type: 'Fine Filter', model: 'AF 0300L', capacity: '300 cfm', maxPressure: '5 bar' });
+  await offer([['Product', 'PR-EG']]);
+  const qa = await p.quotationAccessories(lastQuoteId);
+  ok('every accessory, for the picker', qa.accessories.length >= 4 && qa.accessories.every((a) => a.title && a.partNo), qa.accessories.length);
+  const egC = qa.compressors[0] || {};
+  ok('the compressor on the quotation, with its air flow and pressure', qa.compressors.length === 1 && egC.model === 'EG 26-7.5 DM' && egC.cfm === 150 && egC.bar === 7.5, egC);
+  const fine = (egC.suits || []).find((g) => g.type === 'Fine Filter') || { items: [] };
+  const fineModels = fine.items.map((id) => (qa.accessories.find((a) => a.id === id) || {}).model);
+  ok('the ones rated for it, smallest first; too small, or not for its pressure, left out',
+    JSON.stringify(fineModels) === JSON.stringify(['AF 0177F', 'AF 0235F']), fineModels);
+  ok('none for a quotation with no compressor', (await p.quotationAccessories('')).compressors.length === 0);
+
+  console.log('\nA SPARES QUOTATION STARTED FROM NEW QUOTATION');
+  const direct = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Spare Sales', validityDays: 15 });
+  ok('it is a spares quotation, with the validity asked for', direct.businessStream === 'Spare Sales' && Number(direct.validityDays) === 15, direct);
+  const behind = (await db.q('SELECT * FROM spare_enquiries WHERE tenant_id = $1 AND id = $2', [TENANT, direct.spareEnquiryId])).rows[0];
+  ok('with its enquiry logged behind it, so the spares desk knows', !!behind && behind.source === 'Direct quotation' && behind.customer_id === 'CU-1', behind);
+  await p.saveQuotationItem({ quotationId: direct.id, itemType: 'Spare', itemId: 'SP-HOSE', qty: 2, unitPrice: 500 });
+  await p.saveQuotationHeader({ id: direct.id, packageDiscountPct: 10, discountPctShown: true });
+  let sparesHtml = await p.buildQuotationHtml(direct.id);
+  ok('the spares offer shows the discount worked out too: Less: discount @ 10% and its amount', /Less: discount @ 10%/.test(sparesHtml) &&
+    /Less: discount @ 10%[\s\S]{0,200}?100\.00/.test(sparesHtml) && /Total discounted price/.test(sparesHtml));
+  await p.saveQuotationHeader({ id: direct.id, discountPctShown: false });
+  sparesHtml = await p.buildQuotationHtml(direct.id);
+  ok('and not, when the quotation does not show it', !/Less: discount/.test(sparesHtml) && /Total discounted price/.test(sparesHtml));
+  await p.saveQuotationHeader({ id: direct.id, discountPctShown: true });   // as it was, for the offers below
+  const compDirect = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Compressor Sales' });
+  ok('a compressor one stays a compressor one, with no enquiry', compDirect.businessStream === 'Compressor Sales' && !compDirect.spareEnquiryId);
 
   console.log('\nFREIGHT ONCE, AFTER P&F');
   const fiveLines = [['Product', 'PR-EG'], ['Spare', 'SP-RCV'], ['Spare', 'SP-DRY'], ['Spare', 'SP-FLT'], ['Spare', 'SP-HOSE']];
@@ -343,10 +379,11 @@ const SPEC_CSV = '﻿' + [
   const freightRows = rows(tbl).filter((r) => /freight/i.test(cells(r)[0]));
   ok('one Freight row, with the amount, straight after P&F', freightRows.length === 1 && cells(freightRows[0])[1] === '₹ 25,000.00' &&
     rows(tbl).indexOf(freightRows[0]) === rows(tbl).indexOf(rowWith(tbl, 'P&amp;F @')) + 1, rows(tbl).map((r) => cells(r)));
-  ok('not among the items, nor in the package price', rows(tbl).length === 11 &&
+  ok('not among the items, nor in the package price', rows(tbl).length === 12 &&
     JSON.stringify(cells(rowWith(tbl, 'Total Package Price') || '')) === JSON.stringify(['Total Package Price', '₹ 19,96,400.00']),
     rows(tbl).map((r) => cells(r)[0]));
-  ok('the 40% struck off the goods, not the freight', (cells(rowWith(tbl, 'Discounted Price (40% Less)') || '')[1]) === '₹ 11,97,840.00');
+  ok('the 40% struck off the goods, not the freight', (cells(rowWith(tbl, 'Discounted Price') || '')[1]) === '₹ 11,97,840.00' &&
+    (cells(rowWith(tbl, 'Less: Discount @ 40%') || '')[1]) === '₹ 7,98,560.00');
   const fq = await p.getQuotation(lastQuoteId);
   ok('the quotation’s total: the discounted goods and the freight', fq.grand === 1222840 && fq.discountAmt === 798560,
     { grand: fq.grand, discountAmt: fq.discountAmt });
