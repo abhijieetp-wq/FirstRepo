@@ -680,10 +680,16 @@
               </select>
             </div>
           </div>
-          <!-- Some customers are shown the discount as a %, some only the discounted price. -->
-          <label class="check-line" style="margin-top:10px;" title="A customer's next quotation starts with the same choice">
-            <input type="checkbox" id="qb-showpct" /> Show the discount % on the offer
-          </label>
+          <!-- How the offer shows the discount: some customers see it worked out, some do not. -->
+          <div class="field" id="qb-discshow-field" style="margin-top:10px;" title="A customer's next quotation starts with the same choice">
+            <label>Discount on the offer</label>
+            <select id="qb-discshow">
+              <option value="BOTH">% and amount</option>
+              <option value="PCT">% only</option>
+              <option value="AMOUNT">Amount only</option>
+              <option value="NONE">Not shown (discounted price only)</option>
+            </select>
+          </div>
           <p style="font-size:12.5px; color:var(--ink-soft); margin:8px 0 0;">
             The printed offer lists every line at full price and strikes one percentage off the
             package, the way your compressor quotations do. Leave the discount at 0 to quote line

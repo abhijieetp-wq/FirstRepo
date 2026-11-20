@@ -417,8 +417,10 @@ var SCHEMA = {
       // A package discount off the total, the way their own offers are priced, plus whether
       // GST is added into the total or quoted as extra — their two documents differ on this.
       'packageDiscountPct', 'pfAmount', 'taxMode',
-      // Whether the offer prints the discount as a % beside the discounted price: some customers
-      // are shown it, some are not. Blank is shown. A customer's next quotation takes their last.
+      // How the offer shows the discount: BOTH (the % and the amount), PCT (the % only), AMOUNT
+      // (the amount only) or NONE (the discounted price alone). Some customers are shown it, some
+      // are not. TRUE/FALSE from before are BOTH/NONE; blank is BOTH. A customer's next quotation
+      // takes their last one's.
       'discountPctShown',
       // Why this revision was made, asked before it can be (reviseQuotation). Blank on R0
       // and on revisions made before the question was compulsory.

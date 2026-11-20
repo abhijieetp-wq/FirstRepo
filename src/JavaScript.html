@@ -4265,11 +4265,13 @@
     $("qb-pkgdisc").value = Number(q.packageDiscountPct) || 0;
     $("qb-pf").value = Number(q.pfAmount) || 0;
     $("qb-taxmode").value = q.taxMode || "Extra";
-    $("qb-showpct").checked = String(q.discountPctShown || "").toUpperCase() !== "FALSE";
+    // TRUE/FALSE from the tick box this replaced are BOTH/NONE; blank is BOTH.
+    var shown = String(q.discountPctShown || "").toUpperCase();
+    $("qb-discshow").value = shown === "FALSE" ? "NONE" : ["PCT", "AMOUNT", "NONE"].indexOf(shown) !== -1 ? shown : "BOTH";
 
     ["qb-model", "qb-serial", "qb-date", "qb-validity", "qb-paymentterms",
      "qb-deliveryterms", "qb-deliveryperiod", "qb-warrantyterms", "qb-notes",
-     "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-showpct", "qb-customer-pick"].forEach(function (f) {
+     "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-discshow", "qb-customer-pick"].forEach(function (f) {
       $(f).disabled = !editable;
     });
     $("btn-qb-save-header").style.display = editable ? "" : "none";
@@ -4447,9 +4449,9 @@
     items.classList.add("qbv-items");
     var totals = panel("qbv-totals", "Totals");
     move(grid(totals), ["qb-pkgdisc", "qb-pf"]);
-    // Whether the offer prints the discount as a %, under the discount it is about.
-    var showPct = $("qb-showpct").closest("label");
-    showPct.className = "check-line qbv-showpct";
+    // How the offer shows the discount, under the discount it is about.
+    var showPct = $("qb-discshow-field");
+    showPct.classList.add("qbv-showpct");
     showPct.removeAttribute("style");
     totals.querySelector(".qbv-body").appendChild(showPct);
     var hint = card.querySelector("p");
@@ -5040,7 +5042,7 @@
       packageDiscountPct: $("qb-pkgdisc").value,
       pfAmount: $("qb-pf").value,
       taxMode: $("qb-taxmode").value,
-      discountPctShown: $("qb-showpct").checked,
+      discountPctShown: $("qb-discshow").value,
       customerId: $("qb-customer-pick").value || openQuote.customerId
     });
   });

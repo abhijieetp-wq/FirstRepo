@@ -352,7 +352,7 @@ function createBlankQuotation(input) {
     createdAt: nowIso_(),
     createdBy: user.email
   };
-  quote.discountPctShown = customerShowsDiscountPct_(quote.customerId);
+  quote.discountPctShown = customerDiscountShow_(quote.customerId);
   appendRow_('Quotations', quote, 'Blank quotation started for ' + customer.name);
   return getQuotation(quote.id);
 }
@@ -418,7 +418,7 @@ function createQuotationFromEnquiry(spareEnquiryId) {
     createdAt: nowIso_(),
     createdBy: user.email
   };
-  quote.discountPctShown = customerShowsDiscountPct_(quote.customerId);
+  quote.discountPctShown = customerDiscountShow_(quote.customerId);
   appendRow_('Quotations', quote, 'Quotation created from enquiry ' + (enquiry.enquiryNo || ''));
 
   var prices = priceMapFor_('Spare', quote.date);
@@ -685,9 +685,7 @@ function saveQuotationHeader(input) {
     taxMode: taxMode
   };
   // Only when the form sends it, so a save from somewhere that does not show the box keeps it.
-  if (input.discountPctShown !== undefined) {
-    record.discountPctShown = input.discountPctShown === false || String(input.discountPctShown).toUpperCase() === 'FALSE' ? 'FALSE' : 'TRUE';
-  }
+  if (input.discountPctShown !== undefined) record.discountPctShown = discountShowValue_(input.discountPctShown);
   Object.keys(patch).forEach(function (k) { record[k] = patch[k]; });
 
   updateRowById_('Quotations', 'id', input.id, record, 'Quotation header updated');
@@ -699,25 +697,41 @@ function saveQuotationHeader(input) {
   return getQuotation(input.id);
 }
 
+/** How an offer shows its discount. */
+var DISCOUNT_SHOW = ['BOTH', 'PCT', 'AMOUNT', 'NONE'];
+
 /**
- * Whether a new quotation for this customer shows the discount %: as their last one did, so a
- * customer who is never shown it is not shown it by accident on the next offer. Shown when they
- * have none yet.
+ * One of DISCOUNT_SHOW from whatever was stored or sent: the four themselves, and true/false or
+ * TRUE/FALSE from the tick box this replaced (BOTH/NONE). Blank is BOTH.
  */
-function customerShowsDiscountPct_(customerId) {
+function discountShowValue_(v) {
+  if (v === true) return 'BOTH';
+  if (v === false) return 'NONE';
+  var t = String(v === undefined || v === null ? '' : v).trim().toUpperCase();
+  if (t === '' || t === 'TRUE') return 'BOTH';
+  if (t === 'FALSE') return 'NONE';
+  if (DISCOUNT_SHOW.indexOf(t) === -1) throw new Error('Show the discount as BOTH, PCT, AMOUNT or NONE.');
+  return t;
+}
+
+/**
+ * How a new quotation for this customer shows the discount: as their last one did, so a customer
+ * who is never shown it is not shown it by accident on the next offer. BOTH when they have none.
+ */
+function customerDiscountShow_(customerId) {
   var id = String(customerId || '');
-  if (!id) return 'TRUE';
+  if (!id) return 'BOTH';
   var last = readTable_('Quotations').filter(function (q) {
     return String(q.customerId) === id && String(q.discountPctShown || '') !== '';
   }).sort(function (a, b) {
     return String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''));
   })[0];
-  return last && String(last.discountPctShown).toUpperCase() === 'FALSE' ? 'FALSE' : 'TRUE';
+  try { return last ? discountShowValue_(last.discountPctShown) : 'BOTH'; } catch (err) { return 'BOTH'; }
 }
 
-/** Whether this quotation's offer prints the discount %. Blank, from before the choice, is yes. */
-function showsDiscountPct_(q) {
-  return String((q && q.discountPctShown) || '').toUpperCase() !== 'FALSE';
+/** How this quotation's offer shows its discount (one of DISCOUNT_SHOW). */
+function discountShow_(q) {
+  try { return discountShowValue_(q && q.discountPctShown); } catch (err) { return 'BOTH'; }
 }
 
 /** A percentage as an offer prints it: 40, 12.5, 7.25 — two places at most, no trailing zeros. */
@@ -1753,7 +1767,7 @@ function createQuotationFromOpportunity(opportunityId) {
     createdAt: nowIso_(),
     createdBy: user.email
   };
-  quote.discountPctShown = customerShowsDiscountPct_(quote.customerId);
+  quote.discountPctShown = customerDiscountShow_(quote.customerId);
   appendRow_('Quotations', quote, 'Quotation created from opportunity ' + opportunity.opportunityNo);
 
   var prices = priceMapFor_('Product', quote.date);

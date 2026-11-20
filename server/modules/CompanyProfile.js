@@ -975,7 +975,9 @@ function defaultQuoteTemplates_() {
         'colTaxRate = Tax Rate\n' +
         'packageTotal = Total Package Price\n' +
         'discountRow = Less: Discount @ {pct}%\n' +
+        'discountAmountRow = Less: Discount\n' +
         'discountedTotal = Discounted Price\n' +
+        'discountNote = ({pct}% Less)\n' +
         'pf = P&F @\n' +
         'pfNil = 0.00\n' +
         'freight = Freight\n' +
@@ -1016,6 +1018,7 @@ function defaultQuoteTemplates_() {
         'colSpecification = Specifications\n' +
         'packageTotal = Total package price\n' +
         'discountRow = Less: discount @ {pct}%\n' +
+        'discountAmountRow = Less: discount\n' +
         'discountedTotal = Total discounted price\n' +
         'pf = P&F\n' +
         'freight = Freight\n' +

@@ -165,12 +165,14 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   - The same list heads the approver's dashboard and Customers. Other Management and ERP Admin
     see it on their dashboard as a notice. Five new Customers columns: approvalStatus,
     approvalBatch, approvedBy, approvedAt, approvalNote. Blank means from before, and approved.
-- **The discount, worked out or not, per quotation** ("Show the discount % on the offer", under the
-  package discount; `Quotations.discountPctShown`). Shown, the price schedule prints the calculation:
-  Total Package Price, "Less: Discount @ 40%" with the amount, then the Discounted Price — a single
-  package discount as given, discounts on the lines (or both) as the one % that takes the package
-  total to the discounted price, two places at most. Not shown, the discounted price alone. A
-  customer's next quotation starts with their last one's choice; the spares offer follows the box.
+- **How the discount is shown, per quotation** ("Discount on the offer", in Totals;
+  `Quotations.discountPctShown` = BOTH / PCT / AMOUNT / NONE). After the Total Package Price the price
+  schedule prints: BOTH, "Less: Discount @ 40%" with the amount, then the Discounted Price; PCT,
+  "Discounted Price (40% Less)"; AMOUNT, "Less: Discount" with the amount, then the Discounted Price;
+  NONE, the discounted price alone. The % is a single package discount as given, or for discounts on
+  the lines (or both) the one % that takes the package total to the discounted price, two places at
+  most. TRUE/FALSE from before read as BOTH/NONE. A customer's next quotation starts with their last
+  one's choice; the spares offer follows it too.
 - **Accessories on a unit quotation** (`quotationAccessories`, Spares.gs): under the items, for each
   compressor, the accessories that suit it — rated for at least its air flow and maximum pressure,
   the three smallest per type, the first marked right size — to tick and add in one go; and an

@@ -45,7 +45,7 @@ const ok = (label, cond, detail) => {
     const quote = () => ({ id: 'QT-77', quoteNo: 'PIE/ELGI/QUOT/26-27/477', revision: 'R0', status: 'Draft', businessStream: 'Compressor Sales',
       customerId: 'CU-1', customerName: 'Sahyadri Castings Pvt Ltd', date: '2026-11-18', validityDays: 30, validUntil: '2026-12-18',
       machineModel: 'EG 37-7.5', serialNo: '', items: window.__quoteLines.slice(), subtotal: 1508000, discountAmt: 0, taxAmt: 271440, grand: 1508000,
-      packageDiscountPct: 0, pfAmount: 0, taxMode: 'Extra', discountPctShown: 'TRUE', locked: false,
+      packageDiscountPct: 0, pfAmount: 0, taxMode: 'Extra', discountPctShown: 'BOTH', locked: false,
       ownership: { preparedBy: 'Anil Mehta', approvedBy: '', coordinatorInCharge: '', coordinatorInChargeName: '', youMayAssign: false },
       journey: { label: 'Prepared', nextLabel: 'Approved', reachedIndex: 0, stages: [{ key: 'Prepared', label: 'Prepared', owner: 'Sales desk', done: true, date: '18-11-2026' }] } });
     D.getQuotation = () => quote();
