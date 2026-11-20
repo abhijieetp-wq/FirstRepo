@@ -171,6 +171,14 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   orders, its dashboard, its new quotations, and the other desk's record says to switch desks
   to open it. Combined is both at once. The choice is kept; Management and the admin start on
   Combined, other people who work both on Compressor. Changing desk keeps them signed in.
+- **A unit sale never prints as a spares offer** (Quotations.gs, `requireLineSuits_`). Which offer a
+  quotation prints, its number (UNIT/ or SPARE/), its order and its desk follow its stream, so a
+  compressor is refused on a spares quotation, saying how to start the unit one (or to switch
+  desk, or that the admin must widen a spares-only account). The picker hides Compressor there,
+  and a spares quotation from before that carries one says so above its lines. New quotation
+  labels its choices "unit offer" and "spares offer" and never falls back to spares when no
+  stream is sent. Settings → Users shows the stream the ERP applies: a blank one is Spare Sales
+  for anybody but Management and the admin, and used to be shown as All.
 - **How the discount is shown, per quotation** ("Discount on the offer", in Totals;
   `Quotations.discountPctShown` = BOTH / PCT / AMOUNT / NONE). After the Total Package Price the price
   schedule prints: BOTH, "Less: Discount @ 40%" with the amount, then the Discounted Price; PCT,

@@ -32,7 +32,7 @@ const refuses = async (fn, re) => {
 };
 
 const TENANT = 'desk-test';
-const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'customer_addresses', 'quotations', 'quotation_items',
+const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'customer_addresses', 'quotations', 'quotation_items', 'products', 'spares', 'price_list',
   'spare_enquiries', 'quote_templates', 'company_profile'];
 
 (async () => {
@@ -43,6 +43,10 @@ const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'customer_address
   await db.appendRow('Users', { id: 'U-ADMIN', username: 'office', email: 'office@pie.invalid', name: 'Office Admin', role: 'ERP Admin', businessStream: 'All', active: 'TRUE' });
   await db.appendRow('Users', { id: 'U-BOTH', username: 'meera', email: 'meera@pie.invalid', name: 'Meera Kulkarni', role: 'Sales Coordinator', businessStream: 'All', active: 'TRUE' });
   await db.appendRow('Users', { id: 'U-SP', username: 'ravi', email: 'ravi@pie.invalid', name: 'Ravi Shinde', role: 'Sales Coordinator', businessStream: 'Spare Sales', active: 'TRUE' });
+  // Added before the stream was asked for: blank, which the ERP has always read as Spare Sales.
+  await db.appendRow('Users', { id: 'U-BLANK', username: 'sana', email: 'sana@pie.invalid', name: 'Sana Pathan', role: 'Sales Coordinator', businessStream: '', active: 'TRUE' });
+  await db.appendRow('Products', { id: 'PR-1', productCode: 'S900100', model: 'EG 37-7.5', series: 'EG', gstPct: 18, active: 'TRUE' });
+  await db.appendRow('Spares', { id: 'SP-1', partNo: 'B900000001', description: 'Oil filter', gstPct: 18, active: 'TRUE' });
   await db.appendRow('Customers', { id: 'CU-1', customerCode: 'C1', name: 'Test Customer', active: 'TRUE' });
   await db.appendRow('CustomerAddresses', { id: 'AD-1', customerId: 'CU-1', addressType: 'Billing', line1: 'Plot 1', city: 'Pune', state: 'Maharashtra', pincode: '411001', isDefault: 'TRUE' });
 
@@ -116,6 +120,42 @@ const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'customer_address
   ok('the very next request is on the new desk, still signed in', !!next && next.businessStream === 'Spare Sales', next);
   const lists = await p.call(signed.token, 'listQuotations', [{ includeClosed: true }]);
   ok('and lists that desk’s work', lists.length === 1 && lists[0].businessStream === 'Spare Sales', lists.map((q) => q.businessStream));
+
+  console.log('\nA COMPRESSOR IS NOT A LINE ON A SPARES QUOTATION');
+  await asUser('U-ADMIN');
+  const refusal = await refuses(() => p.saveQuotationItem({ quotationId: spare.id, itemType: 'Product', itemId: 'PR-1', qty: 1, unitPrice: 100 }),
+    /is a spares quotation and prints as a spares offer, so a compressor cannot go on it\. .*\+ New quotation, Business stream Compressor Sales/);
+  ok('refused one at a time, saying how to make the unit quotation', refusal === true, refusal);
+  ok('and in a selection', await refuses(() => p.saveQuotationItems({ quotationId: spare.id,
+    lines: [{ itemType: 'Spare', itemId: 'SP-1', qty: 1 }, { itemType: 'Product', itemId: 'PR-1', qty: 1 }] }), /prints as a spares offer/));
+  ok('nothing went on it', (await p.getQuotation(spare.id)).items.length === 0);
+  ok('a spare still goes on it', (await p.saveQuotationItem({ quotationId: spare.id, itemType: 'Spare', itemId: 'SP-1', qty: 1, unitPrice: 50 })).items.length === 1);
+  const unit = await p.saveQuotationItems({ quotationId: comp.id, lines: [{ itemType: 'Product', itemId: 'PR-1', qty: 1, unitPrice: 100 }, { itemType: 'Spare', itemId: 'SP-1', qty: 1, unitPrice: 50 }] });
+  ok('a compressor quotation takes the compressor and its spares', unit.items.length === 2);
+  await asUser('U-BOTH');
+  await p.setMyDesk('Spare Sales');
+  ok('on the spares desk, told to switch desks', await refuses(() => p.saveQuotationItem({ quotationId: spare.id, itemType: 'Product', itemId: 'PR-1', qty: 1 }),
+    /Switch to the Compressor desk at the top of the page/));
+  await p.setMyDesk('Compressor Sales');
+  await asUser('U-SP');
+  ok('working spares alone, told who can change that', await refuses(() => p.saveQuotationItem({ quotationId: spare.id, itemType: 'Product', itemId: 'PR-1', qty: 1 }),
+    /works Spare Sales only: the ERP admin can set it to All in Settings → Users/));
+
+  console.log('\nNEW QUOTATION NEVER GUESSES SPARES');
+  await asUser('U-ADMIN');
+  ok('somebody who works both must say which', await refuses(() => p.createBlankQuotation({ customerId: 'CU-1' }), /Choose whether this is a Compressor Sales \(unit\) or a Spare Sales quotation/));
+  await asUser('U-BOTH');
+  ok('on a desk, it is the desk’s', (await p.createBlankQuotation({ customerId: 'CU-1' })).businessStream === 'Compressor Sales');
+  await asUser('U-SP');
+  ok('somebody who works one stream gets theirs', (await p.createBlankQuotation({ customerId: 'CU-1' })).businessStream === 'Spare Sales');
+
+  console.log('\nTHE USERS LIST SAYS WHAT THE ERP APPLIES');
+  await asUser('U-ADMIN');
+  const listed = (await p.getSettings()).users;
+  const streamOf = (id) => (listed.find((u) => u.id === id) || {}).businessStream;
+  ok('a blank stream is shown as the Spare Sales it works as, not All', streamOf('U-BLANK') === 'Spare Sales' &&
+    (await asUser('U-BLANK')).businessStream === 'Spare Sales', streamOf('U-BLANK'));
+  ok('both, and the admin, as All; one stream as itself', streamOf('U-BOTH') === 'All' && streamOf('U-ADMIN') === 'All' && streamOf('U-SP') === 'Spare Sales');
 
   await clean();
   await db.pool.end();

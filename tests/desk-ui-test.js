@@ -94,6 +94,51 @@ const variant = (name, user) => {
   await open(PREVIEW);
   ok('nor does a user the server sent without a home stream', await desk() === null);
 
+  console.log('\nA SPARES QUOTATION WITH A COMPRESSOR ON IT, FROM BEFORE');
+  await open(PREVIEW);
+  await page.evaluate(() => {
+    const D = window.__data;
+    const line = (n, type, code, desc) => ({ id: 'QI-' + n, lineNo: n, lineType: 'Item', itemType: type, itemId: code, itemCode: code, description: desc,
+      qty: 1, unitPrice: 1000, discountPct: 0, taxPct: 18, lineTotal: 1000 });
+    const quote = (stream, items) => () => ({ id: 'QT-9', quoteNo: (stream === 'Spare Sales' ? 'SPARE' : 'UNIT') + '/PIE/ELGI/QUOT/26-27/9', revision: 'R0', status: 'Draft',
+      businessStream: stream, customerId: 'CU-1', customerName: 'Sahyadri Castings Pvt Ltd', date: '2026-11-20', validityDays: 30, validUntil: '2026-12-20',
+      items, subtotal: 2000, discountAmt: 0, taxAmt: 360, grand: 2000, packageDiscountPct: 0, pfAmount: 0, taxMode: 'Extra', discountPctShown: 'BOTH', locked: false,
+      ownership: { preparedBy: 'Anil Mehta', approvedBy: '', coordinatorInCharge: '', coordinatorInChargeName: '', youMayAssign: false },
+      journey: { label: 'Prepared', nextLabel: 'Approved', reachedIndex: 0, stages: [{ key: 'Prepared', label: 'Prepared', owner: 'Sales desk', done: true, date: '20-11-2026' }] } });
+    window.__mk = { quote, line };
+    D.getQuotation = quote('Spare Sales', [line(1, 'Spare', 'B900000001', 'Oil filter'), line(2, 'Product', 'S900100', 'EG 37-7.5')]);
+    D.listQuotations = () => [Object.assign({ preparedByName: 'Anil Mehta' }, D.getQuotation())];
+    D.sparePickerData = () => ({ rows: [], compat: {}, theirCodes: {} });
+    D.quotationAccessories = () => ({ accessories: [], compressors: [] });
+  });
+  await go('quotations');
+  await page.evaluate(() => document.querySelector('[data-qv-open]').click());
+  await page.waitForTimeout(1200);
+  const warn = await text('#qb-stream-warn');
+  ok('it says so above the lines, naming the compressor and the way to the unit offer',
+    /^This is a spares quotation, so it prints the spares offer, but it carries a compressor \(EG 37-7\.5\)\. .*Business stream Compressor Sales\.$/.test(warn), warn);
+  ok('and the picker offers no compressor to add', await page.$eval('#qi-type option[value="Product"]', (o) => o.hidden && o.disabled) &&
+    (await page.inputValue('#qi-type')) !== 'Product');
+  await page.evaluate(() => { const D = window.__data; D.getQuotation = window.__mk.quote('Compressor Sales', [window.__mk.line(1, 'Product', 'S900100', 'EG 37-7.5')]); });
+  await go('quotations');
+  await page.evaluate(() => document.querySelector('[data-qv-open]').click());
+  await page.waitForTimeout(1200);
+  ok('a compressor quotation: no warning, and the compressor is offered', (await page.$eval('#qb-stream-warn', (e) => e.style.display)) === 'none' &&
+    await page.$eval('#qi-type option[value="Product"]', (o) => !o.hidden && !o.disabled));
+
+  console.log('\nNEW QUOTATION SAYS WHICH OFFER EACH CHOICE PRINTS');
+  await go('quotations');
+  await page.evaluate(() => document.getElementById('btn-qv-new').click());
+  await page.waitForTimeout(600);
+  ok('Compressor Sales: unit offer, then Spare Sales: spares offer', (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.textContent))).join('|') ===
+    'Compressor Sales: unit offer|Spare Sales: spares offer');
+  await open(variant('spares', 'role: "Sales Coordinator", businessStream: "Spare Sales", homeStream: "All", desk: "Spare Sales",'));
+  await go('quotations');
+  await page.evaluate(() => document.getElementById('btn-qv-new').click());
+  await page.waitForTimeout(600);
+  ok('on the spares desk, told to switch to Compressor for a unit quotation', /For a compressor \(unit\) quotation, switch to Compressor at the top first\./.test(await text('#qs-desk-note')),
+    await text('#qs-desk-note'));
+
   ok('no script errors', errors.length === 0, errors);
   await browser.close();
   for (const f of ['spares', 'combined', 'one']) { try { fs.unlinkSync(PREVIEW.replace(/\.html$/, '') + '.desk-' + f + '.html'); } catch (e) { /* gone */ } }

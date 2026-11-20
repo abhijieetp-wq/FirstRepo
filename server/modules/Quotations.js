@@ -306,8 +306,11 @@ async function createBlankQuotation(input) {
   })[0];
   if (!customer) throw new Error('Pick the customer this quotation is for.');
 
-  var stream = BUSINESS_STREAMS.indexOf(input.businessStream) !== -1
-    ? input.businessStream : STREAM_SPARE;
+  // Which offer it prints follows from this, so it is never guessed. It used to fall back to
+  // Spare Sales, which made a unit quotation sent without its stream a spares one.
+  var stream = BUSINESS_STREAMS.indexOf(input.businessStream) !== -1 ? input.businessStream
+    : (BUSINESS_STREAMS.indexOf(String(user.businessStream)) !== -1 ? String(user.businessStream) : '');
+  if (!stream) throw new Error('Choose whether this is a Compressor Sales (unit) or a Spare Sales quotation.');
   requireStream_(user, stream, 'A quotation in that stream');
 
   // A spares offer answers a request, and the request is the enquiry: the spares desk's
@@ -823,6 +826,7 @@ async function saveQuotationItem(input) {
   var quote = await requireUnlockedQuote_(input.quotationId);
 
   var itemType = quoteItemType_(input.itemType);
+  requireLineSuits_(quote, [itemType], user);
   var master = await masterRecordFor_(itemType, input.itemId);
   var effective = await getEffectivePrice_(itemType, String(input.itemId), SELLING_PRICE_LEVEL, quote.date);
 
@@ -935,6 +939,7 @@ async function saveQuotationItems(input) {
 
   // One lookup per catalogue, not per line.
   var types = lines.map(function (l) { return quoteItemType_(l.itemType || input.itemType); });
+  requireLineSuits_(quote, types, user);
   var idsByType = {};
   types.forEach(function (t, i) {
     (idsByType[t] = idsByType[t] || []).push(String(lines[i].itemId));
@@ -988,6 +993,29 @@ async function saveQuotationItems(input) {
   await appendRows_('QuotationItems', records, 'Quotation lines added');
   await recalcQuotation_(input.quotationId);
   return withMergeNote_(await getQuotation(input.quotationId), merged);
+}
+
+/**
+ * A compressor is not a line on a spares quotation.
+ *
+ * Which offer a quotation prints, its number (UNIT/… or SPARE/…), the order it becomes and the
+ * desk it is listed under all follow its stream, not its lines. A coordinator who started a
+ * spares quotation and put a compressor on it got the spares offer printed for a unit sale.
+ * So the line is refused, saying how to make the quotation that prints the compressor offer.
+ * Spares and accessories on a compressor quotation are what a unit offer carries, and stay.
+ */
+function requireLineSuits_(quote, itemTypes, user) {
+  if (String(quote.businessStream) !== STREAM_SPARE || itemTypes.indexOf('Product') === -1) return;
+  var how;
+  if (streamAllowed_(user, STREAM_COMPRESSOR)) {
+    how = 'Start one from All Quotations: + New quotation, Business stream Compressor Sales.';
+  } else if (String(user.homeStream || '') === STREAM_ALL) {
+    how = 'Switch to the Compressor desk at the top of the page, then + New quotation in All Quotations.';
+  } else {
+    how = 'Your account works Spare Sales only: the ERP admin can set it to All in Settings → Users.';
+  }
+  throw new Error(String(quote.quoteNo || 'This') + ' is a spares quotation and prints as a spares offer, so a compressor ' +
+    'cannot go on it. A compressor goes on a compressor (unit) quotation. ' + how);
 }
 
 function quoteItemType_(value) {

@@ -79,6 +79,10 @@ async function getSettings() {
     users: (await readTable_('Users')).map(function (u) {
       var row = stripRow_(u);
       row.isSelf = String(row.email).toLowerCase() === String(user.email).toLowerCase();
+      // The stream the ERP applies, not what happens to be stored: a blank one is Spare Sales
+      // for anybody but Management and the admin (Auth.gs, userFromRow_), and this list used to
+      // show it as All, so somebody meant to work both was quietly kept to spares.
+      try { row.businessStream = userFromRow_(u).homeStream; } catch (e) { /* a role it does not know: shown as stored */ }
       // Whether they can sign in, said plainly. The stored password never leaves the sheet —
       // not the hash, not the salt, not the iteration count — because none of it has any use
       // on the screen and all of it is worth something to somebody who should not have it.

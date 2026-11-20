@@ -4089,8 +4089,21 @@
         return mine === "All" || mine === st;
       })
       .map(function (st) {
-        return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st) + "</option>";
+        return '<option value="' + escapeHtml(st) + '">' + escapeHtml(st === "Spare Sales" ? "Spare Sales: spares offer" : "Compressor Sales: unit offer") + "</option>";
       }).join("");
+    // On the spares desk the window offers spares alone; say where the unit offers are.
+    var deskNote = $("qs-desk-note");
+    if (!deskNote) {
+      deskNote = document.createElement("p");
+      deskNote.id = "qs-desk-note";
+      deskNote.className = "qs-desk-note";
+      $("qs-stream").parentNode.appendChild(deskNote);
+    }
+    deskNote.textContent = String(currentUser.homeStream || "") === "All" && mine === "Spare Sales"
+      ? "You are on the Spares desk. For a compressor (unit) quotation, switch to Compressor at the top first."
+      : String(currentUser.homeStream || "") === "All" && mine === "Compressor Sales"
+        ? "You are on the Compressor desk. For a spares quotation, switch to Spares at the top first." : "";
+    deskNote.style.display = deskNote.textContent ? "" : "none";
     // Somebody whose whole job is spares has nothing to start here, so say where to go
     // rather than showing them an empty picker.
     var sparesOnly = !$("qs-stream").options.length;
@@ -5177,7 +5190,33 @@
       "print either way so the gap is visible on the offer.</span></div>";
   }
 
+  /**
+   * A spares quotation prints the spares offer, so it is not offered a compressor to add (the
+   * server refuses one too, Quotations.gs requireLineSuits_). One that already carries a
+   * compressor, from before, says so above its lines.
+   */
+  function qbStreamGuard(q) {
+    var spare = q.businessStream === "Spare Sales";
+    var opt = $("qi-type").querySelector('option[value="Product"]');
+    if (opt) { opt.hidden = spare; opt.disabled = spare; }
+    if (spare && $("qi-type").value === "Product") { $("qi-type").value = "Spare"; syncItemTypeFields(); }
+    var warn = $("qb-stream-warn");
+    if (!warn) {
+      warn = document.createElement("div");
+      warn.id = "qb-stream-warn";
+      warn.className = "msg error show qb-stream-warn";
+      warn.setAttribute("role", "alert");
+      $("qb-items").parentNode.insertBefore(warn, $("qb-items"));
+    }
+    var units = spare ? (q.items || []).filter(function (i) { return i.itemType === "Product"; }) : [];
+    warn.textContent = units.length ? "This is a spares quotation, so it prints the spares offer, but it carries " +
+      (units.length === 1 ? "a compressor (" + (units[0].description || units[0].itemCode || "") + ")" : units.length + " compressors") +
+      ". A unit sale goes on a compressor quotation: + New quotation in All Quotations, Business stream Compressor Sales." : "";
+    warn.style.display = units.length ? "" : "none";
+  }
+
   function renderQuoteItems(q, editable) {
+    qbStreamGuard(q);
     var zone = $("qb-items");
     if (!q.items.length) {
       zone.innerHTML = '<div class="empty">No items yet.</div>';
