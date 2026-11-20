@@ -114,6 +114,10 @@ const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'customer_address
   const signed = await p.login('meera', 'Desk-test-pass-91');
   ok('signed in on the desk they left', signed.user.businessStream === 'Compressor Sales' && signed.user.homeStream === 'All', signed.user);
   await p.call(signed.token, 'listQuotations', [{}]);
+  p.CURRENT_USER_ = null;
+  ok('an e-mail address at the sign-in box is told to use the username',
+    await refuses(() => p.login('meera.old@example.com', 'Desk-test-pass-91'), /Sign in with your username, not an e-mail address/));
+  ok('a wrong username is still just a mismatch', await refuses(() => p.login('nobody', 'x'), /That username and password do not match/));
   const flipped = await p.call(signed.token, 'setMyDesk', ['Spare Sales']);
   ok('changed through the door every click comes in by', flipped.businessStream === 'Spare Sales', flipped);
   const next = await p.userForToken_(signed.token);

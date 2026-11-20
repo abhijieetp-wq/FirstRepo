@@ -292,17 +292,21 @@ function quotationAccessories(quotationId) {
       var p = products[String(l.itemId)];
       if (!p || seen[String(p.id)]) return;
       seen[String(p.id)] = true;
-      var cfm = num(p.fad) || num(p.capacityCfm);
+      // The cfm typed on the line first: a machine the catalogue has no air flow for is sized
+      // by what the person quoting says it delivers.
+      var cfm = cfmOf_(l.cfm) || cfmOf_(p.fad) || cfmOf_(p.capacityCfm);
       var bar = num(p.maxPressure) || num(p.workingPressure);
       var byType = {};
-      accessories.forEach(function (a) {
-        if (cfm !== null && (a.cfm === null || a.cfm < cfm)) return;
+      // Without an air flow nothing can be said to suit it, so nothing is suggested; the line
+      // asks for its cfm instead.
+      if (cfm !== null) accessories.forEach(function (a) {
+        if (a.cfm === null || a.cfm < cfm) return;
         if (bar !== null && a.bar !== null && a.bar < bar) return;
         var t = a.type || 'Other';
         (byType[t] = byType[t] || []).push(a.id);
       });
       compressors.push({
-        itemId: String(p.id), model: String(p.model || p.productCode || ''), cfm: cfm, bar: bar,
+        itemId: String(p.id), lineId: String(l.id), model: String(p.model || p.productCode || ''), cfm: cfm, bar: bar,
         suits: Object.keys(byType).sort().map(function (t) { return { type: t, items: byType[t].slice(0, 3) }; })
       });
     });

@@ -424,7 +424,13 @@ var SCHEMA = {
     label: 'Quote lines from either catalog (Product or Spare)',
     columns: ['id', 'quotationId', 'lineNo', 'lineType', 'itemType', 'itemId', 'itemCode',
       'description', 'qty', 'uom', 'listPrice', 'rateType', 'unitPrice', 'discountPct', 'taxPct',
-      'lineTotal', 'availabilityNote', 'leadTimeDays']
+      'lineTotal', 'availabilityNote', 'leadTimeDays',
+      // The HSN code typed when the catalogue had none, kept with the line so it prints even
+      // when the person quoting may not write it into the catalogue. Blank: the catalogue's.
+      'hsnCode',
+      // A compressor line's air flow in cfm, which the accessories that suit it are sized by.
+      // Blank: the compressor's own from the catalogue (fad, else capacityCfm).
+      'cfm']
   },
 
   // ---------------------------------------------------------------- Order & commercial control

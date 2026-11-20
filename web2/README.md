@@ -171,6 +171,16 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   orders, its dashboard, its new quotations, and the other desk's record says to switch desks
   to open it. Combined is both at once. The choice is kept; Management and the admin start on
   Combined, other people who work both on Compressor. Changing desk keeps them signed in.
+- **Each compressor's CFM on its line** (Quotations.gs, `saveQuotationLineCfm`; `QuotationItems.cfm`).
+  A unit quotation's items have a CFM column: the catalogue's air flow (fad, else capacityCfm),
+  changeable per line, and a box marked as needed where the catalogue has none. The accessories
+  that suit a compressor are sized by it; without one none are suggested and the panel asks
+  for it, rather than offering the smallest of everything.
+- **A part with no HSN still goes on the offer.** When the catalogue lacks a price or HSN the
+  picker asks for the price and the HSN "if known"; one typed is kept on the line
+  (`QuotationItems.hsnCode`) and printed, even for somebody who may not write the catalogue.
+- **Sign in with the username.** An e-mail address at the sign-in box is told to use the
+  username instead (for any address, so it says nothing about who works here).
 - **A unit sale never prints as a spares offer** (Quotations.gs, `requireLineSuits_`). Which offer a
   quotation prints, its number (UNIT/ or SPARE/), its order and its desk follow its stream, so a
   compressor is refused on a spares quotation, saying how to start the unit one (or to switch

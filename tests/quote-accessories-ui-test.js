@@ -41,7 +41,7 @@ const ok = (label, cond, detail) => {
       acc('A5', 'B900000005', 'Pre Filter', 'AF 0177P', 177, 20, 9800), acc('A6', 'B900000006', 'Pre Filter', 'AF 0132P', 132, 20, 7600)
     ];
     window.__quoteLines = [{ id: 'QI-1', lineNo: 1, lineType: 'Item', itemType: 'Product', itemId: 'PR-EG37', itemCode: 'S019400',
-      description: 'EG 37-7.5', qty: 1, unitPrice: 1508000, discountPct: 0, taxPct: 18, lineTotal: 1508000 }];
+      description: 'EG 37-7.5', qty: 1, unitPrice: 1508000, discountPct: 0, taxPct: 18, lineTotal: 1508000, cfm: '', catalogCfm: 160 }];
     const quote = () => ({ id: 'QT-77', quoteNo: 'PIE/ELGI/QUOT/26-27/477', revision: 'R0', status: 'Draft', businessStream: 'Compressor Sales',
       customerId: 'CU-1', customerName: 'Sahyadri Castings Pvt Ltd', date: '2026-11-18', validityDays: 30, validUntil: '2026-12-18',
       machineModel: 'EG 37-7.5', serialNo: '', items: window.__quoteLines.slice(), subtotal: 1508000, discountAmt: 0, taxAmt: 271440, grand: 1508000,
@@ -102,6 +102,53 @@ const ok = (label, cond, detail) => {
     found.every((r) => /Pre Filter AF 0(177|132)P/.test(r)) && /132 cfm · 20 bar/.test(found.join(' ')) &&
     !(await page.$$eval('#qi-results thead th', (t) => t.map((x) => x.textContent))).includes('Fit'), found);
   ok('no group filter for accessories', !(await page.isVisible('#qi-group-field')));
+
+  console.log('\nAN ACCESSORY WITH NO PRICE AND NO HSN');
+  await page.evaluate(() => {
+    const D = window.__data;
+    D.completeCatalogDetails = (input) => ({ code: 'B900000003', savedToCatalog: input.price !== '' ? ['selling price'] : [] });
+    D.saveQuotationItem = () => ({ id: 'QT-77', quoteNo: 'x', revision: 'R0', status: 'Draft', businessStream: 'Compressor Sales', items: window.__quoteLines.slice(), locked: false,
+      ownership: { preparedBy: 'Anil Mehta' }, journey: { stages: [] } });
+  });
+  await page.selectOption('#qi-type', 'Accessory');
+  await page.fill('#qi-search', '0294F');
+  await page.waitForTimeout(400);
+  await page.click('#qi-results [data-add-line="A3"]');
+  await page.waitForTimeout(300);
+  ok('it asks for the price, and the HSN only if known', await page.isVisible('#qi-complete') && /HSN Code \(if known\)/.test(await text('#qi-complete-hsn-field')) &&
+    /Leave the HSN blank if you do not know it: the line goes on all the same\./.test(await text('#qi-complete-note')), await text('#qi-complete-note'));
+  await page.fill('#qi-complete-price', '7600');
+  await page.evaluate(() => { window.__calls = []; });
+  await page.click('#btn-qi-complete-add');
+  await page.waitForTimeout(600);
+  const added = await page.evaluate(() => (window.__calls.find((c) => c.fn === 'saveQuotationItem') || {}).args);
+  ok('with no HSN it goes on all the same, at the price typed', !!added && added[0].itemId === 'A3' && Number(added[0].unitPrice) === 7600 && added[0].hsnCode === '', added);
+
+  console.log('\nEACH COMPRESSOR’S CFM ON ITS LINE');
+  await page.evaluate(() => document.querySelector('#tabs [data-view="quotations"]').click());
+  await page.waitForTimeout(600);
+  await page.evaluate(() => document.querySelector('[data-qv-open]').click());
+  await page.waitForTimeout(1000);
+  ok('a CFM column on a unit quotation', (await page.$$eval('#qb-items thead th', (t) => t.map((x) => x.textContent))).includes('CFM'));
+  ok('the compressor shows the catalogue’s, ready to change', (await page.inputValue('[data-cfm-line="QI-1"]')) === '160' &&
+    !(await page.$eval('[data-cfm-line="QI-1"]', (e) => e.classList.contains('need'))));
+  await page.evaluate(() => { window.__calls = []; window.__data.saveQuotationLineCfm = () => window.__data.getQuotation(); });
+  await page.fill('[data-cfm-line="QI-1"]', '200');
+  await page.dispatchEvent('[data-cfm-line="QI-1"]', 'change');
+  await page.waitForTimeout(500);
+  const cfmSent = await page.evaluate(() => (window.__calls.find((c) => c.fn === 'saveQuotationLineCfm') || {}).args);
+  ok('changed, it is saved for that line', !!cfmSent && cfmSent[0].quotationId === 'QT-77' && cfmSent[0].id === 'QI-1' && cfmSent[0].cfm === '200', cfmSent);
+  await page.evaluate(() => {
+    window.__quoteLines[0].catalogCfm = null;
+    window.__data.quotationAccessories = () => ({ accessories: [], compressors: [{ itemId: 'PR-EG37', lineId: 'QI-1', model: 'EG 37-7.5', cfm: null, bar: 7.5, suits: [] }] });
+  });
+  await page.evaluate(() => document.querySelector('#tabs [data-view="quotations"]').click());
+  await page.waitForTimeout(600);
+  await page.evaluate(() => document.querySelector('[data-qv-open]').click());
+  await page.waitForTimeout(1000);
+  ok('one the catalogue has none for asks for it', (await page.inputValue('[data-cfm-line="QI-1"]')) === '' &&
+    await page.$eval('[data-cfm-line="QI-1"]', (e) => e.classList.contains('need') && e.placeholder === 'cfm'));
+  ok('and the accessories say to type it, rather than guessing', /Type this compressor’s air flow in the CFM box on its line above/.test(await text('#qbv-acc')), await text('#qbv-acc'));
 
   console.log('\nNEW QUOTATION: EITHER DESK, FOR SOMEBODY WHO WORKS BOTH');
   await page.evaluate(() => document.querySelector('#tabs [data-view="quotations"]').click());

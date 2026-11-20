@@ -286,6 +286,12 @@ function login(login, password, googlePass) {
     derivePassword_(String(password || ''), Utilities.base64Encode(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'absent')),
       PASSWORD_ITERATIONS);
+    // People sign in with their username. Since everybody moved onto an ERP ID, an e-mail
+    // address typed here matches nobody, so say what to type rather than that it is wrong. It
+    // is said for any address, known or not, so it gives away nothing about who works here.
+    if (String(login || '').indexOf('@') !== -1) {
+      throw new Error('Sign in with your username, not an e-mail address. Your ERP Admin can tell you yours.');
+    }
     throw new Error(vague);
   }
 

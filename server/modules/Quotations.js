@@ -487,6 +487,19 @@ async function getQuotation(id) {
   row.items = (await quotationLines_(id))
     .sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); })
     .map(stripRow_);
+  // Each compressor's air flow from the catalogue, beside the one typed on its line: the line
+  // shows its cfm, and asks for it where the catalogue has none.
+  var unitIds = row.items.filter(function (i) { return String(i.itemType) === 'Product'; })
+    .map(function (i) { return String(i.itemId); });
+  if (unitIds.length) {
+    var units = {};
+    (await findRowsByColumn_('Products', 'id', unitIds)).forEach(function (p) { units[String(p.id)] = p; });
+    row.items.forEach(function (i) {
+      if (String(i.itemType) !== 'Product') return;
+      var p = units[String(i.itemId)];
+      i.catalogCfm = p ? cfmOf_(p.fad) || cfmOf_(p.capacityCfm) : null;
+    });
+  }
   row.locked = String(row.locked).toUpperCase() === 'TRUE';
 
   var customer = (await readTable_('Customers')).filter(function (c) {
@@ -1004,6 +1017,38 @@ async function saveQuotationItems(input) {
  * So the line is refused, saying how to make the quotation that prints the compressor offer.
  * Spares and accessories on a compressor quotation are what a unit offer carries, and stay.
  */
+/** The air flow in cfm from a capacity as written ("160 cfm", "4.53 m³/min, 160 cfm") or a bare 160; null when it gives none. */
+function cfmOf_(v) {
+  var t = String(v === undefined || v === null ? '' : v).replace(/,/g, '');
+  var m = /([0-9]+(?:\.[0-9]+)?)\s*cfm/i.exec(t) || /^\s*([0-9]+(?:\.[0-9]+)?)\s*$/.exec(t);
+  var n = m ? Number(m[1]) : NaN;
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * A compressor line's air flow, in cfm.
+ *
+ * The accessories that suit a compressor (Spares.gs, quotationAccessories) are sized by it, and
+ * a machine in the catalogue without one had none suggested at all. The person quoting types
+ * it on the line: blank goes back to the catalogue's.
+ */
+async function saveQuotationLineCfm(input) {
+  var user = getCurrentUser();
+  requireRole_(user, QUOTE_EDITORS);
+  var quote = await requireUnlockedQuote_(input.quotationId);
+  var line = (await quotationLines_(quote.id)).filter(function (l) { return String(l.id) === String(input.id); })[0];
+  if (!line) throw new Error('That line is not on this quotation.');
+  if (String(line.itemType) !== 'Product') throw new Error('Only a compressor line has an air flow.');
+  var raw = String(input.cfm === undefined || input.cfm === null ? '' : input.cfm).trim();
+  var cfm = raw === '' ? '' : Number(raw);
+  if (cfm !== '' && (!isFinite(cfm) || cfm <= 0 || cfm > 100000)) {
+    throw new Error('The air flow is a number of cfm, more than 0 — for example 160.');
+  }
+  await updateRowById_('QuotationItems', 'id', line.id, { cfm: cfm === '' ? '' : String(cfm) },
+    'Air flow ' + (cfm === '' ? 'cleared' : 'set to ' + cfm + ' cfm') + ' on ' + (line.itemCode || 'a compressor'));
+  return await getQuotation(quote.id);
+}
+
 function requireLineSuits_(quote, itemTypes, user) {
   if (String(quote.businessStream) !== STREAM_SPARE || itemTypes.indexOf('Product') === -1) return;
   var how;
@@ -1050,7 +1095,7 @@ function quoteItemRecord_(input, itemType, master, effective, lineNo) {
 
   var net = unitPrice * (1 - discountPct / 100);
 
-  return {
+  var rec = {
     quotationId: String(input.quotationId),
     lineNo: lineNo,
     lineType: 'Item',
@@ -1069,6 +1114,13 @@ function quoteItemRecord_(input, itemType, master, effective, lineNo) {
     availabilityNote: String(input.availabilityNote || '').trim(),
     leadTimeDays: input.leadTimeDays === '' || input.leadTimeDays === undefined ? '' : Number(input.leadTimeDays)
   };
+  // Only when given, so editing a line's quantity or price keeps the HSN it went on with.
+  var hsn = String(input.hsnCode === undefined || input.hsnCode === null ? '' : input.hsnCode).trim();
+  if (hsn) {
+    if (!/^\d{4}$|^\d{6}$|^\d{8}$/.test(hsn)) throw new Error('An HSN code is 4, 6 or 8 digits. Leave it blank if you do not know it.');
+    rec.hsnCode = hsn;
+  }
+  return rec;
 }
 
 /**

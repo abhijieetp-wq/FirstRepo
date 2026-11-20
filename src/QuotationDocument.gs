@@ -1293,6 +1293,8 @@ function headlineTaxRate_(items) {
  * so a twenty-line offer does not read the sheet twenty times.
  */
 function hsnFor_(item, products, spareHsn) {
+  // Typed on the line when the catalogue had none.
+  if (String(item.hsnCode || '').trim()) return String(item.hsnCode).trim();
   if (item.itemType === 'Product') {
     var rec = products[String(item.itemId)];
     return rec ? (rec.hsnCode || '') : '';

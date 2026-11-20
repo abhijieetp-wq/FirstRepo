@@ -362,6 +362,54 @@ const SPEC_CSV = '﻿' + [
     JSON.stringify(fineModels) === JSON.stringify(['AF 0177F', 'AF 0235F']), fineModels);
   ok('none for a quotation with no compressor', (await p.quotationAccessories('')).compressors.length === 0);
 
+  console.log('\nEACH COMPRESSOR LINE’S AIR FLOW (saveQuotationLineCfm)');
+  const accQuote = lastQuoteId;
+  let gq = await p.getQuotation(accQuote);
+  const egLine = gq.items.find((i) => i.itemType === 'Product');
+  ok('the line carries the catalogue’s cfm, and none of its own yet', egLine.catalogCfm === 150 && !egLine.cfm, egLine);
+  gq = await p.saveQuotationLineCfm({ quotationId: accQuote, id: egLine.id, cfm: '200' });
+  ok('a cfm typed on the line is kept', gq.items.find((i) => i.id === egLine.id).cfm === '200');
+  let qa2 = await p.quotationAccessories(accQuote);
+  const fine200 = ((qa2.compressors[0].suits || []).find((g) => g.type === 'Fine Filter') || { items: [] }).items
+    .map((id) => (qa2.accessories.find((a) => a.id === id) || {}).model);
+  ok('and the accessories are sized by it: 200 cfm leaves out the 177', qa2.compressors[0].cfm === 200 && JSON.stringify(fine200) === JSON.stringify(['AF 0235F']), fine200);
+  gq = await p.saveQuotationLineCfm({ quotationId: accQuote, id: egLine.id, cfm: '' });
+  ok('cleared, the catalogue’s is used again', !gq.items.find((i) => i.id === egLine.id).cfm && (await p.quotationAccessories(accQuote)).compressors[0].cfm === 150);
+  ok('a cfm is a number above 0', await p.saveQuotationLineCfm({ quotationId: accQuote, id: egLine.id, cfm: 'lots' }).then(() => false, (e) => /a number of cfm, more than 0/.test(e.message)));
+  await p.saveQuotationItem({ quotationId: accQuote, itemType: 'Spare', itemId: (qa.accessories.find((a) => a.partNo === 'B900000177') || {}).id, qty: 1, unitPrice: 1000 });
+  gq = await p.getQuotation(accQuote);
+  const accLine = gq.items.find((i) => i.itemCode === 'B900000177');
+  ok('only a compressor line has one', await p.saveQuotationLineCfm({ quotationId: accQuote, id: accLine.id, cfm: '100' }).then(() => false, (e) => /Only a compressor line/.test(e.message)));
+  await db.appendRow('Products', { id: 'PR-NOCFM', productCode: 'S900999', model: 'EG 99-7.5', series: 'EG', maxPressure: '7.5 bar', gstPct: 18, hsnCode: '84148011', active: 'TRUE' });
+  await p.saveQuotationItem({ quotationId: accQuote, itemType: 'Product', itemId: 'PR-NOCFM', qty: 1, unitPrice: 500000 });
+  qa2 = await p.quotationAccessories(accQuote);
+  const bare = qa2.compressors.find((c) => c.itemId === 'PR-NOCFM') || {};
+  ok('a compressor the catalogue has no air flow for: nothing suggested, rather than the smallest of everything',
+    bare.cfm === null && bare.suits.length === 0 && !!bare.lineId, bare);
+  const bareLine = (await p.getQuotation(accQuote)).items.find((i) => i.itemId === 'PR-NOCFM');
+  ok('and its line says it has none', bareLine.catalogCfm === null);
+  await p.saveQuotationLineCfm({ quotationId: accQuote, id: bareLine.id, cfm: 180 });
+  qa2 = await p.quotationAccessories(accQuote);
+  const typedFine = (((qa2.compressors.find((c) => c.itemId === 'PR-NOCFM') || {}).suits || []).find((g) => g.type === 'Fine Filter') || { items: [] }).items
+    .map((id) => (qa2.accessories.find((a) => a.id === id) || {}).model);
+  ok('typed on its line, it gets the accessories for that air flow', JSON.stringify(typedFine) === JSON.stringify(['AF 0235F']), typedFine);
+
+  console.log('\nAN HSN CODE TYPED WHEN THE CATALOGUE HAS NONE');
+  ok('the accessory has none in the catalogue', !(qa.accessories.find((a) => a.partNo === 'B900000177') || {}).hsnCode);
+  const accId = (qa.accessories.find((a) => a.partNo === 'B900000235') || {}).id;
+  gq = await p.saveQuotationItem({ quotationId: accQuote, itemType: 'Spare', itemId: accId, qty: 1, unitPrice: 2000, hsnCode: '8421' });
+  const hLine = gq.items.find((i) => i.itemId === accId);
+  ok('kept on the line', hLine.hsnCode === '8421', hLine);
+  const printed = await p.buildQuotationHtml(accQuote);
+  ok('and printed on the offer, in its row', /<tr><td>[^<]*AF 0235F<\/td>(?:<td[^>]*>[^<]*<\/td>){3}<td>8421<\/td>/.test(printed),
+    (printed.match(/<tr><td>[^<]*AF 0235F[\s\S]{0,300}?<\/tr>/) || [''])[0]);
+  gq = await p.saveQuotationItem({ quotationId: accQuote, id: hLine.id, lineNo: hLine.lineNo, itemType: 'Spare', itemId: accId, qty: 2, unitPrice: 2000 });
+  ok('changing the quantity keeps it', gq.items.find((i) => i.id === hLine.id).hsnCode === '8421' && Number(gq.items.find((i) => i.id === hLine.id).qty) === 2);
+  ok('one typed wrong is refused', await p.saveQuotationItem({ quotationId: accQuote, itemType: 'Spare', itemId: accId, qty: 1, hsnCode: '84' })
+    .then(() => false, (e) => /4, 6 or 8 digits\. Leave it blank if you do not know it/.test(e.message)));
+  const noHsn = await p.saveQuotationItem({ quotationId: accQuote, itemType: 'Spare', itemId: (qa.accessories.find((a) => a.partNo === 'B900000120') || {}).id, qty: 1, unitPrice: 900 });
+  ok('and none at all is no bar to adding the line', noHsn.items.some((i) => i.itemCode === 'B900000120'));
+
   console.log('\nA SPARES QUOTATION STARTED FROM NEW QUOTATION');
   const direct = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Spare Sales', validityDays: 15 });
   ok('it is a spares quotation, with the validity asked for', direct.businessStream === 'Spare Sales' && Number(direct.validityDays) === 15, direct);

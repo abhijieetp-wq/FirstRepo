@@ -4345,8 +4345,9 @@
       items.parentNode.insertBefore(panel, items.nextSibling);
     }
     panel.style.display = "";
-    // Re-fetched when the compressors change, since what suits them is worked out from them.
-    var sig = products.map(function (p) { return p.itemId; }).sort().join(",");
+    // Re-fetched when the compressors or their air flow change, since what suits them is
+    // worked out from them.
+    var sig = products.map(function (p) { return p.itemId + ":" + (p.cfm || "") + ":" + (p.catalogCfm || ""); }).sort().join(",");
     if (qbAcc.quoteId === q.id && qbAcc.sig !== sig) qbAcc.data = null;
     qbAcc.sig = sig;
     panel.querySelector(".qbv-body").innerHTML = '<p class="qbv-hint">Finding the accessories that suit it…</p>';
@@ -4379,7 +4380,8 @@
       });
       var need = [c.cfm ? c.cfm + " cfm" : "", c.bar ? c.bar + " bar" : ""].filter(Boolean).join(", ");
       return '<div class="qbv-acc-group"><div class="qbv-acc-for">For <b>' + escapeHtml(c.model) + "</b>" + (need ? " · needs " + escapeHtml(need) : "") + "</div>" +
-        (rows.length ? '<div class="qv-table"><table><thead><tr><th></th><th>Type</th><th>TPL Code</th><th>Model</th><th>Capacity</th><th>Max pressure</th><th class="num">Price</th></tr></thead><tbody>' +
+        (!c.cfm ? '<p class="qbv-hint qbv-acc-needcfm">Type this compressor’s air flow in the CFM box on its line above: the accessories that suit it are sized by it. ' +
+          "Until then any accessory can be added from + Add Item, Type Accessory.</p>" : rows.length ? '<div class="qv-table"><table><thead><tr><th></th><th>Type</th><th>TPL Code</th><th>Model</th><th>Capacity</th><th>Max pressure</th><th class="num">Price</th></tr></thead><tbody>' +
           rows.join("") + "</tbody></table></div>"
           : '<p class="qbv-hint">No accessory in the catalogue is rated for this machine yet.</p>') + "</div>";
     }).join("");
@@ -5222,7 +5224,22 @@
       zone.innerHTML = '<div class="empty">No items yet.</div>';
       return;
     }
+    // A unit offer shows each compressor's air flow, which its accessories are sized by. Where
+    // the catalogue has none the line asks for it (Quotations.gs, saveQuotationLineCfm).
+    var unitOffer = q.businessStream === "Compressor Sales";
+    var cfmCell = function (i) {
+      if (!unitOffer) return "";
+      if (i.itemType !== "Product") return '<td class="num qb-cfm">' + "</td>";
+      var own = String(i.cfm || "").trim();
+      var shown = own || (i.catalogCfm ? String(i.catalogCfm) : "");
+      if (!editable) return '<td class="num qb-cfm mono">' + escapeHtml(shown || "—") + "</td>";
+      return '<td class="num qb-cfm"><input type="number" min="1" step="any" inputmode="decimal" class="qb-cfm-in' + (shown ? "" : " need") +
+        '" data-cfm-line="' + escapeHtml(i.id) + '" value="' + escapeHtml(shown) + '" placeholder="cfm" aria-label="Air flow in cfm for ' +
+        escapeHtml(i.itemCode || "this compressor") + '" title="' + (shown ? (own ? "Typed on this line" : "From the catalogue") + ": change it if this machine delivers another"
+          : "Needed: the accessories that suit it are sized by its air flow") + '" /></td>';
+    };
     zone.innerHTML = '<table><thead><tr><th>#</th><th>Code</th><th>Description</th>' +
+      (unitOffer ? '<th class="num" title="Air flow of each compressor, in cfm">CFM</th>' : "") +
       '<th>Delivery</th>' +
       '<th class="num">Qty</th><th class="num">Price</th><th class="num">Disc %</th>' +
       '<th class="num">Tax %</th><th class="num">Line Total</th><th></th></tr></thead><tbody>' +
@@ -5236,6 +5253,7 @@
           "<td>" + escapeHtml(i.description || "—") +
             (i.availabilityNote ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
               escapeHtml(i.availabilityNote) + "</span>" : "") + "</td>" +
+          cfmCell(i) +
           // Blank means this line goes out with the rest of the order, on the offer's own
           // period — which the header field states. Only a line on its own timetable says
           // anything here, so the column stays quiet in the ordinary case.
@@ -5265,6 +5283,20 @@
     });
 
     if (q.specGaps && q.specGaps.length) zone.insertAdjacentHTML("beforeend", specGapNote(q));
+
+    zone.querySelectorAll("[data-cfm-line]").forEach(function (inp) {
+      inp.addEventListener("change", function () {
+        var v = inp.value.trim();
+        if (v !== "" && !(Number(v) > 0)) { showMsg("The air flow is a number of cfm, more than 0 — for example 160.", "error"); return; }
+        inp.disabled = true;
+        srv.withSuccessHandler(function (nq) {
+          openQuote = nq;
+          renderQuoteBuilder();
+          showMsg(v ? "Air flow saved: " + v + " cfm. The accessories below are sized by it." : "Air flow cleared: the catalogue's is used.", "success");
+        }).withFailureHandler(function (err) { inp.disabled = false; onServerError(err); })
+          .saveQuotationLineCfm({ quotationId: q.id, id: inp.dataset.cfmLine, cfm: v });
+      });
+    });
 
     zone.querySelectorAll("[data-edit-line]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -5579,9 +5611,10 @@
     $("qi-complete-note").textContent = "This " + noun + " is in the catalogue but " +
       (needPrice && needHsn ? "has no selling price and no HSN code."
         : needPrice ? "has no selling price." : "has no HSN code.") +
+      (needHsn ? " Leave the HSN blank if you do not know it: the line goes on all the same." : "") +
       (canEditMasters()
         ? " What you enter is saved to the catalogue as well, so it only needs doing once."
-        : " It will be used on this quotation. Saving it to the catalogue needs Management or " +
+        : " It is used on this quotation. Saving it to the catalogue needs Management or " +
           "ERP Admin rights.");
 
     $("qi-complete-price-field").style.display = needPrice ? "" : "none";
@@ -5611,8 +5644,9 @@
     if (needPrice && price === "") { showMsg("Enter the selling price for this part.", "error"); return; }
     // 4, 6 or 8 digits: PIE's own quotations print a 4-digit HSN (8414), and a rule that
     // refused their own documents would be the wrong rule.
-    if (needHsn && !/^([0-9]{4}|[0-9]{6}|[0-9]{8})$/.test(hsn)) {
-      showMsg("An HSN code is 4, 6 or 8 digits. It prints on the quotation.", "error");
+    // Optional: a part nobody has the HSN for still goes on the offer. One typed must be right.
+    if (needHsn && hsn && !/^([0-9]{4}|[0-9]{6}|[0-9]{8})$/.test(hsn)) {
+      showMsg("An HSN code is 4, 6 or 8 digits. Leave it blank if you do not know it.", "error");
       return;
     }
 
@@ -5643,7 +5677,9 @@
         quotationId: openQuote.id, itemType: completingType, itemId: completingSpare.id,
         itemCode: itemCode, description: itemDesc,
         uom: completingSpare.uom, qty: $("qi-qty").value || 1,
-        unitPrice: needPrice ? price : completingSpare.price, discountPct: 0
+        unitPrice: needPrice ? price : completingSpare.price, discountPct: 0,
+        // Kept on the line too, so it prints even when it could not go into the catalogue.
+        hsnCode: needHsn ? hsn : ""
       });
     }).withFailureHandler(onServerError).completeCatalogDetails({
       itemType: completingType,
