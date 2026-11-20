@@ -50,6 +50,8 @@ COPY web/ ./web/
 # ERP 2.0's look (ERP_UI=v2, or ?look=2 in one browser): see web2/README.md.
 COPY web2/ ./web2/
 COPY assets/ ./assets/
+# The Tender Desk's own page (/tender-desk), served as it is: see src/Tenders.gs.
+COPY tender/ ./tender/
 # Not a migration script despite where it lives: db.js reads its column mapping from here,
 # which it derives from src/Schema.gs so the database can never drift from the declaration
 # the portal uses. The rest of migration/ is tooling and stays out.

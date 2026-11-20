@@ -48,6 +48,11 @@ ok('its screens and records are its addresses', ['/tender-desk', '/tender-desk/'
   '/tender-desk/po', '/tender-desk/po/TPO-9', '/tender-desk/tasks', '/tender-desk/masters'].every(isTenderDeskPath));
 ok('and nothing else is', !['/tender-desk/tasks/x', '/tender-desk/../etc', '/tender-deskx', '/tenders', '/tender/TN-1'].some(isTenderDeskPath));
 ok('none of them is the portal\'s page', !isPagePath('/tender-desk') && !isPagePath('/tenders'));
+// The page is a file of its own, so the image has to carry it: the Dockerfile copies only the
+// folders it names, and the first deploy without this line answered "not installed".
+const docker = require('fs').readFileSync(path.join(__dirname, '..', 'Dockerfile'), 'utf8');
+ok('the deployed image carries the Tender Desk\'s page', /^COPY tender\/ \.\/tender\/$/m.test(docker) &&
+  !/^tender\/?$/m.test(require('fs').readFileSync(path.join(__dirname, '..', '.dockerignore'), 'utf8')));
 
 console.log('\nTHE SERVER ANSWERS THOSE, AND NOTHING ELSE');
 for (const p of ['/', '/index.html', '/quotations', '/quotations/', '/sales-orders',
