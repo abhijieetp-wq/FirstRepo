@@ -461,6 +461,30 @@ const SPEC_CSV = '﻿' + [
   ok('a spares offer still lists its freight among the parts, discounted with them', sq.discountAmt === 33300 &&
     /<td>Freight<\/td>/.test(spareDoc.slice(spareDoc.indexOf('<table class="price">'))), sq.discountAmt);
 
+  console.log('\nA SPARES OFFER DISCOUNTED LINE BY LINE');
+  const spareRowsOf = (h) => { const t = h.slice(h.indexOf('<table class="price">')); return rows(t.slice(0, t.indexOf('</table>'))).map((r) => cells(r)); };
+  const lineOffer = async (how) => {
+    const sqo = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Spare Sales' });
+    await p.saveQuotationItem({ quotationId: sqo.id, itemType: 'Spare', itemId: 'SP-DRY', qty: 2, unitPrice: 1000, discountPct: 10 });
+    await p.saveQuotationHeader({ id: sqo.id, packageDiscountPct: 0, discountPctShown: how });
+    return spareRowsOf(await p.buildQuotationHtml(sqo.id));
+  };
+  let sr = await lineOffer('BOTH');
+  const firstAfter = (rs, label) => rs[rs.findIndex((c) => c[0] === label) + 1] || [];
+  ok('% and amount: the full price, Less: discount @ 10% and ₹200, then the discounted price',
+    JSON.stringify(firstAfter(sr, 'Pre Freight Amount')) === JSON.stringify(['Less: discount @ 10%', '₹ 200.00']) &&
+    JSON.stringify(firstAfter(sr, 'Less: discount @ 10%')) === JSON.stringify(['Total discounted price', '₹ 1,800.00']), sr);
+  ok('and the GST is on the discounted price, so the page adds up', JSON.stringify(sr.find((c) => c[0] === 'Total Amount')) === JSON.stringify(['Total Amount', '₹ 2,124.00']) &&
+    sr.some((c) => c[0] === 'CGST 9%' && c[1] === '₹ 162.00'), sr);
+  sr = await lineOffer('PCT');
+  ok('% only: "Total discounted price (10% less)", no amount row', sr.some((c) => c[0] === 'Total discounted price (10% less)' && c[1] === '₹ 1,800.00') &&
+    !sr.some((c) => /^Less: discount/.test(c[0])), sr);
+  sr = await lineOffer('AMOUNT');
+  ok('amount only: "Less: discount" and ₹200, no %', sr.some((c) => c[0] === 'Less: discount' && c[1] === '₹ 200.00') && !sr.some((c) => /%/.test(c[0]) && /discount/i.test(c[0])), sr);
+  sr = await lineOffer('NONE');
+  ok('not shown: the discounted price alone', sr.some((c) => c[0] === 'Total discounted price' && c[1] === '₹ 1,800.00') &&
+    !sr.some((c) => /^Less: discount/.test(c[0])), sr);
+
   console.log('\nSHOWING THE FREIGHT, OR NOT');
   await offer([['Product', 'PR-EG']]);
   const freightRow = (t) => rows(t).filter((r) => /^(Freight|Transport)/i.test(cells(r)[0]));

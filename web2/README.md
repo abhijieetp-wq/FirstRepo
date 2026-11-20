@@ -204,7 +204,8 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   NONE, the discounted price alone. The % is a single package discount as given, or for discounts on
   the lines (or both) the one % that takes the package total to the discounted price, two places at
   most. TRUE/FALSE from before read as BOTH/NONE. A customer's next quotation starts with their last
-  one's choice; the spares offer follows it too.
+  one's choice. The spares offer follows it too, the same way, whether the discount is on the
+  lines (Disc %, the usual way on spares) or on the package; it used to show only a package one.
 - **Accessories on a unit quotation** (`quotationAccessories`, Spares.gs): under the items, for each
   compressor, the accessories that suit it — rated for at least its air flow and maximum pressure,
   the three smallest per type, the first marked right size — to tick and add in one go; and an

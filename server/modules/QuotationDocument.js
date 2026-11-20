@@ -491,22 +491,33 @@ function compressorTotals_(q, co, address, items, gross, netGoods, L, freightAmo
 }
 
 /**
- * The totals under a spares offer's parts list: full price, the package discount if any,
- * P&F only when charged, the GST split for the customer's accounts, and what they will pay.
+ * The totals under a spares offer's parts list: full price, the discount if any, P&F only when
+ * charged, the GST split for the customer's accounts, and what they will pay.
+ *
+ * The discount is shown the way the quotation asks, exactly as on a compressor offer
+ * (compressorTotals_), and whether it was given on the lines (the Disc % column, the usual way
+ * on spares), on the package, or both. It used to be shown only for a package discount: a
+ * spares offer discounted line by line printed the full price, no discount, and then a GST
+ * and total worked out on the discounted figure, so the page did not add up.
  */
 function spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L) {
   var rows = [];
-  rows.push([esc_(L('packageTotal', 'Total package price')), inr_(gross), pkgPct > 0 ? '' : 'strong']);
-  if (pkgPct > 0) {
-    // As the quotation shows the discount, as on a compressor offer (compressorTotals_).
+  var off = gross - netGoods;
+  var discounted = off > 0.005;
+  rows.push([esc_(L('packageTotal', 'Total package price')), inr_(gross), discounted ? '' : 'strong']);
+  if (discounted) {
+    // One package discount prints as given; discounts on the lines, or both, as the one % that
+    // takes the full price to the discounted price, so the rows always add up.
+    var lineDiscounts = items.some(function (i) { return (Number(i.discountPct) || 0) > 0; });
+    var pct = pkgPct > 0 && !lineDiscounts ? pkgPct : (gross > 0 ? off / gross * 100 : 0);
     var how = discountShow_(q);
-    if (how === 'BOTH') {
-      rows.push([esc_(L('discountRow', 'Less: discount @ {pct}%').replace('{pct}', pctText_(pkgPct))), inr_(gross - netGoods), '']);
+    if (how === 'BOTH' && pct > 0) {
+      rows.push([esc_(L('discountRow', 'Less: discount @ {pct}%').replace('{pct}', pctText_(pct))), inr_(off), '']);
     } else if (how === 'AMOUNT') {
-      rows.push([esc_(L('discountAmountRow', 'Less: discount')), inr_(gross - netGoods), '']);
+      rows.push([esc_(L('discountAmountRow', 'Less: discount')), inr_(off), '']);
     }
     rows.push([esc_(L('discountedTotal', 'Total discounted price')) +
-      (how === 'PCT' ? ' (' + pctText_(pkgPct) + '% less)' : ''), inr_(netGoods), 'strong']);
+      (how === 'PCT' && pct > 0 ? ' (' + pctText_(pct) + '% less)' : ''), inr_(netGoods), 'strong']);
   }
   // Their spares offer has no P&F row unless there is a charge, and no freight row at all:
   // carting is a line and term 2 covers the rest.
