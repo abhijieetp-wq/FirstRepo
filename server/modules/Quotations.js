@@ -808,10 +808,22 @@ async function saveQuotationCharge(input) {
   var description = String(input.description || '').trim();
   if (!description) throw new Error('Give the charge a description, for example Carting.');
 
-  var amount = Number(input.amount);
-  if (isNaN(amount) || amount < 0) throw new Error('The amount must be a number, zero or more.');
-
   var existingLines = await quotationLines_(input.quotationId);
+  var quoteRow = await quotationRow_(input.quotationId);
+  // Carting on a spares offer has its own rule (settleCarting_): blank is automatic, a typed
+  // amount is ₹500 or more once the goods pass ₹10,000.
+  var carting = CARTING_NAME_.test(description) && await cartingApplies_(quoteRow);
+  var blankAmount = input.amount === '' || input.amount === undefined || input.amount === null;
+  if (carting) {
+    var twin = existingLines.filter(function (l) { return isCartingLine_(l) && String(l.id) !== String(input.id || ''); })[0];
+    if (twin) throw new Error('This quotation already has a Carting line. Change that one (✎) instead.');
+  }
+  var goodsNow = carting ? cartingGoods_(quoteRow, existingLines) : 0;
+  var amount = carting && blankAmount ? cartingFor_(goodsNow) : Number(input.amount);
+  if (isNaN(amount) || amount < 0) throw new Error('The amount must be a number, zero or more.');
+  if (carting && !blankAmount && goodsNow > CARTING_LIMIT_ + 0.005 && amount < CARTING_LARGE_) {
+    throw new Error('Carting on goods above ₹10,000 is ₹500 or more. Leave the amount blank for the automatic ₹500.');
+  }
 
   var taxPct;
   if (input.taxPct === '' || input.taxPct === undefined || input.taxPct === null) {
@@ -843,6 +855,13 @@ async function saveQuotationCharge(input) {
     availabilityNote: '',
     leadTimeDays: ''
   };
+  if (carting) {
+    record.autoCharge = blankAmount ? 'AUTO' : 'MANUAL';
+    // Put back by hand, it is followed again.
+    if (String(quoteRow.cartingOff).toUpperCase() === 'TRUE') {
+      await updateRowById_('Quotations', 'id', quoteRow.id, { cartingOff: '' }, 'Carting put back');
+    }
+  }
 
   if (input.id) {
     await updateRowById_('QuotationItems', 'id', input.id, record, 'Charge updated');
@@ -1381,6 +1400,10 @@ async function deleteQuotationItem(id) {
   await requireUnlockedQuote_(line.quotationId);
 
   await deleteRowById_('QuotationItems', 'id', id, 'Quotation line removed');
+  // Taken off on purpose, the automatic Carting line stays off this offer.
+  if (isCartingLine_(line) && await cartingApplies_(await quotationRow_(line.quotationId))) {
+    await updateRowById_('Quotations', 'id', line.quotationId, { cartingOff: 'TRUE' }, 'Carting taken off');
+  }
   await renumberQuotationLines_(line.quotationId);
   await recalcQuotation_(line.quotationId);
   return await getQuotation(line.quotationId);
@@ -1676,6 +1699,9 @@ function isFreightLine_(line) {
 var FREIGHT_NAME_ = /^\s*(freight|transport|transportation)\b/i;
 
 async function recalcQuotation_(quotationId) {
+  // A spares offer's carting follows its goods (settleCarting_), so it is settled before the
+  // totals are worked out from the lines.
+  await settleCarting_(await quotationRow_(quotationId));
   var lines = await quotationLines_(quotationId);
   var quote = await quotationRow_(quotationId);
   var stream = quote ? quote.businessStream : '';
@@ -1725,6 +1751,87 @@ async function recalcQuotation_(quotationId) {
     taxAmt: roundMoney_(taxAmt),
     grand: roundMoney_(grand)
   }, 'Totals recalculated');
+}
+
+/**
+ * Carting on a spares offer, the way PIE's spares desk charges it: ₹300 when the goods come to
+ * ₹10,000 or less, ₹500 above that. The goods are the parts after their discounts (line and
+ * package), before GST, not counting the charges themselves.
+ *
+ * A spares offer (not an AMC renewal or a service offer) gets a Carting line on its own once it
+ * has goods, last among the lines, unless somebody has taken it off (cartingOff). Its amount
+ * follows the rule (AUTO) until somebody types one (MANUAL); a typed amount on goods above
+ * ₹10,000 is ₹500 or more, and one typed lower when the goods were smaller is raised to ₹500
+ * when they pass ₹10,000.
+ */
+var CARTING_LIMIT_ = 10000;
+var CARTING_SMALL_ = 300;
+var CARTING_LARGE_ = 500;
+var CARTING_NAME_ = /^\s*carting\b/i;
+
+function isCartingLine_(line) {
+  return String(line.lineType) === 'Charge' && CARTING_NAME_.test(String(line.description || ''));
+}
+
+/** Whether this quotation's carting follows the rule: a spares offer for spares. */
+async function cartingApplies_(quote) {
+  if (!quote || String(quote.businessStream) !== STREAM_SPARE) return false;
+  if (String(quote.locked).toUpperCase() === 'TRUE') return false;
+  var se = quote.spareEnquiryId ? await findRowById_('SpareEnquiries', quote.spareEnquiryId) : null;
+  var type = se ? String(se.enquiryType || '').trim() : '';
+  return !type || type === 'Spares';
+}
+
+/** The goods on these lines, after line and package discounts, before tax; charges left out. */
+function cartingGoods_(quote, lines) {
+  var goods = 0;
+  lines.forEach(function (l) {
+    if (String(l.lineType) === 'Charge') return;
+    goods += Number(l.lineTotal) || 0;
+  });
+  var pkg = Number(quote.packageDiscountPct) || 0;
+  return goods * (1 - (pkg > 0 ? pkg / 100 : 0));
+}
+
+function cartingFor_(goods) {
+  return goods > CARTING_LIMIT_ + 0.005 ? CARTING_LARGE_ : CARTING_SMALL_;
+}
+
+async function settleCarting_(quote) {
+  if (!await cartingApplies_(quote)) return;
+  var lines = (await quotationLines_(quote.id)).sort(function (a, b) { return (Number(a.lineNo) || 0) - (Number(b.lineNo) || 0); });
+  var goodsLines = lines.filter(function (l) { return String(l.lineType) !== 'Charge'; });
+  var goods = cartingGoods_(quote, lines);
+  var cart = lines.filter(isCartingLine_)[0];
+  if (!cart) {
+    if (!goodsLines.length || String(quote.cartingOff).toUpperCase() === 'TRUE') return;
+    var tax = Number(goodsLines[0].taxPct) || 0;
+    var amount = cartingFor_(goods);
+    cart = { id: generateId_('QI-'), quotationId: String(quote.id), lineNo: lines.length + 1, lineType: 'Charge',
+      itemType: '', itemId: '', itemCode: '', description: 'Carting', qty: 1, uom: 'Lot', listPrice: '',
+      rateType: 'Charge', unitPrice: amount, discountPct: 0, taxPct: tax, lineTotal: amount,
+      availabilityNote: '', leadTimeDays: '', autoCharge: 'AUTO' };
+    await appendRow_('QuotationItems', cart, 'Carting added: ₹' + amount + (goods > CARTING_LIMIT_ ? ' (goods above ₹10,000)' : ' (goods up to ₹10,000)'));
+    return;
+  }
+  var manual = String(cart.autoCharge || '').toUpperCase() === 'MANUAL';
+  var now = Number(cart.unitPrice) || 0;
+  var want = manual ? (goods > CARTING_LIMIT_ + 0.005 ? Math.max(now, CARTING_LARGE_) : now) : cartingFor_(goods);
+  if (Math.abs(want - now) > 0.005 || Math.abs((Number(cart.lineTotal) || 0) - want) > 0.005 || Number(cart.qty) !== 1) {
+    await updateRowById_('QuotationItems', 'id', cart.id, { qty: 1, unitPrice: want, discountPct: 0, lineTotal: want },
+      'Carting ' + (manual ? 'raised to ₹' + want + ': goods above ₹10,000' : 'set to ₹' + want + (goods > CARTING_LIMIT_ ? ': goods above ₹10,000' : ': goods up to ₹10,000')));
+  }
+  // Last among the lines, as it prints on their offer, however many parts come after it.
+  var last = lines[lines.length - 1];
+  if (last && String(last.id) !== String(cart.id)) {
+    var n = 0;
+    for (var l of lines) {
+      if (String(l.id) === String(cart.id)) continue;
+      n++;
+      if (Number(l.lineNo) !== n) await updateRowById_('QuotationItems', 'id', l.id, { lineNo: n }, 'Lines renumbered');
+    }
+    await updateRowById_('QuotationItems', 'id', cart.id, { lineNo: n + 1 }, 'Carting kept last');
+  }
 }
 
 async function requireUnlockedQuote_(quotationId) {

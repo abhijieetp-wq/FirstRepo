@@ -91,6 +91,11 @@ const ok = (label, cond, detail) => {
     ok('freight: a spares offer leaves it off unless asked, and says what will print', (await page.inputValue('#qb-freightshow')) === 'HIDE' &&
       (await page.$$eval('#qb-freightshow option', (o) => o.map((x) => x.textContent))).join('|') === "Show freight|Don't show freight" &&
       /Not charged, and the offer says nothing about freight\./.test(await page.textContent('#qb-freight-note')), await page.textContent('#qb-freight-note'));
+    ok('a spares offer’s delivery period is a dropdown of the spares desk’s seven, keeping one from before', await shown('#qb-deliveryperiod-sel') && !(await shown('#qb-deliveryperiod')) &&
+      (await page.$$eval('#qb-deliveryperiod-sel option', (o) => o.map((x) => x.textContent))).join('|') ===
+      'Choose…|Ready stock subject to prior sale|1-2 Weeks|3-4 Weeks|4-6 Weeks|6-8 Weeks|10-12 Weeks|14-16 Weeks|2-3 weeks',
+      await page.$$eval('#qb-deliveryperiod-sel option', (o) => o.map((x) => x.textContent)));
+    await page.selectOption('#qb-deliveryperiod-sel', 'Ready stock subject to prior sale');
     await page.selectOption('#qb-freightshow', 'SHOW');
     ok('changed, the note says what the offer will now print', /Not charged: the offer prints “Freight: Extra from Ex-works Coimbatore”/.test(await page.textContent('#qb-freight-note')));
     await page.selectOption('#qb-discshow', 'PCT');
@@ -101,6 +106,23 @@ const ok = (label, cond, detail) => {
     const saved = await page.evaluate(() => { const c = window.__calls.filter((x) => x.fn === 'saveQuotationHeader'); return c.length ? c[c.length - 1].args : null; });
     ok('Save under the totals saves the offer’s details through ERP 1’s button', !!saved && JSON.stringify(saved).indexOf('750') !== -1, saved);
     ok('with how the discount is shown, and the freight', !!saved && saved[0].discountPctShown === 'PCT' && saved[0].freightShown === 'SHOW', saved);
+    ok('and the delivery period chosen', !!saved && saved[0].deliveryPeriod === 'Ready stock subject to prior sale', saved);
+    await page.click('#btn-qb-add-charge');
+    await page.fill('#qc-description', 'Carting');
+    await page.dispatchEvent('#qc-description', 'input');
+    ok('carting says it is automatic, and its amount may be left blank', await shown('#qc-cart-note') &&
+      /₹300 when the goods come to ₹10,000 or less, ₹500 above/.test(await page.textContent('#qc-cart-note')) &&
+      (await page.textContent('#qc-amount-label')) === 'Amount (blank = automatic)');
+    await page.evaluate(() => { window.__calls = []; window.__data.saveQuotationCharge = window.__data.saveQuotationHeader; });
+    await page.click('#btn-qc-save');
+    await page.waitForTimeout(300);
+    const charge = await page.evaluate(() => { const c = window.__calls.filter((x) => x.fn === 'saveQuotationCharge'); return c.length ? c[c.length - 1].args : null; });
+    ok('saved blank, for the automatic amount', !!charge && charge[0].description === 'Carting' && charge[0].amount === '', charge);
+    if (!(await shown('#qb-charge-panel'))) await page.click('#btn-qb-add-charge');
+    await page.fill('#qc-description', 'Packing');
+    await page.dispatchEvent('#qc-description', 'input');
+    ok('another charge still needs its amount', !(await shown('#qc-cart-note')) && (await page.textContent('#qc-amount-label')) === 'Amount *');
+    await page.click('#btn-qc-cancel');
     await page.evaluate(() => {
       window.__data.getQuotation = () => window.__quote({ status: 'Approved', locked: true, businessStream: 'Compressor Sales' });
     });
@@ -114,6 +136,7 @@ const ok = (label, cond, detail) => {
       (await page.$$('#qbv-receives li')).length === 4);
     ok('and shows its freight unless asked not to; locked, it cannot be changed', (await page.inputValue('#qb-freightshow')) === 'SHOW' &&
       await page.$eval('#qb-freightshow', (e) => e.disabled));
+    ok('its delivery period is the free box, not the spares dropdown', await shown('#qb-deliveryperiod') && !(await shown('#qb-deliveryperiod-sel')));
   }
   ok('with no script errors', errors.length === 0, errors);
   await browser.close();

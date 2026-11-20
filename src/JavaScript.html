@@ -4276,6 +4276,7 @@
     $("qb-paymentterms").value = q.paymentTerms || "";
     $("qb-deliveryterms").value = q.deliveryTerms || "";
     $("qb-deliveryperiod").value = q.deliveryPeriod || "";
+    qbDeliveryChoice(q);
     $("qb-warrantyterms").value = q.warrantyTerms || "";
     $("qb-notes").value = q.notes || "";
     $("qb-pkgdisc").value = Number(q.packageDiscountPct) || 0;
@@ -4287,7 +4288,7 @@
     qbFreightShow(q);
 
     ["qb-model", "qb-serial", "qb-date", "qb-validity", "qb-paymentterms",
-     "qb-deliveryterms", "qb-deliveryperiod", "qb-warrantyterms", "qb-notes",
+     "qb-deliveryterms", "qb-deliveryperiod", "qb-deliveryperiod-sel", "qb-warrantyterms", "qb-notes",
      "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-discshow", "qb-freightshow", "qb-customer-pick"].forEach(function (f) {
       $(f).disabled = !editable;
     });
@@ -5285,7 +5286,11 @@
             : escapeHtml(i.itemCode || "—")) + "</td>" +
           "<td>" + escapeHtml(i.description || "—") +
             (i.availabilityNote ? '<br><span style="font-size:11px; color:var(--ink-soft);">' +
-              escapeHtml(i.availabilityNote) + "</span>" : "") + "</td>" +
+              escapeHtml(i.availabilityNote) + "</span>" : "") +
+            (isCharge && q.businessStream === "Spare Sales" && /^\s*carting\b/i.test(i.description || "")
+              ? '<br><span class="qb-cart-auto">' + (String(i.autoCharge || "").toUpperCase() === "MANUAL"
+                ? "Typed amount" + (editable ? " · ✎ and clear it for automatic" : "")
+                : "Automatic: ₹300 up to ₹10,000 of goods, ₹500 above" + (editable ? " · ✎ to change" : "")) + "</span>" : "") + "</td>" +
           cfmCell(i) +
           // Blank means this line goes out with the rest of the order, on the offer's own
           // period — which the header field states. Only a line on its own timetable says
@@ -5723,13 +5728,59 @@
     });
   });
 
+  /**
+   * A spares offer's Delivery period is one of the spares desk's own seven, from a dropdown; a
+   * unit offer keeps the free box. The choice is written into the same field, so it prints in
+   * the terms' Delivery point as before. A period from before that is not one of the seven is
+   * kept, listed as it was.
+   */
+  var SPARE_DELIVERY = ["Ready stock subject to prior sale", "1-2 Weeks", "3-4 Weeks", "4-6 Weeks", "6-8 Weeks", "10-12 Weeks", "14-16 Weeks"];
+  function qbDeliveryChoice(q) {
+    var input = $("qb-deliveryperiod");
+    var sel = $("qb-deliveryperiod-sel");
+    if (!sel) {
+      sel = document.createElement("select");
+      sel.id = "qb-deliveryperiod-sel";
+      sel.setAttribute("aria-label", "Delivery period");
+      input.parentNode.insertBefore(sel, input.nextSibling);
+      sel.addEventListener("change", function () { input.value = sel.value; });
+    }
+    var spare = q.businessStream === "Spare Sales";
+    input.style.display = spare ? "none" : "";
+    sel.style.display = spare ? "" : "none";
+    if (!spare) return;
+    var cur = String(q.deliveryPeriod || "").trim();
+    var opts = SPARE_DELIVERY.slice();
+    if (cur && opts.indexOf(cur) === -1) opts.push(cur);
+    sel.innerHTML = '<option value="">Choose…</option>' + opts.map(function (o) {
+      return '<option value="' + escapeHtml(o) + '">' + escapeHtml(o) + "</option>";
+    }).join("");
+    sel.value = cur;
+    input.value = cur;
+  }
+
   // ---- Charges: carting, packing, freight ----
+  /** Carting on a spares offer follows a rule (Quotations.gs, settleCarting_); the form says so. */
+  function qcCartingNote() {
+    var q = openQuote || {};
+    var on = q.businessStream === "Spare Sales" && /^\s*carting\b/i.test($("qc-description").value);
+    $("qc-cart-note").style.display = on ? "" : "none";
+    $("qc-cart-note").textContent = on ? "Carting is automatic: ₹300 when the goods come to ₹10,000 or less, ₹500 above. " +
+      "Leave the amount blank to keep it automatic, or type one; above ₹10,000 it must be ₹500 or more." : "";
+    $("qc-amount-label").textContent = on ? "Amount (blank = automatic)" : "Amount *";
+  }
+  $("qc-description").addEventListener("input", qcCartingNote);
+
   function openChargeForm(line) {
     $("qc-id").value = line ? line.id : "";
     $("qc-lineno").value = line ? line.lineNo : "";
     $("qc-description").value = line ? (line.description || "") : "";
     $("qc-amount").value = line ? (Number(line.unitPrice) || 0) : "";
     $("qc-tax").value = line ? (Number(line.taxPct) || 0) : "";
+    // An automatic Carting line opens blank, which is what keeps it automatic.
+    if (line && openQuote && openQuote.businessStream === "Spare Sales" && /^\s*carting\b/i.test(line.description || "") &&
+        String(line.autoCharge || "").toUpperCase() !== "MANUAL") $("qc-amount").value = "";
+    qcCartingNote();
     $("qb-add-panel").style.display = "none";
     $("qb-charge-panel").style.display = "";
     $("qc-description").focus();
@@ -5745,7 +5796,8 @@
       showMsg("Give the charge a description, for example Carting.", "error");
       return;
     }
-    if ($("qc-amount").value === "") {
+    var cartingAuto = openQuote && openQuote.businessStream === "Spare Sales" && /^\s*carting\b/i.test($("qc-description").value);
+    if ($("qc-amount").value === "" && !cartingAuto) {
       showMsg("Enter the amount for this charge.", "error");
       return;
     }

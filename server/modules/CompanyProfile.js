@@ -327,10 +327,27 @@ var INSTALL_TEXT_ = 'To achieve best performance levels, the following layout is
  *     with no scope written, then prints none);
  *   - the installation page gains PIE's layout and the places for its two drawings.
  */
+var SPARE_CARTING_TERM_ = 'Carting extra from our godown up to transporter’s godown.';
+var SPARE_FREIGHT_TERM_ = 'Freight will be extra, on To-Pay basis, from the transporter’s godown up to your location (district).';
+/** The spares terms' second point as it stood before the two above replaced it. */
+var SPARE_CARTING_FREIGHT_BEFORE_ = 'Carting and freight shall be extra.';
+
 async function applyStandardTextFixes_(auditReason) {
   var fixed = [];
   // A loop rather than forEach: each fix writes.
   for (var t of await readTable_('QuoteTemplates')) {
+    // The spares terms' "Carting and freight shall be extra." becomes two points: carting up to
+    // the transporter's godown, freight to-pay from there. Only where that line is still
+    // word for word; wording the business has changed is theirs and is left alone.
+    if (String(t.id) === 'QTPL-SPARE-TERMS') {
+      var tLines = String(t.body || '').split('\n');
+      var at = tLines.map(function (l) { return l.trim(); }).indexOf(SPARE_CARTING_FREIGHT_BEFORE_);
+      if (at !== -1) {
+        tLines.splice(at, 1, SPARE_CARTING_TERM_, SPARE_FREIGHT_TERM_);
+        await updateRowById_('QuoteTemplates', 'id', t.id, { body: tLines.join('\n') }, auditReason);
+        fixed.push('Terms');
+      }
+    }
     if (String(t.id) === 'QTPL-COMP-SCOPE' && !templateSeries_(t).length) {
       await updateRowById_('QuoteTemplates', 'id', t.id, { appliesTo: 'EQ, EN' }, auditReason);
       fixed.push('ScopeOfSupply');
@@ -548,7 +565,9 @@ function defaultQuoteTemplates_() {
       businessStream: STREAM_SPARE, appliesTo: '', title: 'Terms & Conditions',
       sortOrder: 3, active: 'TRUE',
       body: 'GST shall be extra on the basic value of the order.\n' +
-        'Carting and freight shall be extra.\n' +
+        // PIE's spares desk, Nov 2026: carting and freight said apart, as they are charged.
+        SPARE_CARTING_TERM_ + '\n' +
+        SPARE_FREIGHT_TERM_ + '\n' +
         'Transit insurance shall be arranged by the Purchaser.\n' +
         'Statutory information: Please advise the GSTIN information in your purchase order.\n' +
         'Terms of payment: 100% advance.\n' +

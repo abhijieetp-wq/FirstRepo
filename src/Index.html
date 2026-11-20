@@ -730,7 +730,7 @@
               <div class="field"><label>Description *</label>
                 <input id="qc-description" list="charges-list" placeholder="Carting" />
               </div>
-              <div class="field"><label>Amount *</label>
+              <div class="field"><label id="qc-amount-label">Amount *</label>
                 <input id="qc-amount" type="number" min="0" step="0.01" />
               </div>
               <div class="field"><label>Tax %</label>
@@ -740,6 +740,7 @@
             <div class="inline-form-actions">
               <button class="btn btn-sm" id="btn-qc-cancel" type="button">Cancel</button>
               <button class="btn btn-sm btn-primary" id="btn-qc-save" type="button">Save Charge</button>
+              <p class="qc-cart-note" id="qc-cart-note" style="display:none;"></p>
             </div>
           </div>
 

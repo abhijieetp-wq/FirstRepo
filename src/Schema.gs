@@ -419,6 +419,9 @@ var SCHEMA = {
       // offer (PIE's always says where freight stands), not on a spares one, as before. A
       // freight charge prints whatever this says: an amount the customer pays is never hidden.
       'freightShown',
+      // TRUE once somebody takes the automatic Carting line off a spares offer, so it is not put
+      // back (Quotations.gs, settleCarting_). Adding a Carting charge again clears it.
+      'cartingOff',
       // Why this revision was made, asked before it can be (reviseQuotation). Blank on R0
       // and on revisions made before the question was compulsory.
       'revisionReason',
@@ -434,7 +437,11 @@ var SCHEMA = {
       'hsnCode',
       // A compressor line's air flow in cfm, which the accessories that suit it are sized by.
       // Blank: the compressor's own from the catalogue (fad, else capacityCfm).
-      'cfm']
+      'cfm',
+      // A spares offer's Carting line: AUTO follows the rule (₹300 on goods up to ₹10,000, ₹500
+      // above), MANUAL is an amount typed (₹500 or more above ₹10,000). Blank, on a Carting line
+      // from before, is AUTO. Quotations.cartingOff remembers a Carting line taken off.
+      'autoCharge']
   },
 
   // ---------------------------------------------------------------- Order & commercial control

@@ -171,6 +171,17 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   orders, its dashboard, its new quotations, and the other desk's record says to switch desks
   to open it. Combined is both at once. The choice is kept; Management and the admin start on
   Combined, other people who work both on Compressor. Changing desk keeps them signed in.
+- **The spares offer's terms and carting** (PIE's spares desk, Nov 2026). Point 2 reads "Carting
+  extra from our godown up to transporter's godown", and a new point 3 "Freight will be extra, on
+  To-Pay basis, from the transporter's godown up to your location (district)"; a system set up
+  earlier has the old "Carting and freight shall be extra." rewritten on its first load, where it
+  was still word for word (`applyStandardTextFixes_`). The Delivery period of a spares offer is a
+  dropdown of the desk's seven ("Ready stock subject to prior sale", 1-2, 3-4, 4-6, 6-8, 10-12,
+  14-16 Weeks) and prints in the Delivery point. A spares offer for spares carries a Carting line
+  of its own (`settleCarting_`): ₹300 when the goods, after discounts and before GST, come to
+  ₹10,000 or less, ₹500 above; an amount typed is kept (₹500 or more above ₹10,000, raised to
+  ₹500 if the goods pass it), blank is automatic again, and a Carting line taken off stays off
+  (`Quotations.cartingOff`, `QuotationItems.autoCharge`). It is always the last line.
 - **Freight on the offer, shown or not** ("Freight on the offer", in Totals; `Quotations.freightShown`
   SHOW / HIDE). Blank is the stream's way: a compressor offer prints its freight row ("Extra from
   Ex-works Coimbatore" when nothing is charged), a spares offer does not. Shown on a spares offer
