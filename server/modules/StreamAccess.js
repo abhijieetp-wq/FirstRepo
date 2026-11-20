@@ -56,6 +56,10 @@ function streamAllowed_(user, stream) {
  */
 function requireStream_(user, stream, what) {
   if (streamAllowed_(user, stream)) return;
+  if (String(user.homeStream || '') === STREAM_ALL) {
+    throw new Error((what || 'That record') + ' belongs to ' + String(stream) + '. You are on the ' +
+      String(user.businessStream) + ' desk: switch desks at the top of the page to open it.');
+  }
   throw new Error((what || 'That record') + ' belongs to ' + String(stream) +
     '. You work in ' + String(user.businessStream) + '.');
 }
@@ -72,4 +76,48 @@ function forStream_(user, rows, field) {
 function streamsFor_(user) {
   var mine = String((user && user.businessStream) || STREAM_ALL);
   return mine === STREAM_ALL ? BUSINESS_STREAMS.slice() : [mine];
+}
+
+/**
+ * The desk somebody who works both streams is on.
+ *
+ * A coordinator who looks after compressors and spares alike saw both mixed together: one list
+ * of quotations, one dashboard, both front offices in the menu, with a small tag the only way
+ * to tell a spares offer from a unit one. They work one desk at a time instead, and flip
+ * between them at the top of the page. On a desk they are, for every screen and every list,
+ * exactly what a coordinator of that stream alone is (`businessStream` is the desk), so
+ * nothing else in the ERP has to know desks exist.
+ *
+ * Combined ('All') is a desk too, for seeing both at once. Users.desk keeps their choice.
+ * Management and the ERP admin start on Combined; anybody else who works both starts on
+ * Compressor Sales, since working the desks apart is what it is for.
+ * Somebody who works one stream has no desk: '' here.
+ */
+function deskOf_(home, crossStream, stored) {
+  if (String(home) !== STREAM_ALL) return '';
+  var d = String(stored || '').trim();
+  if (d === STREAM_ALL) return '';
+  if (BUSINESS_STREAMS.indexOf(d) !== -1) return d;
+  return crossStream ? '' : BUSINESS_STREAMS[0];
+}
+
+/** Puts the person asking on a desk: 'Compressor Sales', 'Spare Sales', or 'All' for both combined. */
+async function setMyDesk(desk) {
+  var user = getCurrentUser();
+  if (String(user.homeStream || user.businessStream) !== STREAM_ALL) {
+    throw new Error('You work in ' + String(user.businessStream) + ' alone, so there is no desk to choose.');
+  }
+  var want = String(desk || '').trim();
+  if (want !== STREAM_ALL && BUSINESS_STREAMS.indexOf(want) === -1) {
+    throw new Error('A desk is ' + BUSINESS_STREAMS.join(' or ') + ', or All for both combined.');
+  }
+  var row = await userRowByEmail_(user.email);
+  if (!row) throw new Error('Your user record could not be found.');
+  await updateRowById_('Users', 'id', row.id, { desk: want }, 'Changed desk');
+  // Every request reads who is asking from the session's cached copy; the desk is part of it.
+  await refreshSessionsFor_(user.email);
+  row.desk = want;
+  var now = userFromRow_(row);
+  CURRENT_USER_ = now;
+  return now;
 }

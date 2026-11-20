@@ -126,6 +126,10 @@ function userFromRow_(match) {
       '". Valid roles are: ' + ALL_ROLES.join(', ') + '.');
   }
   var crossStream = (role === ROLES.ERP_ADMIN || role === ROLES.MANAGEMENT);
+  var home = crossStream ? 'All' : (match.businessStream || 'Spare Sales');
+  // Somebody who works both streams works one desk at a time (StreamAccess.gs, deskOf_): on
+  // it, everything that keeps a stream's work to its own people treats them as that desk's.
+  var desk = deskOf_(home, crossStream, match.desk);
   return {
     email: email,
     // What they sign in with. `email` is still the identity everything else is stored
@@ -134,7 +138,9 @@ function userFromRow_(match) {
     username: String(match.username || '').trim() || derivedUsername_(match),
     name: match.name || email,
     role: role,
-    businessStream: crossStream ? 'All' : (match.businessStream || 'Spare Sales')
+    businessStream: desk || home,
+    homeStream: home,
+    desk: desk
   };
 }
 

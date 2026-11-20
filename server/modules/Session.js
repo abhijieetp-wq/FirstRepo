@@ -433,6 +433,19 @@ async function forgetSessionsFor_(email) {
   }
 }
 
+/**
+ * Has every live session for one address read its user afresh on its next request, without
+ * ending any of them: for a change the person made to themselves, such as their desk.
+ */
+async function refreshSessionsFor_(email) {
+  var wanted = String(email || '').toLowerCase();
+  var cache = CacheService.getScriptCache();
+  for (var s of await readTable_('Sessions')) {
+    if (String(s.userEmail).toLowerCase() !== wanted || s.revokedAt) continue;
+    cache.remove('sess:' + fromStoredText_(s.tokenHash));
+  }
+}
+
 // ---------------------------------------------------------------- the one door in
 
 /**

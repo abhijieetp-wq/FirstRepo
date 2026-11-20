@@ -8911,6 +8911,57 @@
   var AI_SPEECH = window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
   /** The Ask button, once signed in: for everybody when the server has its key, for Management to see why not otherwise. */
+  /**
+   * The desk switch, for somebody who works both streams (StreamAccess.gs, setMyDesk). On a
+   * desk the ERP is what it is for a coordinator of that stream alone: its menu, its
+   * quotations and orders, its dashboard, its new quotations. Combined shows both at once.
+   * Changing desk opens the page again, since every list on it was the other desk's.
+   */
+  function deskMount(user) {
+    if (String(user.homeStream || "") !== "All" || $("desk-switch")) return;
+    var opts = [["Compressor Sales", "Compressor"], ["Spare Sales", "Spares"], ["All", "Combined"]];
+    var cur = user.desk || "All";
+    var box = document.createElement("div");
+    box.id = "desk-switch";
+    box.className = "eb2-seg desk-switch";
+    box.setAttribute("role", "group");
+    box.setAttribute("aria-label", "Desk");
+    box.title = "The desk you are working: the menu, the lists and the dashboard show its work alone";
+    box.innerHTML = '<span class="desk-l">Desk</span>' + opts.map(function (o) {
+      return '<button type="button" data-desk="' + o[0] + '" aria-pressed="' + (o[0] === cur) + '">' + escapeHtml(o[1]) + "</button>";
+    }).join("");
+    box.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-desk]");
+      if (!b || b.getAttribute("aria-pressed") === "true" || box.classList.contains("busy")) return;
+      box.classList.add("busy");
+      srv.withSuccessHandler(deskReopen)
+        .withFailureHandler(function (err) { box.classList.remove("busy"); onServerError(err); })
+        .setMyDesk(b.dataset.desk);
+    });
+    // Beside the Ask button in the shell's top bar, which the shell may still be building.
+    var tries = 0;
+    (function place() {
+      var tools = document.querySelector(".ws-tools");
+      if (tools) { tools.insertBefore(box, tools.firstChild); return; }
+      if (!box.parentNode) (document.querySelector(".topbar") || document.body).appendChild(box);
+      if (tries++ < 30) setTimeout(place, 100);
+    })();
+  }
+
+  /** The page again, on the new desk. A quotation or a desk's own screen gives way to the dashboard. */
+  function deskReopen() {
+    var own = ["quote", "compressor", "enquiries", "servicedue"].indexOf(currentView) !== -1 ||
+      /^\/quotation(-progress)?\/./.test(location.pathname);
+    if (URL_ROUTING && own) { try { history.replaceState(null, "", ROUTES.dashboard); } catch (e) { /* the dashboard is where it lands anyway */ } }
+    location.reload();
+  }
+
+  /** "Spares" or "Compressor" while on one desk; "" with both. */
+  function deskName() {
+    var s = String(currentUser.businessStream || "All");
+    return s === "Spare Sales" ? "Spares" : s === "Compressor Sales" ? "Compressor" : "";
+  }
+
   function aiMount(user) {
     if (!FACE_V2 || $("ai-open")) return;
     var boss = ["Management", "ERP Admin"].indexOf(String(user.role)) !== -1;
@@ -10285,7 +10336,8 @@
     v.querySelector(":scope > .card").style.display = "none";
     var head = v.querySelector(".page-head");
     head.querySelector("h2").textContent = "All Quotations";
-    head.querySelector("p").textContent = "Every offer from both desks. Compressor offers and spares offers are numbered from one running serial. " +
+    head.querySelector("p").textContent = (deskName() ? "Every offer from the " + deskName() + " desk. " : "Every offer from both desks. ") +
+      "Compressor offers and spares offers are numbered from one running serial. " +
       "Revisions keep the number and go up R0, R1, R2. Values are before GST.";
     if (!$("btn-qv-new") && canEditQuotes()) {
       var b = document.createElement("button");
@@ -10354,7 +10406,8 @@
     var expired = all.filter(function (r) { return qvStatus(r) === "Expired"; });
     if (!host.querySelector(".qv-tools")) {
       host.innerHTML = '<div class="qv-kpis"></div><div class="qv-tools eb2-tools"></div><div class="qv-body"></div>';
-      host.querySelector(".qv-tools").innerHTML = qvSeg("stream", [["", "Both desks"], ["Compressor Sales", "Compressor"], ["Spare Sales", "Spares"]], qv.stream) +
+      // On one desk there is one desk's offers to show, so no choosing between them.
+      host.querySelector(".qv-tools").innerHTML = (deskName() ? "" : qvSeg("stream", [["", "Both desks"], ["Compressor Sales", "Compressor"], ["Spare Sales", "Spares"]], qv.stream)) +
         '<input type="search" class="eb2-search" data-qv-q="1" placeholder="Search number, customer or item" aria-label="Search quotations" />' +
         '<select data-qv-sel="status" aria-label="Status"></select><select data-qv-sel="who" aria-label="Prepared by"></select>';
     }
@@ -10441,7 +10494,7 @@
       return '<div class="qv-hbar" data-qv-step="' + i + '"><span>' + escapeHtml(label) + '</span><span class="qv-track"><i class="' + (i < 4 ? "t1" : i < 6 ? "t2" : "t3") + '" style="width:' +
         (n / mx * 100) + '%"></i></span><span class="mono">' + n + "</span></div>";
     }).join("");
-    host.innerHTML = '<div class="eb2-tools">' + qvSeg("pStream", [["", "Both desks"], ["Compressor Sales", "Compressor"], ["Spare Sales", "Spares"]], qv.pStream) +
+    host.innerHTML = '<div class="eb2-tools">' + (deskName() ? "" : qvSeg("pStream", [["", "Both desks"], ["Compressor Sales", "Compressor"], ["Spare Sales", "Spares"]], qv.pStream)) +
       qvSeg("pPer", [["month", "Last 30 days"], ["all", "All"]], qv.pPer) + "</div>" +
       '<section class="qv-panel"><header><h3>How far ' + rows.length + (rows.length === 1 ? " quotation" : " quotations") + " got</h3>" +
         '<span class="sdc-muted">' + (qv.pPer === "month" ? "prepared in the last 30 days" : "all quotations") + "</span></header>" +
@@ -19068,6 +19121,7 @@
     renderTabs();
     // ERP 2.0's Ask bar (AiCommands.gs), in the top bar once there is somebody to ask for.
     if (FACE_V2) aiMount(user);
+    deskMount(user);
     $("boot-screen").style.display = "none";
     $("signin-screen").style.display = "none";
     $("app").style.display = "block";

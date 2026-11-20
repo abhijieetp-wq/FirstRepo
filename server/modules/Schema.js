@@ -57,7 +57,12 @@ var SCHEMA = {
       'active',
       'passwordHash', 'passwordSalt', 'passwordIterations', 'passwordSetAt',
       'mustChangePassword', 'failedAttempts', 'lockedUntil',
-      'createdAt', 'createdBy']
+      'createdAt', 'createdBy',
+      // Somebody who works both streams works one desk at a time: 'Compressor Sales',
+      // 'Spare Sales', or 'All' for both combined. They choose it at the top of the page
+      // (StreamAccess.gs, setMyDesk). Blank: Management and the admin on Combined, anybody
+      // else on Compressor Sales.
+      'desk']
   },
   Sessions: {
     label: 'Live sign-ins. The token is stored hashed, so a copy of this sheet is not a set of keys',

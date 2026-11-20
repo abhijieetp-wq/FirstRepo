@@ -165,6 +165,12 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   - The same list heads the approver's dashboard and Customers. Other Management and ERP Admin
     see it on their dashboard as a notice. Five new Customers columns: approvalStatus,
     approvalBatch, approvedBy, approvedAt, approvalNote. Blank means from before, and approved.
+- **The desk, for somebody who works both streams** (StreamAccess.gs, `deskOf_`/`setMyDesk`;
+  `Users.desk`). A "Desk: Compressor | Spares | Combined" switch in the top bar. On Compressor or
+  Spares they are, everywhere, a coordinator of that stream alone: its menu, its quotations and
+  orders, its dashboard, its new quotations, and the other desk's record says to switch desks
+  to open it. Combined is both at once. The choice is kept; Management and the admin start on
+  Combined, other people who work both on Compressor. Changing desk keeps them signed in.
 - **How the discount is shown, per quotation** ("Discount on the offer", in Totals;
   `Quotations.discountPctShown` = BOTH / PCT / AMOUNT / NONE). After the Total Package Price the price
   schedule prints: BOTH, "Less: Discount @ 40%" with the amount, then the Discounted Price; PCT,
