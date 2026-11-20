@@ -51,13 +51,18 @@ function aiService(opts) {
     enabled: true,
     model: MODEL,
     /**
-     * @param req.system  the standing instructions
-     * @param req.text    the request, with today's date and who is asking
-     * @param req.schema  the JSON schema the answer must follow
+     * @param req.system     the standing instructions
+     * @param req.text       the request, with today's date and who is asking
+     * @param req.content    instead of text: content blocks, e.g. a tender PDF as a base64
+     *                       `document` block followed by a `text` block (Tenders.gs)
+     * @param req.schema     the JSON schema the answer must follow
+     * @param req.effort     'low' (the default: a short request into a few fields) or more
+     * @param req.timeoutMs  longer for a document, which takes a while to read
      * @return the parsed answer
      */
     async propose(req) {
       let response;
+      const effort = ['low', 'medium', 'high'].indexOf(req.effort) !== -1 ? req.effort : 'low';
       try {
         response = await client.beta.messages.create({
           model: MODEL,
@@ -66,11 +71,10 @@ function aiService(opts) {
           // than returned as a refusal.
           betas: ['server-side-fallback-2026-07-01'],
           fallbacks: 'default',
-          // Reading a short request into a few fields: low effort is enough, and quick.
-          output_config: { effort: 'low', format: { type: 'json_schema', schema: req.schema } },
+          output_config: { effort, format: { type: 'json_schema', schema: req.schema } },
           system: req.system,
-          messages: [{ role: 'user', content: req.text }]
-        });
+          messages: [{ role: 'user', content: Array.isArray(req.content) ? req.content : req.text }]
+        }, req.timeoutMs ? { timeout: req.timeoutMs } : undefined);
       } catch (err) {
         if (Errors.AuthenticationError && err instanceof Errors.AuthenticationError) {
           throw new Error('The AI key was not accepted. Management checks ANTHROPIC_API_KEY on the hosting service.');
@@ -90,7 +94,8 @@ function aiService(opts) {
         throw new Error('The AI declined that request. Do it by hand.');
       }
       if (response.stop_reason === 'max_tokens') {
-        throw new Error('That request was too long to read. Ask for fewer things at once.');
+        throw new Error(Array.isArray(req.content) ? 'That document had more in it than the AI could write out. Fill in the rest by hand.'
+          : 'That request was too long to read. Ask for fewer things at once.');
       }
       const text = (response.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
       try {

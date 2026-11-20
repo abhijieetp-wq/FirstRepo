@@ -58,6 +58,9 @@ var SCHEMA = {
       'passwordHash', 'passwordSalt', 'passwordIterations', 'passwordSetAt',
       'mustChangePassword', 'failedAttempts', 'lockedUntil',
       'createdAt', 'createdBy',
+      // TRUE when the ERP admin has opened the Tender Desk to them (Tenders.gs). Management,
+      // the ERP Admin and Accounts always have it.
+      'tenderDesk',
       // Somebody who works both streams works one desk at a time: 'Compressor Sales',
       // 'Spare Sales', or 'All' for both combined. They choose it at the top of the page
       // (StreamAccess.gs, setMyDesk). Blank: Management and the admin on Combined, anybody
@@ -673,6 +676,42 @@ var SCHEMA = {
       // Open, Decided or Withdrawn; Sent back, Approved, Won, Lost, Replied or Withdrawn.
       'status', 'outcome', 'decisionNote', 'decidedAt', 'decidedBy',
       'createdAt', 'createdBy']
+  },
+  // ---------------------------------------------------------------- the Tender Desk (Tenders.gs)
+  Tenders: {
+    label: 'Government and utility tenders PIE bids for, from the notice to the result (Tender Desk)',
+    columns: ['id', 'tenderNo', 'title',
+      // The client is a customer in Customers; the plant one of its addresses, or written.
+      'customerId', 'addressId', 'plant',
+      'portal', 'category', 'priority', 'publishedDate', 'lastDate', 'dueTime',
+      'estimatedValue', 'emdAmount', 'emdType', 'tenderFeeAmount', 'deliveryPeriod', 'eligibility',
+      'sdRequired', 'sdPct', 'pbgRequired', 'pbgPct', 'ldClause', 'notes',
+      // draft, approval, approved, assigned, prep, ready, submitted, opened, result (TENDER_STAGES).
+      'stage',
+      // Pending, Approved or Declined, by whom and why.
+      'approvalStatus', 'approvalRequestedBy', 'approvalRequestedAt', 'approvalBy', 'approvalAt', 'approvalNote',
+      'assigneeEmail', 'assignedAt',
+      // Preparation (TENDER_PREP) and the submission checklist's answers, as JSON.
+      'prepJson', 'checklistJson',
+      'submittedDate', 'submittedTime', 'ackNo', 'submissionMode', 'quoteOrRegret', 'submittedValue',
+      'technoDate', 'participantCount', 'priceDate', 'ourPosition', 'l1Value',
+      // won, lost, l2, cancelled or declined (TENDER_RESULTS).
+      'result', 'resultReason', 'resultNote', 'awardedValue', 'resultAt',
+      // TRUE when it was entered from the tender document, read by AI and checked.
+      'aiRead',
+      'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
+  },
+  TenderItems: {
+    label: 'A tender’s bill of quantities, line by line',
+    columns: ['id', 'tenderId', 'lineNo', 'description', 'qty', 'uom', 'spec']
+  },
+  TenderEvents: {
+    label: 'What happened to a tender, step by step',
+    columns: ['id', 'tenderId', 'at', 'byEmail', 'text']
+  },
+  TenderLists: {
+    label: 'The Tender Desk’s own lists: portals, categories, loss reasons, the submission checklist, and its rules',
+    columns: ['id', 'list', 'name', 'description', 'sortOrder', 'active']
   },
   SalesVisits: {
     label: 'Customer visits a sales engineer plans, and what each found (2.0 visit plans)',

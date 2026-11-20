@@ -171,6 +171,24 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   orders, its dashboard, its new quotations, and the other desk's record says to switch desks
   to open it. Combined is both at once. The choice is kept; Management and the admin start on
   Combined, other people who work both on Compressor. Changing desk keeps them signed in.
+- **The Tender Desk, phase 1** (Tenders.gs; tables Tenders, TenderItems, TenderEvents, TenderLists).
+  A module of its own for the government and utility tenders PIE bids for, using the ERP's
+  customers, people, tasks, files and AI. Menu group "Tender Desk": the desk (tiles, what needs
+  attention, a board by step), Tenders (the list), a tender's own page (/tender/ID) and Tender
+  Settings (portals, categories, loss reasons, the submission checklist, the last-date warnings).
+  Nine steps — Draft, Awaiting approval, Approved, Assigned, In preparation, Ready to submit,
+  Submitted, Bid opened, Result — each with the list of what must be true before it moves on
+  (`tenderGate_`). Roles: Sales Coordinator enters, sends for approval, assigns and keeps the
+  lists (and can do the executive's work); Management approves or declines; whoever it is
+  assigned to (usually a Sales Engineer) prepares, submits and records the result; a new
+  **Accounts** role answers the EMD questions and sees every tender, its own dashboard and Tasks,
+  nothing commercial. Only Management, the ERP Admin, Accounts and users with "Tender Desk"
+  ticked (Users.tenderDesk) see it. The client is a customer in Customers; assigning gives a task
+  on the main Tasks page linked back to the tender; deadlines and approvals show on a person's
+  dashboard. A tender document (PDF or photographs) can be read by AI into the form
+  (`readTenderDocument`, server/ai.js taking a PDF as a document block): a person checks every
+  field, those the AI was unsure of marked, and saves. Phase 2 adds the client's PO, suppliers,
+  penalties and guarantees.
 - **The spares offer's terms and carting** (PIE's spares desk, Nov 2026). Point 2 reads "Carting
   extra from our godown up to transporter's godown", and a new point 3 "Freight will be extra, on
   To-Pay basis, from the transporter's godown up to your location (district)"; a system set up

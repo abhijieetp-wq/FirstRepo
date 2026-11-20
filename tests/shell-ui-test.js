@@ -64,7 +64,9 @@ const ok = (label, cond, detail) => {
   const items = await page.$$eval('#tabs [data-view]', (bs) => bs.map((b) => ({
     view: b.dataset.view, icon: !!b.querySelector('svg.nav-ico'),
     h: Math.round(b.getBoundingClientRect().height), title: b.title })));
-  ok('every screen a manager may open is in it', items.length === 21, items.map((i) => i.view));
+  // 21, and the Tender Desk's three (Management always has it).
+  ok('every screen a manager may open is in it', items.length === 24 && ['tenderdesk', 'tenders', 'tendersettings'].every((v) => items.some((i) => i.view === v)),
+    items.map((i) => i.view));
   ok('each with its icon', items.every((i) => i.icon), items.filter((i) => !i.icon));
   ok('each named on hover, for when only the icon shows', items.every((i) => i.title), items);
   // A flex column shrinks its children when it runs out of room; the first version did, and

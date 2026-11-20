@@ -38,11 +38,15 @@ const PAGES = [
   '/customers',
   '/catalog',
   '/form-fields',
-  '/settings'
+  '/settings',
+  '/tender-desk',
+  '/tenders',
+  '/tender',
+  '/tender-settings'
 ];
 
 /** Screens that show one record, whose address can carry which: /quotation/QT-123. */
-const WITH_ID = ['/quotation', '/quotation-progress'];
+const WITH_ID = ['/quotation', '/quotation-progress', '/tender'];
 
 /** Whether this address is one of the portal's screens, and so gets the portal's page. */
 function isPagePath(pathname) {

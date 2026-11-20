@@ -21,9 +21,11 @@ const refused = async (fn, re) => {
 };
 const fake = (answer) => {
   const sent = [];
+  const opts = [];
   return {
     sent,
-    beta: { messages: { create: async (body) => { sent.push(body); if (answer instanceof Error) throw answer; return typeof answer === 'function' ? answer(body) : answer; } } }
+    opts,
+    beta: { messages: { create: async (body, o) => { sent.push(body); opts.push(o); if (answer instanceof Error) throw answer; return typeof answer === 'function' ? answer(body) : answer; } } }
   };
 };
 const reply = (obj, extra) => Object.assign({ stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify(obj) }] }, extra || {});
@@ -49,6 +51,21 @@ const reply = (obj, extra) => Object.assign({ stop_reason: 'end_turn', content: 
     body.messages[0].role === 'user' && body.messages[0].content === 'Today is Thursday. Remind Priya.');
   ok('room to think and answer', body.max_tokens >= 16000 && body.thinking === undefined && body.temperature === undefined);
   ok('the answer read back', got.reply === 'One task.' && Array.isArray(got.actions));
+  ok('the client’s own time limit for a short request', c.opts[0] === undefined);
+
+  console.log('\nA DOCUMENT TO READ (the Tender Desk)');
+  const d = fake(reply({ reply: 'read' }));
+  const pdfBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0xLjQ=' } };
+  await aiService({ client: d }).propose({ system: 'You read tenders.', schema, effort: 'medium', timeoutMs: 300000,
+    content: [pdfBlock, { type: 'text', text: 'Read it.' }] });
+  ok('the document goes as content blocks, the PDF before the words', Array.isArray(d.sent[0].messages[0].content) &&
+    d.sent[0].messages[0].content[0] === pdfBlock && d.sent[0].messages[0].content[1].text === 'Read it.');
+  ok('at the effort asked for, with a longer time limit', d.sent[0].output_config.effort === 'medium' && d.opts[0] && d.opts[0].timeout === 300000);
+  const e = fake(reply({ reply: 'x' }));
+  await aiService({ client: e }).propose({ schema, text: 'x', effort: 'max' });
+  ok('an effort it does not take is low', e.sent[0].output_config.effort === 'low');
+  ok('a document cut off says to finish by hand', await refused(() => aiService({ client: fake(reply({}, { stop_reason: 'max_tokens' })) })
+    .propose({ schema, content: [pdfBlock] }), /more in it than the AI could write out/));
 
   console.log('\nWHEN IT DOES NOT ANSWER');
   ok('a refusal', await refused(() => aiService({ client: fake(reply({}, { stop_reason: 'refusal' })) }).propose({ schema }), /declined that request/));

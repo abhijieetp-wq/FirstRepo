@@ -40,7 +40,8 @@ ok('every screen on the menu has an address', navViews.length > 10 &&
   navViews.every((v) => ROUTES[v]), navViews.filter((v) => !ROUTES[v]));
 ok('no two screens share one', new Set(clientPaths).size === clientPaths.length);
 ok('the screens that carry a record are screens', WITH_ID.every((p) => PAGES.indexOf(p) !== -1));
-ok('and the browser reads the same two', /\(quotation\|quotation-progress\)/.test(client));
+ok('and the browser reads the same three: a quotation, its progress, a tender', /\(quotation\|quotation-progress\|tender\)/.test(client) &&
+  WITH_ID.length === 3);
 
 console.log('\nTHE SERVER ANSWERS THOSE, AND NOTHING ELSE');
 for (const p of ['/', '/index.html', '/quotations', '/quotations/', '/sales-orders',

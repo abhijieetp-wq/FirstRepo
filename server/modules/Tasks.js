@@ -56,7 +56,8 @@ var TASK_LINKS = {
   lead: { table: 'Leads', no: 'leadNo', word: 'Compressor lead' },
   opportunity: { table: 'Opportunities', no: 'opportunityNo', word: 'Opportunity' },
   quotation: { table: 'Quotations', no: 'quoteNo', word: 'Quotation' },
-  service: { table: 'ServiceJobs', no: 'jobNo', word: 'Service job' }
+  service: { table: 'ServiceJobs', no: 'jobNo', word: 'Service job' },
+  tender: { table: 'Tenders', no: 'tenderNo', word: 'Tender' }
 };
 
 function taskBoss_(user) { return MASTER_EDITORS.indexOf(String(user.role)) !== -1; }
@@ -154,7 +155,7 @@ function taskPeriod_(opts, today) {
 /** "SVJ2610-009 · Testwell Foods" for a record a task is about, or an error if it is gone. */
 async function taskLink_(kind, id) {
   var spec = TASK_LINKS[String(kind || '')];
-  if (!spec) throw new Error('A task can be about an enquiry, a lead, an opportunity, a quotation or a service job.');
+  if (!spec) throw new Error('A task can be about an enquiry, a lead, an opportunity, a quotation, a service job or a tender.');
   var row = await findRowById_(spec.table, id);
   if (!row) throw new Error('That ' + spec.word.toLowerCase() + ' is no longer there.');
   var customer = String(row.customerName || '');

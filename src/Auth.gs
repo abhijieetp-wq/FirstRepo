@@ -29,11 +29,15 @@ var ROLES = {
   SERVICE_COORDINATOR: 'Service Coordinator',
   SERVICE_ENGINEER: 'Service Engineer',
   MANAGEMENT: 'Management',
-  ERP_ADMIN: 'ERP Admin'
+  ERP_ADMIN: 'ERP Admin',
+  // The Tender Desk's money side (Tenders.gs): the EMD now; the client's payments, the
+  // guarantees and the penalties with the PO screen. Sees the Tender Desk, Tasks and its own
+  // dashboard, and nothing commercial beyond them.
+  ACCOUNTS: 'Accounts'
 };
 
 var ALL_ROLES = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.SERVICE_COORDINATOR,
-  ROLES.SERVICE_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN];
+  ROLES.SERVICE_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS];
 
 /**
  * Two different questions about the catalogue, and they deserve two different answers.
@@ -128,7 +132,10 @@ function userFromRow_(match) {
     role: role,
     businessStream: desk || home,
     homeStream: home,
-    desk: desk
+    desk: desk,
+    // The Tender Desk (Tenders.gs, tenderAccess_): ticked on the user, or always for
+    // Management, the ERP Admin and Accounts.
+    tenderDesk: String(match.tenderDesk || '').toUpperCase() === 'TRUE'
   };
 }
 

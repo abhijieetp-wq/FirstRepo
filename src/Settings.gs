@@ -135,7 +135,7 @@ function saveUser(input) {
   }
   if (!email && input.id) throw new Error('This person’s ERP ID is missing from the form. Close it and open their row again.');
   if (!String(input.name || '').trim()) throw new Error('Enter the person’s name.');
-  if (ALL_ROLES.indexOf(input.role) === -1) throw new Error('Pick one of the five roles.');
+  if (ALL_ROLES.indexOf(input.role) === -1) throw new Error('Pick one of the roles: ' + ALL_ROLES.join(', ') + '.');
 
   // What they sign in with. Typed, it is checked and a clash refused — signing somebody in as
   // arun2 when they asked for arun would be worse than saying so. Left blank it is derived,
@@ -213,6 +213,8 @@ function saveUser(input) {
     businessStream: String(input.businessStream || 'All').trim(),
     active: goingInactive ? 'FALSE' : 'TRUE'
   };
+  // Only when the form sends it, so a save from somewhere without the tick keeps it.
+  if (input.tenderDesk !== undefined) record.tenderDesk = input.tenderDesk === true || String(input.tenderDesk).toUpperCase() === 'TRUE' ? 'TRUE' : '';
 
   if (input.id) {
     updateRowById_('Users', 'id', input.id, record, 'User updated');
@@ -221,6 +223,10 @@ function saveUser(input) {
     if (existing && (existing.role !== record.role || existing.active !== record.active ||
         existing.businessStream !== record.businessStream)) {
       forgetSessionsFor_(email);
+    } else if (existing && record.tenderDesk !== undefined &&
+        String(existing.tenderDesk || '').toUpperCase() !== String(record.tenderDesk).toUpperCase()) {
+      // The Tender Desk opened or closed: their next click reads it, without signing them out.
+      refreshSessionsFor_(email);
     }
   } else {
     record.id = generateId_('USR-');

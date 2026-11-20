@@ -34,7 +34,9 @@ var PD_KIND = {
   'Service Coordinator': 'serviceCoordinator',
   'Service Engineer': 'serviceEngineer',
   'Management': 'boss',
-  'ERP Admin': 'boss'
+  'ERP Admin': 'boss',
+  // The Tender Desk's money side: their tasks and the tenders that need them, nothing commercial.
+  'Accounts': 'accounts'
 };
 
 /** How each period reads in a tile: "My orders this month", "Won last month". */
@@ -88,6 +90,7 @@ function getPersonDashboard(options) {
   else if (kind === 'salesEngineer') pdSalesEngineer_(ctx, out);
   else if (kind === 'serviceCoordinator') pdServiceCoordinator_(ctx, out);
   else if (kind === 'serviceEngineer') pdServiceEngineer_(ctx, out);
+  else if (kind === 'accounts') { /* their tasks, below, and the tenders that need them */ }
   else pdBoss_(ctx, out);
   // Management's tasks, escalations and visits are among the demo's eight tiles (pdBoss_).
   if (kind !== 'boss') {
@@ -103,6 +106,9 @@ function getPersonDashboard(options) {
     // And theirs that were rejected, until they dismiss it.
     var rejected = rejectedCustomerNotices_(user);
     if (rejected.length) out.rejectedCustomers = rejected;
+    // The Tender Desk (Tenders.gs): deadlines and approvals, for whoever has it.
+    var tenders = tenderDashboardNotices_(user);
+    if (tenders) out.tenders = tenders;
   }
 
   if (boss) {
