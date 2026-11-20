@@ -329,9 +329,10 @@ const ok = (label, cond, detail) => {
   let huge = null;
   try {
     huge = await post('/api/call',
-      { token, fn: 'bootstrap', args: [], padding: 'x'.repeat(2 * 1024 * 1024) });
+      { token, fn: 'bootstrap', args: [], padding: 'x'.repeat(16 * 1024 * 1024) });
   } catch (e) { huge = { status: 'the connection dropped', body: null }; }
-  ok('a body past a megabyte is refused with a 413', huge.status === 413, huge.status);
+  // 15 MB for a call, since an attachment travels inside it (a 10 MB file is 13.4 MB as base64).
+  ok('a body past 15 MB is refused with a 413', huge.status === 413, huge.status);
   ok('and said so in words', huge.body && /too large/.test(huge.body.error), huge.body);
   // And the server is still answering afterwards, rather than having been knocked over.
   const after = await get('/health');
