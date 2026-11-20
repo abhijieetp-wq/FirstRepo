@@ -77,7 +77,7 @@ const ok = (label, cond, detail) => {
     ok('the offer’s terms beside it, printed on the offer', await inside('qbv-offer', ['qb-date', 'qb-validity', 'qb-validuntil', 'qb-paymentterms', 'qb-deliveryterms',
       'qb-deliveryperiod', 'qb-warrantyterms', 'qb-taxmode', 'qb-notes', 'btn-qb-save-header']) && /Printed on the offer/.test(await page.textContent('#qbv-offer header')));
     ok('the items, ERP 1’s table and buttons', (await page.$$('.qbv-items #qb-items tbody tr')).length === 2 && await shown('#btn-qb-add-item') && await shown('#btn-qb-add-charge'));
-    ok('the totals: package discount, P&F, how the discount is shown, the sums and GST', await inside('qbv-totals', ['qb-pkgdisc', 'qb-pf', 'qb-discshow', 'qb-totals']) &&
+    ok('the totals: package discount, P&F, how the discount and the freight are shown, the sums and GST', await inside('qbv-totals', ['qb-pkgdisc', 'qb-pf', 'qb-discshow', 'qb-freightshow', 'qb-totals']) &&
       /Grand Total/.test(await page.textContent('#qb-totals')) && /GST extra/.test(await page.textContent('#qbv-totals header')));
     ok('what a spares customer receives', (await page.$$eval('#qbv-receives li', (l) => l.map((x) => x.textContent))).join('|') ===
       'Offer letter on PIE letterhead|Price schedule with part numbers|Terms');
@@ -88,6 +88,11 @@ const ok = (label, cond, detail) => {
       (await page.$$eval('#qb-discshow option', (o) => o.map((x) => x.textContent))).join('|') === '% and amount|% only|Amount only|Not shown (discounted price only)' &&
       /Discount on the offer/.test(await page.textContent('#qbv-totals')));
     if (process.argv[3]) { const t = await page.$('#qbv-totals'); if (t) await t.screenshot({ path: process.argv[3] }); }
+    ok('freight: a spares offer leaves it off unless asked, and says what will print', (await page.inputValue('#qb-freightshow')) === 'HIDE' &&
+      (await page.$$eval('#qb-freightshow option', (o) => o.map((x) => x.textContent))).join('|') === "Show freight|Don't show freight" &&
+      /Not charged, and the offer says nothing about freight\./.test(await page.textContent('#qb-freight-note')), await page.textContent('#qb-freight-note'));
+    await page.selectOption('#qb-freightshow', 'SHOW');
+    ok('changed, the note says what the offer will now print', /Not charged: the offer prints “Freight: Extra from Ex-works Coimbatore”/.test(await page.textContent('#qb-freight-note')));
     await page.selectOption('#qb-discshow', 'PCT');
     await page.fill('#qb-pf', '750');
     await page.evaluate(() => { window.__calls = []; });
@@ -95,7 +100,7 @@ const ok = (label, cond, detail) => {
     await page.waitForTimeout(400);
     const saved = await page.evaluate(() => { const c = window.__calls.filter((x) => x.fn === 'saveQuotationHeader'); return c.length ? c[c.length - 1].args : null; });
     ok('Save under the totals saves the offer’s details through ERP 1’s button', !!saved && JSON.stringify(saved).indexOf('750') !== -1, saved);
-    ok('with how the discount is shown', !!saved && saved[0].discountPctShown === 'PCT', saved);
+    ok('with how the discount is shown, and the freight', !!saved && saved[0].discountPctShown === 'PCT' && saved[0].freightShown === 'SHOW', saved);
     await page.evaluate(() => {
       window.__data.getQuotation = () => window.__quote({ status: 'Approved', locked: true, businessStream: 'Compressor Sales' });
     });
@@ -107,6 +112,8 @@ const ok = (label, cond, detail) => {
       !(await shown('#btn-qb-save-header')) && !(await shown('#btn-qbv-save-totals')));
     ok('a compressor offer is named so, with its four documents', (await page.textContent('#qbv-eyebrow')) === 'Compressor offer' &&
       (await page.$$('#qbv-receives li')).length === 4);
+    ok('and shows its freight unless asked not to; locked, it cannot be changed', (await page.inputValue('#qb-freightshow')) === 'SHOW' &&
+      await page.$eval('#qb-freightshow', (e) => e.disabled));
   }
   ok('with no script errors', errors.length === 0, errors);
   await browser.close();

@@ -690,6 +690,15 @@
               <option value="NONE">Not shown (discounted price only)</option>
             </select>
           </div>
+          <!-- Whether the offer prints its freight row. A freight charge always prints. -->
+          <div class="field" id="qb-freightshow-field" style="margin-top:10px;">
+            <label>Freight on the offer</label>
+            <select id="qb-freightshow">
+              <option value="SHOW">Show freight</option>
+              <option value="HIDE">Don't show freight</option>
+            </select>
+            <p class="qb-freight-note" id="qb-freight-note"></p>
+          </div>
           <p style="font-size:12.5px; color:var(--ink-soft); margin:8px 0 0;">
             The printed offer lists every line at full price and strikes one percentage off the
             package, the way your compressor quotations do. Leave the discount at 0 to quote line

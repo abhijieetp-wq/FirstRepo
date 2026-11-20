@@ -171,6 +171,14 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   orders, its dashboard, its new quotations, and the other desk's record says to switch desks
   to open it. Combined is both at once. The choice is kept; Management and the admin start on
   Combined, other people who work both on Compressor. Changing desk keeps them signed in.
+- **Freight on the offer, shown or not** ("Freight on the offer", in Totals; `Quotations.freightShown`
+  SHOW / HIDE). Blank is the stream's way: a compressor offer prints its freight row ("Extra from
+  Ex-works Coimbatore" when nothing is charged), a spares offer does not. Shown on a spares offer
+  it prints that wording after the pre-freight amount. A freight charge (a charge line called
+  Freight, Transport or Transportation: `isFreightLine_`) prints whatever is chosen, since the
+  customer pays it: on a compressor offer in the row after P&F, under the line's own name; on a
+  spares offer among the parts. The note under the choice says what will print.
+- **The catalogue's compressors show their TPL Code** in a column of its own, first.
 - **Each compressor's CFM on its line** (Quotations.gs, `saveQuotationLineCfm`; `QuotationItems.cfm`).
   A unit quotation's items have a CFM column: the catalogue's air flow (fad, else capacityCfm),
   changeable per line, and a box marked as needed where the catalogue has none. The accessories

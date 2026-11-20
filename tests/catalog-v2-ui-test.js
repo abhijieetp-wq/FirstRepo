@@ -45,8 +45,8 @@ const ok = (label, cond, detail) => {
     ok('three tabs, opening on Compressors, ERP 1’s buttons put away', !(await shown('#subtab-parts')) &&
       (await page.$$eval('#catv-tabs [data-catv-tab]', (b) => b.map((x) => x.textContent + (x.getAttribute('aria-selected') === 'true' ? '*' : '')))).join('|') === 'Compressors*|Accessories|Spares');
     ok('the demo’s buttons', /Import price list/.test(await page.textContent('#btn-bulk-upload')) && /Add item/.test(await page.textContent('#btn-new-catalog-item')));
-    ok('compressors, in the demo’s columns, the PIE price for Management', (await heads()).join('|') ===
-      'Model|Description|kW|Air (cfm)|Bar|ELGi price (sell)|PIE price (cost)|HSN|Specs|In stock', await heads());
+    ok('compressors, in the demo’s columns with the TPL code first, the PIE price for Management', (await heads()).join('|') ===
+      'TPL Code|Model|Description|kW|Air (cfm)|Bar|ELGi price (sell)|PIE price (cost)|HSN|Specs|In stock', await heads());
     const c = await rows();
     ok('each model: air, pressure, prices, HSN, whether its spec is in', c.length === 4 && /EG 22/.test(c[0]) && / 128 /.test(c[0]) && /₹6,85,000/.test(c[0]) &&
       /₹5,98,000/.test(c[0]) && /Spec sheet/.test(c[0]) && /Missing/.test(c[3]) && / 28 12 /.test(c[3]), c);

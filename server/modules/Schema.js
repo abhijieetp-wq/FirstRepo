@@ -427,6 +427,10 @@ var SCHEMA = {
       // are not. TRUE/FALSE from before are BOTH/NONE; blank is BOTH. A customer's next quotation
       // takes their last one's.
       'discountPctShown',
+      // Whether the offer prints its freight row: SHOW or HIDE. Blank: shown on a compressor
+      // offer (PIE's always says where freight stands), not on a spares one, as before. A
+      // freight charge prints whatever this says: an amount the customer pays is never hidden.
+      'freightShown',
       // Why this revision was made, asked before it can be (reviseQuotation). Blank on R0
       // and on revisions made before the question was compulsory.
       'revisionReason',

@@ -1055,7 +1055,10 @@
     var pie = cost ? [{ label: "PIE price (cost)", num: true, html: function (r) { return catvMoney(r.piePrice); } }] : [];
     if (CATALOG_MODE !== "spares") {
       return [
-        { label: "Model", html: function (r) { return '<b class="mono">' + escapeHtml(r.model || r.productCode || "—") + "</b>" + (r.productCode && r.model ? '<br><span class="eb2-kind mono">' + escapeHtml(r.productCode) + "</span>" : ""); } },
+        // ELGi's TPL number is the compressor's code (productCode): its own column, first, as
+        // on the Accessories tab, rather than small under the model.
+        { label: "TPL Code", html: function (r) { return '<span class="mono">' + escapeHtml(r.productCode || "—") + "</span>"; } },
+        { label: "Model", html: function (r) { return '<b class="mono">' + escapeHtml(r.model || "—") + "</b>"; } },
         { label: "Description", html: function (r) { return escapeHtml(r.description || [r.family, r.series].filter(Boolean).join(" · ") || "—"); } },
         { label: "kW", num: true, html: function (r) { return escapeHtml(r.motorKw || "—"); } },
         { label: "Air (cfm)", num: true, html: function (r) { var c = catvCfm(r); return c === null ? "—" : String(c); } },
@@ -4281,10 +4284,11 @@
     // TRUE/FALSE from the tick box this replaced are BOTH/NONE; blank is BOTH.
     var shown = String(q.discountPctShown || "").toUpperCase();
     $("qb-discshow").value = shown === "FALSE" ? "NONE" : ["PCT", "AMOUNT", "NONE"].indexOf(shown) !== -1 ? shown : "BOTH";
+    qbFreightShow(q);
 
     ["qb-model", "qb-serial", "qb-date", "qb-validity", "qb-paymentterms",
      "qb-deliveryterms", "qb-deliveryperiod", "qb-warrantyterms", "qb-notes",
-     "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-discshow", "qb-customer-pick"].forEach(function (f) {
+     "qb-pkgdisc", "qb-pf", "qb-taxmode", "qb-discshow", "qb-freightshow", "qb-customer-pick"].forEach(function (f) {
       $(f).disabled = !editable;
     });
     $("btn-qb-save-header").style.display = editable ? "" : "none";
@@ -4304,6 +4308,30 @@
     if (FACE_V2) qbV2Layout(q, editable);
     if (FACE_V2) qbAccPanel(q, editable);
   }
+
+  /**
+   * The freight choice, and what the offer will print for freight, said under it. Blank on the
+   * quotation is the stream's way: shown on a compressor offer, not on a spares one. A freight
+   * charge (a charge line called Freight) prints whatever is chosen, so the choice is about the
+   * standing wording only, and says so.
+   */
+  function qbFreightShow(q) {
+    var stored = String(q.freightShown || "").toUpperCase();
+    var unit = q.businessStream === "Compressor Sales";
+    $("qb-freightshow").value = stored === "SHOW" || stored === "HIDE" ? stored : unit ? "SHOW" : "HIDE";
+    // The server's rule (Quotations.gs, isFreightLine_): a charge called Freight, Transport or Transportation.
+    var charged = (q.items || []).filter(function (i) { return i.lineType === "Charge" && /^\s*(freight|transport|transportation)\b/i.test(String(i.description || "")); });
+    var sum = charged.reduce(function (s, i) { return s + (Number(i.lineTotal) || 0); }, 0);
+    $("qb-freight-note").textContent = charged.length
+      ? "Freight is charged: " + fmt(sum) + " (" + charged.map(function (i) { return i.description; }).join(", ") + "). " +
+        (unit ? "It prints after P&F" : "It prints among the items") + " whatever is chosen here, since the customer pays it."
+      : $("qb-freightshow").value === "SHOW"
+        ? "Not charged: the offer prints “Freight: Extra from Ex-works Coimbatore” (the wording is in Settings → Quotation Text). To charge it, + Add Charge called Freight."
+        : "Not charged, and the offer says nothing about freight.";
+  }
+  document.addEventListener("change", function (e) {
+    if (e.target && e.target.id === "qb-freightshow" && openQuote) qbFreightShow(Object.assign({}, openQuote, { freightShown: e.target.value }));
+  });
 
   // ---- Accessories on a unit quotation (Spares.gs, quotationAccessories) ----
   // Under the items: for each compressor on the offer, the accessories that suit it (air flow
@@ -4469,6 +4497,10 @@
     showPct.classList.add("qbv-showpct");
     showPct.removeAttribute("style");
     totals.querySelector(".qbv-body").appendChild(showPct);
+    var showFreight = $("qb-freightshow-field");
+    showFreight.classList.add("qbv-showpct");
+    showFreight.removeAttribute("style");
+    totals.querySelector(".qbv-body").appendChild(showFreight);
     var hint = card.querySelector("p");
     if (hint) { hint.className = "qbv-hint"; hint.removeAttribute("style"); totals.querySelector(".qbv-body").appendChild(hint); }
     var box = $("qb-totals").parentNode;
@@ -5058,6 +5090,7 @@
       pfAmount: $("qb-pf").value,
       taxMode: $("qb-taxmode").value,
       discountPctShown: $("qb-discshow").value,
+      freightShown: $("qb-freightshow").value,
       customerId: $("qb-customer-pick").value || openQuote.customerId
     });
   });

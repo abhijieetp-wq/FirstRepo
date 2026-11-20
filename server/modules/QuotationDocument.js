@@ -446,7 +446,7 @@ function scheduleName_(item, products, spareSpecs, L) {
  * Freight is printed once, here: the amount when the offer charges it (a charge line called
  * Freight, which is not listed among the items — isFreightCharge_), else the standing terms.
  */
-function compressorTotals_(q, co, address, items, gross, netGoods, L, freightAmount) {
+function compressorTotals_(q, co, address, items, gross, netGoods, L, freightAmount, freightLabel) {
   var rows = [[esc_(L('packageTotal', 'Total Package Price')), inr_(gross), '']];
   if (gross - netGoods > 0.005) {
     // As the quotation shows the discount (some customers are shown it, some are not):
@@ -470,10 +470,14 @@ function compressorTotals_(q, co, address, items, gross, netGoods, L, freightAmo
   }
   var pf = Number(q.pfAmount) || 0;
   rows.push([esc_(L('pf', 'P&F @')), pf > 0 ? inr_(pf) : esc_(L('pfNil', '0.00')), '']);
-  // Freight terms, not the delivery time: the amount when it is charged, else the standing
-  // wording, the same on every offer.
-  rows.push([esc_(L('freight', 'Freight')), freightAmount > 0.005 ? inr_(freightAmount)
-    : esc_(L('freightNote', 'Extra from Ex-works Coimbatore')), '']);
+  // Freight terms, not the delivery time: the amount when it is charged, under the charge's own
+  // name, else the standing wording. Left off when the quotation says not to show freight and
+  // nothing is charged; a charge always prints, since the customer pays it.
+  if (freightAmount > 0.005) {
+    rows.push([esc_(freightLabel || L('freight', 'Freight')), inr_(freightAmount), '']);
+  } else if (freightShown_(q)) {
+    rows.push([esc_(L('freight', 'Freight')), esc_(L('freightNote', 'Extra from Ex-works Coimbatore')), '']);
+  }
 
   if (String(q.taxMode || 'Extra') === 'Extra') {
     var rate = Number(headlineTaxRate_(items)) || 0;
@@ -508,6 +512,12 @@ function spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L) {
   // carting is a line and term 2 covers the rest.
   if (Number(q.pfAmount) > 0) {
     rows.push([esc_(L('pf', 'P&F')), inr_(q.pfAmount), '']);
+  }
+  // Freight on a spares offer is a line among the parts when it is charged. When it is not and
+  // the quotation asks for freight to be shown, the standing wording says where it stands.
+  var chargedFreight = items.some(isFreightLine_);
+  if (!chargedFreight && freightShown_(q)) {
+    rows.push([esc_(L('freight', 'Freight')), esc_(L('freightNote', 'Extra from Ex-works Coimbatore')), '']);
   }
   // GST split the way a tax document has to split it: CGST and SGST between two places in the
   // same state, IGST across a border. One "Total Tax 18%" line said the right amount and the
@@ -1014,6 +1024,7 @@ async function buildQuotationHtml(quotationId) {
   // A compressor offer's freight goes in the totals, after P&F, not among the items.
   var freightCharged = Number(q.freight) || 0;
   var freightDiscount = 0;
+  var freightNames = [];
   items.forEach(function (i) {
     var isCharge = i.lineType === 'Charge';
     var qty = Number(i.qty) || 0;
@@ -1023,6 +1034,7 @@ async function buildQuotationHtml(quotationId) {
       var net = i.lineTotal === '' || i.lineTotal === undefined || i.lineTotal === null ? lineTotal : Number(i.lineTotal) || 0;
       freightCharged += net;
       freightDiscount += lineTotal - net;
+      freightNames.push(String(i.description || '').trim());
       return;
     }
     gross += lineTotal;
@@ -1062,7 +1074,9 @@ async function buildQuotationHtml(quotationId) {
   // both is what the customer pays for goods.
   var netGoods = gross - ((Number(q.discountAmt) || 0) - freightDiscount);
   var totals = isCompressor
-    ? compressorTotals_(q, co, address, items, gross, netGoods, L, freightCharged)
+    ? compressorTotals_(q, co, address, items, gross, netGoods, L, freightCharged,
+        // One freight line prints under its own name ("Freight & cartage to site").
+        freightNames.length === 1 ? freightNames[0] : '')
     : spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L);
 
   if (isCompressor) {

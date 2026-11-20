@@ -461,6 +461,39 @@ const SPEC_CSV = '﻿' + [
   ok('a spares offer still lists its freight among the parts, discounted with them', sq.discountAmt === 33300 &&
     /<td>Freight<\/td>/.test(spareDoc.slice(spareDoc.indexOf('<table class="price">'))), sq.discountAmt);
 
+  console.log('\nSHOWING THE FREIGHT, OR NOT');
+  await offer([['Product', 'PR-EG']]);
+  const freightRow = (t) => rows(t).filter((r) => /^(Freight|Transport)/i.test(cells(r)[0]));
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('a compressor offer shows it unless asked not to: the standing wording', freightRow(tbl).length === 1 &&
+    cells(freightRow(tbl)[0])[1] === 'Extra from Ex-works Coimbatore', rows(tbl).map((r) => cells(r)));
+  await p.saveQuotationHeader({ id: lastQuoteId, freightShown: 'HIDE' });
+  ok('kept on the quotation', (await p.getQuotation(lastQuoteId)).freightShown === 'HIDE');
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('asked not to, no freight row: P&F, then the GST', freightRow(tbl).length === 0 &&
+    rows(tbl).findIndex((r) => cells(r)[0] === 'P&amp;F @') + 1 === rows(tbl).findIndex((r) => /% GST$/.test(cells(r)[0])), rows(tbl).map((r) => cells(r)[0]));
+  await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 0 });
+  ok('another save that does not send it keeps it', (await p.getQuotation(lastQuoteId)).freightShown === 'HIDE');
+  await p.saveQuotationCharge({ quotationId: lastQuoteId, description: 'Transportation to site', amount: 8000 });
+  tbl = schedule(await p.buildQuotationHtml(lastQuoteId));
+  ok('a freight charge prints all the same, since the customer pays it, under its own name',
+    freightRow(tbl).length === 1 && cells(freightRow(tbl)[0])[0] === 'Transportation to site' && cells(freightRow(tbl)[0])[1] === '₹ 8,000.00',
+    rows(tbl).map((r) => cells(r)));
+  ok('anything else is refused', await p.saveQuotationHeader({ id: lastQuoteId, freightShown: 'MAYBE' }).then(() => false, (e) => /SHOW or HIDE/.test(e.message)));
+  await offer([['Spare', 'SP-DRY']], 'Spare Sales');
+  let sdoc = await p.buildQuotationHtml(lastQuoteId);
+  const spareSched = (h) => { const t = h.slice(h.indexOf('<table class="price">')); return t.slice(0, t.indexOf('</table>')); };
+  ok('a spares offer does not, as before', !/Extra from Ex-works/.test(spareSched(sdoc)));
+  await p.saveQuotationHeader({ id: lastQuoteId, freightShown: 'SHOW' });
+  sdoc = await p.buildQuotationHtml(lastQuoteId);
+  const sRows = rows(spareSched(sdoc)).map((r) => cells(r));
+  const sAt = sRows.findIndex((c) => c[0] === 'Freight');
+  ok('asked to, it says where freight stands, after the pre-freight amount and before the GST', sAt !== -1 && sRows[sAt][1] === 'Extra from Ex-works Coimbatore' &&
+    sRows[sAt - 1][0] === 'Pre Freight Amount' && /GST/.test(sRows[sAt + 1][0]), sRows);
+  await p.saveQuotationCharge({ quotationId: lastQuoteId, description: 'Freight', amount: 1000 });
+  sdoc = await p.buildQuotationHtml(lastQuoteId);
+  ok('charged, the freight line says it, and the wording does not repeat it', !/Extra from Ex-works/.test(spareSched(sdoc)) && /<td>Freight<\/td>/.test(spareSched(sdoc)));
+
   console.log('\nA SPARES OFFER KEEPS ITS OWN SCHEDULE');
   html = await offer([['Spare', 'SP-DRY']], 'Spare Sales');
   ok('not PIE’s compressor grid', html.indexOf('class="price pie"') === -1 && html.indexOf('class="price"') !== -1);

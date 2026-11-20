@@ -702,6 +702,7 @@ function saveQuotationHeader(input) {
   };
   // Only when the form sends it, so a save from somewhere that does not show the box keeps it.
   if (input.discountPctShown !== undefined) record.discountPctShown = discountShowValue_(input.discountPctShown);
+  if (input.freightShown !== undefined) record.freightShown = freightShowValue_(input.freightShown);
   Object.keys(patch).forEach(function (k) { record[k] = patch[k]; });
 
   updateRowById_('Quotations', 'id', input.id, record, 'Quotation header updated');
@@ -748,6 +749,27 @@ function customerDiscountShow_(customerId) {
 /** How this quotation's offer shows its discount (one of DISCOUNT_SHOW). */
 function discountShow_(q) {
   try { return discountShowValue_(q && q.discountPctShown); } catch (err) { return 'BOTH'; }
+}
+
+/** SHOW or HIDE, from what was sent: also true/false. Blank stays blank (the stream's default). */
+function freightShowValue_(v) {
+  if (v === true) return 'SHOW';
+  if (v === false) return 'HIDE';
+  var t = String(v === undefined || v === null ? '' : v).trim().toUpperCase();
+  if (t === '' || t === 'SHOW' || t === 'HIDE') return t;
+  throw new Error('Show the freight as SHOW or HIDE.');
+}
+
+/**
+ * Whether this offer prints its freight row when nothing is charged for freight: as asked on
+ * the quotation, else shown on a compressor offer and not on a spares one. A freight charge
+ * always prints, whatever this says.
+ */
+function freightShown_(q) {
+  var t = '';
+  try { t = freightShowValue_(q && q.freightShown); } catch (err) { t = ''; }
+  if (t) return t === 'SHOW';
+  return String(q && q.businessStream) === STREAM_COMPRESSOR;
 }
 
 /** A percentage as an offer prints it: 40, 12.5, 7.25 — two places at most, no trailing zeros. */
@@ -1632,9 +1654,14 @@ function quotationLines_(quotationId) {
  * spares offer lists its carting and freight among the parts, as it always has.
  */
 function isFreightCharge_(line, stream) {
-  return String(stream || '') === STREAM_COMPRESSOR && String(line.lineType) === 'Charge' &&
-    /^\s*freight\b/i.test(String(line.description || ''));
+  return String(stream || '') === STREAM_COMPRESSOR && isFreightLine_(line);
 }
+
+/** A charge line that is freight, by its name: Freight…, Transport…, Transportation…. */
+function isFreightLine_(line) {
+  return String(line.lineType) === 'Charge' && FREIGHT_NAME_.test(String(line.description || ''));
+}
+var FREIGHT_NAME_ = /^\s*(freight|transport|transportation)\b/i;
 
 function recalcQuotation_(quotationId) {
   var lines = quotationLines_(quotationId);
