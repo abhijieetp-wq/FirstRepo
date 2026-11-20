@@ -181,7 +181,9 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   of its own (`settleCarting_`): ₹300 when the goods, after discounts and before GST, come to
   ₹10,000 or less, ₹500 above; an amount typed is kept (₹500 or more above ₹10,000, raised to
   ₹500 if the goods pass it), blank is automatic again, and a Carting line taken off stays off
-  (`Quotations.cartingOff`, `QuotationItems.autoCharge`). It is always the last line.
+  (`Quotations.cartingOff`, `QuotationItems.autoCharge`). It is always the last line. A spares
+  offer's charges (carting, packing, freight) are not discounted: the discount, line or package,
+  is the parts', and prints as their %.
 - **Freight on the offer, shown or not** ("Freight on the offer", in Totals; `Quotations.freightShown`
   SHOW / HIDE). Blank is the stream's way: a compressor offer prints its freight row ("Extra from
   Ex-works Coimbatore" when nothing is charged), a spares offer does not. Shown on a spares offer

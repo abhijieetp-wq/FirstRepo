@@ -105,6 +105,8 @@ const BOSS = { email: 'office@pie.invalid', name: 'Office Admin', role: 'ERP Adm
   ok('above ₹10,000: ₹500', Number((await carting(q.id)).unitPrice) === 500, await linesOf(q.id));
   await p.saveQuotationHeader({ id: q.id, packageDiscountPct: 10 });
   ok('the goods after their discount: ₹10,001 less 10% is under ₹10,000, so ₹300', Number((await carting(q.id)).unitPrice) === 300);
+  const disc = await p.getQuotation(q.id);
+  ok('and the package discount is the parts’ alone: carting is not discounted', Math.abs(disc.discountAmt - 1000.1) < 0.01, disc.discountAmt);
   await p.saveQuotationHeader({ id: q.id, packageDiscountPct: 0 });
   await p.saveQuotationItem({ quotationId: q.id, itemType: 'Spare', itemId: 'SP-1', qty: 1, unitPrice: 50, description: 'Gasket' });
   const lastLine = (await linesOf(q.id)).slice(-1)[0];

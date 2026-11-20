@@ -1718,7 +1718,12 @@ async function recalcQuotation_(quotationId) {
     subtotal += gross;
     discountAmt += gross - net;
     taxAmt += tax;
-    if (isFreightCharge_(l, stream)) { freightNet += net; freightTax += tax; }
+    // Not discounted: freight on a compressor offer, and every charge on a spares offer —
+    // carting there is a fixed ₹300 or ₹500 (settleCarting_), and taking the package
+    // discount off it would make it neither.
+    if (isFreightCharge_(l, stream) || (stream === STREAM_SPARE && String(l.lineType) === 'Charge')) {
+      freightNet += net; freightTax += tax;
+    }
   });
 
   var freight = quote ? (Number(quote.freight) || 0) : 0;
@@ -1729,7 +1734,7 @@ async function recalcQuotation_(quotationId) {
   // discount applies after them.
   var pkgPct = quote ? (Number(quote.packageDiscountPct) || 0) : 0;
   var afterLines = subtotal - discountAmt;
-  // Freight on a compressor offer is not discounted (isFreightCharge_).
+  // Freight on a compressor offer, and a spares offer's charges, are not discounted (above).
   var discountable = afterLines - freightNet;
   var pkgDiscount = pkgPct > 0 ? discountable * pkgPct / 100 : 0;
   var netGoods = afterLines - pkgDiscount;

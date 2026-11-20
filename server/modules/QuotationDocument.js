@@ -506,10 +506,15 @@ function spareTotals_(q, co, address, items, gross, netGoods, pkgPct, L) {
   var discounted = off > 0.005;
   rows.push([esc_(L('packageTotal', 'Total package price')), inr_(gross), discounted ? '' : 'strong']);
   if (discounted) {
-    // One package discount prints as given; discounts on the lines, or both, as the one % that
-    // takes the full price to the discounted price, so the rows always add up.
+    // The discount is on the parts: a spares offer's charges (carting at ₹300 or ₹500, packing,
+    // freight) are not discounted (Quotations.gs, recalcQuotation_). So one package discount
+    // prints as given, and discounts on the lines, or both, as the one % that takes the parts
+    // to their discounted price.
     var lineDiscounts = items.some(function (i) { return (Number(i.discountPct) || 0) > 0; });
-    var pct = pkgPct > 0 && !lineDiscounts ? pkgPct : (gross > 0 ? off / gross * 100 : 0);
+    var partsGross = items.reduce(function (sum, i) {
+      return String(i.lineType) === 'Charge' ? sum : sum + (Number(i.unitPrice) || 0) * (Number(i.qty) || 0);
+    }, 0);
+    var pct = pkgPct > 0 && !lineDiscounts ? pkgPct : (partsGross > 0 ? off / partsGross * 100 : 0);
     var how = discountShow_(q);
     if (how === 'BOTH' && pct > 0) {
       rows.push([esc_(L('discountRow', 'Less: discount @ {pct}%').replace('{pct}', pctText_(pct))), inr_(off), '']);

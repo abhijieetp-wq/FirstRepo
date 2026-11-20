@@ -133,7 +133,8 @@ const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'customer_address
   ok('and in a selection', await refuses(() => p.saveQuotationItems({ quotationId: spare.id,
     lines: [{ itemType: 'Spare', itemId: 'SP-1', qty: 1 }, { itemType: 'Product', itemId: 'PR-1', qty: 1 }] }), /prints as a spares offer/));
   ok('nothing went on it', (await p.getQuotation(spare.id)).items.length === 0);
-  ok('a spare still goes on it', (await p.saveQuotationItem({ quotationId: spare.id, itemType: 'Spare', itemId: 'SP-1', qty: 1, unitPrice: 50 })).items.length === 1);
+  ok('a spare still goes on it', (await p.saveQuotationItem({ quotationId: spare.id, itemType: 'Spare', itemId: 'SP-1', qty: 1, unitPrice: 50 })).items
+    .filter((i) => i.itemType === 'Spare').length === 1);
   const unit = await p.saveQuotationItems({ quotationId: comp.id, lines: [{ itemType: 'Product', itemId: 'PR-1', qty: 1, unitPrice: 100 }, { itemType: 'Spare', itemId: 'SP-1', qty: 1, unitPrice: 50 }] });
   ok('a compressor quotation takes the compressor and its spares', unit.items.length === 2);
   await asUser('U-BOTH');

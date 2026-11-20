@@ -458,7 +458,9 @@ const SPEC_CSV = '﻿' + [
   await p.saveQuotationHeader({ id: lastQuoteId, packageDiscountPct: 10 });
   const sq = await p.getQuotation(lastQuoteId);
   const spareDoc = await p.buildQuotationHtml(lastQuoteId);
-  ok('a spares offer still lists its freight among the parts, discounted with them', sq.discountAmt === 33300 &&
+  // ₹3,32,000 of parts less 10%; the freight and the automatic ₹500 carting are charges, which
+  // a spares offer does not discount (recalcQuotation_).
+  ok('a spares offer still lists its freight among the parts, and discounts the parts alone', sq.discountAmt === 33200 &&
     /<td>Freight<\/td>/.test(spareDoc.slice(spareDoc.indexOf('<table class="price">'))), sq.discountAmt);
 
   console.log('\nA SPARES OFFER DISCOUNTED LINE BY LINE');
@@ -471,18 +473,20 @@ const SPEC_CSV = '﻿' + [
   };
   let sr = await lineOffer('BOTH');
   const firstAfter = (rs, label) => rs[rs.findIndex((c) => c[0] === label) + 1] || [];
-  ok('% and amount: the full price, Less: discount @ 10% and ₹200, then the discounted price',
+  // ₹2,000 of parts and the automatic ₹300 carting; the 10% is the parts', and carting is not discounted.
+  ok('% and amount: the full price, Less: discount @ 10% of the parts and ₹200, then the discounted price',
+    sr.some((c) => c[1] === 'Carting' && c[6] === '₹ 300.00') &&
     JSON.stringify(firstAfter(sr, 'Pre Freight Amount')) === JSON.stringify(['Less: discount @ 10%', '₹ 200.00']) &&
-    JSON.stringify(firstAfter(sr, 'Less: discount @ 10%')) === JSON.stringify(['Total discounted price', '₹ 1,800.00']), sr);
-  ok('and the GST is on the discounted price, so the page adds up', JSON.stringify(sr.find((c) => c[0] === 'Total Amount')) === JSON.stringify(['Total Amount', '₹ 2,124.00']) &&
-    sr.some((c) => c[0] === 'CGST 9%' && c[1] === '₹ 162.00'), sr);
+    JSON.stringify(firstAfter(sr, 'Less: discount @ 10%')) === JSON.stringify(['Total discounted price', '₹ 2,100.00']), sr);
+  ok('and the GST is on the discounted price, so the page adds up', JSON.stringify(sr.find((c) => c[0] === 'Total Amount')) === JSON.stringify(['Total Amount', '₹ 2,478.00']) &&
+    sr.some((c) => c[0] === 'CGST 9%' && c[1] === '₹ 189.00'), sr);
   sr = await lineOffer('PCT');
-  ok('% only: "Total discounted price (10% less)", no amount row', sr.some((c) => c[0] === 'Total discounted price (10% less)' && c[1] === '₹ 1,800.00') &&
+  ok('% only: "Total discounted price (10% less)", no amount row', sr.some((c) => c[0] === 'Total discounted price (10% less)' && c[1] === '₹ 2,100.00') &&
     !sr.some((c) => /^Less: discount/.test(c[0])), sr);
   sr = await lineOffer('AMOUNT');
   ok('amount only: "Less: discount" and ₹200, no %', sr.some((c) => c[0] === 'Less: discount' && c[1] === '₹ 200.00') && !sr.some((c) => /%/.test(c[0]) && /discount/i.test(c[0])), sr);
   sr = await lineOffer('NONE');
-  ok('not shown: the discounted price alone', sr.some((c) => c[0] === 'Total discounted price' && c[1] === '₹ 1,800.00') &&
+  ok('not shown: the discounted price alone', sr.some((c) => c[0] === 'Total discounted price' && c[1] === '₹ 2,100.00') &&
     !sr.some((c) => /^Less: discount/.test(c[0])), sr);
 
   console.log('\nSHOWING THE FREIGHT, OR NOT');
