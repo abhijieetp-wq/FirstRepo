@@ -1,0 +1,1495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tender Desk</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@500;600&display=swap">
+<script>
+  // The ERP's light / dark choice (web2/Shell.html keeps it as erp.theme), before anything is drawn.
+  try { var th = localStorage.getItem('erp.theme'); if (th === 'dark' || th === 'light') document.documentElement.setAttribute('data-theme', th); } catch (e) {}
+</script>
+<!--
+  THE TENDER DESK — a module of its own, with its own page (PIE, Nov 2026).
+
+  The ERP's sign-in, people, clients (Customers), tasks, files and AI, behind a page of its
+  own: Dashboard, Shortlisting, Tenders, PO execution, Tasks and Masters. The server keeps
+  every record and every rule (src/Tenders.gs); this page draws what getTenderApp returns and
+  sends each change back through one call, which answers with the fresh picture.
+
+  It signs in with the ERP's own session (localStorage "pie.erp.session"), so moving between
+  the ERP and the Tender Desk from the dashboard switch needs no second sign-in.
+-->
+<style>
+@font-face{ font-family:'IBM Plex Sans'; font-style:normal; font-weight:400; font-display:swap; src:url('/fonts/plexsans-latin-400.woff2') format('woff2'); }
+@font-face{ font-family:'IBM Plex Sans'; font-style:normal; font-weight:500; font-display:swap; src:url('/fonts/plexsans-latin-500.woff2') format('woff2'); }
+@font-face{ font-family:'IBM Plex Sans'; font-style:normal; font-weight:600; font-display:swap; src:url('/fonts/plexsans-latin-600.woff2') format('woff2'); }
+@font-face{ font-family:'IBM Plex Mono'; font-style:normal; font-weight:400; font-display:swap; src:url('/fonts/plexmono-latin-400.woff2') format('woff2'); }
+@font-face{ font-family:'Plus Jakarta Sans'; font-style:normal; font-weight:500 800; font-display:swap; src:url('/fonts/jakarta-latin-var.woff2') format('woff2'); }
+:root{
+  --bg:#F4F6F2; --surface:#FFFFFF; --surface-2:#EDF1EA; --line:#DAE0D5; --line-2:#C8D1C2;
+  --ink:#13240F; --ink-2:#4B5948; --ink-3:#7A8776;
+  --accent:#2E5E1A; --on-accent:#FFFFFF; --accent-soft:#E6F0DA; --lime:#8CC02A;
+  --ok:#1F7A55; --ok-soft:#DDF1E7; --warn:#A86A12; --warn-soft:#FBEED6; --bad:#B8362F; --bad-soft:#F8E0DE; --info:#2C6795; --info-soft:#DEEBF6;
+  --shadow:0 1px 2px rgba(19,36,15,.06),0 6px 24px rgba(19,36,15,.08);
+  --f-display:"Lexend","Plus Jakarta Sans",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --r:8px; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0D140C; --surface:#142012; --surface-2:#1A2918; --line:#283A25; --line-2:#364C32;
+  --ink:#E8EFE4; --ink-2:#AAB8A5; --ink-3:#7B8977;
+  --accent:#9ED13C; --on-accent:#10200B; --accent-soft:#22361A; --lime:#9ED13C;
+  --ok:#4CC18C; --ok-soft:#173326; --warn:#E3A84A; --warn-soft:#3A2C14; --bad:#F07A70; --bad-soft:#3D1D1A; --info:#73AEDD; --info-soft:#172B3B;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 28px rgba(0,0,0,.35); color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#0D140C; --surface:#142012; --surface-2:#1A2918; --line:#283A25; --line-2:#364C32;
+  --ink:#E8EFE4; --ink-2:#AAB8A5; --ink-3:#7B8977;
+  --accent:#9ED13C; --on-accent:#10200B; --accent-soft:#22361A; --lime:#9ED13C;
+  --ok:#4CC18C; --ok-soft:#173326; --warn:#E3A84A; --warn-soft:#3A2C14; --bad:#F07A70; --bad-soft:#3D1D1A; --info:#73AEDD; --info-soft:#172B3B;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 28px rgba(0,0,0,.35); color-scheme:dark }
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.45}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+h1,h2,h3,h4{font-family:var(--f-display);font-weight:600;letter-spacing:-.01em;margin:0;text-wrap:balance}
+h1{font-size:22px} h2{font-size:17px} h3{font-size:14.5px}
+.mono,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--ink-2)} .faint{color:var(--ink-3)} .small{font-size:12.5px}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:600}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
+
+/* shell: a fixed rail beside a scrolling work area; on phones the rail is a strip across the top */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100%}
+.rail{background:var(--surface);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:18px 12px;gap:4px;overflow-y:auto}
+.brand{padding:4px 8px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.brand .mark{width:34px;height:34px;border-radius:9px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-family:var(--f-display);font-weight:600;font-size:16px;flex:none}
+.brand .nm{font-family:var(--f-display);font-weight:600;font-size:16px;line-height:1.15}
+.brand .prod{font-size:11.5px;color:var(--ink-3)}
+.nav-btn{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:9px 10px;border-radius:7px;cursor:pointer;color:var(--ink-2);font-weight:500;text-align:left}
+.nav-btn:hover{background:var(--surface-2);color:var(--ink)}
+.nav-btn.on{background:var(--accent-soft);color:var(--ink)}
+.nav-btn.on svg{color:var(--accent)}
+.nav-btn .ct{margin-left:auto;font-family:var(--f-mono);font-size:11px;background:var(--surface-2);border-radius:10px;padding:1px 7px;color:var(--ink-2)}
+.nav-btn .ct.hot{background:var(--bad-soft);color:var(--bad)}
+.rail-foot{margin-top:auto;padding:10px 8px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+svg.i{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.main{min-width:0;display:flex;flex-direction:column}
+.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:10px 24px;flex-wrap:wrap}
+.top .crumbs{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+.top .crumbs h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 12px 3px 4px;max-width:280px;min-width:0}
+.who span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.content{padding:22px 24px 60px;display:flex;flex-direction:column;gap:18px;max-width:1440px;width:100%}
+
+/* the switch between the ERP and the Tender Desk */
+.switch{display:inline-flex;border:1px solid var(--line-2);border-radius:999px;padding:3px;background:var(--surface);gap:2px}
+.switch a,.switch span{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;text-decoration:none;color:var(--ink-2);font-weight:500;font-size:13px}
+.switch .on{background:var(--accent);color:var(--on-accent)}
+.switch a:hover{background:var(--surface-2);color:var(--ink)}
+
+/* primitives */
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-2);background:var(--surface);padding:7px 12px;border-radius:7px;cursor:pointer;font-weight:500;white-space:nowrap;text-decoration:none;color:var(--ink)}
+.btn:hover{border-color:var(--ink-3)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn.ghost{border-color:transparent;background:none}
+.btn.ghost:hover{background:var(--surface-2)}
+.btn.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent)}
+.btn.sm{padding:4px 9px;font-size:12.5px}
+.btn[disabled]{opacity:.45;cursor:not-allowed;filter:none}
+.btn.ai{border-color:color-mix(in srgb,var(--lime) 70%,transparent);background:color-mix(in srgb,var(--lime) 14%,var(--surface))}
+.icon-btn{border:1px solid var(--line);background:var(--surface);border-radius:999px;width:36px;height:36px;display:grid;place-items:center;cursor:pointer;position:relative;color:var(--ink)}
+.icon-btn .dot{position:absolute;top:-3px;right:-3px;min-width:17px;height:17px;border-radius:9px;background:var(--bad);color:#fff;font-size:10px;font-family:var(--f-mono);display:grid;place-items:center;padding:0 4px}
+.mic-btn{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.card-h{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card-h h2,.card-h h3{flex:1;min-width:0}
+.card-b{padding:16px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+.grid{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+.grid>*,.split>*,.kpis>*{min-width:0}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--ink-2);white-space:nowrap;letter-spacing:.01em}
+.chip.ok{background:var(--ok-soft);color:var(--ok)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.bad{background:var(--bad-soft);color:var(--bad)} .chip.info{background:var(--info-soft);color:var(--info)} .chip.acc{background:var(--accent-soft);color:var(--accent)}
+.chip.ai{background:color-mix(in srgb,var(--lime) 18%,transparent);color:var(--ink)}
+.chip .d{width:6px;height:6px;border-radius:50%;background:currentColor}
+.av{width:24px;height:24px;border-radius:50%;display:inline-grid;place-items:center;font-size:10.5px;font-weight:600;color:#fff;flex:none;font-family:var(--f-body)}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:6px;cursor:default}
+.kpi[data-act]{cursor:pointer} .kpi[data-act]:hover{border-color:var(--line-2)}
+.kpi .v{font-family:var(--f-display);font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:12px;color:var(--ink-3)}
+.kpi.bad .v{color:var(--bad)} .kpi.warn .v{color:var(--warn)} .kpi.ok .v{color:var(--ok)}
+
+.tbl-wrap{overflow-x:auto}
+table.t{width:100%;border-collapse:collapse;font-size:13px}
+table.t th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:600;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--surface)}
+table.t td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.t tr:last-child td{border-bottom:0}
+table.t tr.click{cursor:pointer} table.t tr.click:hover td{background:var(--surface-2)}
+table.t td.r,table.t th.r{text-align:right}
+table.t input,table.t select{width:100%;min-width:70px}
+
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px 16px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f.wide{grid-column:1/-1}
+.f>label{font-size:12px;color:var(--ink-2);font-weight:500;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.f .req{color:var(--bad)}
+input.in,select.in,textarea.in{width:100%;border:1px solid var(--line-2);background:var(--surface);border-radius:6px;padding:7px 9px;min-width:0}
+textarea.in{min-height:64px;resize:vertical}
+input.in:focus,select.in:focus,textarea.in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--lime) 30%,transparent)}
+.in.miss{border-color:color-mix(in srgb,var(--bad) 55%,transparent);background:color-mix(in srgb,var(--bad-soft) 45%,var(--surface))}
+.in.lowc{background:color-mix(in srgb,var(--warn-soft) 80%,var(--surface));border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.in[readonly],.in:disabled{background:var(--surface-2);color:var(--ink-2)}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:6px;overflow:hidden;background:var(--surface);flex-wrap:wrap}
+.seg button{border:0;background:none;padding:6px 11px;cursor:pointer;font-size:12.5px;font-weight:500;color:var(--ink-2);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button[disabled]{cursor:default}
+.seg button.on.y{background:var(--ok-soft);color:var(--ok)} .seg button.on.n{background:var(--bad-soft);color:var(--bad)} .seg button.on.na{background:var(--surface-2);color:var(--ink)} .seg button.on.p{background:var(--warn-soft);color:var(--warn)}
+
+.stepper{display:flex;gap:0;overflow-x:auto;padding:2px 2px 4px}
+.step{flex:1;min-width:104px;display:flex;flex-direction:column;gap:6px;padding:0 4px}
+.step .bar{height:6px;border-radius:3px;background:var(--surface-2)}
+.step.done .bar{background:var(--accent)} .step.cur .bar{background:var(--lime)}
+.step .nm{font-size:12px;color:var(--ink-3);font-weight:500;white-space:nowrap}
+.step.done .nm{color:var(--ink-2)} .step.cur .nm{color:var(--ink);font-weight:600}
+
+.gate{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.gate-h{padding:14px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface-2)}
+.gate ul{list-style:none;margin:0;padding:8px 16px 12px;display:flex;flex-direction:column;gap:2px}
+.gate li{display:flex;gap:9px;align-items:flex-start;padding:5px 0;font-size:13px}
+.gate li .ck{width:18px;height:18px;border-radius:50%;flex:none;display:grid;place-items:center;margin-top:1px}
+.gate li.ok .ck{background:var(--ok-soft);color:var(--ok)} .gate li.no .ck{background:var(--bad-soft);color:var(--bad)}
+.gate li.ok span.t{color:var(--ink-2)}
+.gate .ck svg{width:11px;height:11px;stroke-width:3}
+
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{border:0;background:none;padding:10px 12px;cursor:pointer;color:var(--ink-2);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:flex;gap:6px;align-items:center}
+.tab.on{color:var(--ink);border-bottom-color:var(--accent)}
+.tab .ct{font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
+
+.kan{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px}
+.col{background:var(--surface-2);border-radius:var(--r);padding:10px;display:flex;flex-direction:column;gap:8px;min-height:120px}
+.col-h{display:flex;align-items:center;gap:8px;padding:2px 4px 4px;font-weight:600;font-size:13px}
+.col-h .ct{font-family:var(--f-mono);font-size:11px;color:var(--ink-3);font-weight:500}
+.tcard{background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:11px 12px;display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left}
+.tcard:hover{border-color:var(--line-2);box-shadow:var(--shadow)}
+.tcard .tt{font-weight:600;font-size:13px;line-height:1.35}
+.tcard .meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--ink-3)}
+
+.pbar{height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;position:relative}
+.pbar i{position:absolute;inset:0 auto 0 0;border-radius:4px;background:var(--accent)}
+.qstack{display:grid;grid-template-columns:78px minmax(0,1fr) 46px;gap:6px 10px;align-items:center;font-size:12px}
+.qstack .pbar{height:7px}
+.qstack .pbar i.o{background:color-mix(in srgb,var(--accent) 35%,var(--surface-2))}
+.qstack .pbar i.p{background:color-mix(in srgb,var(--accent) 60%,var(--surface-2))}
+.qstack .pbar i.d{background:color-mix(in srgb,var(--accent) 82%,var(--surface-2))}
+.qstack .pbar i.v{background:var(--lime)}
+.ring{--p:0;width:46px;height:46px;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--surface-2) 0);display:grid;place-items:center;flex:none}
+.ring b{width:36px;height:36px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font-family:var(--f-mono);font-size:11px}
+
+.lrow{display:flex;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+.lrow:last-child{border-bottom:0}
+.lrow:hover{background:var(--surface-2)}
+.lrow .x{flex:1;min-width:0}
+.lrow .x .a{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sev{width:4px;align-self:stretch;border-radius:2px;flex:none;background:var(--line)}
+.sev.bad{background:var(--bad)} .sev.warn{background:var(--warn)} .sev.info{background:var(--info)} .sev.ok{background:var(--ok)}
+.empty{padding:28px 16px;text-align:center;color:var(--ink-3)}
+
+.funnel{display:flex;flex-direction:column;gap:7px}
+.funnel .fr{display:grid;grid-template-columns:130px minmax(0,1fr) 34px;gap:10px;align-items:center;font-size:12.5px}
+.funnel .fb{height:20px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+.funnel .fb i{display:block;height:100%;background:var(--accent);border-radius:4px;min-width:3px}
+
+.scrim{position:fixed;inset:0;background:rgba(10,18,9,.45);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:4vh 16px 16px;overflow-y:auto}
+.modal{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);width:100%;max-width:640px;display:flex;flex-direction:column;border:1px solid var(--line)}
+.modal.wide{max-width:1060px}
+.modal-h{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center}
+.modal-h h2{flex:1}
+.modal-b{padding:18px 20px;display:flex;flex-direction:column;gap:16px}
+.modal-f{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;align-items:center}
+.drop{border:1.5px dashed var(--line-2);border-radius:10px;padding:28px 18px;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center;background:var(--surface-2);cursor:pointer}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.thinking{display:flex;gap:12px;align-items:center;padding:18px;border-radius:10px;background:color-mix(in srgb,var(--lime) 10%,var(--surface));border:1px solid color-mix(in srgb,var(--lime) 40%,transparent)}
+.pulse{width:12px;height:12px;border-radius:50%;background:var(--lime);animation:pl 1.1s ease-in-out infinite;flex:none}
+@keyframes pl{0%,100%{transform:scale(.7);opacity:.6}50%{transform:scale(1.15);opacity:1}}
+.mic-big{width:84px;height:84px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;cursor:pointer;margin:0 auto}
+.mic-big svg{width:34px;height:34px}
+.mic-big.rec{background:var(--bad);color:#fff;animation:pl 1.2s ease-in-out infinite}
+.note{padding:10px 12px;border-radius:7px;background:var(--surface-2);font-size:12.5px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start}
+.note.warn{background:var(--warn-soft);color:var(--warn)} .note.bad{background:var(--bad-soft);color:var(--bad)} .note.ok{background:var(--ok-soft);color:var(--ok)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;z-index:80;box-shadow:var(--shadow);font-weight:500;max-width:calc(100% - 32px)}
+.busy{position:fixed;top:0;left:0;right:0;height:3px;z-index:90;background:linear-gradient(90deg,transparent,var(--lime),transparent);background-size:50% 100%;animation:bz 1s linear infinite}
+@keyframes bz{0%{background-position:-50% 0}100%{background-position:150% 0}}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);background:var(--surface);border-left:1px solid var(--line);z-index:60;box-shadow:var(--shadow);display:flex;flex-direction:column}
+.drawer .body{overflow-y:auto;flex:1}
+.checkrow{display:flex;gap:8px;align-items:center;padding:4px 0}
+.cp{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.cp:last-child{border-bottom:0}
+.cp .no{font-family:var(--f-mono);font-size:12px;color:var(--ink-3)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.filters select,.filters input[type=search]{border:1px solid var(--line-2);background:var(--surface);border-radius:6px;padding:6px 8px;max-width:100%}
+.ld-box{border-radius:var(--r);padding:14px 16px;background:var(--bad-soft);color:var(--bad);display:flex;flex-direction:column;gap:4px}
+.ld-box.zero{background:var(--ok-soft);color:var(--ok)}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;font-size:13px;margin:0}
+.kv dt{color:var(--ink-3)} .kv dd{margin:0;font-weight:500;min-width:0;overflow-wrap:anywhere}
+.ai-badge{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink);background:color-mix(in srgb,var(--lime) 30%,transparent);padding:1px 6px;border-radius:4px}
+.tl{display:flex;flex-direction:column}
+.tl .ev{display:grid;grid-template-columns:82px minmax(0,1fr);gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:12.5px}
+.tl .ev:last-child{border-bottom:0}
+.docs{display:flex;flex-direction:column;gap:6px}
+.docs a{overflow-wrap:anywhere}
+.hero{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:20px;align-items:center}
+.splash{min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center}
+.splash .card{max-width:460px;padding:28px}
+
+@media (max-width:1100px){.split{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:820px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .rail{position:static;height:auto;flex-direction:row;align-items:center;overflow-x:auto;padding:8px 12px;border-right:0;border-bottom:1px solid var(--line);gap:2px}
+  .brand{border:0;margin:0;padding:0 8px 0 0;flex:none}
+  .brand .prod,.brand .nm{display:none}
+  .nav-btn{width:auto;flex:none;padding:7px 9px}
+  .rail-foot{display:none}
+  .g2,.hero{grid-template-columns:minmax(0,1fr)}
+  .lrow{flex-wrap:wrap} .lrow .x{flex-basis:calc(100% - 40px)}
+  .top,.content{padding-left:16px;padding-right:16px}
+  .top .crumbs h1{font-size:18px}
+  .who{max-width:170px}
+  .mic-btn span{display:none}
+  .cp{grid-template-columns:34px minmax(0,1fr)} .cp .seg{grid-column:2}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"><div class="splash"><div><span class="pulse" style="display:inline-block"></span><p class="muted">Opening the Tender Desk…</p></div></div></div>
+<div id="overlay"></div>
+<input type="file" id="filepick" hidden accept=".pdf,.png,.jpg,.jpeg,.webp">
+<script>
+"use strict";
+// ================= utils =================
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const msDay = (s) => { const p = String(s).split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); };
+const isDay = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+let TODAY = new Date().toISOString().slice(0, 10);
+const addD = (n, base) => new Date(msDay(base || TODAY) + n * 864e5).toISOString().slice(0, 10);
+const dd = (s) => isDay(s) ? Math.round((msDay(s) - msDay(TODAY)) / 864e5) : null;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fD = (s) => isDay(s) ? String(+s.slice(8, 10)).padStart(2, '0') + ' ' + MONTHS[+s.slice(5, 7) - 1] : '—';
+const fDY = (s) => isDay(s) ? fD(s) + ' ' + s.slice(0, 4) : '—';
+const num = (v) => (v === '' || v == null || isNaN(+v)) ? 0 : +v;
+const inr = (n) => (n === '' || n == null || isNaN(n)) ? '—' : '₹' + Math.round(+n).toLocaleString('en-IN');
+const inrS = (n) => { n = +n || 0; const a = Math.abs(n); if (a >= 1e7) return '₹' + (n / 1e7).toFixed(2) + ' Cr'; if (a >= 1e5) return '₹' + (n / 1e5).toFixed(1) + ' L'; return inr(n); };
+const pct = (a, b) => b ? Math.round(a * 100 / b) : 0;
+const blank = (v) => v === undefined || v === null || String(v).trim() === '';
+function getPath(o, p) { return p.split('.').reduce((a, k) => a == null ? a : a[k], o); }
+function setPath(o, p, v) { const ks = p.split('.'); let a = o; ks.slice(0, -1).forEach((k) => { if (a[k] == null) a[k] = /^\d+$/.test(k) ? [] : {}; a = a[k]; }); a[ks[ks.length - 1]] = v; }
+
+const ICONS = {
+  home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  check: '<path d="M5 12l5 5 9-10"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  tasks: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12l3 3 5-6"/>',
+  cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  bell: '<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21h4"/>',
+  up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  file: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/>',
+  spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  back: '<path d="M19 12H5M11 18l-6-6 6-6"/>',
+  truck: '<path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
+  alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  clip: '<path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/>'
+};
+const ic = (n, cls) => `<svg class="i ${cls || ''}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+const AVC = ['#2E5E1A', '#2C6795', '#8A4B9E', '#A86A12', '#1F7A55', '#B8362F', '#3B6F73', '#6B5B2E', '#5A4FA0'];
+
+// ================= talking to the server =================
+// The ERP's own session, so the switch from the ERP's dashboard needs no second sign-in.
+const SESSION_KEY = 'pie.erp.session';
+let token = null;
+try { token = localStorage.getItem(SESSION_KEY); } catch (e) { token = null; }
+function toErp(path) { location.href = path || '/dashboard'; }
+function api(fn, args) {
+  return fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, fn, args: args || [] }) })
+    .then((r) => r.json().catch(() => ({})).then((b) => ({ r, b })))
+    .then(({ r, b }) => {
+      if (!r.ok) {
+        const msg = (b && b.error) || ('HTTP ' + r.status);
+        if (/SESSION_ENDED/.test(msg)) { toErp('/dashboard'); throw new Error('Your session has ended. Sign in again.'); }
+        throw new Error(msg);
+      }
+      return b.ok;
+    }, (err) => { throw (err && err.message) ? err : new Error('Could not reach the server. Check your connection.'); });
+}
+// Every change goes one after another, so answers never arrive out of order.
+let queue = Promise.resolve();
+let busyN = 0;
+function setBusy(d) { busyN += d; let el = $('.busy'); if (busyN > 0 && !el) { el = document.createElement('div'); el.className = 'busy'; document.body.appendChild(el); } if (busyN <= 0 && el) el.remove(); }
+function mutate(fn, args, after) {
+  const run = () => {
+    setBusy(1);
+    return api(fn, args).then((res) => {
+      setBusy(-1);
+      if (res && res.state) S = res.state, TODAY = S.today || TODAY;
+      if (after) after(res);
+      render();
+      if (res && res.message) toast(res.message);
+      return res;
+    }, (err) => {
+      setBusy(-1);
+      toast(err.message || String(err));
+      return refresh().then(() => { throw err; });
+    });
+  };
+  const p = queue.then(run, run);
+  queue = p.catch(() => {});
+  return p;
+}
+function refresh() { return api('getTenderApp').then((st) => { S = st; TODAY = S.today || TODAY; render(); }).catch(() => {}); }
+
+// ================= state =================
+let S = null;
+const ui = { page: 'dashboard', id: null, tab: null, filters: { mine: false, q: '', prio: '', portal: '', view: 'board', tview: 'mine', tlink: '' },
+  modal: null, drawer: false, form: {}, extract: null, voice: null, toast: null, mtab: 'members', newRow: {}, clientCache: {} };
+
+// ================= lookups =================
+const mem = (id) => S.members.find((m) => m.id === id);
+const mName = (id) => (mem(id) || {}).name || (id ? id : '—');
+const role = () => S.me.role;
+const ROLES = () => S.roles;
+const cli = (id) => S.clients.find((c) => c.id === id) || ui.clientCache[id];
+const sup = (id) => S.suppliers.find((s) => s.id === id);
+const portal = (id) => S.portals.find((p) => p.id === id);
+const tender = (id) => S.tenders.find((t) => t.id === id);
+const pobj = (id) => S.pos.find((p) => p.id === id);
+const tStatus = (id) => S.taskStatuses.find((s) => s.id === id);
+const DONE = 'Done';
+const stageIdx = (k) => S.stages.findIndex((s) => s.k === k);
+function av(id, size) {
+  const m = mem(id); if (!m) return '';
+  const i = S.members.indexOf(m);
+  const ini = m.name.split(/\s+/).map((x) => x[0]).slice(0, 2).join('').toUpperCase();
+  return `<span class="av" title="${esc(m.name)}" style="background:${AVC[i % AVC.length]}${size ? ';width:' + size + 'px;height:' + size + 'px' : ''}">${esc(ini)}</span>`;
+}
+function linkLabel(link) { if (!link) return ''; const k = link.slice(0, 1), id = link.slice(2); if (k === 't') { const t = tender(id); return t ? (t.no || 'Draft tender') : ''; } const p = pobj(id); return p ? 'PO ' + p.no : ''; }
+function linkOwner(link) { if (!link) return ''; const k = link.slice(0, 1), id = link.slice(2); if (k === 't') return (tender(id) || {}).assignee || ''; const p = pobj(id); const it = p && p.items.find((i) => i.fp); return it ? it.fp : ''; }
+
+// ================= tender display =================
+function deadlineChip(t) {
+  if (['submitted', 'opened', 'result'].includes(t.stage)) return '';
+  const d = dd(t.lastDate); if (d == null) return '<span class="chip">No date</span>';
+  if (d < 0) return `<span class="chip bad"><span class="d"></span>Overdue ${-d}d</span>`;
+  if (d <= S.cfg.urgentDays) return `<span class="chip bad"><span class="d"></span>${d === 0 ? 'Due today' : d + 'd left'}</span>`;
+  if (d <= S.cfg.alertDays) return `<span class="chip warn"><span class="d"></span>${d}d left</span>`;
+  return `<span class="chip ok"><span class="d"></span>${d}d left</span>`;
+}
+const ckScore = (t) => t.ck || [0, S.checklist.length];
+function stageLabel(t) { if (t.stage === 'result') return (S.results[t.result] || {}).l || 'Result'; return (S.stages.find((s) => s.k === t.stage) || {}).l || t.stage; }
+function prioChip(p) { return p ? `<span class="chip ${p === 'High' ? 'bad' : p === 'Medium' ? 'warn' : ''}">${esc(p)}</span>` : ''; }
+function stageChip(t) { if (t.stage === 'result') { const r = S.results[t.result] || {}; return `<span class="chip ${r.c || ''}">${esc(r.l || 'Result')}</span>`; } const i = stageIdx(t.stage); return `<span class="chip ${i >= 4 ? 'acc' : i === 1 ? 'info' : ''}">${esc(stageLabel(t))}</span>`; }
+function dueChip(d, done) { if (done) return '<span class="chip ok">Complete</span>'; if (d == null) return ''; if (d < 0) return `<span class="chip bad">${-d}d overdue</span>`; if (d <= 14) return `<span class="chip warn">${d}d left</span>`; return `<span class="chip">${d}d left</span>`; }
+const qtys = (it) => { const q = { ordered: 0, procured: 0, dispatched: 0, delivered: 0 }; (it.moves || []).forEach((m) => { if (q[m.t] !== undefined) q[m.t] += num(m.qty); }); return q; };
+const itemVal = (it) => num(it.qty) * num(it.rate);
+const pstageLabel = (p) => (S.pstages.find((s) => s.k === p.calc.stage) || {}).l || '';
+const go = (page, id, tab) => `data-act="go" data-page="${page}"${id ? ` data-id="${esc(id)}"` : ''}${tab ? ` data-tab="${tab}"` : ''}`;
+const refGo = (ref) => { const k = ref.slice(0, 1), id = ref.slice(2); return k === 't' ? go('tender', id) : k === 'p' ? go('po', id) : `data-act="openTask" data-id="${esc(id)}"`; };
+
+// ================= form helpers =================
+let RO = false;
+const fid = (ref) => 'f_' + ref.replace(/[^a-zA-Z0-9]/g, '_');
+function opts(list, cur, placeholder) { return `<option value="">${esc(placeholder == null ? 'Select…' : placeholder)}</option>` + list.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(cur == null ? '' : cur) ? ' selected' : ''}>${esc(l)}</option>`).join(''); }
+function seg(ref, cur, choices, ro) {
+  const cls = { Yes: 'y', No: 'n', NA: 'na', Partial: 'p' };
+  return `<div class="seg" role="group">${choices.map((c) => `<button type="button" class="${cls[c] || 'y'}${cur === c ? ' on' : ''}" data-act="seg" data-ref="${esc(ref)}" data-v="${esc(c)}" aria-pressed="${cur === c}" ${(ro !== undefined ? ro : RO) ? 'disabled' : ''}>${esc(c)}</button>`).join('')}</div>`;
+}
+function F(label, ref, val, o) {
+  o = o || {};
+  const id = fid(ref); const t = o.type || 'text';
+  // o.ro decides where it is given (Accounts may answer the EMD questions on a tender they cannot otherwise change).
+  const ro = o.ro !== undefined ? !!o.ro : RO;
+  const miss = o.req && blank(val) && o.showMiss;
+  const cls = 'in' + (miss ? ' miss' : '') + (o.low ? ' lowc' : '');
+  let ctl;
+  if (t === 'select') ctl = `<select class="${cls}" id="${id}" data-ref="${esc(ref)}" ${ro ? 'disabled' : ''}>${opts(o.opts || [], val, o.ph)}</select>`;
+  else if (t === 'textarea') ctl = `<textarea class="${cls}" id="${id}" data-ref="${esc(ref)}" ${ro ? 'readonly' : ''} placeholder="${esc(o.ph || '')}">${esc(val)}</textarea>`;
+  else if (t === 'yesno') ctl = seg(ref, val, ['Yes', 'No'], ro);
+  else if (t === 'yna') ctl = seg(ref, val, ['Yes', 'No', 'NA'], ro);
+  else if (t === 'ynp') ctl = seg(ref, val, ['Yes', 'No', 'Partial'], ro);
+  else if (t === 'client') {
+    const c = cli(val);
+    const list = 'dl_' + id;
+    const extra = (o.matches || []).map((m) => `<option value="${esc(m.name)}" data-id="${esc(m.id)}"></option>`).join('');
+    ctl = `<input class="${cls}" id="${id}" type="search" list="${list}" data-client="${esc(ref)}" value="${esc(c ? c.name : '')}" ${ro ? 'readonly' : ''} placeholder="${esc(o.ph || 'Type to search Customers')}" autocomplete="off"><datalist id="${list}">${extra}</datalist>`;
+  } else ctl = `<input class="${cls}" id="${id}" type="${t}" data-ref="${esc(ref)}" value="${esc(val)}" ${ro ? 'readonly' : ''} placeholder="${esc(o.ph || '')}" ${t === 'number' ? 'step="any" inputmode="decimal" min="0"' : ''}>`;
+  return `<div class="f${o.wide ? ' wide' : ''}"><label for="${id}">${esc(label)}${o.req ? '<span class="req">*</span>' : ''}${o.low ? '<span class="ai-badge" title="AI was not sure – please check">check</span>' : ''}${o.hint ? `<span class="faint small">${esc(o.hint)}</span>` : ''}</label>${ctl}</div>`;
+}
+function cfFields(entity, obj, prefix, showMiss) {
+  const fs = S.customFields.filter((f) => f.entity === entity);
+  return fs.map((f) => {
+    const ref = prefix + 'custom.' + f.id; const v = (obj.custom || {})[f.id];
+    const type = f.type === 'select' ? 'select' : f.type === 'yesno' ? 'yna' : f.type === 'long' ? 'textarea' : f.type;
+    const o = { type, req: !!f.gate, showMiss, hint: f.gate ? `needed for “${(S.stages.find((s) => s.k === f.gate) || {}).l || f.gate}”` : '' };
+    if (type === 'select') o.opts = String(f.options || '').split(',').map((s) => s.trim()).filter(Boolean).map((s) => [s, s]);
+    return F(f.label, ref, v, o);
+  }).join('');
+}
+const L = (arr, key) => arr.map((x) => [x.id, x[key || 'name']]);
+const membersOf = (r) => S.members.filter((m) => !r || m.role === r).map((m) => [m.id, m.name + (r ? '' : ' · ' + S.roles[m.role])]);
+function stepper(list, curKey, extra) {
+  const ci = list.findIndex((s) => s.k === curKey);
+  return `<div class="stepper">${list.map((s, i) => `<div class="step ${i < ci ? 'done' : i === ci ? 'cur' : ''}"><div class="bar"></div><div class="nm">${esc(i === ci && extra ? extra : s.l)}</div></div>`).join('')}</div>`;
+}
+function gatePanel(title, reqs, btn, foot) {
+  const miss = reqs.filter((r) => !r.ok).length;
+  return `<div class="gate"><div class="gate-h"><div style="flex:1;min-width:0"><div class="lbl">Next step</div><h3>${esc(title)}</h3></div>
+    ${miss ? `<span class="chip bad">${miss} open</span>` : `<span class="chip ok">All checks passed</span>`}</div>
+    <ul>${reqs.map((r) => `<li class="${r.ok ? 'ok' : 'no'}"><span class="ck">${ic(r.ok ? 'check' : 'x')}</span><span class="t">${esc(r.t)}</span></li>`).join('')}</ul>
+    ${btn ? `<div style="padding:0 16px 16px" class="row">${btn}</div>` : ''}${foot || ''}</div>`;
+}
+function qbar(label, cls, n, d) { const p = d ? Math.min(100, Math.round(n * 100 / d)) : 0; return `<span class="faint">${label}</span><div class="pbar"><i class="${cls}" style="width:${p}%"></i></div><span class="num" style="text-align:right">${p}%</span>`; }
+function poBars(c) { return `<div class="qstack">${qbar('Ordered', 'o', c.v.ordered, c.tot)}${qbar('Procured', 'p', c.v.procured, c.tot)}${qbar('Dispatched', 'd', c.v.dispatched, c.tot)}${qbar('Delivered', 'v', c.v.delivered, c.tot)}</div>`; }
+function docList(docs, canRemove) {
+  if (!docs || !docs.length) return '<div class="small faint">No document attached yet.</div>';
+  return `<div class="docs">${docs.map((d) => `<div class="row" style="gap:6px">${ic('file', 'faint')}<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.name)}</a>${canRemove ? `<button class="btn sm ghost" data-act="rmDoc" data-id="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ic('trash')}</button>` : ''}</div>`).join('')}</div>`;
+}
+
+// ================= shell =================
+const PATHS = { dashboard: '/tender-desk', shortlist: '/tender-desk/shortlisting', tenders: '/tender-desk/tenders', tender: '/tender-desk/tenders', pos: '/tender-desk/po', po: '/tender-desk/po', tasks: '/tender-desk/tasks', masters: '/tender-desk/masters' };
+function pathFor() { const base = PATHS[ui.page] || '/tender-desk'; return (ui.page === 'tender' || ui.page === 'po') && ui.id ? base + '/' + encodeURIComponent(ui.id) : base; }
+function fromPath(p) {
+  const m = /^\/tender-desk(?:\/(shortlisting|tenders|po|tasks|masters)(?:\/([A-Za-z0-9_-]{1,64}))?)?\/?$/.exec(p || '');
+  if (!m) return { page: 'dashboard', id: null };
+  const map = { shortlisting: 'shortlist', tenders: 'tenders', po: 'pos', tasks: 'tasks', masters: 'masters' };
+  if (m[2] && m[1] === 'tenders') return { page: 'tender', id: m[2] };
+  if (m[2] && m[1] === 'po') return { page: 'po', id: m[2] };
+  return { page: m[1] ? map[m[1]] : 'dashboard', id: null };
+}
+function navItems() {
+  const r = role();
+  const sl = S.tenders.filter((t) => ['draft', 'approval', 'approved'].includes(t.stage)).length;
+  const myOpen = S.tasks.filter((k) => k.assignee === S.me.id && k.status !== DONE);
+  const od = myOpen.some((k) => k.due && dd(k.due) < 0);
+  return [
+    { p: 'dashboard', l: 'Dashboard', i: 'home' },
+    { p: 'shortlist', l: 'Shortlisting', i: 'search', ct: sl },
+    { p: 'tenders', l: 'Tenders', i: 'layers', ct: S.tenders.filter((t) => ['assigned', 'prep', 'ready', 'submitted', 'opened'].includes(t.stage) && (r !== 'exec' || t.assignee === S.me.id)).length },
+    { p: 'pos', l: 'PO execution', i: 'truck', ct: S.pos.filter((p) => !p.closed).length },
+    { p: 'tasks', l: 'Tasks', i: 'tasks', ct: myOpen.length, hot: od },
+    { p: 'masters', l: 'Masters', i: 'cog' }
+  ];
+}
+function pageTitle() {
+  switch (ui.page) {
+    case 'dashboard': return 'Dashboard';
+    case 'shortlist': return 'Shortlisting';
+    case 'tenders': return 'Tenders';
+    case 'tender': { const t = tender(ui.id); return t ? (t.no || 'Draft tender') : 'Tender'; }
+    case 'pos': return 'PO execution';
+    case 'po': return 'PO ' + ((pobj(ui.id) || {}).no || '');
+    case 'tasks': return 'Tasks';
+    case 'masters': return 'Masters & settings';
+  }
+  return '';
+}
+function isDark() { const a = document.documentElement.getAttribute('data-theme'); if (a) return a === 'dark'; return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches; }
+function erpSwitch() { return `<nav class="switch" aria-label="Switch module"><a href="/dashboard" data-act="toErp">${ic('grid')}ERP</a><span class="on" aria-current="page">${ic('layers')}Tender Desk</span></nav>`; }
+function shell() {
+  const nav = navItems().map((n) => `<button class="nav-btn${(ui.page === n.p || (ui.page === 'tender' && n.p === 'tenders') || (ui.page === 'po' && n.p === 'pos')) ? ' on' : ''}" ${go(n.p)} title="${esc(n.l)}">${ic(n.i)}<span class="lb">${esc(n.l)}</span>${n.ct ? `<span class="ct${n.hot ? ' hot' : ''}">${n.ct}</span>` : ''}</button>`).join('');
+  const al = S.alerts;
+  const back = ['tender', 'po'].includes(ui.page) ? `<button class="icon-btn" ${go(ui.page === 'tender' ? 'tenders' : 'pos')} title="Back" aria-label="Back">${ic('back')}</button>` : '';
+  return `<div class="app">
+  <aside class="rail">
+    <div class="brand"><span class="mark">T</span><div><div class="nm">Tender Desk</div><div class="prod">PIE ERP · tenders to payment</div></div></div>
+    ${nav}
+    <div class="rail-foot">
+      <div class="lbl">Signed in</div>
+      <div class="row" style="gap:8px">${av(S.me.id)}<div style="min-width:0"><div class="small" style="font-weight:600">${esc(S.me.name)}</div><div class="small faint">${esc(S.roles[S.me.role])}</div></div></div>
+      <a class="btn sm" href="/dashboard" data-act="toErp">${ic('back')}Back to the ERP</a>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div class="crumbs">${back}<h1>${esc(pageTitle())}</h1></div>
+      ${ui.page === 'dashboard' ? erpSwitch() : ''}
+      <button class="btn mic-btn" data-act="voice" title="Voice note">${ic('mic')}<span>Voice note</span></button>
+      <button class="icon-btn" data-act="drawer" title="Alerts" aria-label="Alerts">${ic('bell')}${al.length ? `<span class="dot">${al.length}</span>` : ''}</button>
+      <button class="icon-btn" data-act="theme" title="${isDark() ? 'Light mode' : 'Dark mode'}" aria-label="Switch light or dark">${ic(isDark() ? 'sun' : 'moon')}</button>
+      <span class="who" title="${esc(S.me.name)} · ${esc(S.roles[S.me.role])}">${av(S.me.id)}<span>${esc(S.me.name)} · ${esc(S.roles[S.me.role])}</span></span>
+    </header>
+    <main class="content">${page()}</main>
+  </div></div>`;
+}
+function page() {
+  RO = false;
+  switch (ui.page) {
+    case 'dashboard': return vDashboard();
+    case 'shortlist': return vShortlist();
+    case 'tenders': return vTenders();
+    case 'tender': return vTender();
+    case 'pos': return vPOs();
+    case 'po': return vPO();
+    case 'tasks': return vTasks();
+    case 'masters': return vMasters();
+  }
+  return '';
+}
+
+// ================= dashboard =================
+function vDashboard() {
+  const r = role();
+  const mine = (t) => r !== 'exec' || t.assignee === S.me.id;
+  const live = S.tenders.filter((t) => ['approved', 'assigned', 'prep', 'ready'].includes(t.stage) && mine(t));
+  const due7 = live.filter((t) => dd(t.lastDate) != null && dd(t.lastDate) <= S.cfg.alertDays);
+  const appr = S.tenders.filter((t) => t.stage === 'approval');
+  const decided = S.tenders.filter((t) => t.stage === 'result' && ['won', 'lost', 'l2'].includes(t.result) && mine(t));
+  const won = decided.filter((t) => t.result === 'won');
+  const pos = S.pos.filter((p) => !p.closed && (r !== 'fp' || p.items.some((i) => i.fp === S.me.id)));
+  const openVal = pos.reduce((a, p) => a + p.calc.tot - p.calc.v.delivered, 0);
+  const totVal = pos.reduce((a, p) => a + p.calc.tot, 0), delVal = pos.reduce((a, p) => a + p.calc.v.delivered, 0);
+  const ld = pos.reduce((a, p) => a + p.calc.ld.accrued, 0);
+  const myTasks = S.tasks.filter((k) => k.assignee === S.me.id && k.status !== DONE);
+  const myOver = myTasks.filter((k) => k.due && dd(k.due) < 0);
+  const kpis = [
+    { l: 'Bids in progress', v: live.length, s: `${S.tenders.filter((t) => t.stage === 'submitted' || t.stage === 'opened').length} awaiting result`, a: go('tenders') },
+    { l: `Due in ${S.cfg.alertDays} days`, v: due7.length, s: due7.length ? `Nearest: ${fD(due7.map((t) => t.lastDate).sort()[0])}` : 'Nothing urgent', c: due7.some((t) => dd(t.lastDate) <= S.cfg.urgentDays) ? 'bad' : due7.length ? 'warn' : 'ok', a: go('tenders') },
+    { l: 'Awaiting approval', v: appr.length, s: appr.length ? inrS(appr.reduce((a, t) => a + num(t.estCost), 0)) + ' est. value' : 'All decided', c: appr.length ? 'warn' : '', a: go('shortlist') },
+    { l: 'Win rate', v: decided.length ? pct(won.length, decided.length) + '%' : '—', s: `${won.length} won of ${decided.length} decided` },
+    { l: 'Open PO value', v: inrS(openVal), s: `${pos.length} PO${pos.length === 1 ? '' : 's'} in execution`, a: go('pos') },
+    { l: 'Delivered (by value)', v: pct(delVal, totVal) + '%', s: `${inrS(delVal)} of ${inrS(totVal)}`, a: go('pos') },
+    { l: 'LD accrued', v: inrS(ld), s: ld ? 'Deliver late items first' : 'No delay penalty', c: ld ? 'bad' : 'ok', a: go('pos') },
+    { l: 'My open tasks', v: myTasks.length, s: myOver.length ? `${myOver.length} overdue` : 'None overdue', c: myOver.length ? 'bad' : '', a: go('tasks') }
+  ];
+  const al = S.alerts.slice(0, 8);
+  const fun = [['Shortlisted', (t) => stageIdx(t.stage) >= 2], ['Assigned', (t) => stageIdx(t.stage) >= 3], ['In preparation', (t) => stageIdx(t.stage) >= 4], ['Submitted', (t) => stageIdx(t.stage) >= 6], ['Won', (t) => t.result === 'won']];
+  const base = S.tenders.filter((t) => t.stage !== 'draft' && t.result !== 'declined');
+  const fv = fun.map(([l, f]) => [l, base.filter(f).length]); const fmax = Math.max(1, ...fv.map((x) => x[1]));
+  const myT = S.tenders.filter((t) => t.assignee === S.me.id && ['assigned', 'prep', 'ready', 'submitted', 'opened'].includes(t.stage));
+  return `
+  <div class="kpis">${kpis.map((k) => `<div class="kpi ${k.c || ''}" ${k.a || ''}><div class="lbl">${esc(k.l)}</div><div class="v">${k.v}</div><div class="s">${esc(k.s)}</div></div>`).join('')}</div>
+  <div class="split">
+    <div class="grid">
+      ${r === 'mgmt' && appr.length ? approvalsCard(appr) : ''}
+      ${r === 'exec' ? `<div class="card"><div class="card-h"><h2>My tenders</h2><span class="faint small">${myT.length} active</span></div>${myT.length ? myT.map(tRow).join('') : '<div class="empty">No tenders assigned to you right now.</div>'}</div>` : ''}
+      <div class="card"><div class="card-h"><h2>Needs attention</h2><span class="faint small">${al.length} item${al.length === 1 ? '' : 's'}</span></div>
+        ${al.length ? al.map((a) => `<div class="lrow" ${refGo(a.ref)}><span class="sev ${a.sev}"></span><div class="x"><div class="a">${esc(a.t)}</div><div class="small faint">${esc(a.s)}</div></div>${ic('arrow', 'faint')}</div>`).join('') : '<div class="empty">All clear. Nothing needs your attention.</div>'}
+      </div>
+      <div class="card"><div class="card-h"><h2>PO completion</h2><button class="btn sm ghost" ${go('pos')}>All POs ${ic('arrow')}</button></div>
+        <div class="tbl-wrap"><table class="t"><thead><tr><th>PO</th><th>Delivery due</th><th style="min-width:240px">Progress by value</th><th class="r">LD accrued</th></tr></thead><tbody>
+        ${pos.map((p) => { const c = p.calc; return `<tr class="click" ${go('po', p.id)}><td><div class="mono small">${esc(p.no)}</div><div class="small faint">${esc((cli(p.client) || {}).name || '')}</div></td><td>${fD(p.dueDate)}<div>${dueChip(dd(p.dueDate), c.pc.delivered >= 100)}</div></td><td>${poBars(c)}</td><td class="r num ${c.ld.accrued ? '' : 'faint'}" style="${c.ld.accrued ? 'color:var(--bad)' : ''}">${inr(c.ld.accrued)}</td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">No POs in execution.</td></tr>'}
+        </tbody></table></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="card-h"><h2>Tender funnel</h2><span class="faint small">all time</span></div><div class="card-b funnel">
+        ${fv.map(([l, v]) => `<div class="fr"><span class="muted">${l}</span><div class="fb"><i style="width:${v * 100 / fmax}%"></i></div><span class="num">${v}</span></div>`).join('')}
+      </div></div>
+      <div class="card"><div class="card-h"><h2>My tasks</h2><button class="btn sm" data-act="newTask">${ic('plus')}New</button></div>
+        ${myTasks.slice(0, 6).map(taskRow).join('') || '<div class="empty">No open tasks.</div>'}
+      </div>
+      <div class="card"><div class="card-h"><h2>Recent activity</h2></div><div class="card-b tl">
+        ${S.activity.slice(0, 7).map((a) => `<div class="ev"><span class="faint">${fD(a.at)}</span><span><b>${esc(mName(a.by).split(' ')[0])}</b> ${esc(a.text)}</span></div>`).join('') || '<div class="empty small">Nothing yet.</div>'}
+      </div></div>
+    </div>
+  </div>`;
+}
+function tRow(t) { const [a, b] = ckScore(t); return `<div class="lrow" ${go('tender', t.id)}><div class="x"><div class="a">${esc(t.title)}</div><div class="small faint mono">${esc(t.no)}</div></div>${stageChip(t)}<span class="chip">CP ${a}/${b}</span>${deadlineChip(t)}</div>`; }
+function taskRow(k) {
+  const st = tStatus(k.status); const d = dd(k.due); const done = k.status === DONE;
+  return `<div class="lrow" data-act="openTask" data-id="${esc(k.id)}"><span class="sev ${done ? 'ok' : d != null && d < 0 ? 'bad' : d != null && d <= 1 ? 'warn' : ''}"></span><div class="x"><div class="a" style="${done ? 'text-decoration:line-through;color:var(--ink-3)' : ''}">${esc(k.title)}</div><div class="small faint">${k.link ? esc(linkLabel(k.link)) + ' · ' : ''}${esc((st || {}).name || '')}${k.source === 'voice' ? ' · from voice note' : ''}</div></div>${k.due ? `<span class="chip ${done ? '' : d < 0 ? 'bad' : d <= 1 ? 'warn' : ''}">${fD(k.due)}</span>` : ''}${av(k.assignee)}</div>`;
+}
+function approvalsCard(list) {
+  return `<div class="card"><div class="card-h"><h2>Approve participation</h2><span class="chip info">${list.length} waiting</span></div>
+  ${list.map((t) => `<div class="lrow" style="cursor:default"><div class="x"><div class="a" style="white-space:normal">${esc(t.title)}</div><div class="small faint"><span class="mono">${esc(t.no)}</span> · ${esc((cli(t.client) || {}).name || '')} · Est. ${inrS(t.estCost)} · EMD ${inrS(t.emd)} · due ${fD(t.lastDate)}</div></div>
+    <button class="btn sm" ${go('tender', t.id)}>Review</button><button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">Approve</button><button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button></div>`).join('')}</div>`;
+}
+
+// ================= shortlisting =================
+function vShortlist() {
+  const r = role();
+  const by = (st) => S.tenders.filter((t) => t.stage === st);
+  const drafts = by('draft'), appr = by('approval'), ok = by('approved'), dec = S.tenders.filter((t) => t.result === 'declined');
+  const boss = S.members.find((m) => m.role === 'mgmt');
+  const section = (title, list, act, sub) => `<div class="card"><div class="card-h"><h2>${title}</h2><span class="faint small">${sub || ''}</span><span class="chip">${list.length}</span></div>
+    ${list.length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>Tender</th><th>Client / portal</th><th class="r">Est. cost</th><th class="r">EMD</th><th>Last date</th><th></th></tr></thead><tbody>
+    ${list.map((t) => `<tr><td ${go('tender', t.id)} style="cursor:pointer;min-width:220px"><div style="font-weight:500">${esc(t.title || 'Untitled')}</div><div class="small faint mono">${esc(t.no || 'no number yet')}</div></td>
+      <td><div>${esc((cli(t.client) || {}).name || t.clientName || '—')}</div><div class="small faint">${esc((portal(t.portal) || {}).name || '')}</div></td>
+      <td class="r num">${inrS(t.estCost)}</td><td class="r num">${inrS(t.emd)}</td><td>${fD(t.lastDate)} ${deadlineChip(t)}</td><td style="white-space:nowrap">${act(t)}</td></tr>`).join('')}
+    </tbody></table></div>` : `<div class="empty">Nothing here.</div>`}</div>`;
+  return `
+  <div class="card"><div class="card-b hero">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <span class="ai-badge" style="align-self:flex-start">${ic('spark')} AI capture</span>
+      <h2 style="font-size:20px">Upload a tender. AI fills the record.</h2>
+      <p class="muted" style="margin:0;max-width:60ch">Drop the NIT / tender PDF (or a photo of it). AI reads the tender number, client, dates, EMD, SD/PBG, eligibility and every BOQ line, and flags anything it was unsure about for you to check. Then send it to management for a participate / don't-bid decision.</p>
+      ${r === 'shortlist' ? `<div class="row"><button class="btn pri" data-act="extractOpen" data-kind="tender">${ic('up')}Upload tender document</button><button class="btn ghost" data-act="newTender">Enter manually</button></div>` : `<div class="note">${ic('user')}<span>You're on the Tender Desk as ${esc(S.roles[r])}. Tenders are entered by Shortlisting &amp; Admin.</span></div>`}
+      ${S.ai ? '' : `<div class="note">${ic('alert')}<span>AI reading is off on this server (${esc(S.aiOff)}). The document is still kept and you fill the form by hand.</span></div>`}
+    </div>
+    <div class="drop" ${r === 'shortlist' ? 'data-act="extractPick" data-kind="tender" data-drop="tender" role="button" tabindex="0"' : 'style="cursor:default;opacity:.6"'}>${ic('file')}<div><b>Drop tender PDF here</b></div><div class="small faint">PDF, JPG or PNG · scanned pages are read too · up to 10 MB</div></div>
+  </div></div>
+  ${section('Awaiting management approval', appr, (t) => r === 'mgmt' ? `<button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">Approve</button> <button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="chip info">With ${esc(boss ? boss.name : 'Management')}</span>`, 'Management decides which tenders to bid')}
+  ${section('Approved – assign an executive', ok, (t) => r === 'shortlist' ? `<select class="in" style="width:auto;display:inline-block" id="as_${esc(t.id)}" data-ref="t:${esc(t.id)}:assignee">${opts(membersOf('exec'), t.assignee, 'Choose executive')}</select> <button class="btn sm pri" data-act="advance" data-id="${esc(t.id)}" ${t.assignee ? '' : 'disabled'}>Assign</button>` : `<span class="small faint">${t.assignee ? esc(mName(t.assignee)) : 'Not assigned yet'}</span>`)}
+  ${section('Drafts', drafts, (t) => `<button class="btn sm" ${go('tender', t.id)}>Complete &amp; send</button>`, 'Captured, not yet sent for approval')}
+  ${dec.length ? section('Not participating', dec, (t) => `<span class="small faint">${esc((t.postbid || {}).reason || '')}</span>`) : ''}`;
+}
+
+// ================= tenders =================
+function tenderFilter(list) {
+  const f = ui.filters; const q = f.q.trim().toLowerCase();
+  return list.filter((t) => (!f.mine || t.assignee === S.me.id) && (!f.prio || t.priority === f.prio) && (!f.portal || t.portal === f.portal)
+    && (!q || [t.no, t.title, (cli(t.client) || {}).name, t.plant].join(' ').toLowerCase().includes(q)));
+}
+function vTenders() {
+  const f = ui.filters; if (role() === 'exec' && !ui._minedef) { f.mine = true; ui._minedef = true; }
+  const list = tenderFilter(S.tenders);
+  const cols = [
+    ['Draft', (t) => t.stage === 'draft'], ['Awaiting approval', (t) => t.stage === 'approval'], ['Approved', (t) => t.stage === 'approved'], ['Assigned', (t) => t.stage === 'assigned'],
+    ['In preparation', (t) => t.stage === 'prep'], ['Ready to submit', (t) => t.stage === 'ready'], ['Submitted', (t) => t.stage === 'submitted'], ['Bid opened', (t) => t.stage === 'opened'],
+    ['Won', (t) => t.stage === 'result' && t.result === 'won'], ['Lost / closed', (t) => t.stage === 'result' && t.result !== 'won']];
+  const card = (t) => { const [a, b] = ckScore(t); const show = stageIdx(t.stage) >= 4 && t.stage !== 'result';
+    return `<div class="tcard" ${go('tender', t.id)} role="button" tabindex="0"><div class="row" style="gap:6px">${prioChip(t.priority)}${deadlineChip(t)}<span class="spacer"></span>${av(t.assignee)}</div>
+      <div class="tt">${esc(t.title || 'Untitled')}</div><div class="meta"><span class="mono">${esc(t.no)}</span></div>
+      <div class="meta"><span>${esc((cli(t.client) || {}).short || '')}</span><span>·</span><span class="num">${inrS(t.estCost)}</span>${show ? `<span>·</span><span>CP ${a}/${b}</span>` : ''}</div>
+      ${show ? `<div class="pbar" style="height:5px"><i style="width:${b ? a * 100 / b : 0}%"></i></div>` : ''}</div>`; };
+  const board = `<div class="kan">${cols.map(([l, fn]) => { const items = list.filter(fn); return `<div class="col"><div class="col-h">${esc(l)}<span class="ct">${items.length}</span></div>${items.map(card).join('')}</div>`; }).join('')}</div>`;
+  const table = `<div class="card tbl-wrap"><table class="t"><thead><tr><th>Tender</th><th>Client</th><th>Stage</th><th>Executive</th><th class="r">Est. cost</th><th>Last date</th><th>Checklist</th></tr></thead><tbody>
+    ${list.map((t) => `<tr class="click" ${go('tender', t.id)}><td style="min-width:240px"><div style="font-weight:500">${esc(t.title || 'Untitled')}</div><div class="small faint mono">${esc(t.no)}</div></td><td>${esc((cli(t.client) || {}).name || '')}</td><td>${stageChip(t)}</td><td>${t.assignee ? av(t.assignee) + ' ' + esc(mName(t.assignee)) : '—'}</td><td class="r num">${inrS(t.estCost)}</td><td>${fD(t.lastDate)} ${deadlineChip(t)}</td><td class="num">${ckScore(t).join('/')}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No tenders match.</td></tr>'}
+    </tbody></table></div>`;
+  return `<div class="filters">
+    <input type="search" id="tq" placeholder="Search number, title, client" value="${esc(f.q)}" data-filter="q" style="min-width:220px">
+    <select id="tprio" data-filter="prio">${opts([['High', 'High'], ['Medium', 'Medium'], ['Low', 'Low']], f.prio, 'All priorities')}</select>
+    <select id="tportal" data-filter="portal">${opts(L(S.portals), f.portal, 'All portals')}</select>
+    <label class="row small" style="gap:6px"><input type="checkbox" id="tmine" data-filter="mine" ${f.mine ? 'checked' : ''}> Only mine</label>
+    <span class="spacer"></span>
+    <div class="seg"><button class="${f.view === 'board' ? 'on na' : ''}" data-act="view" data-v="board">Board</button><button class="${f.view === 'list' ? 'on na' : ''}" data-act="view" data-v="list">List</button></div>
+    ${role() === 'shortlist' ? `<button class="btn pri" data-act="extractOpen" data-kind="tender">${ic('up')}New tender</button>` : ''}
+  </div>${f.view === 'board' ? board : table}`;
+}
+
+function vTender() {
+  const t = tender(ui.id); if (!t) return '<div class="empty">That tender is no longer here.</div>';
+  const r = role();
+  RO = !t.editable;
+  const tab = ui.tab || (stageIdx(t.stage) >= 4 && t.stage !== 'result' ? (t.stage === 'ready' ? 'checklist' : t.stage === 'prep' ? 'prep' : 'sub') : 'details');
+  ui.tab = tab;
+  const g = t.gate;
+  const [a, b] = ckScore(t);
+  const tasks = S.tasks.filter((k) => k.link === 't:' + t.id);
+  const tabs = [['details', 'Details'], ['items', 'BOQ items', t.items.length], ['prep', 'Preparation'], ['checklist', 'Checklist', `${a}/${b}`], ['sub', 'Submission & result'], ['tasks', 'Tasks', tasks.filter((k) => k.status !== DONE).length], ['activity', 'Activity']];
+  const ref = 't:' + t.id + ':';
+  const showMiss = true;
+  let body = '';
+  if (tab === 'details') body = `<div class="card"><div class="card-b fgrid">
+    ${F('Tender number', ref + 'no', t.no, { req: 1, showMiss })}${F('Client (from Customers)', ref + 'client', t.client, { type: 'client', req: 1, showMiss, hint: !t.client && t.clientName ? 'document says: ' + t.clientName : '' })}
+    ${F('Title / scope', ref + 'title', t.title, { req: 1, wide: 1, type: 'textarea', showMiss })}
+    ${F('Plant / site', ref + 'plant', t.plant)}${F('Portal source', ref + 'portal', t.portal, { type: 'select', opts: L(S.portals), req: 1, showMiss })}
+    ${F('Tender category', ref + 'category', t.category, { type: 'select', opts: L(S.categories), req: 1, showMiss })}${F('Priority', ref + 'priority', t.priority, { type: 'select', opts: [['High', 'High'], ['Medium', 'Medium'], ['Low', 'Low']], req: 1, showMiss })}
+    ${F('Published date', ref + 'publishedDate', t.publishedDate, { type: 'date' })}${F('Last date of submission', ref + 'lastDate', t.lastDate, { type: 'date', req: 1, showMiss })}${F('Due time', ref + 'dueTime', t.dueTime, { type: 'time', req: 1, showMiss })}
+    ${F('Estimated cost (₹)', ref + 'estCost', t.estCost, { type: 'number', req: 1, showMiss })}${F('Tender fee (₹)', ref + 'tenderFee', t.tenderFee, { type: 'number' })}${F('EMD amount (₹)', ref + 'emd', t.emd, { type: 'number', req: 1, showMiss, hint: num(t.emd) > num(t.estCost) ? 'exceeds est. cost' : '' })}
+    ${F('EMD type', ref + 'emdType', t.emdType, { type: 'select', opts: S.emdTypes.map((x) => [x, x]), req: 1, showMiss })}${F('BG acceptable', ref + 'bgOk', t.bgOk, { type: 'yna' })}
+    ${F('Submission type', ref + 'subType', t.subType, { type: 'select', opts: ['Online', 'Offline', 'Both'].map((x) => [x, x]) })}${F('Delivery period', ref + 'deliveryPeriod', t.deliveryPeriod)}
+    ${F('Payment terms', ref + 'payTerms', t.payTerms, { wide: 1 })}
+    ${F('SD required', ref + 'sdReq', t.sdReq, { type: 'yna' })}${t.sdReq === 'Yes' ? F('SD %', ref + 'sdPct', t.sdPct, { type: 'number', req: 1, showMiss }) : ''}
+    ${F('PBG required', ref + 'pbgReq', t.pbgReq, { type: 'yna' })}${t.pbgReq === 'Yes' ? F('PBG %', ref + 'pbgPct', t.pbgPct, { type: 'number', req: 1, showMiss }) : ''}
+    ${F('LD clause', ref + 'ldClause', t.ldClause, { wide: 1 })}
+    <div class="f wide"><label>Tender document<span class="req">*</span>${t.aiRead ? '<span class="ai-badge">read by AI</span>' : ''}</label>${docList(t.docs, !RO && stageIdx(t.stage) < 6)}${RO ? '' : `<div class="row" style="margin-top:6px"><button class="btn sm" data-act="attach" data-kind="tender" data-id="${esc(t.id)}">${ic('clip')}Attach file</button></div>`}</div>
+    ${F('Eligibility (one per line)', ref + 'eligText', (t.eligibility || []).join('\n'), { type: 'textarea', wide: 1 })}
+    ${cfFields('tender', t, ref, showMiss)}
+  </div></div>`;
+  else if (tab === 'items') body = `<div class="card"><div class="card-h"><h3>BOQ items</h3><span class="faint small">${t.items.length} lines</span>${RO ? '' : `<button class="btn sm" data-act="addTItem" data-id="${esc(t.id)}">${ic('plus')}Add line</button>`}</div><div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th style="min-width:260px">Description</th><th>Qty</th><th>UOM</th><th style="min-width:180px">Specification</th><th></th></tr></thead><tbody>
+    ${t.items.map((it, i) => `<tr><td class="num">${i + 1}</td><td><input class="in" id="ti_${i}_d" data-ref="${ref}items.${i}.desc" value="${esc(it.desc)}" ${RO ? 'readonly' : ''}></td><td><input class="in num" type="number" min="0" step="any" id="ti_${i}_q" data-ref="${ref}items.${i}.qty" value="${esc(it.qty)}" ${RO ? 'readonly' : ''}></td><td><select class="in" id="ti_${i}_u" data-ref="${ref}items.${i}.uom" ${RO ? 'disabled' : ''}>${opts(S.uoms.map((u) => [u.name, u.name]).concat(it.uom && !S.uoms.some((u) => u.name === it.uom) ? [[it.uom, it.uom]] : []), it.uom, 'UOM')}</select></td><td><input class="in" id="ti_${i}_s" data-ref="${ref}items.${i}.spec" value="${esc(it.spec)}" ${RO ? 'readonly' : ''}></td><td>${RO ? '' : `<button class="btn sm ghost" data-act="delTItem" data-id="${esc(t.id)}" data-i="${i}" aria-label="Remove line">${ic('trash')}</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">No BOQ lines yet.</td></tr>'}
+    </tbody></table></div></div>`;
+  else if (tab === 'prep') {
+    const p = ref + 'prep.'; const P = t.prep || {};
+    const acc = r === 'accounts';
+    body = `<div class="card"><div class="card-h"><h3>A · Vendor enquiry</h3></div><div class="card-b fgrid">
+    ${F('Enquiry mail sent on', p + 'enquiryDate', P.enquiryDate, { type: 'date', req: 1, showMiss })}${F('Enquiry sent to', p + 'enquiryTo', P.enquiryTo)}
+    ${F('Follow-up done', p + 'followUp', P.followUp, { type: 'yna' })}${F('Follow-up date', p + 'followUpDate', P.followUpDate, { type: 'date' })}
+    ${F('Fixed supplier available', p + 'fixedSupplier', P.fixedSupplier, { type: 'yesno' })}${F('Offers received as per specs', p + 'offersPerSpec', P.offersPerSpec, { type: 'ynp', req: 1 })}
+    ${F('Deviation mail sent', p + 'deviationMail', P.deviationMail, { type: 'yna' })}${F('Suppliers accepted T&C', p + 'tcAccepted', P.tcAccepted, { type: 'ynp', req: 1 })}
+  </div></div>
+  <div class="card"><div class="card-h"><h3>B · Comparative & negotiation</h3></div><div class="card-b fgrid">
+    ${F('Minimum 3 manufacturers agreed', p + 'min3', P.min3, { type: 'yesno', req: 1 })}${F('Comparative chart done', p + 'compChart', P.compChart, { type: 'yesno', req: 1 })}
+    ${F('Comparative chart file', p + 'compChartFile', P.compChartFile, { ph: 'file name' })}${F('Est. cost vs best quote (% diff)', p + 'costDiff', P.costDiff, { type: 'number', hint: num(P.costDiff) > S.cfg.costDiffFlag ? `over ${S.cfg.costDiffFlag}% – review` : '' })}
+    ${F('All documents received from supplier', p + 'docsRecv', P.docsRecv, { type: 'yna', req: 1 })}${F('Negotiation done', p + 'nego', P.nego, { type: 'yna', req: 1 })}
+    ${F('Negotiation date', p + 'negoDate', P.negoDate, { type: 'date' })}${F('Final vendor / manufacturer', p + 'finalVendor', P.finalVendor, { type: 'select', opts: L(S.suppliers), req: 1, showMiss, ph: S.suppliers.length ? 'Select…' : 'Add suppliers in Masters' })}
+    ${F('Negotiation outcome', p + 'negoOutcome', P.negoOutcome, { wide: 1, type: 'textarea' })}
+  </div></div>
+  <div class="card"><div class="card-h"><h3>C · EMD & funds</h3>${acc ? '<span class="chip info">Accounts answers these</span>' : ''}</div><div class="card-b fgrid">
+    ${F('EMD balance sufficient (tender account)', p + 'emdBal', P.emdBal, { type: 'yesno', req: 1, ro: RO && !acc })}${F('Funds transfer intimated to accounts', p + 'fundsIntimated', P.fundsIntimated, { type: 'yna', ro: RO && !acc })}${F('Funds transfer date', p + 'fundsDate', P.fundsDate, { type: 'date', ro: RO && !acc })}
+    ${F('Vendor remarks', p + 'remarks', P.remarks, { wide: 1, type: 'textarea' })}
+  </div></div>`;
+  }
+  else if (tab === 'checklist') body = `<div class="card"><div class="card-h"><h3>Submission checklist</h3><div class="ring" style="--p:${b ? a * 100 / b : 0}"><b>${a}/${b}</b></div></div>
+    ${S.checklist.map((c, i) => { const v = t.checklist[c.id]; return `<div class="cp"><span class="no">CP${i + 1}</span><div><div style="font-weight:500">${esc(c.label)}</div><div class="small faint">${esc(c.desc)}</div></div>${seg(`${ref}checklist.${c.id}`, v, ['Yes', 'No', 'NA'])}</div>`; }).join('')}
+    <div class="card-b"><div class="note">${ic('alert')}<span>Submission is blocked until every checkpoint is Yes or NA. Turning a Yes back to No is recorded on the tender's activity.</span></div></div></div>`;
+  else if (tab === 'sub') {
+    const s = ref + 'submission.', pb = ref + 'postbid.'; const S1 = t.submission || {}, B = t.postbid || {};
+    body = `<div class="card"><div class="card-h"><h3>Submission</h3></div><div class="card-b fgrid">
+    ${F('Submission date', s + 'date', S1.date, { type: 'date', req: 1, showMiss: stageIdx(t.stage) >= 5 })}${F('Submission time', s + 'time', S1.time, { type: 'time' })}
+    ${F('Portal ACK / reference no.', s + 'ack', S1.ack, { req: 1, showMiss: stageIdx(t.stage) >= 5 })}${F('ACK screenshot', s + 'ackFile', S1.ackFile, { ph: 'file name' })}
+    ${F('Submission mode', s + 'mode', S1.mode, { type: 'select', opts: ['Online', 'Offline', 'Both'].map((x) => [x, x]) })}${F('Quote or regret', s + 'quote', S1.quote, { type: 'select', opts: [['Quote', 'Quote – we bid'], ['Regret', 'Regret – we declined']], req: 1, showMiss: stageIdx(t.stage) >= 5 })}
+    ${F('Value submitted (₹)', s + 'value', S1.value, { type: 'number', req: 1, showMiss: stageIdx(t.stage) >= 5 })}${F('Deadline extended by client', s + 'ext', S1.ext, { type: 'yesno' })}${S1.ext === 'Yes' ? F('New due date', s + 'extDate', S1.extDate, { type: 'date', req: 1, showMiss }) : ''}
+    ${F('Submission remarks', s + 'remarks', S1.remarks, { wide: 1, type: 'textarea' })}
+  </div></div>
+  <div class="card"><div class="card-h"><h3>Post-bid tracking & result</h3></div><div class="card-b fgrid">
+    ${F('Techno bid opening date', pb + 'technoDate', B.technoDate, { type: 'date', req: 1, showMiss: stageIdx(t.stage) >= 6 })}${F('No. of participants', pb + 'participants', B.participants, { type: 'number', req: 1, showMiss: stageIdx(t.stage) >= 6 })}
+    ${F('Price bid opened on', pb + 'priceDate', B.priceDate, { type: 'date' })}${F('No. of items quoted', pb + 'itemsQuoted', B.itemsQuoted, { type: 'number' })}
+    ${F('Final result', pb + 'result', B.result, { type: 'select', opts: Object.keys(S.results).filter((k) => k !== 'declined').map((k) => [k, S.results[k].l]), req: 1, showMiss: stageIdx(t.stage) >= 7 })}
+    ${F('L1 / awarded value (₹)', pb + 'l1', B.l1, { type: 'number', req: B.result === 'won', showMiss })}
+    ${['lost', 'cancelled', 'l2'].includes(B.result) ? F('Reason', pb + 'reason', B.reason, { type: 'select', opts: S.lossReasons.map((x) => [x.name, x.name]).concat([['Cancelled by client', 'Cancelled by client']]), req: 1, showMiss }) : ''}
+    ${F('Deviation bid received', pb + 'deviation', B.deviation, { type: 'yesno' })}${B.deviation === 'Yes' ? F('Deviation reply date', pb + 'deviationDate', B.deviationDate, { type: 'date', req: 1, showMiss }) : ''}
+    ${B.result === 'won' ? F('PO expected by', pb + 'poExpected', B.poExpected, { type: 'date' }) : ''}
+    ${F('Remarks (competitor prices, feedback)', pb + 'remarks', B.remarks, { wide: 1, type: 'textarea' })}
+  </div></div>`;
+  }
+  else if (tab === 'tasks') body = `<div class="card"><div class="card-h"><h3>Tasks on this tender</h3><button class="btn sm pri" data-act="newTask" data-link="t:${esc(t.id)}">${ic('plus')}Assign task</button></div>${tasks.map(taskRow).join('') || '<div class="empty">No tasks yet. Tasks you assign here show up on the assignee\'s list and on the ERP\'s Tasks page.</div>'}</div>`;
+  else if (tab === 'activity') body = `<div class="card"><div class="card-b tl">${t.log.length ? t.log.map((e) => `<div class="ev"><span class="faint">${fD(e.at)}</span><span><b>${esc(mName(e.by).split(' ')[0])}</b> ${esc(e.text)}</span></div>`).join('') : '<div class="empty">No activity yet.</div>'}</div></div>`;
+
+  let gp = '';
+  const boss = S.members.find((m) => m.role === 'mgmt');
+  if (t.stage === 'approval') {
+    gp = gatePanel('Management decision', g ? g.reqs : [], r === 'mgmt' ? `<button class="btn pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve – we bid</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}.</span>`);
+  } else if (g) {
+    const extraField = t.stage === 'approved' && r === 'shortlist' ? `<div style="padding:0 16px 4px">${F('Assign to executive', ref + 'assignee', t.assignee, { type: 'select', opts: membersOf('exec'), req: 1 })}</div>` : '';
+    gp = gatePanel(g.action, g.reqs, `<button class="btn pri" data-act="advance" data-id="${esc(t.id)}" ${g.open || !g.canAct ? 'disabled' : ''}>${esc(g.action)} ${ic('arrow')}</button>${!g.canAct ? `<span class="small faint">Needs ${esc(g.who.map((x) => S.roles[x]).join(' or '))}${g.who.includes('exec') ? ' (the executive it is assigned to)' : ''}</span>` : ''}`, extraField);
+    if (['draft', 'approved'].includes(t.stage) && r === 'shortlist') gp += `<button class="btn sm ghost" style="align-self:flex-start" data-act="decline" data-id="${esc(t.id)}">Mark as not participating</button>`;
+  } else if (t.stage === 'result') {
+    const po = t.poId && pobj(t.poId);
+    gp = `<div class="gate"><div class="gate-h"><div style="flex:1"><div class="lbl">Result</div><h3>${esc((S.results[t.result] || {}).l || '')}</h3></div>${stageChip(t)}</div><div class="card-b">
+      ${t.result === 'won' ? (po ? `<button class="btn pri" ${go('po', po.id)}>Open PO ${esc(po.no)} ${ic('arrow')}</button>` : `<p class="muted" style="margin-top:0">Tender won. Upload the client's PO – AI reads items, quantities, delivery dates and the LD clause.</p>${['shortlist', 'items'].includes(r) ? `<button class="btn pri" data-act="extractOpen" data-kind="po" data-tender="${esc(t.id)}">${ic('up')}Upload PO</button>` : ''}`) : `<p class="muted" style="margin:0">${esc((t.postbid || {}).reason || 'Closed')}</p>`}</div></div>`;
+  }
+  const ap = t.approval || {};
+  const facts = `<div class="card"><div class="card-b"><dl class="kv">
+    <dt>Client</dt><dd>${esc((cli(t.client) || {}).name || t.clientName || '—')}</dd><dt>Est. cost</dt><dd class="num">${inr(t.estCost)}</dd><dt>EMD</dt><dd class="num">${inr(t.emd)}${t.emdType ? ' · ' + esc(t.emdType) : ''}</dd>
+    <dt>Last date</dt><dd>${fDY(t.lastDate)} ${esc(t.dueTime || '')}</dd><dt>Executive</dt><dd>${t.assignee ? esc(mName(t.assignee)) : '—'}</dd>
+    <dt>Approval</dt><dd>${ap.status === 'approved' ? `Approved by ${esc(mName(ap.by))}${ap.note ? ` – “${esc(ap.note)}”` : ''}` : ap.status === 'rejected' ? 'Declined – ' + esc(ap.note || '') : esc(ap.status || '—')}</dd></dl></div></div>`;
+  const brief = `<div class="card"><div class="card-h"><h3>AI bid brief</h3><button class="btn sm ai" data-act="brief" data-id="${esc(t.id)}">${ic('spark')}${t.brief ? 'Refresh' : 'Generate'}</button></div><div class="card-b small" style="white-space:pre-wrap">${t.brief ? esc(t.brief) : '<span class="faint">Eligibility, risks and open points for this bid, written from the captured data.</span>'}</div></div>`;
+
+  return `<div class="card"><div class="card-b" style="display:flex;flex-direction:column;gap:12px">
+      <div class="row" style="align-items:flex-start"><div style="flex:1;min-width:0"><h2 style="font-size:19px">${esc(t.title || 'Untitled tender')}</h2><div class="small faint" style="margin-top:3px"><span class="mono">${esc(t.no || '')}</span> · ${esc((cli(t.client) || {}).name || t.clientName || '')} ${t.plant ? '· ' + esc(t.plant) : ''} · ${esc((portal(t.portal) || {}).name || '')}</div></div>
+      <div class="row">${prioChip(t.priority)}${stageChip(t)}${deadlineChip(t)}${RO ? '<span class="chip">View only</span>' : ''}</div></div>
+      ${stepper(S.stages, t.stage, t.stage === 'result' ? (S.results[t.result] || {}).l : null)}
+    </div></div>
+    <div class="split">
+      <div class="grid" style="gap:12px"><div class="tabs">${tabs.map(([k, l, c]) => `<button class="tab${tab === k ? ' on' : ''}" data-act="tab" data-v="${k}">${l}${c != null && c !== 0 ? `<span class="ct">${c}</span>` : ''}</button>`).join('')}</div>${body}</div>
+      <div class="grid" style="gap:12px">${gp}${facts}${brief}
+        <div class="card"><div class="card-h"><h3>Open tasks</h3><button class="btn sm" data-act="newTask" data-link="t:${esc(t.id)}">${ic('plus')}Assign</button></div>${tasks.filter((k) => k.status !== DONE).map(taskRow).join('') || '<div class="empty small">None</div>'}</div>
+      </div>
+    </div>`;
+}
+
+// ================= POs =================
+function vPOs() {
+  const r = role();
+  const list = S.pos.filter((p) => r !== 'fp' || p.items.some((i) => i.fp === S.me.id));
+  const wonNoPo = S.tenders.filter((t) => t.result === 'won' && !t.poId);
+  return `<div class="row"><p class="muted" style="margin:0;flex:1;min-width:240px">Every PO shows how much is ordered on suppliers, procured, dispatched and delivered – by value – against the delivery date, with liquidated damages calculated live.</p>
+    ${['shortlist', 'items'].includes(r) ? `<button class="btn pri" data-act="extractOpen" data-kind="po">${ic('up')}Upload PO</button>` : ''}</div>
+  ${wonNoPo.length ? `<div class="note warn">${ic('alert')}<span>${wonNoPo.length} won tender${wonNoPo.length > 1 ? 's' : ''} without a PO: ${wonNoPo.map((t) => `<a href="#" ${go('tender', t.id)}>${esc(t.no)}</a>`).join(', ')}</span></div>` : ''}
+  <div class="grid g2">${list.map((p) => { const c = p.calc; const d = dd(p.dueDate);
+    return `<div class="card" ${go('po', p.id)} style="cursor:pointer"><div class="card-h"><div style="flex:1;min-width:0"><div class="mono small">${esc(p.no)}</div><div class="small faint">${esc((cli(p.client) || {}).name || '')} · ${esc((tender(p.tenderId) || {}).no || '')}</div></div><span class="chip acc">${esc(pstageLabel(p))}</span>${dueChip(d, c.pc.delivered >= 100)}</div>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:14px"><div class="row" style="gap:18px"><div><div class="lbl">PO value</div><div class="num" style="font-weight:600">${inr(c.tot)}</div></div><div><div class="lbl">Delivery due</div><div>${fDY(p.dueDate)}</div></div><div><div class="lbl">Items</div><div class="num">${p.items.length}</div></div><div><div class="lbl">LD accrued</div><div class="num" style="${c.ld.accrued ? 'color:var(--bad);font-weight:600' : ''}">${inr(c.ld.accrued)}</div></div></div>${poBars(c)}</div></div>`; }).join('') || '<div class="card"><div class="empty">No POs yet. Upload one from a won tender.</div></div>'}</div>`;
+}
+function vPO() {
+  const p = pobj(ui.id); if (!p) return '<div class="empty">That PO is no longer here.</div>';
+  const r = role();
+  const canEdit = ['shortlist', 'items', 'fp', 'accounts'].includes(r) && !p.closed;
+  const moneyOnly = r === 'accounts';
+  RO = !canEdit || moneyOnly;
+  const c = p.calc; const t = tender(p.tenderId);
+  const tab = ui.tab || 'items'; ui.tab = tab;
+  const tasks = S.tasks.filter((k) => k.link === 'p:' + p.id);
+  const allMoves = p.items.flatMap((i) => i.moves.map((m) => Object.assign({}, m, { it: i }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const tabs = [['items', 'Items & quantities', p.items.length], ['terms', 'PO terms & LD'], ['log', 'Movement log', allMoves.length], ['money', 'Invoices & payments'], ['obl', 'SD / PBG', p.obligations.length], ['tasks', 'Tasks', tasks.filter((k) => k.status !== DONE).length], ['activity', 'Activity']];
+  const ref = 'p:' + p.id + ':';
+  const canMove = ['shortlist', 'items', 'fp'].includes(r) && !p.closed;
+  let body = '';
+  if (tab === 'items') body = `<div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th style="min-width:220px">Item</th><th class="r">PO qty</th><th class="r">Ordered</th><th class="r">Procured</th><th class="r">Dispatched</th><th class="r">Delivered</th><th>Due</th><th style="min-width:130px">Fulfilment</th><th class="r">LD</th><th></th></tr></thead><tbody>
+    ${p.items.map((it) => { const q = qtys(it); const lr = c.ld.rows.find((x) => x.it === it.id); const cell = (v) => `<td class="r num" style="${v >= it.qty ? 'color:var(--ok);font-weight:600' : v > 0 ? '' : 'color:var(--ink-3)'}">${v}</td>`;
+      return `<tr><td class="num">${esc(it.sr)}</td><td><div style="font-weight:500">${esc(it.desc)}</div><div class="small faint">${esc(it.uom)} · ${inr(it.rate)}/unit · ${inrS(itemVal(it))}${it.supplier ? ' · ' + esc((sup(it.supplier) || {}).name || '') : ''}</div></td>
+      <td class="r num" style="font-weight:600">${esc(it.qty)}</td>${cell(q.ordered)}${cell(q.procured)}${cell(q.dispatched)}${cell(q.delivered)}
+      <td>${fD(it.due || p.dueDate)}<div>${dueChip(dd(it.due || p.dueDate), q.delivered >= it.qty)}</div></td>
+      <td><select class="in" id="fp_${esc(it.id)}" data-ref="${ref}items.${esc(it.id)}.fp" ${RO ? 'disabled' : ''}>${opts(membersOf('fp'), it.fp, 'Assign')}</select></td>
+      <td class="r num" style="${lr && lr.ld ? 'color:var(--bad);font-weight:600' : ''}">${lr && lr.ld ? inr(lr.ld) : '—'}</td>
+      <td>${canMove ? `<button class="btn sm pri" data-act="move" data-po="${esc(p.id)}" data-it="${esc(it.id)}">Update</button>` : ''}</td></tr>`; }).join('')}
+    </tbody></table></div><div class="card-b"><div class="note">${ic('check')}<span>Quantities only move forward in order – ordered ≤ PO qty, procured ≤ ordered, dispatched ≤ procured, delivered ≤ dispatched – and each entry needs its document (supplier PO no., GRN, LR no., DM / ack no.).</span></div></div></div>`;
+  else if (tab === 'terms') { const l = ref + 'ld.'; body = `<div class="card"><div class="card-h"><h3>PO header</h3>${p.aiRead ? '<span class="ai-badge">read by AI</span>' : ''}</div><div class="card-b fgrid">
+    ${F('PO number', ref + 'no', p.no, { req: 1 })}${F('PO date (printed)', ref + 'poDate', p.poDate, { type: 'date', req: 1 })}${F('PO received / stamped', ref + 'recvDate', p.recvDate, { type: 'date' })}
+    ${F('Total PO value (₹)', ref + 'value', p.value, { type: 'number', req: 1, hint: Math.abs(num(p.value) - c.tot) > 1 ? `items total ${inr(c.tot)}` : '' })}${F('Delivery period', ref + 'deliveryPeriod', p.deliveryPeriod)}${F('Delivery due date', ref + 'dueDate', p.dueDate, { type: 'date', req: 1 })}
+    ${F('Payment terms', ref + 'payTerms', p.payTerms, { wide: 1 })}${F('PO received by', ref + 'receivedBy', p.receivedBy, { type: 'select', opts: ['Email', 'Hard copy', 'Both'].map((x) => [x, x]) })}${F('Original PO filed', ref + 'filed', p.filed, { type: 'yesno' })}
+    ${F('PO covers all quoted items', ref + 'allItems', p.allItems, { type: 'ynp' })}${F('Discrepancy in PO', ref + 'discrepancy', p.discrepancy, { type: 'yesno' })}${p.discrepancy === 'Yes' ? F('Discrepancy informed to client on', ref + 'discrepancyInformed', p.discrepancyInformed, { type: 'date', req: 1, showMiss: 1, hint: `within ${S.cfg.poDiscrepancyDays} days` }) : ''}
+    ${F('Inspection', ref + 'inspection', p.inspection)}${F('GA drawing approval', ref + 'gaDrawing', p.gaDrawing)}${F('Warranty', ref + 'warranty', p.warranty)}${F('Performance certificate received', ref + 'perfCert', p.perfCert, { type: 'yesno' })}
+    <div class="f wide"><label>PO document</label>${docList(p.docs, !RO)}${RO ? '' : `<div class="row" style="margin-top:6px"><button class="btn sm" data-act="attach" data-kind="po" data-id="${esc(p.id)}">${ic('clip')}Attach file</button></div>`}</div>
+    ${cfFields('po', p, ref, false)}
+  </div></div>
+  <div class="card"><div class="card-h"><h3>Liquidated damages clause</h3></div><div class="card-b fgrid">
+    ${F('LD rate (%)', l + 'rate', p.ld.rate, { type: 'number' })}${F('Per', l + 'per', p.ld.per, { type: 'select', opts: [['day', 'day'], ['week', 'week or part'], ['month', 'month']] })}${F('Maximum (%)', l + 'cap', p.ld.cap, { type: 'number' })}
+    ${F('Applied on', l + 'basis', p.ld.basis, { type: 'select', opts: [['delayed', 'value of delayed supply'], ['total', 'total PO value']] })}
+    ${F('Clause text from PO', l + 'clause', p.ld.clause, { type: 'textarea', wide: 1 })}
+  </div></div>`; }
+  else if (tab === 'log') body = `<div class="card"><div class="card-h"><h3>Movement log</h3><span class="faint small">every quantity change, newest first</span></div><div class="tbl-wrap"><table class="t"><thead><tr><th>Date</th><th>Item</th><th>Movement</th><th class="r">Qty</th><th>Reference</th><th>By</th></tr></thead><tbody>
+    ${allMoves.map((m) => `<tr><td>${fD(m.date)}</td><td>#${esc(m.it.sr)} ${esc(String(m.it.desc).slice(0, 48))}</td><td><span class="chip ${m.t === 'delivered' ? 'ok' : m.t === 'dispatched' ? 'info' : ''}">${esc(S.moves[m.t])}</span></td><td class="r num">${esc(m.qty)}</td><td class="small">${esc(m.ref || '')}${m.sup ? ' · ' + esc((sup(m.sup) || {}).name || '') : ''}</td><td>${m.by ? av(m.by) : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nothing recorded yet.</td></tr>'}
+    </tbody></table></div></div>`;
+  else if (tab === 'money') { RO = !canEdit; body = `<div class="grid g2"><div class="card"><div class="card-h"><h3>Invoices</h3>${RO ? '' : `<button class="btn sm" data-act="addRow" data-po="${esc(p.id)}" data-list="invoices">${ic('plus')}Add</button>`}</div><div class="tbl-wrap"><table class="t"><thead><tr><th>Invoice no.</th><th>Date</th><th class="r">Amount</th><th></th></tr></thead><tbody>
+    ${p.invoices.map((v, i) => `<tr><td><input class="in" id="inv_${i}_n" data-ref="${ref}invoices.${i}.no" value="${esc(v.no)}" ${RO ? 'readonly' : ''}></td><td><input class="in" type="date" id="inv_${i}_d" data-ref="${ref}invoices.${i}.date" value="${esc(v.date)}" ${RO ? 'readonly' : ''}></td><td><input class="in num" type="number" min="0" step="any" id="inv_${i}_a" data-ref="${ref}invoices.${i}.amount" value="${esc(v.amount)}" ${RO ? 'readonly' : ''}></td><td>${RO ? '' : `<button class="btn sm ghost" data-act="delRow" data-po="${esc(p.id)}" data-list="invoices" data-i="${i}" aria-label="Remove">${ic('trash')}</button>`}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No invoices.</td></tr>'}
+    </tbody></table></div><div class="card-b small muted">Invoiced ${inr(c.inv)} of delivered value ${inr(c.v.delivered)}</div></div>
+    <div class="card"><div class="card-h"><h3>Payments received</h3>${RO ? '' : `<button class="btn sm" data-act="addRow" data-po="${esc(p.id)}" data-list="payments">${ic('plus')}Add</button>`}</div><div class="tbl-wrap"><table class="t"><thead><tr><th>Date</th><th class="r">Amount</th><th>UTR / cheque</th><th></th></tr></thead><tbody>
+    ${p.payments.map((v, i) => `<tr><td><input class="in" type="date" id="pay_${i}_d" data-ref="${ref}payments.${i}.date" value="${esc(v.date)}" ${RO ? 'readonly' : ''}></td><td><input class="in num" type="number" min="0" step="any" id="pay_${i}_a" data-ref="${ref}payments.${i}.amount" value="${esc(v.amount)}" ${RO ? 'readonly' : ''}></td><td><input class="in" id="pay_${i}_u" data-ref="${ref}payments.${i}.utr" value="${esc(v.utr)}" ${RO ? 'readonly' : ''}></td><td>${RO ? '' : `<button class="btn sm ghost" data-act="delRow" data-po="${esc(p.id)}" data-list="payments" data-i="${i}" aria-label="Remove">${ic('trash')}</button>`}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No payments.</td></tr>'}
+    </tbody></table></div><div class="card-b small muted">Received ${inr(c.paid)} · balance ${inr(c.inv - c.paid)} against invoices${c.ld.accrued ? ` · LD the client may deduct: ${inr(c.ld.accrued)}` : ''}</div></div></div>`; }
+  else if (tab === 'obl') { RO = !canEdit; body = `<div class="card"><div class="card-h"><h3>Security deposit & performance bank guarantee</h3>${RO ? '' : `<button class="btn sm" data-act="addRow" data-po="${esc(p.id)}" data-list="obligations">${ic('plus')}Add</button>`}</div><div class="tbl-wrap"><table class="t"><thead><tr><th>Type</th><th>%</th><th class="r">Amount</th><th>Instrument</th><th>Last date</th><th>Submitted on</th><th>BG no.</th><th>Expiry</th><th>Status</th><th></th></tr></thead><tbody>
+    ${p.obligations.map((o, i) => { const rr = `${ref}obligations.${i}.`; const d = dd(o.lastDate); const dis = RO ? 'disabled' : ''; const roA = RO ? 'readonly' : ''; return `<tr>
+      <td><select class="in" id="ob_${i}_t" data-ref="${rr}type" ${dis}>${opts([['SD', 'SD'], ['PBG', 'PBG']], o.type, 'Type')}</select></td><td><input class="in num" style="min-width:56px" type="number" min="0" step="any" id="ob_${i}_p" data-ref="${rr}pct" value="${esc(o.pct)}" ${roA}></td><td class="r num">${inr(o.amount)}</td>
+      <td><select class="in" id="ob_${i}_i" data-ref="${rr}instrument" ${dis}>${opts(['Bank Guarantee', 'DD', 'Fixed Deposit', 'Deduction from bill'].map((x) => [x, x]), o.instrument)}</select></td>
+      <td><input class="in" type="date" id="ob_${i}_l" data-ref="${rr}lastDate" value="${esc(o.lastDate)}" ${roA}>${o.status === 'Pending' && d != null && d <= 15 ? `<span class="chip ${d <= 7 ? 'bad' : 'warn'}">${d < 0 ? 'overdue' : d + 'd left'}</span>` : ''}</td>
+      <td><input class="in" type="date" id="ob_${i}_s" data-ref="${rr}submitted" value="${esc(o.submitted)}" ${roA}></td><td><input class="in" id="ob_${i}_n" data-ref="${rr}number" value="${esc(o.number)}" ${roA}></td><td><input class="in" type="date" id="ob_${i}_e" data-ref="${rr}expiry" value="${esc(o.expiry)}" ${roA}></td>
+      <td><select class="in" id="ob_${i}_st" data-ref="${rr}status" ${dis}>${opts(['Pending', 'Submitted', 'Release applied', 'Released'].map((x) => [x, x]), o.status)}</select></td><td>${RO ? '' : `<button class="btn sm ghost" data-act="delRow" data-po="${esc(p.id)}" data-list="obligations" data-i="${i}" aria-label="Remove">${ic('trash')}</button>`}</td></tr>`; }).join('') || '<tr><td colspan="10" class="empty">No SD / PBG on this PO.</td></tr>'}
+    </tbody></table></div><div class="card-b small muted">The alerts show an SD / PBG from 15 days before its last date.</div></div>`; }
+  else if (tab === 'tasks') body = `<div class="card"><div class="card-h"><h3>Tasks on this PO</h3><button class="btn sm pri" data-act="newTask" data-link="p:${esc(p.id)}">${ic('plus')}Assign task</button></div>${tasks.map(taskRow).join('') || '<div class="empty">No tasks yet.</div>'}</div>`;
+  else if (tab === 'activity') body = `<div class="card"><div class="card-b tl">${(p.log || []).length ? p.log.map((e) => `<div class="ev"><span class="faint">${fD(e.at)}</span><span><b>${esc(mName(e.by).split(' ')[0])}</b> ${esc(e.text)}</span></div>`).join('') : '<div class="empty">No activity yet.</div>'}</div></div>`;
+
+  const ldBox = `<div class="ld-box ${c.ld.accrued ? '' : 'zero'}"><div class="lbl" style="color:inherit">Liquidated damages</div><div style="font-family:var(--f-display);font-size:22px;font-weight:600" class="num">${inr(c.ld.accrued)}</div>
+    <div class="small">${c.ld.accrued ? `accrued till today · max ${inr(c.ld.max)}` : `none yet · ${esc(p.ld.rate)}% per ${esc(p.ld.per)} after due date, max ${esc(p.ld.cap)}%`}</div></div>`;
+  const pend = c.ld.rows.filter((x) => x.pend > 0);
+  const risk = pend.length ? `<div class="card"><div class="card-h"><h3>Pending by item</h3></div>${pend.map((x) => { const it = p.items.find((i) => i.id === x.it) || {}; return `<div class="lrow" style="cursor:default"><span class="sev ${x.late ? 'bad' : x.daysToDue <= 14 ? 'warn' : ''}"></span><div class="x"><div class="a">#${esc(it.sr)} · ${esc(x.pend)} ${esc(it.uom)} pending</div><div class="small faint">${x.late ? `${x.late} days late · ` : `${x.daysToDue} days to due · `}each ${esc(p.ld.per)} of delay adds ${inr(x.perUnitOfDelay)}</div></div></div>`; }).join('')}</div>` : '';
+  RO = false;
+  return `<div class="card"><div class="card-b" style="display:flex;flex-direction:column;gap:12px">
+    <div class="row" style="align-items:flex-start"><div style="flex:1;min-width:0"><h2 style="font-size:19px" class="mono">${esc(p.no)}</h2><div class="small faint" style="margin-top:3px">${esc((cli(p.client) || {}).name || '')} · against <a href="#" ${t ? go('tender', t.id) : ''}>${esc((t || {}).no || '')}</a> · received ${fD(p.recvDate)}</div></div>
+    <div class="row"><span class="chip acc">${esc(pstageLabel(p))}</span>${dueChip(dd(p.dueDate), c.pc.delivered >= 100)}${!canEdit ? '<span class="chip">View only</span>' : ''}</div></div>
+    ${stepper(S.pstages, c.stage)}
+  </div></div>
+  <div class="kpis">
+    <div class="kpi"><div class="lbl">PO value</div><div class="v">${inrS(c.tot)}</div><div class="s">${p.items.length} items</div></div>
+    <div class="kpi"><div class="lbl">Ordered on suppliers</div><div class="v">${c.pc.ordered}%</div><div class="s">${inrS(c.v.ordered)}</div></div>
+    <div class="kpi"><div class="lbl">Procured</div><div class="v">${c.pc.procured}%</div><div class="s">${inrS(c.v.procured)}</div></div>
+    <div class="kpi"><div class="lbl">Dispatched</div><div class="v">${c.pc.dispatched}%</div><div class="s">${inrS(c.v.dispatched)}</div></div>
+    <div class="kpi ${c.pc.delivered >= 100 ? 'ok' : ''}"><div class="lbl">Delivered</div><div class="v">${c.pc.delivered}%</div><div class="s">due ${fDY(p.dueDate)}</div></div>
+  </div>
+  <div class="split">
+    <div class="grid" style="gap:12px"><div class="tabs">${tabs.map(([k, l, n]) => `<button class="tab${tab === k ? ' on' : ''}" data-act="tab" data-v="${k}">${l}${n ? `<span class="ct">${n}</span>` : ''}</button>`).join('')}</div>${body}</div>
+    <div class="grid" style="gap:12px">${ldBox}${risk}
+      ${gatePanel('Close this PO', p.closeGate, ['shortlist', 'items'].includes(r) ? `<button class="btn" data-act="closePO" data-id="${esc(p.id)}" ${p.closeGate.some((x) => !x.ok) || p.closed ? 'disabled' : ''}>${p.closed ? 'Closed' : 'Close PO'}</button>` : '')}
+      <div class="card"><div class="card-h"><h3>Open tasks</h3><button class="btn sm" data-act="newTask" data-link="p:${esc(p.id)}">${ic('plus')}Assign</button></div>${tasks.filter((k) => k.status !== DONE).map(taskRow).join('') || '<div class="empty small">None</div>'}</div>
+    </div>
+  </div>`;
+}
+
+// ================= tasks =================
+function vTasks() {
+  const f = ui.filters;
+  let list = S.tasks.slice();
+  if (f.tview === 'mine') list = list.filter((k) => k.assignee === S.me.id);
+  if (f.tview === 'byme') list = list.filter((k) => k.by === S.me.id);
+  if (f.tlink) list = list.filter((k) => (k.link || '').startsWith(f.tlink));
+  list.sort((a, b) => (a.due || '9').localeCompare(b.due || '9'));
+  return `<div class="filters">
+    <div class="seg">${[['mine', 'Assigned to me'], ['byme', 'Assigned by me'], ['all', 'Everyone']].map(([k, l]) => `<button class="${f.tview === k ? 'on na' : ''}" data-act="tview" data-v="${k}">${l}</button>`).join('')}</div>
+    <select id="tlink" data-filter="tlink">${opts([['t:', 'Tender tasks'], ['p:', 'PO tasks']], f.tlink, 'Tenders & POs')}</select>
+    <span class="spacer"></span><button class="btn" data-act="voice">${ic('mic')}Dictate tasks</button><button class="btn pri" data-act="newTask">${ic('plus')}New task</button></div>
+  <div class="note">${ic('tasks')}<span>These are ERP tasks: each one is also on the main Tasks page in the ERP, and on its person's scorecard.</span></div>
+  <div class="kan" style="grid-auto-columns:minmax(260px,1fr)">${S.taskStatuses.map((st) => { const items = list.filter((k) => k.status === st.id); return `<div class="col"><div class="col-h">${esc(st.name)}<span class="ct">${items.length}</span></div>
+    ${items.map((k) => { const d = dd(k.due); const dn = k.checklist.filter((x) => x.d).length; return `<div class="tcard" data-act="openTask" data-id="${esc(k.id)}" role="button" tabindex="0">
+      <div class="row" style="gap:6px">${prioChip(k.priority)}${k.due ? `<span class="chip ${st.id === DONE ? '' : d < 0 ? 'bad' : d <= 1 ? 'warn' : ''}">${ic('clock')}${fD(k.due)}</span>` : ''}${k.source === 'voice' ? `<span class="chip ai">${ic('mic')}voice</span>` : ''}<span class="spacer"></span>${av(k.assignee)}</div>
+      <div class="tt">${esc(k.title)}</div>${k.link ? `<div class="meta"><span class="mono">${esc(linkLabel(k.link))}</span></div>` : ''}
+      <div class="meta">by ${esc(mName(k.by))}${k.checklist.length ? ` · ${dn}/${k.checklist.length} steps` : ''}${k.comments.length ? ` · ${k.comments.length} comment${k.comments.length > 1 ? 's' : ''}` : ''}</div></div>`; }).join('') || '<div class="empty small">—</div>'}</div>`; }).join('')}</div>`;
+}
+
+// ================= masters =================
+const MASTERS = {
+  members: { l: 'Team members' },
+  products: { l: 'Products', list: 'product', name: 'name', cols: [['name', 'Product'], ['category', 'Category'], ['uom', 'UOM', 'select', () => S.uoms.map((u) => [u.name, u.name])], ['hsn', 'HSN']] },
+  clients: { l: 'Clients' },
+  suppliers: { l: 'Suppliers', list: 'supplier', name: 'name', cols: [['name', 'Supplier'], ['city', 'City'], ['contact', 'Contact'], ['gstin', 'GSTIN'], ['rating', 'Rating', 'select', () => ['A', 'B', 'C'].map((x) => [x, x])]] },
+  portals: { l: 'Portals', list: 'portal', name: 'name', cols: [['name', 'Portal']] },
+  categories: { l: 'Tender categories', list: 'category', name: 'name', cols: [['name', 'Category']] },
+  uoms: { l: 'Units (UOM)', list: 'uom', name: 'name', cols: [['name', 'Unit']] },
+  lossReasons: { l: 'Loss / regret reasons', list: 'lossReason', name: 'name', cols: [['name', 'Reason']] },
+  checklist: { l: 'Submission checklist', list: 'checkpoint', name: 'label', cols: [['label', 'Checkpoint'], ['desc', 'What it means']] },
+  customFields: { l: 'Custom fields', list: 'customField', name: 'label', cols: [['entity', 'Applies to', 'select', () => [['tender', 'Tender'], ['po', 'PO']]], ['label', 'Field label'], ['type', 'Type', 'select', () => [['text', 'Text'], ['long', 'Long text'], ['number', 'Number'], ['date', 'Date'], ['yesno', 'Yes / No / NA'], ['select', 'Dropdown']]], ['options', 'Dropdown options (comma separated)'], ['gate', 'Mandatory before stage', 'select', () => S.stages.slice(1, 8).map((s) => [s.k, s.l])]] },
+  taskStatuses: { l: 'Task statuses' },
+};
+function vMasters() {
+  const k = ui.mtab;
+  const tabs = Object.entries(MASTERS).map(([key, m]) => [key, m.l, key === 'members' ? S.members.length : (S[key] || []).length]).concat([['rules', 'Rules & alerts']]);
+  let body;
+  if (k === 'members') {
+    RO = !S.me.team;
+    body = `<div class="card"><div class="card-h"><h3>Team members</h3><span class="faint small">People come from the ERP's Users. Management and the ERP Admin decide who is on the Tender Desk and as what; Management, the ERP Admin and Accounts are always on it.</span></div>
+    <div class="tbl-wrap"><table class="t"><thead><tr><th>Name</th><th>ERP role</th><th>Tender Desk role</th><th></th></tr></thead><tbody>
+    ${S.members.map((m) => `<tr><td>${av(m.id)} ${esc(m.name)}</td><td class="small muted">${esc(m.erpRole)}</td><td><select class="in" id="mr_${fid(m.id)}" data-member="${esc(m.id)}" ${RO ? 'disabled' : ''}>${opts(Object.entries(S.roles), m.role, 'Role')}</select></td>
+      <td style="white-space:nowrap">${RO || ['Management', 'ERP Admin', 'Accounts'].includes(m.erpRole) ? '' : `<button class="btn sm ghost" data-act="memberOff" data-id="${esc(m.id)}">Remove from Tender Desk</button>`}</td></tr>`).join('')}
+    </tbody></table></div>
+    ${RO || !S.others.length ? '' : `<div class="card-b row"><select class="in" style="width:auto;flex:1;min-width:200px" id="madd">${opts(S.others.map((o) => [o.id, o.name + ' · ' + o.erpRole]), '', 'Add somebody from the ERP')}</select><button class="btn sm pri" data-act="memberOn">${ic('plus')}Add to Tender Desk</button></div>`}</div>`;
+  } else if (k === 'clients') {
+    body = `<div class="card"><div class="card-h"><h3>Clients</h3><span class="faint small">The Tender Desk's clients are the ERP's own Customers, so a client is the same record in sales, service and tenders. Add or change one in the ERP (Customers); here are those named on tenders and POs.</span><a class="btn sm" href="/customers">${ic('arrow')}Open Customers in the ERP</a></div>
+    <div class="tbl-wrap"><table class="t"><thead><tr><th>Client</th><th class="r">Tenders</th><th class="r">Won</th><th class="r">POs</th></tr></thead><tbody>
+    ${S.clients.slice().sort((a, b) => a.name.localeCompare(b.name)).map((c) => `<tr><td>${esc(c.name)}</td><td class="r num">${S.tenders.filter((t) => t.client === c.id).length}</td><td class="r num">${S.tenders.filter((t) => t.client === c.id && t.result === 'won').length}</td><td class="r num">${S.pos.filter((p) => p.client === c.id).length}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No clients on tenders yet.</td></tr>'}
+    </tbody></table></div></div>`;
+  } else if (k === 'taskStatuses') {
+    body = `<div class="card"><div class="card-h"><h3>Task statuses</h3><span class="faint small">Tender Desk tasks are ERP tasks, so they use the ERP's statuses, in this order; the last is done. The ERP's Tasks page and scorecard read the same ones.</span></div>
+    <div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th>Column on the board</th><th>In the ERP</th></tr></thead><tbody>
+    ${S.taskStatuses.map((s, i) => `<tr><td class="num">${i + 1}</td><td>${esc(s.name)}</td><td class="small muted">${esc(s.id)}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+  } else if (k === 'rules') {
+    RO = !S.me.masters;
+    const r = 'cfg:';
+    body = `<div class="card"><div class="card-h"><h3>Rules & alerts</h3></div><div class="card-b fgrid">
+    ${F('Default LD rate (%)', r + 'ldRate', S.cfg.ldRate, { type: 'number' })}${F('Default LD per', r + 'ldPer', S.cfg.ldPer, { type: 'select', opts: [['day', 'day'], ['week', 'week'], ['month', 'month']] })}${F('Default LD cap (%)', r + 'ldCap', S.cfg.ldCap, { type: 'number' })}
+    ${F('Deadline “attention” at (days)', r + 'alertDays', S.cfg.alertDays, { type: 'number' })}${F('Deadline “urgent” at (days)', r + 'urgentDays', S.cfg.urgentDays, { type: 'number' })}
+    ${F('Flag est. cost vs quote difference above (%)', r + 'costDiffFlag', S.cfg.costDiffFlag, { type: 'number' })}${F('PO discrepancy must be informed within (days)', r + 'poDiscrepancyDays', S.cfg.poDiscrepancyDays, { type: 'number' })}
+  </div></div>`;
+  } else {
+    RO = !S.me.masters;
+    const M = MASTERS[k];
+    const rows = S[k].concat(ui.newRow[k] ? [ui.newRow[k]] : []);
+    body = `<div class="card"><div class="card-h"><h3>${esc(M.l)}</h3><span class="faint small">${k === 'customFields' ? 'Fields appear on the form right away; a “mandatory before” stage blocks that step until it is filled.' : k === 'checklist' ? 'Every tender\'s checklist uses this list; submission is blocked until each is Yes or NA.' : 'Changes apply everywhere this list is used.'}</span>${RO || ui.newRow[k] ? '' : `<button class="btn sm pri" data-act="mAdd" data-k="${k}">${ic('plus')}Add</button>`}</div>
+    <div class="tbl-wrap"><table class="t"><thead><tr>${M.cols.map((c) => `<th>${esc(c[1])}</th>`).join('')}<th></th></tr></thead><tbody>
+    ${rows.map((row) => `<tr>${M.cols.map(([f, , type, o]) => { const id = `m_${k}_${row.id}_${f}`; const ref = `m:${k}:${row.id}:${f}`;
+      if (type === 'select') return `<td><select class="in" id="${id}" data-ref="${ref}" ${RO ? 'disabled' : ''}>${opts(o(), row[f], f === 'gate' ? 'Not mandatory' : 'Select…')}</select></td>`;
+      return `<td><input class="in" id="${id}" data-ref="${ref}" value="${esc(row[f])}" ${RO ? 'readonly' : ''} placeholder="${row.id === 'new' && f === M.name ? 'Type, then press Tab' : ''}"></td>`; }).join('')}
+      <td style="white-space:nowrap">${RO ? '' : row.id === 'new' ? `<button class="btn sm ghost" data-act="mDelCancel" data-k="${k}">Cancel</button>` : ui.confirmDel === row.id ? `<button class="btn sm danger" data-act="mDel" data-k="${k}" data-id="${esc(row.id)}">Delete</button> <button class="btn sm ghost" data-act="mDelKeep">Keep</button>` : `<button class="btn sm ghost" data-act="mDelAsk" data-id="${esc(row.id)}" aria-label="Delete">${ic('trash')}</button>`}</td></tr>`).join('') || `<tr><td colspan="${M.cols.length + 1}" class="empty">Nothing yet.</td></tr>`}
+    </tbody></table></div></div>`;
+  }
+  const roNote = ['clients', 'taskStatuses'].includes(k) ? '' : (k === 'members' ? !S.me.team : !S.me.masters) ? `<div class="note">${ic('user')}<span>View only. ${k === 'members' ? 'The team is kept by Management or the ERP Admin.' : 'Masters are kept by Shortlisting &amp; Admin or Management.'}</span></div>` : '';
+  RO = false;
+  return roNote + `<div class="tabs">${tabs.map(([key, l, n]) => `<button class="tab${k === key ? ' on' : ''}" data-act="mtab" data-v="${key}">${esc(l)}${n != null ? `<span class="ct">${n}</span>` : ''}</button>`).join('')}</div>${body}`;
+}
+
+// ================= reading a document with AI =================
+const low = (k) => { const c = ui.extract && ui.extract.conf ? ui.extract.conf[k] : null; return c != null && c < 0.85; };
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > 10 * 1024 * 1024) { reject(new Error('That file is ' + (file.size / 1048576).toFixed(1) + ' MB; the limit is 10 MB. Upload only the NIT / BOQ pages.')); return; }
+    const fr = new FileReader();
+    fr.onload = () => resolve({ name: file.name, dataUrl: String(fr.result) });
+    fr.onerror = () => reject(new Error('That file could not be read.'));
+    fr.readAsDataURL(file);
+  });
+}
+function startExtract(kind, file) {
+  const X = ui.extract = Object.assign(ui.extract || {}, { kind, status: 'reading', fileName: file.name, data: null, conf: {}, err: '', matches: [] });
+  render();
+  readFile(file).then((f) => {
+    X.status = 'thinking'; render();
+    return api(kind === 'tender' ? 'readTenderDocument' : 'readPoDocument', kind === 'tender' ? [f] : [f, X.tenderId || '']);
+  }).then((out) => {
+    if (ui.extract !== X) return;
+    X.documentId = out.documentId; X.fileName = out.fileName || X.fileName;
+    X.data = out.data; X.conf = out.conf || {}; X.matches = out.matches || []; X.aiOff = out.aiOff || '';
+    (X.matches || []).forEach((m) => { ui.clientCache[m.id] = { id: m.id, name: m.name, short: m.name.split(/\s+/)[0] }; });
+    X.status = 'review';
+    if (kind === 'po') refreshPoChecks();
+    render();
+  }).catch((e) => { if (ui.extract !== X) return; X.status = 'error'; X.err = e.message || String(e); render(); });
+}
+function blankPo(tenderId) {
+  const t = tender(tenderId);
+  return { tenderId: t ? t.id : '', no: '', poDate: '', clientName: '', client: t ? t.client : '', value: '', valueExGst: '', deliveryPeriod: '', dueDate: '', payTerms: '',
+    ld: { rate: S.cfg.ldRate, per: S.cfg.ldPer, cap: S.cfg.ldCap, basis: 'delayed', clause: '' }, sdPct: t && t.sdReq === 'Yes' ? t.sdPct : '', sdDays: '',
+    pbgPct: t && t.pbgReq === 'Yes' ? t.pbgPct : '', inspection: '', gaDrawing: '', warranty: '', ackDays: '', items: [], sumAck: false };
+}
+// The checks the server applies before a PO is created, worked out by the server so the two never disagree.
+let checkTimer = null;
+function refreshPoChecks() {
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(() => {
+    const X = ui.extract; if (!X || X.kind !== 'po' || !X.data) return;
+    api('checkTenderPo', [X.data]).then((c) => { if (ui.extract === X) { X.checks = c; render(); } }).catch(() => {});
+  }, 250);
+}
+function vExtract() {
+  const X = ui.extract; const isT = X.kind === 'tender';
+  const title = isT ? 'Capture tender from document' : 'Capture PO from document';
+  let b = '', f = '';
+  if (X.status === 'pick') {
+    const won = S.tenders.filter((t) => t.result === 'won' && !t.poId);
+    b = `${!isT ? F('Won tender this PO is against', 'xt:tenderId', X.tenderId, { type: 'select', opts: won.map((t) => [t.id, t.no + ' · ' + ((cli(t.client) || {}).short || '')]), ph: 'Pick, or let AI match from the PO' }) : ''}
+      <div class="drop" data-act="pickFile" data-drop="${X.kind}" role="button" tabindex="0">${ic('up')}<div><b>Drop the ${isT ? 'tender / NIT' : 'purchase order'} here, or click to choose</b></div><div class="small faint">PDF, JPG, PNG, up to 10 MB. Scanned PDFs are read page by page.</div></div>
+      <div class="row"><span class="faint small">No file handy?</span><button class="btn sm" data-act="${isT ? 'newTender' : 'poManual'}">Enter by hand</button></div>
+      ${S.ai ? '' : `<div class="note">${ic('alert')}<span>AI reading is off on this server (${esc(S.aiOff)}). The file is still kept, and the form opens for you to fill.</span></div>`}`;
+  } else if (X.status === 'reading' || X.status === 'thinking') {
+    b = `<div class="thinking"><span class="pulse"></span><div><div style="font-weight:600">${X.status === 'reading' ? 'Opening ' + esc(X.fileName) + '…' : 'AI is reading ' + esc(X.fileName)}</div><div class="small muted">${X.status === 'thinking' ? 'This takes 20–90 seconds for a long document.' : 'Uploading'}</div></div></div>`;
+  } else if (X.status === 'error') {
+    b = `<div class="note bad">${ic('alert')}<span>${esc(X.err)}</span></div>`;
+    f = `<button class="btn" data-act="extractRetry">Choose another file</button>${isT ? '<button class="btn pri" data-act="newTender">Enter by hand</button>' : '<button class="btn pri" data-act="poManual">Enter by hand</button>'}`;
+  } else if (X.status === 'review') {
+    const d = X.data; const lowN = Object.keys(X.conf).filter((k) => X.conf[k] < 0.85).length;
+    const head = X.aiOff ? `<div class="note warn">${ic('alert')}<span>AI did not read this one (${esc(X.aiOff)}). ${X.documentId ? 'The file is kept with the record; ' : ''}fill the form by hand.</span></div>`
+      : X.documentId ? `<div class="note ${lowN ? 'warn' : 'ok'}">${ic(lowN ? 'alert' : 'check')}<span>${lowN ? `AI was unsure about ${lowN} field${lowN > 1 ? 's' : ''} – they are highlighted. Check them against the document.` : 'Everything was read with high confidence. Give it a quick look before saving.'}</span></div>` : '';
+    if (isT) {
+      const dup = S.tenders.find((t) => t.no && d.no && t.no.toLowerCase() === String(d.no).toLowerCase());
+      b = `${head}${dup ? `<div class="note bad">${ic('alert')}<span>Tender ${esc(d.no)} is already in the system (${esc(stageLabel(dup))}). Saving will create a duplicate.</span></div>` : ''}
+      <div class="fgrid">
+        ${F('Tender number', 'x:no', d.no, { req: 1, low: low('no') })}${F('Client (as the document says)', 'x:clientName', d.clientName, { low: low('clientName'), ro: true })}${F('Client in Customers', 'x:client', d.client, { type: 'client', matches: X.matches, ph: X.matches.length ? 'Pick a suggestion or search' : 'Search Customers', hint: !d.client ? 'not in Customers? add it in the ERP first' : '' })}
+        ${F('Title / scope', 'x:title', d.title, { wide: 1, type: 'textarea', req: 1, low: low('title') })}
+        ${F('Plant / site', 'x:plant', d.plant, { low: low('plant') })}${F('Portal', 'x:portal', d.portal, { type: 'select', opts: L(S.portals), low: low('portalName') })}${F('Category', 'x:category', d.category, { type: 'select', opts: L(S.categories) })}${F('Priority', 'x:priority', d.priority, { type: 'select', opts: [['High', 'High'], ['Medium', 'Medium'], ['Low', 'Low']] })}
+        ${F('Published', 'x:publishedDate', d.publishedDate, { type: 'date', low: low('publishedDate') })}${F('Last date', 'x:lastDate', d.lastDate, { type: 'date', req: 1, low: low('lastDate') })}${F('Due time', 'x:dueTime', d.dueTime, { type: 'time', low: low('dueTime') })}
+        ${F('Estimated cost (₹)', 'x:estCost', d.estCost, { type: 'number', req: 1, low: low('estCost') })}${F('Tender fee (₹)', 'x:tenderFee', d.tenderFee, { type: 'number', low: low('tenderFee') })}${F('EMD (₹)', 'x:emd', d.emd, { type: 'number', req: 1, low: low('emd') })}
+        ${F('EMD type', 'x:emdType', d.emdType, { type: 'select', opts: S.emdTypes.map((x) => [x, x]), low: low('emdType') })}${F('BG acceptable', 'x:bgOk', d.bgOk, { type: 'yna' })}
+        ${F('SD required', 'x:sdReq', d.sdReq, { type: 'yna' })}${F('SD %', 'x:sdPct', d.sdPct, { type: 'number', low: low('sdPct') })}${F('PBG required', 'x:pbgReq', d.pbgReq, { type: 'yna' })}${F('PBG %', 'x:pbgPct', d.pbgPct, { type: 'number', low: low('pbgPct') })}
+        ${F('Delivery period', 'x:deliveryPeriod', d.deliveryPeriod, { low: low('deliveryPeriod') })}${F('Payment terms', 'x:payTerms', d.payTerms, { low: low('payTerms') })}
+        ${F('LD clause', 'x:ldClause', d.ldClause, { wide: 1, low: low('ldClause') })}
+        ${F('Eligibility (one per line)', 'x:eligText', d.eligText, { type: 'textarea', wide: 1, low: low('eligibility') })}
+      </div>
+      <div><div class="row" style="margin-bottom:8px"><h3 style="flex:1">BOQ items <span class="faint small">(${d.items.length})</span></h3>${low('items') ? '<span class="ai-badge">check quantities</span>' : ''}<button class="btn sm" data-act="xAddItem">${ic('plus')}Add line</button></div>
+      <div class="tbl-wrap card"><table class="t"><thead><tr><th>#</th><th style="min-width:260px">Description</th><th>Qty</th><th>UOM</th><th style="min-width:140px">Spec</th><th></th></tr></thead><tbody>
+      ${d.items.map((it, i) => `<tr><td class="num">${i + 1}</td><td><input class="in" id="xi_${i}_d" data-ref="x:items.${i}.desc" value="${esc(it.desc)}"></td><td><input class="in num" type="number" min="0" step="any" id="xi_${i}_q" data-ref="x:items.${i}.qty" value="${esc(it.qty)}"></td><td><input class="in" id="xi_${i}_u" data-ref="x:items.${i}.uom" value="${esc(it.uom)}"></td><td><input class="in" id="xi_${i}_s" data-ref="x:items.${i}.spec" value="${esc(it.spec)}"></td><td><button class="btn sm ghost" data-act="xDelItem" data-i="${i}" aria-label="Remove">${ic('trash')}</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No BOQ lines read. Add them here or on the tender later.</td></tr>'}
+      </tbody></table></div></div>`;
+      f = `<span class="small faint" style="margin-right:auto">${esc(X.fileName || 'Entered by hand')}</span><button class="btn" data-act="xSave" data-send="0">Save as draft</button><button class="btn pri" data-act="xSave" data-send="1">Save &amp; send for approval ${ic('arrow')}</button>`;
+    } else {
+      const checks = X.checks || [];
+      const miss = !checks.length || checks.some((r) => !r.ok);
+      const won = S.tenders.filter((t) => t.result === 'won' && !t.poId);
+      const sum = d.items.reduce((a, i) => a + num(i.qty) * num(i.rate), 0);
+      b = `${head}<div class="split" style="grid-template-columns:minmax(0,1fr) 300px">
+        <div class="grid" style="gap:16px">
+        <div class="fgrid">
+          ${F('Against tender', 'x:tenderId', d.tenderId, { type: 'select', opts: won.map((t) => [t.id, t.no]), req: 1 })}${F('PO number', 'x:no', d.no, { req: 1, low: low('no') })}${F('PO date', 'x:poDate', d.poDate, { type: 'date', req: 1, low: low('poDate') })}
+          ${F('PO value incl. GST (₹)', 'x:value', d.value, { type: 'number', low: low('value') })}${F('Value excl. GST (₹)', 'x:valueExGst', d.valueExGst, { type: 'number', low: low('valueExGst') })}
+          ${F('Delivery period', 'x:deliveryPeriod', d.deliveryPeriod, { low: low('deliveryPeriod') })}${F('Delivery due date', 'x:dueDate', d.dueDate, { type: 'date', req: 1, low: low('dueDate') })}
+          ${F('Payment terms', 'x:payTerms', d.payTerms, { wide: 1, low: low('payTerms') })}
+          ${F('Inspection', 'x:inspection', d.inspection, { low: low('inspection') })}${F('GA drawing', 'x:gaDrawing', d.gaDrawing, { low: low('gaDrawing') })}${F('Warranty', 'x:warranty', d.warranty)}
+          ${F('SD %', 'x:sdPct', d.sdPct, { type: 'number', low: low('sdPct') })}${F('SD due within (days)', 'x:sdDays', d.sdDays, { type: 'number' })}${F('PBG %', 'x:pbgPct', d.pbgPct, { type: 'number', low: low('pbgPct') })}${F('Acknowledge PO within (days)', 'x:ackDays', d.ackDays, { type: 'number' })}
+        </div>
+        <div class="card"><div class="card-h"><h3>LD clause</h3>${low('ldRate') || low('ldClause') ? '<span class="ai-badge">check</span>' : ''}</div><div class="card-b fgrid">
+          ${F('Rate (%)', 'x:ld.rate', d.ld.rate, { type: 'number' })}${F('Per', 'x:ld.per', d.ld.per, { type: 'select', opts: [['day', 'day'], ['week', 'week or part'], ['month', 'month']] })}${F('Maximum (%)', 'x:ld.cap', d.ld.cap, { type: 'number' })}${F('Applied on', 'x:ld.basis', d.ld.basis, { type: 'select', opts: [['delayed', 'value of delayed supply'], ['total', 'total PO value']] })}
+          ${F('Clause as written', 'x:ld.clause', d.ld.clause, { type: 'textarea', wide: 1 })}
+        </div></div>
+        <div><div class="row" style="margin-bottom:8px"><h3 style="flex:1">Line items <span class="faint small">(${d.items.length} · total ${inr(sum)})</span></h3>
+          <label class="row small" style="gap:6px">Assign all to <select class="in" style="width:auto" id="xfpall" data-chg="fpAll">${opts(membersOf('fp'), '', 'Fulfilment person')}</select></label><button class="btn sm" data-act="xAddItem">${ic('plus')}Add line</button></div>
+        <div class="tbl-wrap card"><table class="t"><thead><tr><th>Sr</th><th>Code</th><th style="min-width:220px">Description</th><th>Qty</th><th>UOM</th><th>Rate</th><th>Amount</th><th>Due</th><th style="min-width:130px">Fulfilment</th><th></th></tr></thead><tbody>
+        ${d.items.map((it, i) => { const bad = num(it.amount) && Math.abs(num(it.qty) * num(it.rate) - num(it.amount)) > num(it.amount) * 0.01; const L1 = (k) => low(`items.${i}.${k}`) ? ' lowc' : '';
+          return `<tr><td><input class="in num" style="min-width:44px" id="xp_${i}_sr" data-ref="x:items.${i}.sr" value="${esc(it.sr)}"></td><td><input class="in${L1('code')}" style="min-width:90px" id="xp_${i}_c" data-ref="x:items.${i}.code" value="${esc(it.code)}"></td><td><input class="in${L1('desc')}" id="xp_${i}_d" data-ref="x:items.${i}.desc" value="${esc(it.desc)}"></td>
+          <td><input class="in num${L1('qty')}${bad ? ' miss' : ''}" type="number" min="0" step="any" id="xp_${i}_q" data-ref="x:items.${i}.qty" value="${esc(it.qty)}"></td><td><input class="in" style="min-width:56px" id="xp_${i}_u" data-ref="x:items.${i}.uom" value="${esc(it.uom)}"></td>
+          <td><input class="in num${L1('rate')}${bad ? ' miss' : ''}" type="number" min="0" step="any" id="xp_${i}_r" data-ref="x:items.${i}.rate" value="${esc(it.rate)}"></td><td><input class="in num${bad ? ' miss' : ''}" type="number" min="0" step="any" id="xp_${i}_a" data-ref="x:items.${i}.amount" value="${esc(it.amount)}"></td>
+          <td><input class="in${L1('due')}" type="date" id="xp_${i}_due" data-ref="x:items.${i}.due" value="${esc(it.due)}"></td><td><select class="in${it.fp ? '' : ' miss'}" id="xp_${i}_fp" data-ref="x:items.${i}.fp">${opts(membersOf('fp'), it.fp, 'Assign')}</select></td>
+          <td><button class="btn sm ghost" data-act="xDelItem" data-i="${i}" aria-label="Remove">${ic('trash')}</button></td></tr>`; }).join('') || '<tr><td colspan="10" class="empty">No lines yet.</td></tr>'}
+        </tbody></table></div></div>
+        </div>
+        <div>${gatePanel('Checks before creating the PO', checks.length ? checks : [{ ok: false, t: 'Checking…' }], '', `<div style="padding:0 16px 14px"><label class="row small" style="gap:6px"><input type="checkbox" id="xsumack" data-ref="x:sumAck" ${d.sumAck ? 'checked' : ''}> I have checked the total against the PO</label></div>`)}</div>
+      </div>`;
+      f = `<span class="small faint" style="margin-right:auto">${esc(X.fileName || 'Entered by hand')} · on save: items go to each fulfilment person's list, SD/PBG reminders go to Accounts</span><button class="btn pri" data-act="xSave" data-send="1" ${miss ? 'disabled' : ''}>Create PO &amp; assign items ${ic('arrow')}</button>`;
+    }
+  }
+  return `<div class="scrim" data-act="scrim"><div class="modal wide" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="modal-h"><span class="ai-badge">${ic('spark')} AI</span><h2>${esc(title)}</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button></div><div class="modal-b">${b}</div>${f ? `<div class="modal-f">${f}</div>` : ''}</div></div>`;
+}
+
+// ================= voice notes =================
+let REC = null;
+function vVoice() {
+  const V = ui.voice;
+  let res = '';
+  if (V.status === 'thinking') res = `<div class="thinking"><span class="pulse"></span><div><b>Turning your note into actions…</b><div class="small muted">Tasks, quantity updates and notes</div></div></div>`;
+  if (V.status === 'error') res = `<div class="note bad">${ic('alert')}<span>${esc(V.err)}</span></div>`;
+  if (V.status === 'result') {
+    res = `${V.summary ? `<div class="note ok">${ic('check')}<span>${esc(V.summary)}</span></div>` : ''}` + V.actions.map((a, i) => {
+      if (a.applied) return `<div class="note">${ic('check')}<span>Done: ${esc(a.label)}</span></div>`;
+      let inner = '';
+      if (a.type === 'task') inner = `<div class="lbl">New task</div><div style="font-weight:600">${esc(a.title)}</div><div class="small muted">${esc(mName(a.assignee))}${a.due ? ' · due ' + fD(a.due) : ''}${a.link ? ' · ' + esc(linkLabel(a.link)) : ''} · ${esc(a.priority || 'Medium')}</div>${a.checklist && a.checklist.length ? `<div class="small faint">${a.checklist.length} steps: ${esc(a.checklist.join(' · '))}</div>` : ''}`;
+      if (a.type === 'move') inner = `<div class="lbl">Quantity update</div><div style="font-weight:600">${esc(S.moves[a.movement] || a.movement)} · ${esc(a.qty)} on item #${esc(a.item)}</div><div class="small muted">PO ${esc(a.poNo)}${a.reference ? ' · ' + esc(a.reference) : ''}${a.date ? ' · ' + fD(a.date) : ''}</div>${a.errors && a.errors.length ? `<div class="small" style="color:var(--bad)">${esc(a.errors.join(' · '))}</div>` : ''}`;
+      if (a.type === 'note') inner = `<div class="lbl">Note on ${esc(linkLabel(a.link) || 'record')}</div><div>${esc(a.text)}</div>`;
+      return `<div class="card"><div class="card-b row" style="align-items:flex-start"><div style="flex:1;min-width:0">${inner}</div><button class="btn sm pri" data-act="vApply" data-i="${i}" ${(a.errors && a.errors.length) || (a.type === 'note' && !a.link) ? 'disabled' : ''}>${a.type === 'task' ? 'Create' : a.type === 'move' ? 'Record' : 'Add'}</button></div></div>`;
+    }).join('');
+  }
+  return `<div class="scrim" data-act="scrim"><div class="modal" role="dialog" aria-modal="true" aria-label="Voice note"><div class="modal-h"><span class="ai-badge">${ic('mic')} voice</span><h2>Voice note</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button></div>
+  <div class="modal-b">
+    <p class="muted" style="margin:0">Speak naturally: “Ask Rohan to call the supplier tomorrow about the balance 10 motors on PO 4417” or “Dispatched 20 RTDs on the GeM order, LR 77230”. AI turns it into tasks, quantity updates or notes for you to confirm.</p>
+    <button class="mic-big${V.status === 'rec' ? ' rec' : ''}" data-act="micToggle" aria-label="${V.status === 'rec' ? 'Stop' : 'Start'} recording">${ic('mic')}</button>
+    <div class="small faint" style="text-align:center">${V.status === 'rec' ? 'Listening… tap to stop' : V.micErr ? esc(V.micErr) : 'Tap to speak, or type / use your keyboard\'s dictation below'}</div>
+    ${F('Transcript', 'v:text', V.text, { type: 'textarea', ph: 'Your note appears here' })}
+    ${F('About', 'v:ctx', V.ctx, { type: 'select', opts: S.tenders.filter((t) => t.stage !== 'result' || t.result === 'won').map((t) => ['t:' + t.id, 'Tender ' + (t.no || t.title)]).concat(S.pos.map((p) => ['p:' + p.id, 'PO ' + p.no])), ph: 'Let AI work it out' })}
+    ${res}
+  </div><div class="modal-f">${V.status === 'result' && V.actions.some((a) => !a.applied && !(a.errors && a.errors.length) && !(a.type === 'note' && !a.link)) ? `<button class="btn" data-act="vApplyAll">Apply all</button>` : ''}<button class="btn pri" data-act="vProcess" ${blank(V.text) || V.status === 'thinking' ? 'disabled' : ''}>${ic('spark')}Organise with AI</button></div></div></div>`;
+}
+function micToggle() {
+  const V = ui.voice;
+  if (REC) { try { REC.stop(); } catch (e) {} REC = null; V.status = 'idle'; render(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { V.micErr = 'Speech input isn\'t supported in this browser. Use your keyboard\'s mic button or type.'; render(); return; }
+  try {
+    const r = new SR(); r.lang = 'en-IN'; r.continuous = true; r.interimResults = true;
+    const base = V.text ? V.text + ' ' : '';
+    r.onresult = (e) => { let s = ''; for (let i = 0; i < e.results.length; i++) s += e.results[i][0].transcript; V.text = base + s; const el = document.getElementById(fid('v:text')); if (el) el.value = V.text; const bt = document.querySelector('[data-act="vProcess"]'); if (bt) bt.disabled = blank(V.text); };
+    r.onerror = (e) => { V.micErr = e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'The microphone isn\'t allowed here. Use your keyboard\'s dictation or type the note.' : 'Couldn\'t hear that. Try again or type.'; REC = null; V.status = 'idle'; render(); };
+    r.onend = () => { if (REC) { REC = null; V.status = 'idle'; render(); } };
+    r.start(); REC = r; V.status = 'rec'; V.micErr = ''; render();
+  } catch (e) { V.micErr = 'The microphone isn\'t available here. Type or use keyboard dictation.'; render(); }
+}
+function vProcess() {
+  const V = ui.voice; if (REC) { try { REC.stop(); } catch (e) {} REC = null; }
+  V.status = 'thinking'; render();
+  api('organiseTenderVoice', [V.text, V.ctx || '']).then((out) => {
+    if (ui.voice !== V) return;
+    V.summary = out.summary || ''; V.actions = out.actions || []; V.status = 'result'; render();
+  }).catch((e) => { if (ui.voice !== V) return; V.status = 'error'; V.err = e.message; render(); });
+}
+function vApply(i) {
+  const V = ui.voice, a = V.actions[i]; if (!a || a.applied) return Promise.resolve();
+  let p;
+  if (a.type === 'task') p = mutate('saveTenderTask', [{ title: a.title, assignee: a.assignee, due: a.due || addD(2), priority: a.priority || 'Medium', link: a.link || '', checklist: (a.checklist || []).map((t) => ({ t, d: false })), source: 'voice' }]);
+  else if (a.type === 'move') p = mutate('recordPoMove', [a.poId, a.itemId, { t: a.movement, qty: a.qty, date: a.date, ref: a.reference, sup: a.sup, voice: true }]);
+  else p = mutate('addTenderNote', [a.link, a.text]);
+  return p.then(() => { a.applied = true; render(); }).catch(() => {});
+}
+
+// ================= quantity updates =================
+function validateMove(it, f) {
+  const E = []; const q = qtys(it); const n = num(f.qty);
+  const cap = { ordered: num(it.qty) - q.ordered, procured: q.ordered - q.procured, dispatched: q.procured - q.dispatched, delivered: q.dispatched - q.delivered }[f.t];
+  if (!S.moves[f.t]) E.push('Choose what happened');
+  else if (!(n > 0)) E.push('Enter a quantity above 0');
+  else if (n > cap) E.push(cap <= 0 ? ({ ordered: 'Full PO quantity is already ordered', procured: 'Nothing ordered is waiting to be procured', dispatched: 'Nothing procured is waiting to be dispatched', delivered: 'Nothing dispatched is waiting to be delivered' })[f.t] : `Only ${cap} ${it.uom} can be ${f.t} now`);
+  if (blank(f.ref)) E.push(({ ordered: 'Supplier PO number is required', procured: 'GRN / material-ready reference is required', dispatched: 'LR number is required', delivered: 'DM / acknowledgement number is required' })[f.t] || 'Reference required');
+  if (f.t === 'ordered' && !f.sup) E.push('Choose the supplier');
+  if (!f.date) E.push('Enter the date'); else if (f.date > TODAY) E.push('Date cannot be in the future');
+  return E;
+}
+function vMove() {
+  const f = ui.form; const p = pobj(f.po); const it = p && p.items.find((i) => i.id === f.it);
+  if (!it) return '';
+  const q = qtys(it);
+  const E = validateMove(it, f);
+  const cap = { ordered: it.qty - q.ordered, procured: q.ordered - q.procured, dispatched: q.procured - q.dispatched, delivered: q.dispatched - q.delivered };
+  const refL = { ordered: 'Supplier PO number', procured: 'GRN / material-ready ref.', dispatched: 'LR number & transporter', delivered: 'DM / acknowledgement no.' }[f.t];
+  return `<div class="scrim" data-act="scrim"><div class="modal" role="dialog" aria-modal="true" aria-label="Update quantities"><div class="modal-h"><h2>Update item #${esc(it.sr)}</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button></div><div class="modal-b">
+    <div><div style="font-weight:600">${esc(it.desc)}</div><div class="small faint">PO ${esc(p.no)} · PO qty ${esc(it.qty)} ${esc(it.uom)}</div></div>
+    <div class="tbl-wrap"><table class="t"><thead><tr><th></th><th class="r">Done</th><th class="r">Can add now</th></tr></thead><tbody>
+      ${Object.keys(S.moves).map((k) => `<tr><td>${esc(S.moves[k])}</td><td class="r num">${q[k]} / ${esc(it.qty)}</td><td class="r num">${cap[k]}</td></tr>`).join('')}</tbody></table></div>
+    <div class="f"><label>What happened</label><div class="seg">${Object.entries(S.moves).map(([k, l]) => `<button type="button" class="y${f.t === k ? ' on' : ''}" data-act="moveType" data-v="${k}" ${cap[k] <= 0 ? 'disabled style="opacity:.4"' : ''}>${esc(l)}</button>`).join('')}</div></div>
+    <div class="fgrid">${F('Quantity (' + it.uom + ')', 'n:qty', f.qty, { type: 'number', req: 1, hint: cap[f.t] > 0 ? `max ${cap[f.t]}` : '' })}${F('Date', 'n:date', f.date, { type: 'date', req: 1 })}
+      ${F(refL || 'Reference', 'n:ref', f.ref, { req: 1, ph: f.t === 'dispatched' ? 'e.g. LR 88213 · VRL Logistics' : '' })}${f.t === 'ordered' ? F('Supplier', 'n:sup', f.sup, { type: 'select', opts: L(S.suppliers), req: 1, ph: S.suppliers.length ? 'Select…' : 'Add suppliers in Masters' }) : ''}</div>
+    ${E.length && f.touched ? `<div class="note bad">${ic('alert')}<span>${E.map(esc).join('<br>')}</span></div>` : ''}
+  </div><div class="modal-f"><button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="moveSave" ${E.length ? 'disabled' : ''}>Record</button></div></div></div>`;
+}
+
+// ================= the task form =================
+function vTask() {
+  const k = ui.task; if (!k) return '';
+  const r = 'k:';
+  const linkOpts = S.tenders.map((t) => ['t:' + t.id, 'Tender ' + (t.no || t.title || 'draft')]).concat(S.pos.map((p) => ['p:' + p.id, 'PO ' + p.no]));
+  const mine = !k.id || k.by === S.me.id || ['shortlist', 'mgmt'].includes(role());
+  RO = !mine;
+  const body = `<div class="fgrid">
+      ${F('Task', r + 'title', k.title, { wide: 1, req: 1, ph: 'e.g. Get revised quote from the supplier' })}
+      ${F('For tender / PO', r + 'link', k.link, { type: 'select', opts: linkOpts, ph: 'Not linked', ro: !!k.id })}
+      ${F('Assign to', r + 'assignee', k.assignee, { type: 'select', opts: membersOf(), req: 1, hint: k.link && linkOwner(k.link) ? 'owner: ' + mName(linkOwner(k.link)).split(' ')[0] : '' })}
+      ${F('Due date', r + 'due', k.due, { type: 'date', req: 1 })}${F('Priority', r + 'priority', k.priority, { type: 'select', opts: [['High', 'High'], ['Medium', 'Medium'], ['Low', 'Low']] })}
+      ${(() => { const s = RO; RO = false; const h = F('Status', r + 'status', k.status, { type: 'select', opts: L(S.taskStatuses), ph: null }); RO = s; return h; })()}
+      ${F('Details', r + 'desc', k.desc, { type: 'textarea', wide: 1 })}
+    </div>`;
+  RO = false;
+  return `<div class="scrim" data-act="scrim"><div class="modal" role="dialog" aria-modal="true" aria-label="Task"><div class="modal-h"><h2>${k.id ? 'Task' : 'New task'}</h2>${k.source === 'voice' ? '<span class="chip ai">from voice note</span>' : ''}<button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button></div><div class="modal-b">
+    ${body}
+    <div><div class="lbl" style="margin-bottom:6px">Checklist ${k.checklist.length ? `· ${k.checklist.filter((x) => x.d).length}/${k.checklist.length}` : ''}</div>
+      ${k.checklist.map((c, i) => `<div class="checkrow"><input type="checkbox" id="kc_${i}" data-ref="k:checklist.${i}.d" ${c.d ? 'checked' : ''}><label for="kc_${i}" style="flex:1;${c.d ? 'text-decoration:line-through;color:var(--ink-3)' : ''}">${esc(c.t)}</label>${mine ? `<button class="btn sm ghost" data-act="kDelStep" data-i="${i}" aria-label="Remove step">${ic('x')}</button>` : ''}</div>`).join('')}
+      <div class="row" style="margin-top:6px"><input class="in" style="flex:1" id="kstep" placeholder="Add a step and press Enter" data-enter="kAddStep"><button class="btn sm" data-act="kAddStep">Add</button></div></div>
+    ${k.id ? `<div><div class="lbl" style="margin-bottom:6px">Comments</div>
+      ${k.comments.map((c) => `<div class="checkrow" style="align-items:flex-start">${av(c.by)}<div><div class="small"><b>${esc(mName(c.by))}</b> <span class="faint">${fD(c.at)}</span></div><div>${esc(c.text)}</div></div></div>`).join('')}
+      <div class="row" style="margin-top:6px"><input class="in" style="flex:1" id="kcomment" placeholder="Write an update" data-enter="kComment"><button class="btn sm" data-act="kComment">Post</button></div></div>
+    <div class="small faint">Given by ${esc(mName(k.by))} on ${fDY(k.created)} · also on the ERP's Tasks page</div>` : ''}
+  </div><div class="modal-f">${k.id && mine ? `<button class="btn danger" data-act="kDelete" style="margin-right:auto">${ic('trash')}Delete</button>` : ''}${k.link ? `<button class="btn" ${refGo(k.link)}>Open ${k.link[0] === 't' ? 'tender' : 'PO'}</button>` : ''}<button class="btn pri" data-act="kSave" ${blank(k.title) || !k.assignee ? 'disabled' : ''}>${k.id ? 'Save' : 'Assign task'}</button></div></div></div>`;
+}
+
+// ================= small modals =================
+const modalShell = (title, body, foot) => `<div class="scrim" data-act="scrim"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="modal-h"><h2>${esc(title)}</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button></div><div class="modal-b">${body}</div><div class="modal-f">${foot}</div></div></div>`;
+function vSmall() {
+  const m = ui.modal; const t = tender(m.id); if (!t) return '';
+  if (m.type === 'approve') return modalShell('Approve participation', `<p style="margin:0"><b>${esc(t.no)}</b><br><span class="muted">${esc(t.title)}</span></p><dl class="kv"><dt>Est. cost</dt><dd>${inr(t.estCost)}</dd><dt>EMD</dt><dd>${inr(t.emd)} (${esc(t.emdType || '')})</dd><dt>Last date</dt><dd>${fDY(t.lastDate)}</dd></dl>${F('Note to the team (optional)', 'n:note', ui.form.note, { type: 'textarea', ph: 'e.g. Strategic client – quote sharp' })}`, `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="approveSave">${ic('check')}Approve</button>`);
+  if (m.type === 'reject' || m.type === 'decline') return modalShell(m.type === 'reject' ? 'Do not bid' : 'Mark as not participating', `<p style="margin:0"><b>${esc(t.no)}</b> · ${esc(t.title)}</p>${F('Reason', 'n:note', ui.form.note, { type: 'select', req: 1, opts: S.declineReasons.map((x) => [x, x]) })}${F('Comments', 'n:note2', ui.form.note2, { type: 'textarea' })}`, `<button class="btn" data-act="closeModal">Cancel</button><button class="btn danger" data-act="rejectSave" ${blank(ui.form.note) ? 'disabled' : ''}>Confirm</button>`);
+  return '';
+}
+function vDrawer() {
+  const A = S.alerts;
+  return `<div class="scrim" data-act="scrim" style="padding:0;background:rgba(10,18,9,.25)"></div><aside class="drawer" role="dialog" aria-label="Alerts"><div class="modal-h"><h2>Alerts</h2><span class="chip">${A.length}</span><button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button></div><div class="body">
+    ${A.map((a) => `<div class="lrow" ${refGo(a.ref)}><span class="sev ${a.sev}"></span><div class="x"><div class="a" style="white-space:normal">${esc(a.t)}</div><div class="small faint">${esc(a.s)}</div></div></div>`).join('') || '<div class="empty">No alerts for you.</div>'}
+    <div class="card-b small faint">Deadline alerts from ${S.cfg.alertDays} days before the last date, urgent from ${S.cfg.urgentDays}; LD, SD/PBG and overdue tasks as they arise.</div></div></aside>`;
+}
+
+// ================= drawing =================
+function overlay() {
+  if (ui.extract && ui.extract.status) return vExtract();
+  if (ui.voice) return vVoice();
+  if (ui.drawer) return vDrawer();
+  if (ui.task) return vTask();
+  if (!ui.modal) return '';
+  if (ui.modal.type === 'move') return vMove();
+  return vSmall();
+}
+function render() {
+  if (!S) return;
+  const ae = document.activeElement; const fidNow = ae && ae.id;
+  const sel = ae && typeof ae.selectionStart === 'number' ? [ae.selectionStart, ae.selectionEnd] : null;
+  // What is being typed and not yet sent survives a redraw that arrives in the middle of it.
+  const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA') && ae.type !== 'checkbox' && ae.id ? ae.value : null;
+  const ovScroll = (document.querySelector('#overlay .scrim') || {}).scrollTop;
+  $('#app').innerHTML = shell();
+  $('#overlay').innerHTML = overlay();
+  const sc = document.querySelector('#overlay .scrim'); if (sc && ovScroll) sc.scrollTop = ovScroll;
+  if (fidNow) {
+    const el = document.getElementById(fidNow);
+    if (el && el !== document.body) {
+      if (typing !== null && 'value' in el && el.value !== typing) el.value = typing;
+      el.focus({ preventScroll: true });
+      if (sel && el.setSelectionRange) try { el.setSelectionRange(sel[0], sel[1]); } catch (e) {}
+    }
+  }
+  const want = pathFor();
+  if (location.pathname !== want) history.replaceState(null, '', want);
+}
+let toastTimer;
+function toast(msg) { ui.toast = msg; clearTimeout(toastTimer); let el = document.querySelector('.toast'); if (!el) { el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); } el.textContent = msg; toastTimer = setTimeout(() => { ui.toast = null; const t = document.querySelector('.toast'); if (t) t.remove(); }, 3600); }
+
+// ================= changes =================
+/** A field was changed: drawn at once, sent to the server, and the server's answer drawn. */
+function setRef(ref, v) {
+  const P = ref.split(':');
+  const kind = P[0];
+  if (kind === 't') {
+    const t = tender(P[1]); if (!t) return;
+    const path = P.slice(2).join(':');
+    if (path !== 'eligText') setPath(t, path, v);
+    mutate('saveTenderField', [t.id, path, v]);
+    return;
+  }
+  if (kind === 'p') {
+    const p = pobj(P[1]); if (!p) return;
+    const path = P.slice(2).join(':');
+    if (/^items\./.test(path)) { const bits = path.split('.'); const it = p.items.find((i) => i.id === bits[1]); if (it) it[bits[2]] = v; } else setPath(p, path, v);
+    mutate('savePoField', [p.id, path, v]);
+    return;
+  }
+  if (kind === 'm') {
+    const k = P[1], id = P[2], f = P[3];
+    const M = MASTERS[k];
+    const row = id === 'new' ? ui.newRow[k] : S[k].find((x) => x.id === id);
+    if (!row) return;
+    row[f] = v;
+    if (blank(row[M.name])) { if (id === 'new') render(); return; }
+    const send = Object.assign({}, row); if (send.id === 'new') delete send.id;
+    mutate('saveTenderMaster', [M.list, send], () => { if (id === 'new') ui.newRow[k] = null; });
+    return;
+  }
+  if (kind === 'cfg') { const o = {}; o[P[1]] = v; mutate('saveTenderRules', [o]); return; }
+  if (kind === 'x') { setPath(ui.extract.data, P[1], v); if (ui.extract.kind === 'po') refreshPoChecks(); soft(); return; }
+  if (kind === 'xt') { ui.extract[P[1]] = v; return; }
+  if (kind === 'n') { ui.form[P[1]] = v; ui.form.touched = true; soft(); return; }
+  if (kind === 'v') { ui.voice[P[1]] = v; return; }
+  if (kind === 'k') {
+    setPath(ui.task, P[1], v);
+    if (P[1] === 'link' && v && !ui.task.id) { const own = linkOwner(v); if (own) ui.task.assignee = own; }
+    soft();
+  }
+}
+// Drawn after the event has finished, so the field somebody tabbed into is the one in focus.
+let softTimer = null;
+function soft() { clearTimeout(softTimer); softTimer = setTimeout(render, 0); }
+function readVal(el) { if (el.type === 'checkbox') return el.checked; return el.value; }
+
+// The client picker: Customers searched as you type, chosen from the list.
+let clientTimer = null;
+function clientInput(el) {
+  clearTimeout(clientTimer);
+  const q = el.value.trim();
+  if (q.length < 2) return;
+  clientTimer = setTimeout(() => {
+    api('searchTenderClients', [q]).then((list) => {
+      list.forEach((c) => { ui.clientCache[c.id] = { id: c.id, name: c.name, short: c.name.split(/\s+/)[0] }; });
+      const dl = document.getElementById(el.getAttribute('list'));
+      if (dl) dl.innerHTML = list.map((c) => `<option value="${esc(c.name)}" data-id="${esc(c.id)}"></option>`).join('');
+    }).catch(() => {});
+  }, 250);
+}
+function clientChosen(el) {
+  const name = el.value.trim();
+  const ref = el.dataset.client;
+  let id = '';
+  if (name) {
+    const dl = document.getElementById(el.getAttribute('list'));
+    const hit = dl && Array.from(dl.options).find((o) => o.value === name);
+    const cached = Object.values(ui.clientCache).concat(S.clients).find((c) => c.name === name);
+    id = hit ? hit.dataset.id : cached ? cached.id : '';
+    if (!id) { toast('Pick the client from the list — it has to be in the ERP\'s Customers.'); render(); return; }
+  }
+  setRef(ref, id);
+}
+
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (el.dataset.client) { clientChosen(el); return; }
+  if (el.dataset.ref) setRef(el.dataset.ref, readVal(el));
+  if (el.dataset.filter) { ui.filters[el.dataset.filter] = el.type === 'checkbox' ? el.checked : el.value; render(); }
+  if (el.dataset.member) mutate('saveTenderMember', [el.dataset.member, el.value, null]);
+  if (el.dataset.chg === 'fpAll' && el.value) { ui.extract.data.items.forEach((i) => { i.fp = el.value; }); refreshPoChecks(); render(); }
+});
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (el.dataset.client) { clientInput(el); return; }
+  if (el.dataset.filter === 'q') { ui.filters.q = el.value; clearTimeout(window.__rq); window.__rq = setTimeout(render, 250); }
+  if (el.dataset.ref === 'v:text') { ui.voice.text = el.value; const b = document.querySelector('[data-act="vProcess"]'); if (b) b.disabled = blank(el.value); }
+  if (el.dataset.ref === 'k:title') { ui.task.title = el.value; const b = document.querySelector('[data-act="kSave"]'); if (b) b.disabled = blank(el.value) || !ui.task.assignee; }
+});
+document.addEventListener('keydown', (e) => {
+  const el = e.target;
+  if (e.key === 'Enter' && el.dataset && el.dataset.enter) { e.preventDefault(); ACT[el.dataset.enter](el.dataset, el); }
+  if (e.key === 'Escape' && (ui.modal || ui.extract || ui.voice || ui.drawer || ui.task)) ACT.closeModal();
+  if ((e.key === 'Enter' || e.key === ' ') && el.classList && (el.classList.contains('tcard') || el.classList.contains('drop'))) { e.preventDefault(); el.click(); }
+});
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  if (el.dataset.act === 'scrim' && e.target !== el) return;
+  if (el.tagName === 'A' && el.dataset.act !== 'toErp') e.preventDefault();
+  if (e.target.closest('select, input, textarea') && el.dataset.act === 'go') return;
+  const fn = ACT[el.dataset.act]; if (fn) fn(el.dataset, el, e);
+});
+document.addEventListener('dragover', (e) => { const d = e.target.closest('[data-drop]'); if (d) { e.preventDefault(); d.classList.add('over'); } });
+document.addEventListener('dragleave', (e) => { const d = e.target.closest('[data-drop]'); if (d) d.classList.remove('over'); });
+document.addEventListener('drop', (e) => {
+  const d = e.target.closest('[data-drop]'); if (!d) return; e.preventDefault();
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  const kind = d.dataset.drop;
+  if (kind === 'attach') return;
+  ui.extract = ui.extract || { kind, tenderId: '' }; ui.extract.kind = kind; startExtract(kind, f);
+});
+let pickFor = null;
+$('#filepick').addEventListener('change', (e) => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  if (pickFor) { const pf = pickFor; pickFor = null; readFile(f).then((file) => mutate('attachTenderFile', [pf.kind, pf.id, file])).catch((err) => toast(err.message)); return; }
+  if (ui.extract) startExtract(ui.extract.kind, f);
+});
+window.addEventListener('popstate', () => { const r = fromPath(location.pathname); ui.page = r.page; ui.id = r.id; ui.tab = null; ui.modal = null; ui.task = null; ui.drawer = false; render(); });
+
+// ================= actions =================
+function newTaskDraft(link) {
+  return { id: '', title: '', link: link || '', assignee: linkOwner(link || '') || S.me.id, due: addD(2), priority: 'Medium', status: 'Open', desc: '', checklist: [], comments: [], by: S.me.id, created: TODAY };
+}
+const ACT = {
+  go(d) {
+    ui.page = d.page; ui.id = d.id || null; ui.tab = d.tab || null; ui.modal = null; ui.task = null; ui.drawer = false; ui.voice = null; ui.confirmDel = null;
+    history.pushState(null, '', pathFor()); render(); window.scrollTo(0, 0);
+  },
+  toErp(d, el, e) { /* a real link: the ERP opens on its dashboard */ },
+  theme() { const dark = !isDark(); document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light'); try { localStorage.setItem('erp.theme', dark ? 'dark' : 'light'); } catch (e) {} render(); },
+  tab(d) { ui.tab = d.v; render(); },
+  mtab(d) { ui.mtab = d.v; ui.confirmDel = null; render(); },
+  view(d) { ui.filters.view = d.v; render(); },
+  tview(d) { ui.filters.tview = d.v; render(); },
+  seg(d) {
+    const ref = d.ref;
+    const kind = ref.split(':')[0];
+    let cur = null;
+    if (kind === 't') { const P = ref.split(':'); cur = getPath(tender(P[1]) || {}, P.slice(2).join(':')); }
+    else if (kind === 'p') { const P = ref.split(':'); cur = getPath(pobj(P[1]) || {}, P.slice(2).join(':')); }
+    else if (kind === 'x') cur = getPath(ui.extract.data, ref.slice(2));
+    setRef(ref, cur === d.v ? '' : d.v);
+    if (kind !== 'x') render();
+  },
+  drawer() { ui.drawer = true; render(); },
+  closeModal() { if (REC) { try { REC.stop(); } catch (e) {} REC = null; } ui.modal = null; ui.extract = null; ui.voice = null; ui.drawer = false; ui.task = null; render(); },
+  scrim(d, el, e) { if (e.target === el) ACT.closeModal(); },
+  advance(d) { mutate('advanceTender', [d.id]); },
+  approve(d) { ui.form = {}; ui.modal = { type: 'approve', id: d.id }; render(); },
+  approveSave() { const id = ui.modal.id; ui.modal = null; mutate('approveTender', [id, ui.form.note || '']); },
+  reject(d) { ui.form = {}; ui.modal = { type: 'reject', id: d.id }; render(); },
+  decline(d) { ui.form = {}; ui.modal = { type: 'decline', id: d.id }; render(); },
+  rejectSave() { const m = ui.modal; ui.modal = null; mutate('declineTender', [m.id, m.type, ui.form.note, ui.form.note2 || '']); },
+  newTender() { ui.extract = null; mutate('newTender', [], (res) => { if (res && res.id) { ui.page = 'tender'; ui.id = res.id; ui.tab = 'details'; history.pushState(null, '', pathFor()); } }); },
+  addTItem(d) { mutate('tenderItemLine', [d.id, 'add']); },
+  delTItem(d) { mutate('tenderItemLine', [d.id, 'del', +d.i]); },
+  brief(d) { toast('Writing the brief…'); mutate('tenderBrief', [d.id]); },
+  attach(d) { pickFor = { kind: d.kind, id: d.id }; $('#filepick').click(); },
+  rmDoc(d) { if (confirm('Remove this document?')) mutate('removeTenderFile', [d.id]); },
+
+  extractOpen(d) { ui.extract = { kind: d.kind, status: 'pick', tenderId: d.tender || '' }; ui.voice = null; render(); },
+  pickFile() { pickFor = null; $('#filepick').click(); },
+  extractPick(d) { pickFor = null; ui.extract = { kind: d.kind, status: 'pick', tenderId: '' }; render(); $('#filepick').click(); },
+  extractRetry() { ui.extract.status = 'pick'; render(); },
+  poManual() { const X = ui.extract; X.kind = 'po'; X.status = 'review'; X.data = blankPo(X.tenderId); X.conf = {}; X.documentId = ''; X.fileName = ''; X.aiOff = ''; refreshPoChecks(); render(); },
+  xAddItem() { const d = ui.extract.data; d.items.push(ui.extract.kind === 'po' ? { sr: d.items.length + 1, code: '', desc: '', qty: '', uom: 'Nos', rate: '', amount: '', due: d.dueDate || '', fp: '' } : { desc: '', qty: '', uom: 'Nos', spec: '' }); if (ui.extract.kind === 'po') refreshPoChecks(); render(); },
+  xDelItem(d) { ui.extract.data.items.splice(+d.i, 1); if (ui.extract.kind === 'po') refreshPoChecks(); render(); },
+  xSave(d) {
+    const X = ui.extract;
+    if (X.kind === 'tender') {
+      mutate('saveTenderFromDocument', [X.data, X.documentId || '', d.send === '1'], (res) => { ui.extract = null; if (res && (res.id || res.state)) { const id = res.id; if (id) { ui.page = 'tender'; ui.id = id; ui.tab = 'details'; history.pushState(null, '', pathFor()); } } });
+    } else {
+      mutate('createTenderPo', [X.data, X.documentId || ''], (res) => { ui.extract = null; if (res && res.id) { ui.page = 'po'; ui.id = res.id; ui.tab = 'items'; history.pushState(null, '', pathFor()); } });
+    }
+  },
+
+  voice() { const ctx = ui.page === 'tender' ? 't:' + ui.id : ui.page === 'po' ? 'p:' + ui.id : ''; ui.voice = { status: 'idle', text: '', ctx, actions: [] }; ui.extract = null; ui.modal = null; ui.task = null; ui.drawer = false; render(); },
+  micToggle() { micToggle(); },
+  vProcess() { vProcess(); },
+  vApply(d) { vApply(+d.i); },
+  vApplyAll() { const V = ui.voice; V.actions.reduce((p, a, i) => p.then(() => (!a.applied && !(a.errors && a.errors.length) && !(a.type === 'note' && !a.link)) ? vApply(i) : null), Promise.resolve()).then(() => toast('All actions applied')); },
+
+  move(d) {
+    const p = pobj(d.po); const it = p.items.find((i) => i.id === d.it); const q = qtys(it);
+    ui.form = { po: d.po, it: d.it, t: q.ordered < it.qty ? 'ordered' : q.procured < q.ordered ? 'procured' : q.dispatched < q.procured ? 'dispatched' : 'delivered', qty: '', date: TODAY, ref: '', sup: it.supplier || '' };
+    ui.modal = { type: 'move' }; render();
+  },
+  moveType(d) { ui.form.t = d.v; render(); },
+  moveSave() {
+    const f = ui.form; const p = pobj(f.po); const it = p.items.find((i) => i.id === f.it);
+    if (validateMove(it, f).length) { f.touched = true; render(); return; }
+    ui.modal = null;
+    mutate('recordPoMove', [f.po, f.it, { t: f.t, qty: f.qty, date: f.date, ref: f.ref, sup: f.sup }]);
+  },
+  addRow(d) { mutate('poLine', [d.po, d.list, 'add']); },
+  delRow(d) { mutate('poLine', [d.po, d.list, 'del', +d.i]); },
+  closePO(d) { mutate('closeTenderPo', [d.id]); },
+
+  newTask(d) { ui.task = newTaskDraft(d.link || ''); render(); setTimeout(() => { const el = document.getElementById(fid('k:title')); if (el) el.focus(); }, 30); },
+  openTask(d) { const k = S.tasks.find((x) => x.id === d.id); if (!k) return; ui.task = JSON.parse(JSON.stringify(k)); ui.drawer = false; render(); },
+  kSave() {
+    const k = ui.task; if (blank(k.title) || !k.assignee) return;
+    ui.task = null;
+    mutate('saveTenderTask', [k]).catch(() => { ui.task = k; render(); });
+  },
+  kDelete() { const k = ui.task; if (!confirm('Delete this task?')) return; ui.task = null; mutate('deleteTenderTask', [k.id]); },
+  kAddStep() { const el = $('#kstep'); if (!el || blank(el.value)) return; ui.task.checklist.push({ t: el.value.trim(), d: false }); el.value = ''; render(); setTimeout(() => { const s = $('#kstep'); if (s) s.focus(); }, 0); },
+  kDelStep(d) { ui.task.checklist.splice(+d.i, 1); render(); },
+  kComment() { const el = $('#kcomment'); if (!el || blank(el.value)) return; const k = ui.task; const text = el.value.trim(); mutate('commentTenderTask', [k.id, text], () => { const fresh = S.tasks.find((x) => x.id === k.id); if (fresh && ui.task) ui.task.comments = fresh.comments; }); },
+
+  mAdd(d) { const M = MASTERS[d.k]; const row = { id: 'new' }; M.cols.forEach(([f]) => { row[f] = ''; }); if (d.k === 'customFields') { row.entity = 'tender'; row.type = 'text'; } ui.newRow[d.k] = row; render(); setTimeout(() => { const el = document.getElementById(`m_${d.k}_new_${M.name}`); if (el) el.focus(); }, 0); },
+  mDelAsk(d) { ui.confirmDel = d.id; render(); },
+  mDelKeep() { ui.confirmDel = null; render(); },
+  mDelCancel(d) { ui.newRow[d.k] = null; render(); },
+  mDel(d) { ui.confirmDel = null; mutate('deleteTenderMaster', [MASTERS[d.k].list, d.id]); },
+  memberOn() { const el = $('#madd'); if (!el || !el.value) return; mutate('saveTenderMember', [el.value, null, true]); },
+  memberOff(d) { if (confirm('Take ' + mName(d.id) + ' off the Tender Desk? Their tenders and tasks stay as they are.')) mutate('saveTenderMember', [d.id, null, false]); }
+};
+
+// ================= start =================
+(function start() {
+  if (!token) { toErp('/dashboard'); return; }
+  const r = fromPath(location.pathname); ui.page = r.page; ui.id = r.id;
+  api('getTenderApp').then((st) => { S = st; TODAY = S.today || TODAY; render(); }).catch((err) => {
+    $('#app').innerHTML = `<div class="splash"><div class="card"><h2>The Tender Desk could not open</h2><p class="muted">${esc(err.message)}</p><a class="btn pri" href="/dashboard">${ic('back')}Back to the ERP</a></div></div>`;
+  });
+})();
+</script>
+</body>
+</html>

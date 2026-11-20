@@ -92,8 +92,10 @@ run_ui "customer-approval-ui-test.js" tests/customer-approval-ui-test.js "$tmp/s
 run_ui "quote-accessories-ui-test.js" tests/quote-accessories-ui-test.js "$tmp/show-v2.html"
 # The desk switch, for somebody who works both streams.
 run_ui "desk-ui-test.js" tests/desk-ui-test.js "$tmp/show-v2.html"
-# The Tender Desk: the desk, the list, a tender's page, a new tender read by AI, its lists.
-run_ui "tenders-ui-test.js" tests/tenders-ui-test.js "$tmp/show-v2.html"
+# The Tender Desk's own page, against the real module on Postgres: every screen, a PO, AI reading.
+run_ui "tenders-ui-test.js" tests/tenders-ui-test.js
+# And the ERP's side of it: no Tender Desk screens in its menu, the switch on the dashboard.
+run_ui "tender-switch-ui-test.js" tests/tender-switch-ui-test.js "$tmp/show-v2.html"
 # And the Ask bar: a request in plain words, read by Claude, done only once ticked.
 run_ui "ai-commands-ui-test.js" tests/ai-commands-ui-test.js "$tmp/base-v2.html"
 

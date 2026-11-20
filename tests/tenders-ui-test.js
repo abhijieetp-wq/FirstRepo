@@ -1,18 +1,27 @@
 /**
- * The Tender Desk's screens (JavaScript.html; Tenders.gs behind them), in a browser against
- * the real client: the menu, the desk with its alerts and board, the list, a tender's page
- * with its steps, its next step and what that needs, the sections as far as it has got, a new
- * tender read from its document by AI, the lists, who sees it at all, and the dashboard notice.
+ * The Tender Desk's own page (tender/TenderDesk.html), in a browser, against the real server
+ * module: every call the page makes to /api/call is answered by Tenders.gs on a real Postgres,
+ * as the person the test is playing. The dashboard, Shortlisting, the tender board, a tender's
+ * page and its gate, the PO with a quantity update, Tasks, Masters, a voice note, a tender read
+ * from its document, the switch back to the ERP, a phone's width and the dark look.
  *
- *   node tests/build-preview.js tests/fixtures/showcase.html /tmp/show-v2.html --title="ELGi Sales ERP"
- *   node tests/tenders-ui-test.js /tmp/show-v2.html [screenshot-dir]
+ * Everything in it is invented.
+ *
+ *   DATABASE_URL=postgres://... node tests/tenders-ui-test.js [screenshot-dir]
  */
 const fs = require('fs');
 const path = require('path');
-const { chromium } = require(path.join(__dirname, '..', 'node_modules', 'playwright'));
 
-const PREVIEW = process.argv[2];
-const SHOTS = process.argv[3];
+const URL = process.env.DATABASE_URL;
+if (!URL) { console.log('no DATABASE_URL — skipping'); process.exit(0); }
+
+const { chromium } = require(path.join(__dirname, '..', 'node_modules', 'playwright'));
+const { connect } = require(path.join(__dirname, '..', 'server', 'db.js'));
+const { loadPortal } = require(path.join(__dirname, '..', 'server', 'load.js'));
+const { syncSchema } = require(path.join(__dirname, '..', 'server', 'schema-sync.js'));
+
+const SHOTS = process.argv[2];
+const ROOT = path.join(__dirname, '..');
 let pass = 0;
 const failures = [];
 const ok = (label, cond, detail) => {
@@ -21,258 +30,248 @@ const ok = (label, cond, detail) => {
   console.log('  FAIL: ' + label + (detail !== undefined ? '   ' + JSON.stringify(detail).slice(0, 500) : ''));
 };
 
-const html = fs.readFileSync(PREVIEW, 'utf8');
-const BOOT = /role: "Management", businessStream: "All",/;
-if (!BOOT.test(html)) throw new Error('the showcase user is not where this test expects it');
-const variant = (name, user) => {
-  const file = PREVIEW.replace(/\.html$/, '') + '.td-' + name + '.html';
-  fs.writeFileSync(file, html.replace(BOOT, user));
-  return file;
+const TENANT = 'tenders-ui-test';
+const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'tenders', 'tender_pos', 'tender_events', 'tender_masters', 'documents', 'tasks'];
+const drive = {
+  getFoldersByName: () => ({ hasNext: () => false }),
+  createFolder: () => ({ createFile: () => ({ getId: () => 'F1', getUrl: () => 'https://files.invalid/F1' }) }),
+  getFileById: () => ({ setTrashed: () => {} })
 };
-
-// What the server answers, invented.
-const MOCK = () => {
-  const STAGES = [['draft', 'Draft'], ['approval', 'Awaiting approval'], ['approved', 'Approved'], ['assigned', 'Assigned'], ['prep', 'In preparation'],
-    ['ready', 'Ready to submit'], ['submitted', 'Submitted'], ['opened', 'Bid opened'], ['result', 'Result']].map((s) => ({ key: s[0], label: s[1] }));
-  const RESULTS = { won: 'Won', lost: 'Lost / Regret', l2: 'L2 – not awarded', cancelled: 'Cancelled by client', declined: 'Not participating' };
-  const PORTALS = ['GeM', 'Mahatenders', 'CPP Portal (eprocure.gov.in)', 'NTPC eTender', 'Other'].map((n, i) => ({ id: 'TPOR-' + (i + 1), name: n, description: '' }));
-  const CATS = ['Goods supply', 'Works contract', 'Service', 'AMC', 'Turnkey'].map((n, i) => ({ id: 'TCAT-' + (i + 1), name: n, description: '' }));
-  const CPS = Array.from({ length: 10 }, (_, i) => ({ id: 'TCHE-' + (i + 1), name: i === 0 ? 'Tender document read & saved' : 'Checkpoint ' + (i + 1), description: 'What it means.' }));
-  const summary = (o) => Object.assign({ id: 'TN-1', tenderNo: 'TG/TTPS/2026/1187', title: 'Supply of screw air compressors for ash handling', customerName: 'Sahyadri Castings Pvt Ltd',
-    portal: 'Mahatenders', category: 'Goods supply', priority: 'High', stage: 'draft', stageLabel: 'Draft', result: '', lastDate: '2026-12-01', dueTime: '15:00',
-    daysLeft: 2, estimatedValue: 2450000, emdAmount: 49000, assigneeName: '', checklist: [0, 10], mine: false }, o);
-  const tender = (o) => {
-    const s = summary(o);
-    return Object.assign({ id: s.id, tenderNo: s.tenderNo, title: s.title, customerId: 'CU-1', customerName: s.customerName, addressId: '', plant: 'Unit 8', portal: s.portal,
-      category: s.category, priority: s.priority, publishedDate: '2026-11-18', lastDate: s.lastDate, dueTime: s.dueTime, estimatedValue: 2450000, emdAmount: 49000,
-      emdType: 'Online', tenderFeeAmount: '', deliveryPeriod: '90 days', eligibility: 'OEM or authorised dealer', sdRequired: 'Yes', sdPct: 3, pbgRequired: '', pbgPct: '',
-      ldClause: '', notes: '', stage: s.stage, result: s.result, approvalStatus: '', assigneeEmail: '', aiRead: '', prep: {}, checklist: {}, summary: s,
-      addresses: [{ id: 'AD-1', label: 'Billing · Plot 12 · Pune' }], items: [{ description: 'Screw air compressor 160 cfm', qty: 2, uom: 'Nos', spec: 'IS 5456' }],
-      documents: [], events: [{ at: '2026-11-20T10:00:00Z', byName: 'Anil Mehta', text: 'Entered' }], tasks: [],
-      gate: { next: 'approval', action: 'Send for management approval', who: 'admin', open: 1, canAct: true,
-        reqs: [{ ok: true, text: 'Tender number entered' }, { ok: false, text: 'Tender document attached' }] },
-      can: { edit: true, prep: false, prepAccounts: false, checklist: false, postbid: false, decide: false, assign: false, withdraw: true, documents: true, remove: true },
-      lists: { stages: STAGES, results: RESULTS, priorities: ['High', 'Medium', 'Low'], emdTypes: ['Online', 'Bank guarantee', 'Demand draft', 'Exempted (MSE / NSIC)', 'Not required'],
-        uoms: ['Nos', 'Set', 'Mtr', 'Lot'], subModes: ['Online', 'Offline', 'Both'], portals: PORTALS, categories: CATS, lossReasons: [{ id: 'L1', name: 'Price higher than L1' }],
-        checkpoints: CPS, prep: [{ key: 'enquiryDate', label: 'Vendor enquiry sent on', type: 'date', group: 'A' }, { key: 'min3', label: 'At least 3 manufacturers / offers', type: 'yn', group: 'B' },
-          { key: 'emdBal', label: 'Tender account balance enough for the EMD', type: 'yna', group: 'C', accounts: true }],
-        prepGroups: { A: 'A · Vendor enquiry', B: 'B · Comparative & negotiation', C: 'C · EMD & funds' }, docTypes: ['Tender document', 'Corrigendum', 'Other'] },
-      people: [{ email: 'rohan@pie.invalid', name: 'Rohan Patil', role: 'Sales Engineer' }] }, o);
-  };
-  window.__td = { summary, tender, STAGES, RESULTS, PORTALS, CATS, CPS };
-  const D = window.__data;
-  D.getTenderDesk = () => ({ today: '2026-11-29', can: { create: true, approve: true, lists: true }, lists: { stages: STAGES, results: RESULTS, priorities: ['High', 'Medium', 'Low'], portals: PORTALS, categories: CATS },
-    rules: { alertDays: 7, urgentDays: 3 },
-    kpis: { live: 1, dueSoon: 1, overdue: 0, awaitingApproval: 1, awaitingResult: 0, wonFy: 2, wonFyValue: 9500000, decidedFy: 3, liveValue: 2450000 },
-    alerts: [{ sev: 'bad', tenderId: 'TN-1', text: 'TG/TTPS/2026/1187 — due in 2 days', sub: 'Draft · checklist 0/10' },
-      { sev: 'info', tenderId: 'TN-2', text: 'Approval needed: MS/OTH/9', sub: 'Another Test Mills', approval: true }],
-    tenders: [summary({}), summary({ id: 'TN-2', tenderNo: 'MS/OTH/9', title: 'Dryers for the CW system', stage: 'approval', stageLabel: 'Awaiting approval', daysLeft: 12, priority: 'Medium' }),
-      summary({ id: 'TN-3', tenderNo: 'GEM/2026/B/55', title: 'Air receivers', stage: 'result', stageLabel: 'Won', result: 'won', daysLeft: null })],
-    people: [] });
-  window.__tender = tender({});
-  D.getTender = () => window.__tender;
-  ['saveTender', 'saveTenderSection', 'advanceTender', 'decideTender', 'assignTender', 'withdrawTender', 'attachTenderDocument'].forEach((fn) => { D[fn] = () => window.__tender; });
-  D.getTenderSettings = () => ({ canEdit: true, rules: { alertDays: 7, urgentDays: 3 }, lists: { portal: { name: 'Portals', items: PORTALS }, category: { name: 'Tender categories', items: CATS },
-    lossReason: { name: 'Loss reasons', items: [{ id: 'TLOS-1', name: 'Price higher than L1', description: '' }] }, checkpoint: { name: 'Submission checklist', items: CPS } } });
-  D.saveTenderList = () => D.getTenderSettings();
-  D.readTenderDocument = () => ({ documentId: 'DOC-9', fileName: 'Tender document 2026-11-29 NIT.pdf', aiOff: '', matches: [{ id: 'CU-1', name: 'Sahyadri Castings Pvt Ltd' }],
-    fields: { tenderNo: 'TG/KHT/1342', title: 'Oil-free compressors for unit 5', clientName: 'Sahyadri Castings', plant: 'Unit 5', portal: 'Mahatenders', category: 'Goods supply',
-      publishedDate: '2026-11-28', lastDate: '2026-12-08', dueTime: '15:00', estimatedValue: 12640000, emdAmount: 126400, emdType: 'Online', tenderFeeAmount: 5900,
-      deliveryPeriod: '120 days', sdPct: 3, pbgPct: 10, sdRequired: 'Yes', pbgRequired: 'Yes', ldClause: '0.5% per week', eligibility: 'OEM\nTurnover', unsure: ['emdType'],
-      items: [{ description: 'Oil-free screw compressor 300 cfm', qty: 4, uom: 'Nos', spec: 'Class 0' }] } });
-};
+let aiAnswer = null;
+const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const db = connect({ connectionString: URL, tenant: TENANT });
+  await syncSchema(db, () => {});
+  const clean = async () => { for (const t of TABLES) { try { await db.q('DELETE FROM ' + t + ' WHERE tenant_id = $1', [TENANT]); } catch (e) { /* none */ } } };
+  await clean();
+  const person = (id, username, name, role, extra) => db.appendRow('Users', Object.assign({ id, username, email: username + '@pie.invalid', name, role, businessStream: 'All', active: 'TRUE' }, extra || {}));
+  await person('U-COORD', 'isha', 'Isha Kulkarni', 'Sales Coordinator', { tenderDesk: 'TRUE' });
+  await person('U-MGMT', 'vikram', 'Vikram Joshi', 'Management');
+  await person('U-ENG', 'rohan', 'Rohan Patil', 'Sales Engineer', { tenderDesk: 'TRUE' });
+  await person('U-ENG3', 'sneha', 'Sneha Gokhale', 'Sales Engineer', { tenderDesk: 'TRUE' });
+  await person('U-SVC', 'kiran', 'Kiran Pawar', 'Service Engineer', { tenderDesk: 'TRUE' });
+  await person('U-ACC', 'neha', 'Neha Rao', 'Accounts');
+  for (const [id, name] of [['CU-1', 'Test State Power Generation Co Ltd'], ['CU-2', 'Sample Transmission Utility'], ['CU-3', 'Demo Thermal Power Station'], ['CU-4', 'Another Test Mills']]) {
+    await db.appendRow('Customers', { id, customerCode: id, name, active: 'TRUE' });
+  }
+  const p = loadPortal(db, 'isha@pie.invalid', { quiet: true, properties: {}, drive, ai });
+  let actor = 'U-COORD';
+  const as = async (id) => { actor = id; p.CURRENT_USER_ = await p.userFromRow_((await p.readTable_('Users')).find((u) => u.id === id)); };
+  const inDays = (n) => { const d = new Date(Date.now() + 5.5 * 3600e3); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+
+  // ---- invented work, entered through the module itself
+  await as('U-COORD');
+  const sup = (await p.saveTenderMaster('supplier', { name: 'Invented Motors Pvt Ltd', city: 'Nagpur', rating: 'A' })).state.suppliers[0].id;
+  await p.saveTenderMaster('supplier', { name: 'Sample Electricals', city: 'Pune', rating: 'B' });
+  const mk = async (o) => {
+    const id = (await p.saveTenderFromDocument(Object.assign({ portal: 'TDM-portal-2', category: 'TDM-category-1', priority: 'Medium', dueTime: '15:00', emdType: 'Online', subType: 'Online',
+      items: [{ desc: o.title, qty: 4, uom: 'Nos', spec: 'IS 325' }] }, o), '', false)).id;
+    await p.attachTenderFile('tender', id, { name: 'NIT ' + o.no + '.pdf', dataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF').toString('base64') });
+    return id;
+  };
+  const tA = await mk({ no: 'TG/KTPS/2026/1187', title: 'Supply of 3.3 kV HT induction motors for ID fan drives', client: 'CU-1', priority: 'High', lastDate: inDays(2), estCost: 18450000, emd: 184500 });
+  const tB = await mk({ no: 'ST/O&M/NGP/2026/88', title: 'Distribution transformers 315 kVA, 11/0.433 kV', client: 'CU-2', priority: 'High', lastDate: inDays(12), estCost: 9800000, emd: 98000 });
+  const tC = await mk({ no: 'DT/MOUDA/CS-9921', title: 'Centrifugal pumps with LT motors for raw water pump house', client: 'CU-3', lastDate: inDays(18), estCost: 4300000, emd: 86000 });
+  await mk({ no: 'AM/RTPS/MM/2026/412', title: 'Cast steel gate valves 300 NB class 600', client: 'CU-4', priority: 'Low', lastDate: inDays(21), estCost: 2700000, emd: 27000 });
+  const tW = await mk({ no: 'GEM/2026/B/5210077', title: 'Mandatory spares for HT motors (bearings, RTDs, terminal kits)', client: 'CU-1', priority: 'Low', lastDate: inDays(30), estCost: 1450000, emd: 0, emdType: 'Exempted' });
+  for (const id of [tA, tB, tC, tW]) await p.advanceTender(id);
+  await as('U-MGMT');
+  for (const id of [tA, tW]) await p.approveTender(id, 'Strategic – repeat client');
+  await as('U-COORD');
+  await p.saveTenderField(tA, 'assignee', 'rohan@pie.invalid'); await p.advanceTender(tA);
+  await p.saveTenderField(tW, 'assignee', 'sneha@pie.invalid'); await p.advanceTender(tW);
+  await as('U-ENG');
+  await p.advanceTender(tA);
+  for (const [k, v] of [['enquiryDate', inDays(-5)], ['offersPerSpec', 'Yes'], ['tcAccepted', 'Yes'], ['min3', 'Yes'], ['compChart', 'Yes'], ['docsRecv', 'Yes'], ['nego', 'Yes'], ['finalVendor', sup]]) await p.saveTenderField(tA, 'prep.' + k, v);
+  // The won one, by the shortlisting admin (who can work any tender).
+  await as('U-COORD');
+  await p.advanceTender(tW);
+  for (const [k, v] of [['enquiryDate', inDays(-5)], ['offersPerSpec', 'Yes'], ['tcAccepted', 'Yes'], ['min3', 'Yes'], ['compChart', 'Yes'], ['docsRecv', 'Yes'], ['nego', 'Yes'], ['finalVendor', sup]]) await p.saveTenderField(tW, 'prep.' + k, v);
+  await as('U-ACC'); await p.saveTenderField(tW, 'prep.emdBal', 'Yes');
+  await as('U-COORD');
+  await p.advanceTender(tW);
+  const st0 = await p.getTenderApp();
+  for (const c of st0.checklist) await p.saveTenderField(tW, 'checklist.' + c.id, 'Yes');
+  for (const [k, v] of [['date', inDays(-1)], ['ack', 'GEM-BID-5210077'], ['value', 1388000], ['quote', 'Quote']]) await p.saveTenderField(tW, 'submission.' + k, v);
+  await p.advanceTender(tW);
+  await p.saveTenderField(tW, 'postbid.technoDate', inDays(0)); await p.saveTenderField(tW, 'postbid.participants', 4); await p.advanceTender(tW);
+  await p.saveTenderField(tW, 'postbid.result', 'won'); await p.saveTenderField(tW, 'postbid.l1', 1388000); await p.advanceTender(tW);
+  const po = await p.createTenderPo({ tenderId: tW, no: 'GEMC-511687702544810', poDate: inDays(-50), dueDate: inDays(-5), value: 1388000, deliveryPeriod: '45 days',
+    ld: { rate: 0.5, per: 'week', cap: 10, basis: 'delayed', clause: 'GeM GTC: 0.5% per week of delayed value, max 10%.' }, sdPct: 3, sdDays: 30,
+    items: [{ sr: 1, desc: 'Bearing set 6316 C3 for 630 kW motor', qty: 20, uom: 'Set', rate: 28500, due: inDays(-5), fp: 'kiran@pie.invalid' },
+      { sr: 2, desc: 'PT100 RTD duplex, 3-wire', qty: 60, uom: 'Nos', rate: 4600, due: inDays(-5), fp: 'kiran@pie.invalid' },
+      { sr: 3, desc: 'HT terminal box kit 3.3 kV', qty: 12, uom: 'Set', rate: 45000, due: inDays(-5), fp: 'kiran@pie.invalid' }] }, '');
+  const pid = po.id;
+  const items = po.state.pos[0].items;
+  await as('U-SVC');
+  for (const [i, t, q, d, r] of [[0, 'ordered', 20, -44, 'SPO/26/290'], [0, 'procured', 20, -12, 'GRN-1131'], [0, 'dispatched', 20, -9, 'LR 77120'], [0, 'delivered', 20, -6, 'DM 01'],
+    [1, 'ordered', 60, -44, 'SPO/26/290'], [1, 'procured', 60, -8, 'GRN-1150'], [1, 'dispatched', 40, -4, 'LR 77188'], [2, 'ordered', 12, -41, 'SPO/26/297']]) {
+    await p.recordPoMove(pid, items[i].id, { t, qty: q, date: inDays(d), ref: r, sup });
+  }
+  await as('U-COORD');
+  await p.saveTenderTask({ title: 'Update supplier master with GSTIN for new pump vendors', assignee: 'isha@pie.invalid', due: inDays(6), priority: 'Low' });
+
+  // ---- the browser, with /api/call answered by the module as `actor`
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript(() => { try { localStorage.setItem('pie.erp.session', 'TEST-TOKEN'); } catch (e) {} });
+  const page = await ctx.newPage();
   const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e)));
-  const open = async (file) => { await page.goto('file://' + file); await page.waitForTimeout(1200); await page.evaluate(MOCK); };
-  const text = (sel) => page.evaluate((s) => { const e = document.querySelector(s); return e ? e.innerText.replace(/\s+/g, ' ').trim() : ''; }, sel);
-  const menu = () => page.$$eval('#tabs [data-view]', (b) => b.map((x) => x.dataset.view));
-  const go = async (v) => { await page.evaluate((x) => document.querySelector('#tabs [data-view="' + x + '"]').click(), v); await page.waitForTimeout(700); };
-  const lastCall = (fn) => page.evaluate((f) => { const c = (window.__calls || []).filter((x) => x.fn === f); return c.length ? c[c.length - 1].args : null; }, fn);
-  const shown = (sel) => page.$eval(sel, (e) => !!e.offsetParent).catch(() => false);
-
-  console.log('THE MENU');
-  await open(PREVIEW);
-  const m = await menu();
-  ok('Management has the Tender Desk: the desk, the list and the settings, after Quotations', ['tenderdesk', 'tenders', 'tendersettings'].every((v) => m.includes(v)) &&
-    !m.includes('tender') && m.indexOf('tenderdesk') > m.indexOf('quotations'), m);
-
-  console.log('\nTHE DESK');
-  await go('tenderdesk');
-  ok('five tiles: live, due, awaiting approval, awaiting the result, won this year', (await page.$$('#td-kpis .pd-tile')).length === 5 &&
-    /Won this year 2 ₹95,00,000 awarded/.test(await text('#td-kpis')), await text('#td-kpis'));
-  ok('what needs attention, the urgent first', /Needs attention 2/.test(await text('#td-alerts')) && /due in 2 days/.test(await text('#td-alerts .td-alert.bad')));
-  const cols = await page.$$eval('#td-board .td-col-h', (h) => h.map((x) => x.textContent.replace(/\s+\d+$/, '').trim()));
-  ok('a board of the eight working steps, closed ones off it', cols.length === 8 && cols[0] === 'Draft' && cols[7] === 'Bid opened', cols);
-  ok('each card: number, title, client, days left, priority, value', /TG\/TTPS\/2026\/1187 Supply of screw air compressors for ash handling Sahyadri Castings Pvt Ltd 2d left High ₹24,50,000/.test(await text('#td-board .td-card')),
-    await text('#td-board .td-card'));
-  ok('+ New tender for whoever enters tenders', await shown('#btn-td-new'));
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tender-desk.png') });
-
-  console.log('\nTHE LIST');
-  await go('tenders');
-  ok('open ones by default', (await page.$$('#td-list tbody tr.td-row')).length === 2);
-  await page.selectOption('#td-show', 'closed');
-  await page.waitForTimeout(150);
-  ok('the closed ones, with their result', (await page.$$('#td-list tbody tr.td-row')).length === 1 && /Won/.test(await text('#td-list tbody')));
-  await page.selectOption('#td-show', 'live');
-  await page.fill('#td-q', 'dryers');
-  await page.waitForTimeout(150);
-  ok('searched', (await page.$$('#td-list tbody tr.td-row')).length === 1 && /MS\/OTH\/9/.test(await text('#td-list tbody')));
-  await page.fill('#td-q', '');
-
-  console.log('\nA TENDER’S PAGE');
-  await page.click('#td-list tr[data-td-open="TN-1"]');
-  await page.waitForTimeout(800);
-  ok('its own screen, at its own address', await page.evaluate(() => document.getElementById('view-tender').classList.contains('active')));
-  ok('the nine steps, on the first', (await page.$$('.td-step')).length === 9 && (await text('.td-step.cur')) === 'Draft');
-  ok('the next step, with what it needs ticked or crossed', /Next step Send for management approval 1 open/.test(await text('.td-gate')) &&
-    (await page.$$('.td-reqs li.no')).length === 1 && await page.$eval('#btn-td-advance', (b) => b.disabled));
-  ok('the details, the items, documents, tasks and history; nothing further yet', ['Tender details', 'Bill of quantities', 'Documents', 'Tasks on this tender', 'History'].every((h) =>
-    (cols, true)) && (await page.$$eval('.td-sec h3', (h) => h.map((x) => x.textContent))).join('|') === 'Tender details|Bill of quantities|Documents|Tasks on this tender|History');
-  await page.fill('#tdf-title', 'Supply of screw air compressors, revised');
-  await page.evaluate(() => { window.__calls = []; });
-  await page.click('#btn-td-save');
-  await page.waitForTimeout(300);
-  const saved = await lastCall('saveTender');
-  ok('details saved, as typed', !!saved && saved[0].id === 'TN-1' && saved[0].title === 'Supply of screw air compressors, revised' && saved[0].customerId === 'CU-1' &&
-    saved[0].portal === 'Mahatenders', saved);
-  await page.click('[data-td-add-item]');
-  await page.waitForTimeout(200);
-  await page.fill('[data-td-item="1"] [data-k="description"]', 'Refrigerated air dryer 160 cfm');
-  await page.fill('[data-td-item="1"] [data-k="qty"]', '2');
-  await page.click('#btn-td-save-items');
-  await page.waitForTimeout(300);
-  const items = await lastCall('saveTender');
-  ok('an item added and the list saved', !!items && items[0].items.length === 2 && items[0].items[1].description === 'Refrigerated air dryer 160 cfm' && items[0].items[1].uom === 'Nos', items);
-
-  console.log('\nAPPROVAL AND ASSIGNING');
-  await page.evaluate(() => { window.__tender = window.__td.tender({ stage: 'approval', summary: window.__td.summary({ stage: 'approval', stageLabel: 'Awaiting approval' }),
-    gate: { next: 'approved', action: 'Approve participation', who: 'approver', open: 1, canAct: true, reqs: [{ ok: false, text: 'Management has approved participation' }] },
-    can: { edit: true, decide: true, withdraw: true, documents: true } }); });
-  await page.click('#btn-td-back');
-  await page.waitForTimeout(500);
-  await page.click('#td-list tr[data-td-open="TN-1"]');
-  await page.waitForTimeout(700);
-  await page.click('#btn-td-decline');
-  await page.waitForTimeout(200);
-  ok('declining asks for the reason first', (await lastCall('decideTender')) === null || (await page.evaluate(() => (window.__calls || []).filter((c) => c.fn === 'decideTender').length)) === 0);
-  await page.fill('#td-decide-note', 'Repeat client.');
-  await page.click('#btn-td-approve');
-  await page.waitForTimeout(300);
-  ok('Management approves from the page, with the note', JSON.stringify(await lastCall('decideTender')) === JSON.stringify(['TN-1', 'approve', 'Repeat client.']));
-  await page.evaluate(() => { window.__tender = window.__td.tender({ stage: 'approved', summary: window.__td.summary({ stage: 'approved', stageLabel: 'Approved' }),
-    gate: { next: 'assigned', action: 'Assign', who: 'admin', open: 1, canAct: true, reqs: [{ ok: false, text: 'Somebody with the Tender Desk chosen to prepare it' }] },
-    can: { edit: true, assign: true, withdraw: true, documents: true } }); });
-  await page.click('#btn-td-back');
-  await page.waitForTimeout(500);
-  await page.click('#td-list tr[data-td-open="TN-1"]');
-  await page.waitForTimeout(700);
-  await page.selectOption('#td-assignee', 'rohan@pie.invalid');
-  await page.click('#btn-td-assign');
-  await page.waitForTimeout(300);
-  ok('assigned to somebody with the Tender Desk', JSON.stringify(await lastCall('assignTender')) === JSON.stringify(['TN-1', 'rohan@pie.invalid']));
-
-  console.log('\nPREPARATION AND THE CHECKLIST');
-  await page.evaluate(() => { const T = window.__td; window.__tender = T.tender({ stage: 'prep', assigneeEmail: 'rohan@pie.invalid', prep: { min3: 'Yes' },
-    summary: T.summary({ stage: 'prep', stageLabel: 'In preparation', assigneeName: 'Rohan Patil' }),
-    gate: { next: 'ready', action: 'Mark ready to submit', who: 'worker', open: 2, canAct: true, reqs: [{ ok: false, text: 'Vendor enquiry sent (date)' }] },
-    can: { edit: true, prep: true, prepAccounts: true, checklist: true, assign: true, withdraw: true, documents: true } }); });
-  await page.click('#btn-td-back');
-  await page.waitForTimeout(500);
-  await page.click('#td-list tr[data-td-open="TN-1"]');
-  await page.waitForTimeout(700);
-  ok('now with preparation, the checklist and the submission', (await page.$$eval('.td-sec h3', (h) => h.map((x) => x.textContent))).slice(0, 5).join('|') ===
-    'Tender details|Bill of quantities|Preparation|Submission checklist|Submission');
-  ok('preparation in its three groups, answers kept', /A · Vendor enquiry.*B · Comparative & negotiation.*C · EMD & funds/.test(await text('.td-main')) &&
-    (await page.inputValue('#tdp-min3')) === 'Yes');
-  await page.fill('#tdp-enquiryDate', '2026-11-25');
-  await page.click('#btn-td-save-prep');
-  await page.waitForTimeout(300);
-  const prep = await lastCall('saveTenderSection');
-  ok('preparation saved', !!prep && prep[0].section === 'prep' && prep[0].data.enquiryDate === '2026-11-25' && prep[0].data.min3 === 'Yes', prep);
-  await page.click('[data-td-cp="TCHE-1"][data-v="Yes"]');
-  await page.click('[data-td-cp="TCHE-2"][data-v="NA"]');
-  await page.click('#btn-td-save-cps');
-  await page.waitForTimeout(300);
-  const cps = await lastCall('saveTenderSection');
-  ok('the checklist: each point Yes, No or NA', !!cps && cps[0].section === 'checklist' && cps[0].data['TCHE-1'] === 'Yes' && cps[0].data['TCHE-2'] === 'NA' && cps[0].data['TCHE-3'] === '', cps);
-  ok('CP1 named as on the checklist', /CP1 · Tender document read & saved/.test(await text('.td-cps')));
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tender-page.png'), fullPage: true });
-
-  console.log('\nA NEW TENDER, READ FROM ITS DOCUMENT');
-  await go('tenderdesk');
-  await page.click('#btn-td-new');
-  await page.waitForTimeout(300);
-  ok('the window asks for the document, or by hand', await shown('#td-new-file') && await page.$eval('#btn-td-read', (b) => b.disabled) && await shown('#btn-td-hand'));
-  await page.setInputFiles('#td-new-file', { name: 'NIT 1342.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 invented') });
-  await page.waitForTimeout(150);
-  await page.evaluate(() => { window.__calls = []; });
-  await page.click('#btn-td-read');
-  await page.waitForTimeout(900);
-  const asked = await lastCall('readTenderDocument');
-  ok('the PDF goes to be read', !!asked && /^data:application\/pdf;base64,/.test(asked[0].dataUrl) && asked[0].name === 'NIT 1342.pdf');
-  ok('the form comes back filled, the client matched to a customer', (await page.inputValue('#tdn-tenderNo')) === 'TG/KHT/1342' && (await page.inputValue('#tdn-customerId')) === 'CU-1' &&
-    (await page.inputValue('#tdn-estimatedValue')) === '12640000' && (await page.inputValue('#tdn-portal')) === 'Mahatenders');
-  ok('what the AI was unsure of marked to check, and said so', await page.$eval('#tdn-emdType', (e) => !!e.closest('.td-unsure')) && /Read by AI from/.test(await text('#td-new-form')) &&
-    /The document says: Sahyadri Castings — Unit 5/.test(await text('#td-new-form')));
-  ok('its items too', (await page.inputValue('#td-new-items [data-td-item="0"] [data-k="description"]')) === 'Oil-free screw compressor 300 cfm');
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tender-new.png') });
-  await page.click('#btn-td-new-save');
-  await page.waitForTimeout(500);
-  const created = await lastCall('saveTender');
-  ok('saved as a draft, with the document and the items, marked as read by AI', !!created && created[0].tenderNo === 'TG/KHT/1342' && created[0].aiRead === true &&
-    JSON.stringify(created[0].documentIds) === '["DOC-9"]' && created[0].items.length === 1 && Number(created[0].items[0].qty) === 4, created);
-
-  console.log('\nTHE LISTS');
-  await go('tendersettings');
-  ok('portals, categories, loss reasons and the checklist, and the warning days', /Last-date warnings/.test(await text('#td-settings')) &&
-    (await page.$$('#td-settings [data-td-list]')).length === 4);
-  await page.click('[data-td-list-add="portal"]');
-  await page.fill('[data-td-list="portal"] .td-list-row:last-child [data-k="name"]', 'MSEDCL portal');
-  await page.click('[data-td-list-save="portal"]');
-  await page.waitForTimeout(300);
-  const list = await lastCall('saveTenderList');
-  ok('a portal added, the others kept with their ids', !!list && list[0].list === 'portal' && list[0].items.length === 6 && list[0].items[0].id === 'TPOR-1' &&
-    list[0].items[5].name === 'MSEDCL portal', list);
-
-  console.log('\nWHO SEES IT');
-  await open(variant('eng', 'role: "Sales Engineer", businessStream: "All",'));
-  ok('a Sales Engineer without the tick does not', !(await menu()).some((v) => /^tender/.test(v)));
-  await open(variant('engtick', 'role: "Sales Engineer", businessStream: "All", tenderDesk: true,'));
-  ok('with it, does', (await menu()).includes('tenderdesk'));
-  await open(variant('acc', 'role: "Accounts", businessStream: "All",'));
-  const acc = await menu();
-  ok('Accounts: the dashboard, tasks and the Tender Desk, nothing commercial', acc.includes('tenderdesk') && acc.includes('dashboard') && acc.includes('tasks') &&
-    !acc.some((v) => ['quotations', 'orders', 'customers', 'catalog', 'compressor', 'enquiries'].includes(v)), acc);
-
-  console.log('\nTHE DASHBOARD');
-  await open(PREVIEW);
-  await page.evaluate(() => {
-    const D = window.__data;
-    const was = D.getPersonDashboard;
-    D.getPersonDashboard = function () {
-      const d = typeof was === 'function' ? was.apply(null, arguments) : was;
-      return Object.assign({}, d, { self: true, tenders: [{ sev: 'bad', tenderId: 'TN-1', text: 'TG/TTPS/2026/1187 — due in 2 days', sub: 'In preparation · checklist 3/10' }] });
-    };
+  page.on('pageerror', (e) => errors.push(String(e.message)));
+  const calls = [];
+  await page.route('**/*', async (route) => {
+    const u = new globalThis.URL(route.request().url());
+    if (u.hostname !== 'erp.test') return route.abort();
+    if (/^\/tender-desk/.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'text/html', body: fs.readFileSync(path.join(ROOT, 'tender', 'TenderDesk.html'), 'utf8') });
+    if (u.pathname.startsWith('/fonts/')) {
+      try { return route.fulfill({ status: 200, contentType: 'font/woff2', body: fs.readFileSync(path.join(ROOT, 'assets', 'fonts', path.basename(u.pathname))) }); } catch (e) { return route.abort(); }
+    }
+    if (u.pathname === '/api/call') {
+      const { fn, args } = JSON.parse(route.request().postData());
+      calls.push(fn);
+      await as(actor);
+      try {
+        if (fn.slice(-1) === '_' || typeof p[fn] !== 'function') throw new Error('Unknown action: ' + fn);
+        const out = await p[fn](...(args || []));
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: out === undefined ? null : out }) });
+      } catch (e) {
+        return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: String(e.message) }) });
+      }
+    }
+    return route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>the ERP</h1>' });
   });
-  await go('tasks');
-  await go('dashboard');
-  await page.waitForTimeout(500);
-  ok('tender deadlines on the dashboard', /Tenders 1 TG\/TTPS\/2026\/1187 — due in 2 days/.test(await text('.td-dash')), await text('.td-dash'));
-  await page.click('.td-dash [data-td-open="TN-1"]');
-  await page.waitForTimeout(700);
-  ok('and they open the tender', await page.evaluate(() => document.getElementById('view-tender').classList.contains('active')));
+  const shot = async (name, full) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: !!full }); } };
+  const settle = () => page.waitForFunction(() => !document.querySelector('.busy'), null, { timeout: 15000 });
+  const B = 'http://erp.test';
 
-  console.log('\nTHE USERS SCREEN');
-  ok('a Tender Desk tick on each user', !!(await page.$('#usr-tenderdesk')));
+  console.log('THE DASHBOARD');
+  await page.goto(B + '/tender-desk');
+  await page.waitForSelector('.kpis .kpi');
+  ok('its own page: the rail with the six screens, not the ERP\'s menu', (await page.$$eval('.rail .nav-btn', (b) => b.map((x) => x.textContent.trim().replace(/\d+$/, '')))).join('|') === 'Dashboard|Shortlisting|Tenders|PO execution|Tasks|Masters');
+  ok('eight figures', (await page.$$('.kpi')).length === 8);
+  ok('the switch to the ERP, with the Tender Desk lit', (await page.textContent('.top .switch')).includes('ERP') && (await page.textContent('.switch .on')).includes('Tender Desk'));
+  ok('what needs attention, LD first among them', /LD running on PO GEMC-511687702544810/.test(await page.textContent('.content')) && /due in 2 days/.test(await page.textContent('.content')));
+  ok('the PO completion and the funnel', !!(await page.$('.qstack')) && (await page.$$('.funnel .fr')).length === 5);
+  ok('no InfinityLab, no sample data', !/InfinityLab|Sample data|Reset sample/i.test(await page.content()));
+  await shot('td-dashboard');
 
+  console.log('SHORTLISTING AND TENDERS');
+  await page.click('.nav-btn:has-text("Shortlisting")'); await settle();
+  ok('the address follows', new globalThis.URL(page.url()).pathname === '/tender-desk/shortlisting');
+  ok('upload a tender, enter by hand, and the approval waiting', (await page.$('[data-act="extractOpen"]')) && (await page.$('[data-act="newTender"]')) && /ST\/O&M\/NGP\/2026\/88/.test(await page.textContent('.content')));
+  await shot('td-shortlisting');
+  await page.click('.nav-btn:has-text("Tenders")'); await settle();
+  ok('the board has ten columns', (await page.$$('.kan .col')).length === 10);
+  await shot('td-tenders');
+  await page.click('[data-act="view"][data-v="list"]');
+  ok('and a list', (await page.$$('table.t tbody tr')).length === 5);
+  await page.click('tr:has-text("TG/KTPS/2026/1187")'); await settle();
+  ok('a tender\'s page: its address, the steps, the tabs and the gate', new globalThis.URL(page.url()).pathname === '/tender-desk/tenders/' + tA &&
+    (await page.$$('.stepper .step')).length === 9 && (await page.$$('.tabs .tab')).length === 7 && /Mark ready to submit/.test(await page.textContent('.gate')));
+  ok('the gate shows the one thing left: Accounts\' EMD answer', /1 open/.test(await page.textContent('.gate')) && /EMD balance sufficient/.test(await page.textContent('.gate li.no')));
+  await shot('td-tender');
+  await page.click('.tab[data-v="details"]');
+  const plantId = '#f_' + ('t:' + tA + ':plant').replace(/[^a-zA-Z0-9]/g, '_');
+  await page.fill(plantId, 'Koradi, Unit 8');
+  await page.press(plantId, 'Tab');
+  await settle();
+  ok('a field typed is saved on the server', (await p.getTenderApp()).tenders.find((t) => t.id === tA).plant === 'Koradi, Unit 8');
+  await page.click('.tab[data-v="prep"]');
+  await page.click(`[data-ref="t:${tA}:prep.followUp"][data-v="Yes"]`); await settle();
+  ok('a Yes / No is saved', (await p.getTenderApp()).tenders.find((t) => t.id === tA).prep.followUp === 'Yes');
+
+  console.log('APPROVAL, AS MANAGEMENT');
+  actor = 'U-MGMT';
+  await page.goto(B + '/tender-desk'); await page.waitForSelector('.kpis');
+  ok('Management sees the approvals card on the dashboard', /Approve participation/.test(await page.textContent('.content')));
+  await page.click(`[data-act="approve"][data-id="${tB}"]`);
+  await page.fill('#f_n_note', 'Go – BEE level 2 only');
+  await page.click('[data-act="approveSave"]'); await settle();
+  ok('approved through the page', (await p.getTenderApp()).tenders.find((t) => t.id === tB).stage === 'approved');
+
+  console.log('THE PO');
+  actor = 'U-SVC';
+  await page.goto(B + '/tender-desk/po/' + pid); await page.waitForSelector('.ld-box');
+  ok('its figures, the LD box and the items', (await page.$$('.kpis .kpi')).length === 5 && /Liquidated damages/.test(await page.textContent('.ld-box')) && (await page.$$('table.t tbody tr')).length === 3);
+  await shot('td-po');
+  await page.click(`[data-act="move"][data-it="${items[1].id}"]`);
+  ok('the update opens on the first step still short for that item', await page.$eval('.modal .seg button.on', (b) => b.dataset.v) === 'dispatched');
+  await page.click('[data-act="moveType"][data-v="delivered"]');
+  await page.fill('#f_n_qty', '30');
+  await page.fill('#f_n_ref', 'DM GeM/02'); await page.press('#f_n_ref', 'Tab');
+  await page.click('[data-act="moveSave"]'); await settle();
+  const after = (await p.getTenderApp()).pos.find((x) => x.id === pid).items[1].moves.slice(-1)[0];
+  ok('recorded on the server, by him', after.t === 'delivered' && after.qty === 30 && after.by === 'kiran@pie.invalid');
+  await page.click('[data-act="go"][data-page="pos"]'); await settle();
+  await shot('td-pos');
+
+  console.log('TASKS AND MASTERS');
+  actor = 'U-COORD';
+  await page.goto(B + '/tender-desk/tasks'); await page.waitForSelector('.kan');
+  ok('four columns, the ERP\'s statuses', (await page.$$eval('.kan .col-h', (h) => h.map((x) => x.firstChild.textContent.trim()))).join('|') === 'To do|In progress|Waiting on others|Done');
+  await page.click('[data-act="newTask"]');
+  await page.fill('#f_k_title', 'Get the revised offer from the supplier');
+  await page.selectOption('#f_k_assignee', 'rohan@pie.invalid');
+  await page.click('[data-act="kSave"]'); await settle();
+  ok('a task given from the page', (await p.readTable_('Tasks')).some((k) => k.title === 'Get the revised offer from the supplier' && k.assigneeEmail === 'rohan@pie.invalid'));
+  await page.click('.seg button[data-v="all"]');
+  await shot('td-tasks');
+  await page.goto(B + '/tender-desk/masters'); await page.waitForSelector('.tabs');
+  const mtabs = await page.$$eval('.tabs .tab', (t) => t.map((x) => x.firstChild.textContent.trim()));
+  ok('the masters as in the design, with Clients and Task statuses', ['Team members', 'Products', 'Clients', 'Suppliers', 'Portals', 'Tender categories', 'Units (UOM)', 'Loss / regret reasons', 'Submission checklist', 'Custom fields', 'Task statuses', 'Rules & alerts'].every((x) => mtabs.includes(x)), mtabs);
+  await shot('td-masters');
+  await page.click('.tab[data-v="clients"]');
+  ok('clients are the ERP\'s Customers, read here', /Test State Power Generation Co Ltd/.test(await page.textContent('.content')) && !!(await page.$('a[href="/customers"]')));
+  await page.click('.tab[data-v="portals"]');
+  await page.click('[data-act="mAdd"]');
+  await page.fill('#m_portals_new_name', 'KPCL eProcurement'); await page.press('#m_portals_new_name', 'Tab'); await settle();
+  ok('a portal added from the page', (await p.getTenderApp()).portals.some((x) => x.name === 'KPCL eProcurement'));
+
+  console.log('A VOICE NOTE, AND A TENDER FROM ITS DOCUMENT');
+  aiAnswer = { summary: 'One task.', actions: [{ type: 'task', title: 'Call Invented Motors about the balance', assignee: 'Rohan', due: inDays(1), priority: 'High', link: 'TG/KTPS/2026/1187', po: '', item: '', movement: '', qty: '', date: '', reference: '', supplier: '', text: '', checklist: [] }] };
+  await page.click('[data-act="voice"]');
+  await page.fill('#f_v_text', 'Ask Rohan to call Invented Motors tomorrow about the balance');
+  await page.click('[data-act="vProcess"]');
+  await page.waitForSelector('[data-act="vApply"]');
+  await shot('td-voice');
+  await page.click('[data-act="vApply"]'); await settle();
+  ok('the task it made is created', (await p.readTable_('Tasks')).some((k) => k.title === 'Call Invented Motors about the balance' && k.source === 'voice'));
+  await page.click('[data-act="closeModal"]');
+  aiAnswer = { no: 'TG/KHT/2026/1342', title: 'Oil-free compressors for unit 5', clientName: 'Demo Thermal Power', plant: 'Unit 5', portalName: 'GeM', category: 'Goods Supply',
+    publishedDate: inDays(-1), lastDate: inDays(9), dueTime: '15:00', estCost: '12640000', tenderFee: '5900', emd: '126400', emdType: 'Online', bgOk: 'Yes', subType: 'Online',
+    payTerms: '100% in 60 days', sdReq: 'Yes', sdPct: '3', pbgReq: 'Yes', pbgPct: '10', deliveryPeriod: '120 days', ldClause: '0.5% per week, max 10%', eligibility: ['OEM or authorised dealer'],
+    items: [{ desc: 'Oil-free screw compressor 500 cfm', qty: '2', uom: 'Nos', spec: 'ISO 8573 class 0' }], unsure: ['emd'] };
+  await page.goto(B + '/tender-desk/shortlisting'); await page.waitForSelector('.hero');
+  await page.click('[data-act="extractOpen"]');
+  const tmp = path.join(require('os').tmpdir(), 'td-ui-nit.pdf');
+  fs.writeFileSync(tmp, '%PDF-1.4 invented');
+  await page.setInputFiles('#filepick', tmp);
+  await page.waitForSelector('[data-act="xSave"]', { timeout: 15000 });
+  ok('read into the form, the unsure field marked', (await page.inputValue('#f_x_no')) === 'TG/KHT/2026/1342' && !!(await page.$('#f_x_emd.lowc')));
+  ok('the client suggested from Customers', (await page.inputValue('#f_x_client')) === 'Demo Thermal Power Station');
+  await shot('td-new-tender');
+  await page.click('[data-act="xSave"][data-send="1"]'); await settle();
+  const nt = (await p.getTenderApp()).tenders.find((t) => t.no === 'TG/KHT/2026/1342');
+  ok('saved and sent for approval in one go', nt && nt.stage === 'approval' && nt.client === 'CU-3', nt && nt.stage);
+  ok('and the page opened it', new globalThis.URL(page.url()).pathname === '/tender-desk/tenders/' + nt.id);
+
+  console.log('THE SWITCH, A PHONE, THE DARK LOOK');
+  await page.goto(B + '/tender-desk'); await page.waitForSelector('.switch');
+  ok('the switch links to the ERP\'s dashboard', await page.getAttribute('.switch a', 'href') === '/dashboard');
+  await page.click('[data-act="theme"]');
+  ok('dark, remembered as the ERP keeps it', await page.evaluate(() => document.documentElement.getAttribute('data-theme') === 'dark' && localStorage.getItem('erp.theme') === 'dark'));
+  await shot('td-dashboard-dark');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload(); await page.waitForSelector('.kpis');
+  ok('no sideways scroll on a phone', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  await shot('td-phone');
   ok('no script errors', errors.length === 0, errors);
+  ok('and nothing it called was refused as unknown', !calls.some((c) => /Unknown/.test(c)));
+
   await browser.close();
-  for (const f of ['eng', 'engtick', 'acc']) { try { fs.unlinkSync(PREVIEW.replace(/\.html$/, '') + '.td-' + f + '.html'); } catch (e) { /* gone */ } }
+  await clean();
+  await db.pool.end();
   console.log('\n' + (failures.length ? failures.length + ' FAILED, ' : 'all ') + pass + ' passed');
   process.exit(failures.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

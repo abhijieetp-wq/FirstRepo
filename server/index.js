@@ -32,7 +32,7 @@ const crypto = require('crypto');
 const { connect } = require('./db.js');
 const { loadPortal } = require('./load.js');
 const { render, escapeHtml } = require('./page.js');
-const { isPagePath } = require('./routes.js');
+const { isPagePath, isTenderDeskPath } = require('./routes.js');
 const { buildExport, zip, exportName } = require('./export.js');
 const { fileStore } = require('./files.js');
 const { mailer, settings: mailSettings } = require('./mail.js');
@@ -389,6 +389,18 @@ function statusFor(message) {
         return sendCompressed(req, res, 200, 'text/html; charset=utf-8', page.html);
       }
 
+      // ---- the Tender Desk: a module with a page of its own (tender/TenderDesk.html)
+      //
+      // Static: it signs in with the portal's own session and asks for everything through
+      // /api/call like any screen, so it holds nothing and needs no template. Read on each
+      // request so a deploy that changes it is served at once; it is one small file.
+      if (req.method === 'GET' && isTenderDeskPath(url.pathname)) {
+        let html;
+        try { html = fs.readFileSync(path.join(__dirname, '..', 'tender', 'TenderDesk.html'), 'utf8'); }
+        catch (err) { return json(res, 404, { error: 'The Tender Desk is not installed on this server.' }); }
+        return sendCompressed(req, res, 200, 'text/html; charset=utf-8', html);
+      }
+
       // ---- the typefaces, from this origin
       //
       // The stylesheet used to @import three families from fonts.googleapis.com, which is
@@ -528,9 +540,12 @@ function statusFor(message) {
       // ---- the one door
       if (req.method === 'POST' && url.pathname === '/api/call') {
         let payload;
-        try { payload = JSON.parse(await body(req)); }
+        // 15 MB rather than the usual one: an attachment travels inside the call as base64,
+        // and the file store takes up to 10 MB (DOC_MAX_BYTES), which is 13.4 MB encoded — a
+        // tender document or a client's PO is routinely several megabytes.
+        try { payload = JSON.parse(await body(req, 15 * 1024 * 1024)); }
         catch (err) {
-          if (err && err.tooBig) return json(res, 413, { error: 'That request is too large.' });
+          if (err && err.tooBig) return json(res, 413, { error: 'That file is too large. Attach a file under 10 MB.' });
           return json(res, 400, { error: 'Could not read the request.' });
         }
 

@@ -424,7 +424,7 @@ function drainDrive(sb, into) {
   const record = big.exportDone_();
   const storedText = big.PropertiesService.getScriptProperties().getProperty('MIGRATION_EXPORT_DONE');
   ok('all 67 tabs are recorded', Object.keys(record).length === 67, Object.keys(record).length);
-  // 67 tabs (the Tender Desk's four joined at 63) come to about 7,040 bytes: still 2 KB inside the 9 KB.
+  // 67 tabs (the Tender Desk's four joined at 63) come to about 7,050 bytes: still 2 KB inside the 9 KB.
   ok('and the stored record is well inside the limit', storedText.length < 7500, storedText.length + ' bytes');
   ok('because it holds no column names',
     !/\bpartNo\b|\bquoteNo\b/.test(storedText));

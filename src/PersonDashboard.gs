@@ -106,9 +106,9 @@ function getPersonDashboard(options) {
     // And theirs that were rejected, until they dismiss it.
     var rejected = rejectedCustomerNotices_(user);
     if (rejected.length) out.rejectedCustomers = rejected;
-    // The Tender Desk (Tenders.gs): deadlines and approvals, for whoever has it.
-    var tenders = tenderDashboardNotices_(user);
-    if (tenders) out.tenders = tenders;
+    // The dashboard's switch to the Tender Desk, with how much there needs them (Tenders.gs).
+    var tenderDesk = tenderDeskBadge_(user);
+    if (tenderDesk) out.tenderDesk = tenderDesk;
   }
 
   if (boss) {

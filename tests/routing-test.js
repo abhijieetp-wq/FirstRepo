@@ -40,8 +40,14 @@ ok('every screen on the menu has an address', navViews.length > 10 &&
   navViews.every((v) => ROUTES[v]), navViews.filter((v) => !ROUTES[v]));
 ok('no two screens share one', new Set(clientPaths).size === clientPaths.length);
 ok('the screens that carry a record are screens', WITH_ID.every((p) => PAGES.indexOf(p) !== -1));
-ok('and the browser reads the same three: a quotation, its progress, a tender', /\(quotation\|quotation-progress\|tender\)/.test(client) &&
-  WITH_ID.length === 3);
+ok('and the browser reads the same two: a quotation and its progress', /\(quotation\|quotation-progress\)/.test(client) && WITH_ID.length === 2);
+
+console.log('\nTHE TENDER DESK IS A PAGE OF ITS OWN');
+const { isTenderDeskPath } = require(path.join(__dirname, '..', 'server', 'routes.js'));
+ok('its screens and records are its addresses', ['/tender-desk', '/tender-desk/', '/tender-desk/shortlisting', '/tender-desk/tenders', '/tender-desk/tenders/TN-ab12',
+  '/tender-desk/po', '/tender-desk/po/TPO-9', '/tender-desk/tasks', '/tender-desk/masters'].every(isTenderDeskPath));
+ok('and nothing else is', !['/tender-desk/tasks/x', '/tender-desk/../etc', '/tender-deskx', '/tenders', '/tender/TN-1'].some(isTenderDeskPath));
+ok('none of them is the portal\'s page', !isPagePath('/tender-desk') && !isPagePath('/tenders'));
 
 console.log('\nTHE SERVER ANSWERS THOSE, AND NOTHING ELSE');
 for (const p of ['/', '/index.html', '/quotations', '/quotations/', '/sales-orders',

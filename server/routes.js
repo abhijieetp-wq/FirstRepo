@@ -38,15 +38,11 @@ const PAGES = [
   '/customers',
   '/catalog',
   '/form-fields',
-  '/settings',
-  '/tender-desk',
-  '/tenders',
-  '/tender',
-  '/tender-settings'
+  '/settings'
 ];
 
 /** Screens that show one record, whose address can carry which: /quotation/QT-123. */
-const WITH_ID = ['/quotation', '/quotation-progress', '/tender'];
+const WITH_ID = ['/quotation', '/quotation-progress'];
 
 /** Whether this address is one of the portal's screens, and so gets the portal's page. */
 function isPagePath(pathname) {
@@ -58,4 +54,14 @@ function isPagePath(pathname) {
   return !!(m && WITH_ID.indexOf(m[1]) !== -1);
 }
 
-module.exports = { PAGES, WITH_ID, isPagePath };
+/**
+ * The Tender Desk's addresses: a page of its own (tender/TenderDesk.html), not the portal's.
+ * /tender-desk, and its screens below it — a tender or a PO by its id.
+ */
+function isTenderDeskPath(pathname) {
+  const p = String(pathname || '').replace(/\/+$/, '');
+  return /^\/tender-desk(\/(shortlisting|tenders|po|tasks|masters)(\/[A-Za-z0-9_-]{1,64})?)?$/.test(p) &&
+    !/^\/tender-desk\/(shortlisting|tasks|masters)\//.test(p);
+}
+
+module.exports = { PAGES, WITH_ID, isPagePath, isTenderDeskPath };

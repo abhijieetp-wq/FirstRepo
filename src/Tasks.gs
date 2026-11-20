@@ -30,7 +30,8 @@
  */
 
 var TASK_PRIORITIES = ['High', 'Normal', 'Low'];
-var TASK_STATUSES = ['Open', 'In progress', 'Done', 'Cancelled'];
+// 'Waiting on others': the Tender Desk's column for a task held up by somebody outside it.
+var TASK_STATUSES = ['Open', 'In progress', 'Waiting on others', 'Done', 'Cancelled'];
 var TASK_SCORE_DEFAULTS = { High: 15, Normal: 10, Low: 5, latePct: 50, overduePct: 50 };
 var TASK_PERIODS = [
   { key: 'month', label: 'This month' }, { key: 'lastmonth', label: 'Last month' },
@@ -45,7 +46,8 @@ var TASK_LINKS = {
   opportunity: { table: 'Opportunities', no: 'opportunityNo', word: 'Opportunity' },
   quotation: { table: 'Quotations', no: 'quoteNo', word: 'Quotation' },
   service: { table: 'ServiceJobs', no: 'jobNo', word: 'Service job' },
-  tender: { table: 'Tenders', no: 'tenderNo', word: 'Tender' }
+  tender: { table: 'Tenders', no: 'tenderNo', word: 'Tender' },
+  tenderpo: { table: 'TenderPOs', no: 'poNo', word: 'Tender PO' }
 };
 
 function taskBoss_(user) { return MASTER_EDITORS.indexOf(String(user.role)) !== -1; }
@@ -102,11 +104,11 @@ function taskState_(t, s, today) {
     return { state: 'overdue', earned: -points * Number(s.overduePct) / 100, possible: points, points: points,
       daysOver: daysBetween_(due, today) };
   }
-  return { state: due === today ? 'today' : status === 'In progress' ? 'progress' : 'open', earned: 0, possible: 0, points: points };
+  return { state: due === today ? 'today' : status === 'In progress' ? 'progress' : status === 'Waiting on others' ? 'waiting' : 'open', earned: 0, possible: 0, points: points };
 }
 
 var TASK_STATE_LABELS = { ontime: 'Done on time', late: 'Done late', overdue: 'Overdue', today: 'Due today',
-  progress: 'In progress', open: 'Open', cancelled: 'Cancelled' };
+  progress: 'In progress', waiting: 'Waiting on others', open: 'Open', cancelled: 'Cancelled' };
 
 /** The period's first and last day, 'yyyy-mm-dd' both. Quarters and the year are April's. */
 function taskPeriod_(opts, today) {
@@ -310,7 +312,7 @@ function saveTask(input) {
 function setTaskStatus(id, status) {
   var user = getCurrentUser();
   var to = String(status || '');
-  if (TASK_STATUSES.indexOf(to) === -1) throw new Error('A task is Open, In progress, Done or Cancelled.');
+  if (TASK_STATUSES.indexOf(to) === -1) throw new Error('A task is Open, In progress, Waiting on others, Done or Cancelled.');
   var t = findRowById_('Tasks', id);
   if (!t || !taskLive_(t) || !taskSees_(t, user)) throw new Error('That task is no longer there.');
   var from = String(t.status || 'Open');

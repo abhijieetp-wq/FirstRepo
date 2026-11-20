@@ -255,13 +255,7 @@
       // ERP 2.0's form builder: Management's own fields on a form (FormFields.gs). Only 2.0.
       { view: "formfields", label: "Form fields", roles: ["Management", "ERP Admin"], v2: true }
     ] },
-    { view: "settings", label: "Settings", roles: ["Management", "ERP Admin"] },
-    // ERP 2.0's Tender Desk (Tenders.gs): only for whoever has it (hasTenderDesk). A tender's
-    // own page is opened from the desk or the list, so it is not a line of the menu.
-    { view: "tenderdesk", label: "Tender Desk", roles: ALL_ROLES, v2: true, tender: true },
-    { view: "tenders", label: "Tenders", roles: ALL_ROLES, v2: true, tender: true },
-    { view: "tender", label: "Tender", roles: ALL_ROLES, v2: true, tender: true, menuV2: false },
-    { view: "tendersettings", label: "Tender Settings", roles: ALL_ROLES, v2: true, tender: true }
+    { view: "settings", label: "Settings", roles: ["Management", "ERP Admin"] }
   ];
 
   /**
@@ -285,7 +279,6 @@
       by.dashboard,
       group("Sales", ["compressor", "enquiries", "servicedue", "visits"]),
       group("Quotations", ["quote", "quotations", "progress"]),
-      group("Tender Desk", ["tenderdesk", "tenders", "tender", "tendersettings"]),
       group("Service", ["service", "amc", "plan"]),
       group("Orders & money", ["orders", "dispatch", "collections", "inventory"]),
       group("Management", ["tasks", "escalations", "engineers", "engreport"]),
@@ -307,7 +300,6 @@
     return navLeaves().filter(function (t) {
       if (t.v2 && !FACE_V2) return false;
       if (t.roles.indexOf(currentUser.role) === -1) return false;
-      if (t.tender && !hasTenderDesk()) return false;
       // 'All' — Management and the ERP admin — sees both front offices.
       if (!t.stream) return true;
       var mine = currentUser.businessStream || "All";
@@ -342,10 +334,6 @@
     enquiries: "/spare-sales",
     servicedue: "/service-due-calls",
     visits: "/visit-plans",
-    tenderdesk: "/tender-desk",
-    tenders: "/tenders",
-    tender: "/tender",
-    tendersettings: "/tender-settings",
     quote: "/quotation",
     quotations: "/quotations",
     progress: "/quotation-progress",
@@ -375,8 +363,8 @@
     for (var i = 0; i < views.length; i++) {
       if (ROUTES[views[i]] === p) return { view: views[i], id: "" };
     }
-    var m = /^\/(quotation|quotation-progress|tender)\/([A-Za-z0-9_-]{1,64})$/.exec(p);
-    if (m) return { view: m[1] === "quotation" ? "quote" : m[1] === "tender" ? "tender" : "progress", id: m[2] };
+    var m = /^\/(quotation|quotation-progress)\/([A-Za-z0-9_-]{1,64})$/.exec(p);
+    if (m) return { view: m[1] === "quotation" ? "quote" : "progress", id: m[2] };
     return null;
   }
 
@@ -386,7 +374,6 @@
     if (view === "quote" && openQuote && openQuote.id) {
       return base + "/" + encodeURIComponent(openQuote.id);
     }
-    if (view === "tender" && td.open && td.open.id) return base + "/" + encodeURIComponent(td.open.id);
     return base;
   }
 
@@ -431,10 +418,6 @@
       openProgressTrail(asked.id, first ? { replace: true } : { fromHistory: true });
       return;
     }
-    if (asked.view === "tender") {
-      tdOpen(asked.id, first ? { replace: true } : { fromHistory: true });
-      return;
-    }
     srv.withSuccessHandler(function (q) {
       openQuote = q;
       renderQuoteBuilder();
@@ -461,7 +444,7 @@
         return;
       }
       if (asked.id && !(asked.view === "quote" && openQuote &&
-          String(openQuote.id) === asked.id) && !(asked.view === "tender" && td.open && String(td.open.id) === asked.id)) {
+          String(openQuote.id) === asked.id)) {
         openFromAddress(asked, false);
         return;
       }
@@ -639,10 +622,6 @@
     plan: initPlanView,
     tasks: initTasksView,
     escalations: initEscalationsView,
-    tenderdesk: initTenderDeskView,
-    tenders: initTendersView,
-    tender: initTenderView,
-    tendersettings: initTenderSettingsView,
     visits: initVisitPlansView,
     engreport: initEngineerReportView,
     formfields: initFormFieldsView,
@@ -672,7 +651,7 @@
     // A group heading lights up when the screen you are on lives inside it. A screen with no
     // line of its own in the menu lights the one it is reached from (2.0's next-day plan, a
     // tab of the Service Desk).
-    var lit = !FACE_V2 ? view : view === "plan" ? "service" : view === "quote" ? "quotations" : view === "tender" ? "tenders" : view;
+    var lit = !FACE_V2 ? view : view === "plan" ? "service" : view === "quote" ? "quotations" : view;
     document.querySelectorAll("#tabs .tab-btn").forEach(function (b) {
       var owns = (b.dataset.views || "").split(",").indexOf(lit) !== -1;
       b.classList.toggle("active", owns);
@@ -7550,7 +7529,7 @@
   // ERP 2's rules (Tasks.gs). A screen of its own on the 2.0 face only; "+ Task" on an
   // enquiry board card or a service job gives a task about that record.
   var tk = { data: null, show: "open", who: "", mine: false, period: "month", from: "", to: "", open: null, link: null };
-  var TK_BADGE = { ontime: "badge-won", late: "badge-sent", overdue: "badge-lost", today: "badge-quoted", progress: "badge-quoted",
+  var TK_BADGE = { ontime: "badge-won", late: "badge-sent", overdue: "badge-lost", today: "badge-quoted", progress: "badge-quoted", waiting: "badge-sent",
     open: "badge-draft", cancelled: "badge-draft" };
 
   if (FACE_V2 && !$("view-tasks")) {
@@ -7710,7 +7689,9 @@
   function tkGoLink(kind, id) {
     $("tk-modal-backdrop").classList.remove("show");
     if (kind === "service") { openServiceJobModal(id); return; }
-    if (kind === "tender") { tdOpen(id); return; }
+    // A tender or its PO opens on the Tender Desk's own page.
+    if (kind === "tender") { location.href = "/tender-desk/tenders/" + encodeURIComponent(id); return; }
+    if (kind === "tenderpo") { location.href = "/tender-desk/po/" + encodeURIComponent(id); return; }
     ebGo(kind, id);
   }
 
@@ -16778,7 +16759,9 @@
     var d = pd.data;
     var host = pdHost();
     var t = dashData;
-    var html = pdHero(d);
+    // The switch between the ERP and the Tender Desk (tender/TenderDesk.html), for whoever has it,
+    // with how many things there need them.
+    var html = (d.self && d.tenderDesk ? erpSwitchHtml(d.tenderDesk) : "") + pdHero(d);
     var lists = {};
     d.lists.forEach(function (l) { lists[l.key] = l; });
     if (d.kind === "boss") {
@@ -16805,8 +16788,6 @@
     var approvals = d.self && d.approvals && d.approvals.count ? '<div class="ca-dash" data-ca-host="dash">' + caPanelHtml(d.approvals, "dash") + "</div>" : "";
     // Customers this person added that were rejected, until they dismiss them.
     if (d.self && d.rejectedCustomers && d.rejectedCustomers.length) approvals = '<div class="ca-dash" data-cr-host="1">' + crPanelHtml(d.rejectedCustomers) + "</div>" + approvals;
-    // Tender deadlines and approvals (Tenders.gs), for whoever has the Tender Desk.
-    if (d.self && d.tenders && d.tenders.length) approvals = '<div class="ca-dash">' + tdDashPanelHtml(d.tenders) + "</div>" + approvals;
     html += approvals + '<div class="dv-cols">' + panels.join("") + (d.team ? pdTeam(d) : "") + "</div>";
     host.innerHTML = html;
     pdSyncTower(d);
@@ -19279,643 +19260,16 @@
     });
   }
 
-  // ---------------- The Tender Desk (Tenders.gs) ----------------
-  // A module of its own: the desk (what is due, what waits for approval, the board by step),
-  // the list, one tender's page with its nine steps and what each needs, the Tender Desk's own
-  // lists, and a new tender entered by hand or read from its document by AI. It uses the
-  // ERP's customers, people, tasks and files.
-  var td = { desk: null, open: null, settings: null, list: { q: "", show: "live", stage: "", mine: false }, draft: null, editItems: null };
-  var TD_STAGE_TONE = { draft: "", approval: "sig", approved: "acc", assigned: "acc", prep: "acc", ready: "acc", submitted: "good", opened: "good" };
-  var TD_RESULT_TONE = { won: "good", lost: "bad", l2: "sig", cancelled: "", declined: "" };
-
+  // ---------------- The Tender Desk (Tenders.gs, tender/TenderDesk.html) ----------------
+  // A module of its own, with its own page at /tender-desk. The ERP's part is the switch on the
+  // dashboard, and the tasks given there, which are on the Tasks page like any other.
   function hasTenderDesk() {
     return !!currentUser && (["Management", "ERP Admin", "Accounts"].indexOf(currentUser.role) !== -1 || currentUser.tenderDesk === true);
   }
-
-  if (FACE_V2 && !$("view-tenderdesk")) {
-    (function () {
-      var add = function (id, html) {
-        var view = document.createElement("div");
-        view.className = "view";
-        view.id = id;
-        view.innerHTML = html;
-        var after = $("view-quotations") || $("view-dashboard");
-        after.parentNode.insertBefore(view, after.nextSibling);
-      };
-      add("view-tendersettings", '<div class="page-head"><div><h2>Tender Settings</h2><p>The Tender Desk’s own lists — portals, categories, ' +
-        "the submission checklist and loss reasons — and when a last date starts to warn.</p></div></div><div id=\"td-settings\"></div>");
-      add("view-tender", '<div id="td-detail"><div class="empty">Loading the tender…</div></div>');
-      add("view-tenders", '<div class="page-head"><div><h2>Tenders</h2><p>Every tender on the desk: open ones by their last date, then the rest. ' +
-        "Open one to work it.</p></div><button type=\"button\" class=\"btn btn-primary\" id=\"btn-td-new2\" style=\"display:none;\">+ New tender</button></div>" +
-        '<div class="eb2-tools td-tools"><input type="search" class="eb2-search" id="td-q" placeholder="Search number, title or client" aria-label="Search tenders" />' +
-        '<select id="td-show" aria-label="Which tenders"><option value="live">Open</option><option value="closed">Closed</option><option value="all">All</option></select>' +
-        '<select id="td-stage" aria-label="Step"></select><label class="check-line td-mine"><input type="checkbox" id="td-mine" /> Mine</label></div>' +
-        '<div class="card" style="padding:0; overflow-x:auto;"><div id="td-list"></div></div>');
-      add("view-tenderdesk", '<div class="page-head"><div><h2>Tender Desk</h2><p>Government and utility tenders, from the notice to the result: ' +
-        "what is due, what waits for approval, and where each one stands.</p></div>" +
-        '<button type="button" class="btn btn-primary" id="btn-td-new" style="display:none;">+ New tender</button></div>' +
-        '<div id="td-kpis" class="pd-tiles"></div><div id="td-alerts"></div><div id="td-board" class="td-board"></div>');
-
-      var back = document.createElement("div");
-      back.className = "modal-backdrop";
-      back.id = "td-new-backdrop";
-      back.innerHTML = '<div class="modal td-new" role="dialog" aria-labelledby="td-new-title"><h3 id="td-new-title">New tender</h3>' +
-        '<div id="td-new-start"><p class="tk-m-sub">Attach the tender document (PDF, or photographs of its pages) and AI reads it into the form for you to check. ' +
-          "Or fill it in by hand.</p>" +
-          '<div class="td-drop"><input type="file" id="td-new-file" accept="application/pdf,image/jpeg,image/png,image/webp" />' +
-          '<button type="button" class="btn btn-primary" id="btn-td-read" disabled>Read with AI</button>' +
-          '<button type="button" class="btn" id="btn-td-hand">Fill in by hand</button></div>' +
-          '<p class="td-reading" id="td-reading" style="display:none;"></p></div>' +
-        '<div id="td-new-form" style="display:none;"></div>' +
-        '<div class="amc-m-foot"><span id="td-new-note" class="sdc-muted"></span><span style="flex:1"></span>' +
-          '<button type="button" class="btn" id="btn-td-new-close">Close</button>' +
-          '<button type="button" class="btn btn-primary" id="btn-td-new-save" style="display:none;">Save as draft</button></div></div>';
-      document.body.appendChild(back);
-    })();
-  }
-
-  // -- the desk --
-  function initTenderDeskView() {
-    if (!FACE_V2) return;
-    if (!td.desk) $("td-board").innerHTML = '<div class="empty">Loading the Tender Desk…</div>';
-    tdLoadDesk(renderTenderDesk);
-  }
-  function tdLoadDesk(then) {
-    srv.withSuccessHandler(function (d) { td.desk = d; if (then) then(); })
-      .withFailureHandler(onServerError).getTenderDesk();
-  }
-  function tdChip(t) {
-    if (t.stage === "result") return ebChip(t.stageLabel, TD_RESULT_TONE[t.result] || "");
-    return ebChip(t.stageLabel, TD_STAGE_TONE[t.stage] || "");
-  }
-  function tdDue(t) {
-    if (t.daysLeft === null || t.daysLeft === undefined) return t.stage === "result" ? "" : '<span class="sdc-muted">No last date</span>';
-    var d = t.daysLeft;
-    var r = (td.desk && td.desk.rules) || { alertDays: 7, urgentDays: 3 };
-    var tone = d <= r.urgentDays ? "bad" : d <= r.alertDays ? "sig" : "good";
-    return ebChip(d < 0 ? "Last date passed " + -d + "d" : d === 0 ? "Due today" : d + "d left", tone, "Last date " + ebDate(t.lastDate) + (t.dueTime ? " " + t.dueTime : ""));
-  }
-  function renderTenderDesk() {
-    var d = td.desk;
-    if (!d || !$("view-tenderdesk")) return;
-    $("btn-td-new").style.display = d.can.create ? "" : "none";
-    var k = d.kpis;
-    $("td-kpis").innerHTML = [
-      ["Live tenders", k.live, k.liveValue ? ebMoney(k.liveValue) + " estimated" : "approved, being prepared", ""],
-      ["Due within " + d.rules.alertDays + " days", k.dueSoon, k.overdue ? k.overdue + " past the last date" : "by their last date", k.dueSoon || k.overdue ? "warn" : ""],
-      ["Awaiting approval", k.awaitingApproval, d.can.approve ? "yours to decide" : "with Management", k.awaitingApproval ? "warn" : ""],
-      ["Awaiting the result", k.awaitingResult, "submitted or opened", ""],
-      ["Won this year", k.wonFy, k.wonFyValue ? ebMoney(k.wonFyValue) + " awarded" : k.decidedFy ? "of " + k.decidedFy + " decided" : "since 1 April", k.wonFy ? "good" : ""]
-    ].map(function (t) {
-      return '<div class="pd-tile' + (t[3] ? " " + t[3] : "") + '"><span class="pd-label">' + escapeHtml(t[0]) + '</span><span class="pd-value">' +
-        t[1] + '</span><span class="pd-sub">' + escapeHtml(t[2]) + "</span></div>";
-    }).join("");
-    $("td-alerts").innerHTML = d.alerts.length ? '<section class="pd-panel td-alerts"><header><h3>Needs attention</h3>' + ebChip(String(d.alerts.length), "bad") + "</header>" +
-      d.alerts.slice(0, 12).map(function (a) {
-        return '<button type="button" class="td-alert ' + escapeHtml(a.sev) + '" data-td-open="' + escapeHtml(a.tenderId) + '"><span class="td-sev"></span><span><b>' +
-          escapeHtml(a.text) + '</b><span class="sdc-muted">' + escapeHtml(a.sub || "") + "</span></span></button>";
-      }).join("") + "</section>" : "";
-    var cols = d.lists.stages.filter(function (s) { return s.key !== "result"; });
-    $("td-board").innerHTML = cols.map(function (s) {
-      var cards = d.tenders.filter(function (t) { return t.stage === s.key; });
-      return '<div class="td-col"><div class="td-col-h">' + escapeHtml(s.label) + ' <span class="sdc-muted">' + cards.length + "</span></div>" +
-        (cards.length ? cards.map(function (t) {
-          return '<button type="button" class="td-card" data-td-open="' + escapeHtml(t.id) + '"><span class="td-no mono">' + escapeHtml(t.tenderNo || "—") + "</span>" +
-            '<span class="td-title">' + escapeHtml(t.title || "Untitled") + "</span>" +
-            '<span class="td-meta">' + escapeHtml(t.customerName || "No client yet") + "</span>" +
-            '<span class="td-meta">' + tdDue(t) + (t.priority === "High" ? " " + ebChip("High", "bad") : "") +
-              (t.estimatedValue ? ' <span class="mono">' + escapeHtml(ebMoney(t.estimatedValue)) + "</span>" : "") + "</span>" +
-            (t.assigneeName ? '<span class="td-meta">' + escapeHtml(t.assigneeName) + (["prep", "ready"].indexOf(t.stage) !== -1 ? " · checklist " + t.checklist[0] + "/" + t.checklist[1] : "") + "</span>" : "") +
-            "</button>";
-        }).join("") : '<div class="td-empty">—</div>') + "</div>";
-    }).join("");
-  }
-
-  // -- the list --
-  function initTendersView() {
-    if (!FACE_V2) return;
-    tdLoadDesk(renderTenderList);
-  }
-  function renderTenderList() {
-    var d = td.desk;
-    if (!d || !$("view-tenders")) return;
-    $("btn-td-new2").style.display = d.can.create ? "" : "none";
-    var st = $("td-stage");
-    if (!st.options.length) {
-      st.innerHTML = '<option value="">Any step</option>' + d.lists.stages.filter(function (s) { return s.key !== "result"; }).map(function (s) {
-        return '<option value="' + escapeHtml(s.key) + '">' + escapeHtml(s.label) + "</option>";
-      }).join("") + Object.keys(d.lists.results).map(function (k) { return '<option value="r:' + k + '">' + escapeHtml(d.lists.results[k]) + "</option>"; }).join("");
-    }
-    var f = td.list;
-    var q = String(f.q || "").trim().toLowerCase();
-    var rows = d.tenders.filter(function (t) {
-      var closed = t.stage === "result";
-      if (f.show === "live" && closed) return false;
-      if (f.show === "closed" && !closed) return false;
-      if (f.stage && (f.stage.indexOf("r:") === 0 ? t.result !== f.stage.slice(2) || !closed : t.stage !== f.stage)) return false;
-      if (f.mine && !t.mine) return false;
-      return !q || [t.tenderNo, t.title, t.customerName, t.portal, t.assigneeName].join(" ").toLowerCase().indexOf(q) !== -1;
-    });
-    $("td-list").innerHTML = '<table class="tk-table td-table"><thead><tr><th>Tender</th><th>Client</th><th>Portal</th><th>Step</th>' +
-      '<th>Last date</th><th class="num">Estimated</th><th>With</th></tr></thead><tbody>' +
-      (rows.length ? rows.map(function (t) {
-        return '<tr class="td-row" data-td-open="' + escapeHtml(t.id) + '"><td><span class="mono">' + escapeHtml(t.tenderNo || "—") + "</span><div class=\"td-title\">" + escapeHtml(t.title) + "</div></td>" +
-          "<td>" + escapeHtml(t.customerName || "—") + "</td><td>" + escapeHtml(t.portal || "—") + "</td><td>" + tdChip(t) + "</td>" +
-          '<td style="white-space:nowrap;">' + escapeHtml(ebDate(t.lastDate) || "—") + (t.dueTime ? " " + escapeHtml(t.dueTime) : "") + "<br>" + tdDue(t) + "</td>" +
-          '<td class="num mono">' + escapeHtml(ebMoney(t.estimatedValue) || "—") + "</td><td>" + escapeHtml(t.assigneeName || "—") + "</td></tr>";
-      }).join("") : '<tr><td colspan="7" class="empty">' + (d.tenders.length ? "No tender matches that." : "No tenders yet." + (d.can.create ? " Press + New tender." : "")) + "</td></tr>") +
-      "</tbody></table>";
-  }
-
-  // -- one tender --
-  function initTenderView() {
-    if (!FACE_V2) return;
-    if (!td.open) { goToTab("tenders", { replace: true }); return; }
-    renderTender();
-  }
-  function tdOpen(id, how) {
-    srv.withSuccessHandler(function (t) {
-      td.open = t;
-      td.editItems = null;
-      goToTab("tender", how || {});
-    }).withFailureHandler(function (err) {
-      td.open = null;
-      onServerError(err);
-      goToTab("tenders", { replace: true });
-    }).getTender(id);
-  }
-  function tdPut(t, msg) {
-    td.open = t;
-    td.editItems = null;
-    td.desk = null;
-    renderTender();
-    if (msg) showMsg(msg, "success");
-  }
-  function tdField(label, id, value, o) {
-    o = o || {};
-    var ro = o.ro ? " disabled" : "";
-    var ctl;
-    if (o.options) {
-      ctl = '<select id="' + id + '"' + ro + '><option value="">' + escapeHtml(o.blank || "—") + "</option>" + o.options.map(function (x) {
-        var v = Array.isArray(x) ? x[0] : x; var l = Array.isArray(x) ? x[1] : x;
-        return '<option value="' + escapeHtml(v) + '"' + (String(v) === String(value === undefined || value === null ? "" : value) ? " selected" : "") + ">" + escapeHtml(l) + "</option>";
-      }).join("") + "</select>";
-    } else if (o.area) {
-      ctl = '<textarea id="' + id + '" rows="' + (o.rows || 3) + '"' + ro + ">" + escapeHtml(value || "") + "</textarea>";
-    } else {
-      ctl = '<input id="' + id + '" type="' + (o.type || "text") + '" value="' + escapeHtml(value === undefined || value === null ? "" : value) + '"' + ro +
-        (o.ph ? ' placeholder="' + escapeHtml(o.ph) + '"' : "") + (o.type === "number" ? ' min="0" step="any"' : "") + " />";
-    }
-    return '<div class="field' + (o.wide ? " td-wide" : "") + (o.unsure ? " td-unsure" : "") + '"><label for="' + id + '">' + escapeHtml(label) +
-      (o.req ? ' <span class="td-req">*</span>' : "") + (o.unsure ? ' <span class="td-check" title="AI was not sure of this: check it">check</span>' : "") + "</label>" + ctl + "</div>";
-  }
-  var TD_YES = { yn: ["Yes", "No"], yna: ["Yes", "No", "NA"], ynp: ["Yes", "No", "Partial"] };
-
-  /** The tender's own fields: the same form on its page and in the New tender window. */
-  function tdDetailsHtml(t, p, ro, lists, unsure) {
-    var u = function (k) { return (unsure || []).indexOf(k) !== -1; };
-    var names = function (l) { return (l || []).map(function (x) { return x.name; }); };
-    return '<div class="td-grid">' +
-      tdField("Tender number", p + "tenderNo", t.tenderNo, { ro: ro, req: true, unsure: u("tenderNo") }) +
-      tdField("Title / scope of work", p + "title", t.title, { ro: ro, req: true, wide: true, unsure: u("title") }) +
-      '<div class="field"><label for="' + p + 'customerId">Client (from Customers) <span class="td-req">*</span></label><select id="' + p + 'customerId"' + (ro ? " disabled" : "") + ">" +
-        '<option value="">Choose the customer…</option>' + quoteCustomers.map(function (c) {
-          return '<option value="' + escapeHtml(c.id) + '"' + (String(c.id) === String(t.customerId || "") ? " selected" : "") + ">" + escapeHtml(c.name) + "</option>";
-        }).join("") + "</select>" + (t.readClient ? '<span class="td-hint">The document says: ' + escapeHtml(t.readClient) + "</span>" : "") + "</div>" +
-      (t.addresses && t.addresses.length ? tdField("Plant (customer address)", p + "addressId", t.addressId, { ro: ro, options: t.addresses.map(function (a) { return [a.id, a.label]; }) }) : "") +
-      tdField("Plant / station", p + "plant", t.plant, { ro: ro, unsure: u("plant") }) +
-      tdField("Portal", p + "portal", t.portal, { ro: ro, req: true, options: names(lists.portals), unsure: u("portalName") }) +
-      tdField("Category", p + "category", t.category, { ro: ro, req: true, options: names(lists.categories), unsure: u("category") }) +
-      tdField("Priority", p + "priority", t.priority || "Medium", { ro: ro, req: true, options: lists.priorities }) +
-      tdField("Published on", p + "publishedDate", t.publishedDate, { ro: ro, type: "date", unsure: u("publishedDate") }) +
-      tdField("Last date of submission", p + "lastDate", t.lastDate, { ro: ro, req: true, type: "date", unsure: u("lastDate") }) +
-      tdField("Time on the last date", p + "dueTime", t.dueTime, { ro: ro, req: true, type: "time", unsure: u("dueTime") }) +
-      tdField("Estimated value (₹)", p + "estimatedValue", t.estimatedValue, { ro: ro, req: true, type: "number", unsure: u("estimatedValue") }) +
-      tdField("EMD (₹, 0 if exempted)", p + "emdAmount", t.emdAmount, { ro: ro, req: true, type: "number", unsure: u("emdAmount") }) +
-      tdField("EMD type", p + "emdType", t.emdType, { ro: ro, req: true, options: lists.emdTypes, unsure: u("emdType") }) +
-      tdField("Tender fee (₹)", p + "tenderFeeAmount", t.tenderFeeAmount, { ro: ro, type: "number", unsure: u("tenderFeeAmount") }) +
-      tdField("Delivery period", p + "deliveryPeriod", t.deliveryPeriod, { ro: ro, unsure: u("deliveryPeriod") }) +
-      tdField("Security deposit", p + "sdRequired", t.sdRequired, { ro: ro, options: ["Yes", "No"] }) +
-      tdField("Security deposit %", p + "sdPct", t.sdPct, { ro: ro, type: "number", unsure: u("sdPct") }) +
-      tdField("Performance guarantee", p + "pbgRequired", t.pbgRequired, { ro: ro, options: ["Yes", "No"] }) +
-      tdField("Performance guarantee %", p + "pbgPct", t.pbgPct, { ro: ro, type: "number", unsure: u("pbgPct") }) +
-      tdField("Liquidated damages clause", p + "ldClause", t.ldClause, { ro: ro, wide: true, area: true, rows: 2, unsure: u("ldClause") }) +
-      tdField("Eligibility (one per line)", p + "eligibility", t.eligibility, { ro: ro, wide: true, area: true, rows: 4, unsure: u("eligibility") }) +
-      tdField("Notes", p + "notes", t.notes, { ro: ro, wide: true, area: true, rows: 2 }) + "</div>";
-  }
-  function tdReadDetails(p) {
-    var keys = ["tenderNo", "title", "customerId", "addressId", "plant", "portal", "category", "priority", "publishedDate", "lastDate", "dueTime",
-      "estimatedValue", "emdAmount", "emdType", "tenderFeeAmount", "deliveryPeriod", "sdRequired", "sdPct", "pbgRequired", "pbgPct", "ldClause", "eligibility", "notes"];
-    var out = {};
-    keys.forEach(function (k) { var el = $(p + k); if (el) out[k] = el.value; });
-    return out;
-  }
-  function tdItemsHtml(items, p, ro, uoms) {
-    return '<table class="tk-table td-items"><thead><tr><th>#</th><th>Description</th><th class="num">Qty</th><th>Unit</th><th>Specification</th>' + (ro ? "" : "<th></th>") + "</tr></thead><tbody>" +
-      (items.length ? items.map(function (x, n) {
-        if (ro) {
-          return "<tr><td>" + (n + 1) + "</td><td>" + escapeHtml(x.description) + '</td><td class="num">' + escapeHtml(x.qty === "" || x.qty === null || x.qty === undefined ? "—" : x.qty) +
-            "</td><td>" + escapeHtml(x.uom || "") + "</td><td>" + escapeHtml(x.spec || "") + "</td></tr>";
-        }
-        return '<tr data-td-item="' + n + '"><td>' + (n + 1) + '</td><td><input data-k="description" value="' + escapeHtml(x.description) + '" aria-label="Description" /></td>' +
-          '<td class="num"><input data-k="qty" type="number" min="0" step="any" value="' + escapeHtml(x.qty === null || x.qty === undefined ? "" : x.qty) + '" aria-label="Quantity" /></td>' +
-          '<td><select data-k="uom" aria-label="Unit"><option value=""></option>' + uoms.concat(x.uom && uoms.indexOf(x.uom) === -1 ? [x.uom] : []).map(function (u2) {
-            return '<option' + (u2 === x.uom ? " selected" : "") + ">" + escapeHtml(u2) + "</option>";
-          }).join("") + "</select></td>" +
-          '<td><input data-k="spec" value="' + escapeHtml(x.spec || "") + '" aria-label="Specification" /></td>' +
-          '<td><button type="button" class="btn-ghost" data-td-del-item="' + n + '" title="Remove" aria-label="Remove item ' + (n + 1) + '">✕</button></td></tr>';
-      }).join("") : '<tr><td colspan="' + (ro ? 5 : 6) + '" class="empty">No items yet.</td></tr>') + "</tbody></table>" +
-      (ro ? "" : '<button type="button" class="btn btn-sm" data-td-add-item="' + p + '">+ Add item</button>');
-  }
-  function tdReadItems(host) {
-    return Array.prototype.map.call(host.querySelectorAll("[data-td-item]"), function (tr) {
-      var get = function (k) { var el = tr.querySelector('[data-k="' + k + '"]'); return el ? el.value : ""; };
-      return { description: get("description").trim(), qty: get("qty"), uom: get("uom"), spec: get("spec").trim() };
-    });
-  }
-
-  function tdSection(title, body, foot) {
-    return '<section class="pd-panel td-sec"><header><h3>' + escapeHtml(title) + "</h3></header>" + body + (foot ? '<div class="td-foot">' + foot + "</div>" : "") + "</section>";
-  }
-
-  function renderTender() {
-    var t = td.open;
-    var host = $("td-detail");
-    if (!t || !host) return;
-    var L = t.lists;
-    var can = t.can;
-    var stageIdx = L.stages.map(function (s) { return s.key; }).indexOf(t.stage);
-    var at = function (key) { return stageIdx >= L.stages.map(function (s) { return s.key; }).indexOf(key); };
-    if (!quoteCustomers.length) { loadQuoteCustomers(renderTender); }
-    var items = td.editItems || t.items.map(function (x) { return { description: x.description, qty: x.qty, uom: x.uom, spec: x.spec }; });
-    var steps = '<div class="td-steps">' + L.stages.map(function (s, i) {
-      var label = s.key === "result" && t.stage === "result" ? t.summary.stageLabel : s.label;
-      return '<div class="td-step' + (i < stageIdx ? " done" : i === stageIdx ? " cur" : "") + '"><i></i><span>' + escapeHtml(label) + "</span></div>";
-    }).join("") + "</div>";
-
-    var head = '<div class="page-head td-head"><div><span class="qbv-eyebrow">Tender' + (t.aiRead === "TRUE" ? " · read by AI" : "") + "</span>" +
-      '<h2 class="mono">' + escapeHtml(t.tenderNo || "New tender") + "</h2><p>" + escapeHtml([t.title, t.customerName, t.portal].filter(Boolean).join(" · ")) + "</p></div>" +
-      '<div class="td-head-btns">' + tdChip(t.summary) + " " + tdDue(t.summary) +
-      (can.withdraw ? ' <button type="button" class="btn btn-sm" id="btn-td-withdraw">Not participating…</button>' : "") +
-      (can.remove ? ' <button type="button" class="btn btn-sm sd-danger" id="btn-td-remove">Remove draft</button>' : "") +
-      ' <button type="button" class="btn btn-sm" id="btn-td-back">All tenders</button></div></div>';
-
-    // The next step, and what it needs.
-    var g = t.gate;
-    var gate = "";
-    if (g) {
-      var btn = "";
-      if (g.next === "approved") {
-        btn = can.decide ? '<textarea id="td-decide-note" rows="2" placeholder="A note with your decision (needed to decline)"></textarea>' +
-          '<div class="td-foot"><button type="button" class="btn sd-danger" id="btn-td-decline">Decline</button><button type="button" class="btn btn-primary" id="btn-td-approve">Approve participation</button></div>'
-          : '<p class="sdc-muted">Waiting for Management.</p>';
-      } else if (g.next === "assigned") {
-        btn = can.assign ? tdAssignHtml(t) : '<p class="sdc-muted">A Sales Coordinator assigns it.</p>';
-      } else if (g.canAct) {
-        btn = '<button type="button" class="btn btn-primary" id="btn-td-advance"' + (g.open ? " disabled" : "") + ">" + escapeHtml(g.action) + "</button>";
-      } else {
-        btn = '<p class="sdc-muted">' + escapeHtml(g.who === "admin" ? "A Sales Coordinator takes this step." : g.who === "approver" ? "Management takes this step." : "The person it is assigned to takes this step.") + "</p>";
-      }
-      gate = '<section class="pd-panel td-gate"><header><div><span class="pd-label">Next step</span><h3>' + escapeHtml(g.action) + "</h3></div>" +
-        (g.open ? ebChip(g.open + " open", "bad") : ebChip("All checks passed", "good")) + "</header>" +
-        '<ul class="td-reqs">' + g.reqs.map(function (r) { return '<li class="' + (r.ok ? "ok" : "no") + '"><span class="td-ck">' + (r.ok ? "✓" : "✕") + "</span>" + escapeHtml(r.text) + "</li>"; }).join("") + "</ul>" +
-        btn + "</section>";
-    } else {
-      gate = '<section class="pd-panel td-gate"><header><div><span class="pd-label">Result</span><h3>' + escapeHtml(t.summary.stageLabel) + "</h3></div></header>" +
-        '<p class="sdc-muted">' + escapeHtml([t.resultReason, t.resultNote].filter(Boolean).join(" · ") || "Closed.") + "</p>" +
-        (t.result === "won" ? '<p class="td-next">Next: the client’s purchase order. PO execution comes with the next part of the Tender Desk.</p>' : "") + "</section>";
-    }
-    if (t.assigneeEmail && can.assign && g && g.next !== "assigned") gate += '<section class="pd-panel td-gate"><header><h3>Assigned to</h3></header>' + tdAssignHtml(t) + "</section>";
-
-    var docs = tdSection("Documents", (t.documents.length ? '<ul class="td-docs">' + t.documents.map(function (d) {
-      return '<li><a href="' + escapeHtml(d.fileUrl) + '" target="_blank" rel="noopener">' + escapeHtml(d.fileName) + "</a> " + ebChip(d.docType) +
-        (can.documents ? ' <button type="button" class="btn-ghost" data-td-del-doc="' + escapeHtml(d.id) + '" title="Remove" aria-label="Remove ' + escapeHtml(d.fileName) + '">✕</button>' : "") + "</li>";
-    }).join("") + "</ul>" : '<p class="sdc-muted">No documents yet.</p>') +
-      (can.documents ? '<div class="td-attach"><select id="td-doc-type" aria-label="Kind of document">' + L.docTypes.map(function (x) { return "<option>" + escapeHtml(x) + "</option>"; }).join("") +
-        '</select><input type="file" id="td-doc-file" accept="application/pdf,image/*" aria-label="Document" /><button type="button" class="btn btn-sm" id="btn-td-attach">Attach</button></div>' : ""));
-    var tasks = tdSection("Tasks on this tender", (t.tasks.length ? '<ul class="td-tasks">' + t.tasks.map(function (k) {
-      return "<li><b>" + escapeHtml(k.title) + '</b><span class="sdc-muted">' + escapeHtml(k.assigneeName + " · due " + ebDate(k.dueDate) + " · " + k.status) + "</span></li>";
-    }).join("") + "</ul>" : '<p class="sdc-muted">None yet. Assigning it gives the person a task.</p>') +
-      '<button type="button" class="btn btn-sm" id="btn-td-task">+ Task on this tender</button>');
-    var history = tdSection("History", '<ul class="td-history">' + t.events.map(function (e) {
-      return "<li><span class=\"sdc-muted\">" + escapeHtml(ebDate(e.at) + " · " + e.byName) + "</span>" + escapeHtml(e.text) + "</li>";
-    }).join("") + "</ul>");
-
-    // The working sections, as far as the tender has got.
-    var main = tdSection("Tender details", tdDetailsHtml(t, "tdf-", !can.edit, L, []), can.edit ? '<button type="button" class="btn btn-primary" id="btn-td-save">Save details</button>' : "") +
-      tdSection("Bill of quantities", '<div id="td-items-host">' + tdItemsHtml(items, "tdi", !can.edit, L.uoms) + "</div>",
-        can.edit ? '<button type="button" class="btn btn-primary" id="btn-td-save-items">Save items</button>' : "");
-    if (at("assigned")) {
-      var groups = Object.keys(L.prepGroups).map(function (gk) {
-        return '<div class="td-prep-g"><h4>' + escapeHtml(L.prepGroups[gk]) + '</h4><div class="td-grid">' + L.prep.filter(function (q) { return q.group === gk; }).map(function (q) {
-          var ro = !(can.prep || (q.accounts && can.prepAccounts));
-          var v = t.prep[q.key];
-          if (q.type === "date") return tdField(q.label, "tdp-" + q.key, v, { ro: ro, type: "date" });
-          if (q.type === "text") return tdField(q.label, "tdp-" + q.key, v, { ro: ro });
-          return tdField(q.label, "tdp-" + q.key, v, { ro: ro, options: TD_YES[q.type] });
-        }).join("") + "</div></div>";
-      }).join("");
-      main += tdSection("Preparation", groups, can.prep || can.prepAccounts ? '<button type="button" class="btn btn-primary" id="btn-td-save-prep">Save preparation</button>' : "");
-    }
-    if (at("prep")) {
-      var ckRo = !can.checklist;
-      main += tdSection("Submission checklist", '<ol class="td-cps">' + L.checkpoints.map(function (c, i) {
-        var v = t.checklist[c.id] || "";
-        return '<li><div><b>CP' + (i + 1) + " · " + escapeHtml(c.name) + "</b>" + (c.description ? '<span class="sdc-muted">' + escapeHtml(c.description) + "</span>" : "") + "</div>" +
-          '<div class="eb2-seg td-seg" role="group" aria-label="CP' + (i + 1) + '">' + ["Yes", "No", "NA"].map(function (x) {
-            return '<button type="button" data-td-cp="' + escapeHtml(c.id) + '" data-v="' + x + '" aria-pressed="' + (v === x) + '"' + (ckRo ? " disabled" : "") + ">" + x + "</button>";
-          }).join("") + "</div></li>";
-      }).join("") + "</ol>", can.checklist ? '<button type="button" class="btn btn-primary" id="btn-td-save-cps">Save checklist</button>' : "");
-      var subRo = !can.checklist;
-      main += tdSection("Submission", '<div class="td-grid">' +
-        tdField("Date submitted", "tds-submittedDate", t.submittedDate, { ro: subRo, type: "date" }) +
-        tdField("Time submitted", "tds-submittedTime", t.submittedTime, { ro: subRo, type: "time" }) +
-        tdField("Portal acknowledgement number", "tds-ackNo", t.ackNo, { ro: subRo }) +
-        tdField("How", "tds-submissionMode", t.submissionMode, { ro: subRo, options: L.subModes }) +
-        tdField("Quote or Regret", "tds-quoteOrRegret", t.quoteOrRegret, { ro: subRo, options: ["Quote", "Regret"] }) +
-        tdField("Value submitted (₹)", "tds-submittedValue", t.submittedValue, { ro: subRo, type: "number" }) + "</div>",
-        !subRo ? '<button type="button" class="btn btn-primary" id="btn-td-save-sub">Save submission</button>' : "");
-    }
-    if (at("submitted")) {
-      var pbRo = !can.postbid;
-      main += tdSection("Bid opening & result", '<div class="td-grid">' +
-        tdField("Techno-commercial opening", "tdb-technoDate", t.technoDate, { ro: pbRo, type: "date" }) +
-        tdField("Number of bidders", "tdb-participantCount", t.participantCount, { ro: pbRo, type: "number" }) +
-        tdField("Price bid opening", "tdb-priceDate", t.priceDate, { ro: pbRo, type: "date" }) +
-        tdField("Our position", "tdb-ourPosition", t.ourPosition, { ro: pbRo, ph: "L1, L2…" }) +
-        tdField("L1 value (₹)", "tdb-l1Value", t.l1Value, { ro: pbRo, type: "number" }) +
-        tdField("Result", "tdb-result", t.stage === "result" ? t.result : t.result, { ro: pbRo, options: [["won", "Won"], ["lost", "Lost / Regret"], ["l2", "L2 – not awarded"], ["cancelled", "Cancelled by client"]] }) +
-        tdField("Loss reason", "tdb-resultReason", t.resultReason, { ro: pbRo, options: L.lossReasons.map(function (x) { return x.name; }) }) +
-        tdField("Awarded value (₹)", "tdb-awardedValue", t.awardedValue, { ro: pbRo, type: "number" }) +
-        tdField("Note", "tdb-resultNote", t.resultNote, { ro: pbRo, wide: true, area: true, rows: 2 }) + "</div>",
-        !pbRo ? '<button type="button" class="btn btn-primary" id="btn-td-save-pb">Save</button>' : "");
-    }
-    host.innerHTML = head + steps + '<div class="td-split"><div class="td-main">' + main + '</div><aside class="td-side">' + gate + docs + tasks + history + "</aside></div>";
-  }
-
-  function tdAssignHtml(t) {
-    return '<div class="td-assign"><select id="td-assignee" aria-label="Who prepares it"><option value="">Choose who prepares it…</option>' +
-      t.people.map(function (p) { return '<option value="' + escapeHtml(p.email) + '"' + (p.email.toLowerCase() === String(t.assigneeEmail || "").toLowerCase() ? " selected" : "") + ">" +
-        escapeHtml(p.name + " · " + p.role) + "</option>"; }).join("") + '</select><button type="button" class="btn btn-primary" id="btn-td-assign">' + (t.assigneeEmail ? "Reassign" : "Assign") + "</button></div>";
-  }
-
-  function tdCall(fnName, args, done, msg, btnId, label) {
-    var stop = btnId && $(btnId) ? busyButton(btnId, label || "Saving…") : function () {};
-    var call = srv.withSuccessHandler(function (t) { stop(); done(t); if (msg) showMsg(msg, "success"); })
-      .withFailureHandler(function (err) { stop(); onServerError(err); });
-    call[fnName].apply(call, args);
-  }
-
-  function tdFileData(input, then) {
-    var f = input.files && input.files[0];
-    if (!f) { showMsg("Choose the file first.", "error"); return; }
-    if (f.size > 10 * 1024 * 1024) { showMsg("That file is over 10 MB.", "error"); return; }
-    var r = new FileReader();
-    r.onload = function () { then({ dataUrl: String(r.result), name: f.name }); };
-    r.onerror = function () { showMsg("That file could not be read.", "error"); };
-    r.readAsDataURL(f);
-  }
-
-  document.addEventListener("click", function (e) {
-    var el = e.target.closest("[data-td-open], #btn-td-new, #btn-td-new2, #btn-td-back, #btn-td-save, #btn-td-save-items, [data-td-add-item], [data-td-del-item]," +
-      " #btn-td-save-prep, [data-td-cp], #btn-td-save-cps, #btn-td-save-sub, #btn-td-save-pb, #btn-td-advance, #btn-td-approve, #btn-td-decline, #btn-td-assign," +
-      " #btn-td-withdraw, #btn-td-remove, #btn-td-attach, [data-td-del-doc], #btn-td-task, #btn-td-read, #btn-td-hand, #btn-td-new-close, #btn-td-new-save");
-    if (!el) return;
-    var t = td.open;
-    if (el.dataset.tdOpen) { tdOpen(el.dataset.tdOpen); return; }
-    switch (el.id) {
-      case "btn-td-new": case "btn-td-new2": tdNewOpen(); return;
-      case "btn-td-back": goToTab("tenders"); return;
-      case "btn-td-save":
-        tdCall("saveTender", [Object.assign({ id: t.id }, tdReadDetails("tdf-"))], tdPut, "Tender details saved.", "btn-td-save");
-        return;
-      case "btn-td-save-items":
-        tdCall("saveTender", [{ id: t.id, items: tdReadItems($("td-items-host")) }], tdPut, "Items saved.", "btn-td-save-items");
-        return;
-      case "btn-td-save-prep": {
-        var prep = {};
-        t.lists.prep.forEach(function (q) { var x = $("tdp-" + q.key); if (x && !x.disabled) prep[q.key] = x.value; });
-        tdCall("saveTenderSection", [{ id: t.id, section: "prep", data: prep }], tdPut, "Preparation saved.", "btn-td-save-prep");
-        return;
-      }
-      case "btn-td-save-cps": {
-        var ans = {};
-        document.querySelectorAll("[data-td-cp][aria-pressed='true']").forEach(function (b) { ans[b.dataset.tdCp] = b.dataset.v; });
-        t.lists.checkpoints.forEach(function (c) { if (!ans[c.id]) ans[c.id] = ""; });
-        tdCall("saveTenderSection", [{ id: t.id, section: "checklist", data: ans }], tdPut, "Checklist saved.", "btn-td-save-cps");
-        return;
-      }
-      case "btn-td-save-sub": {
-        var sub = {};
-        ["submittedDate", "submittedTime", "ackNo", "submissionMode", "quoteOrRegret", "submittedValue"].forEach(function (k) { sub[k] = $("tds-" + k).value; });
-        tdCall("saveTenderSection", [{ id: t.id, section: "submission", data: sub }], tdPut, "Submission saved.", "btn-td-save-sub");
-        return;
-      }
-      case "btn-td-save-pb": {
-        var pb = {};
-        ["technoDate", "participantCount", "priceDate", "ourPosition", "l1Value", "result", "resultReason", "awardedValue", "resultNote"].forEach(function (k) { pb[k] = $("tdb-" + k).value; });
-        tdCall("saveTenderSection", [{ id: t.id, section: "postbid", data: pb }], tdPut, "Saved.", "btn-td-save-pb");
-        return;
-      }
-      case "btn-td-advance":
-        tdCall("advanceTender", [t.id], tdPut, "", "btn-td-advance", "Moving on…");
-        return;
-      case "btn-td-approve":
-        tdCall("decideTender", [t.id, "approve", $("td-decide-note").value], tdPut, "Approved.", "btn-td-approve");
-        return;
-      case "btn-td-decline":
-        if (!$("td-decide-note").value.trim()) { showMsg("Say why the tender is declined, in the note.", "error"); $("td-decide-note").focus(); return; }
-        tdCall("decideTender", [t.id, "decline", $("td-decide-note").value], tdPut, "Declined.", "btn-td-decline");
-        return;
-      case "btn-td-assign":
-        if (!$("td-assignee").value) { showMsg("Choose who prepares it.", "error"); return; }
-        tdCall("assignTender", [t.id, $("td-assignee").value], tdPut, "Assigned, with a task on their Tasks page.", "btn-td-assign");
-        return;
-      case "btn-td-withdraw":
-        askDialog({ title: "Not participating?", message: "The tender closes as Not participating. Say why.", input: true, inputLabel: "Why", okLabel: "Close the tender", danger: true }, function (why) {
-          if (why === null) return;
-          tdCall("withdrawTender", [t.id, why], tdPut, "Closed as Not participating.");
-        });
-        return;
-      case "btn-td-remove":
-        askDialog({ title: "Remove this draft?", message: "It was entered by mistake and goes from the desk.", okLabel: "Remove", danger: true }, function (okd) {
-          if (okd === null) return;
-          tdCall("deleteTender", [t.id], function () { td.open = null; td.desk = null; goToTab("tenders"); }, "Draft removed.");
-        });
-        return;
-      case "btn-td-attach":
-        tdFileData($("td-doc-file"), function (f) {
-          tdCall("attachTenderDocument", [{ tenderId: t.id, dataUrl: f.dataUrl, name: f.name, docType: $("td-doc-type").value }], tdPut, "Attached.", "btn-td-attach", "Attaching…");
-        });
-        return;
-      case "btn-td-task":
-        tkNew({ kind: "tender", id: t.id, label: (t.tenderNo || "Tender") + (t.customerName ? " · " + t.customerName : "") });
-        return;
-      case "btn-td-read": tdRead(); return;
-      case "btn-td-hand": tdNewForm({ priority: "Medium" }, [], null); return;
-      case "btn-td-new-close": $("td-new-backdrop").classList.remove("show"); return;
-      case "btn-td-new-save": tdNewSave(); return;
-    }
-    if (el.dataset.tdAddItem !== undefined) {
-      var hostId = el.dataset.tdAddItem === "tdn" ? "td-new-items" : "td-items-host";
-      var list = tdReadItems($(hostId)).concat([{ description: "", qty: "", uom: "Nos", spec: "" }]);
-      if (hostId === "td-items-host") { td.editItems = list; renderTender(); } else { $(hostId).innerHTML = tdItemsHtml(list, "tdn", false, td.draft.uoms); }
-      return;
-    }
-    if (el.dataset.tdDelItem !== undefined) {
-      var inNew = !!el.closest("#td-new-items");
-      var cur = tdReadItems($(inNew ? "td-new-items" : "td-items-host"));
-      cur.splice(Number(el.dataset.tdDelItem), 1);
-      if (inNew) $("td-new-items").innerHTML = tdItemsHtml(cur, "tdn", false, td.draft.uoms); else { td.editItems = cur; renderTender(); }
-      return;
-    }
-    if (el.dataset.tdCp) {
-      el.parentNode.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b === el && b.getAttribute("aria-pressed") !== "true")); });
-      return;
-    }
-    if (el.dataset.tdDelDoc) {
-      tdCall("deleteTenderDocument", [el.dataset.tdDelDoc], tdPut, "Document removed.");
-    }
-  });
-  document.addEventListener("input", function (e) {
-    if (e.target.id === "td-q") { td.list.q = e.target.value; renderTenderList(); }
-  });
-  document.addEventListener("change", function (e) {
-    if (e.target.id === "td-show") { td.list.show = e.target.value; renderTenderList(); }
-    if (e.target.id === "td-stage") { td.list.stage = e.target.value; if (td.list.stage) { td.list.show = "all"; $("td-show").value = "all"; } renderTenderList(); }
-    if (e.target.id === "td-mine") { td.list.mine = e.target.checked; renderTenderList(); }
-    if (e.target.id === "td-new-file") $("btn-td-read").disabled = !e.target.files.length;
-  });
-
-  // -- a new tender: read from its document, or by hand --
-  function tdNewOpen() {
-    td.draft = null;
-    $("td-new-start").style.display = "";
-    $("td-new-form").style.display = "none";
-    $("td-new-form").innerHTML = "";
-    $("btn-td-new-save").style.display = "none";
-    $("td-new-note").textContent = "";
-    $("td-reading").style.display = "none";
-    $("td-new-file").value = "";
-    $("btn-td-read").disabled = true;
-    $("td-new-backdrop").classList.add("show");
-    if (!quoteCustomers.length) loadQuoteCustomers();
-  }
-  function tdRead() {
-    tdFileData($("td-new-file"), function (f) {
-      var stop = busyButton("btn-td-read", "Reading…");
-      $("td-reading").style.display = "";
-      $("td-reading").textContent = "Reading " + f.name + " — a long tender takes a minute or two.";
-      srv.withSuccessHandler(function (r) {
-        stop();
-        $("td-reading").style.display = "none";
-        var fields = r.fields || {};
-        var match = (r.matches || [])[0];
-        fields.customerId = match ? match.id : "";
-        fields.readClient = fields.clientName ? fields.clientName + (fields.plant ? " — " + fields.plant : "") : "";
-        tdNewForm(fields, fields.unsure || [], r);
-      }).withFailureHandler(function (err) { stop(); $("td-reading").style.display = "none"; onServerError(err); })
-        .readTenderDocument({ dataUrl: f.dataUrl, name: f.name });
-    });
-  }
-  function tdNewForm(fields, unsure, read) {
-    var go = function () {
-      srv.withSuccessHandler(function (s) {
-        var lists = { portals: s.lists.portal.items, categories: s.lists.category.items, priorities: ["High", "Medium", "Low"],
-          emdTypes: ["Online", "Bank guarantee", "Demand draft", "Exempted (MSE / NSIC)", "Not required"] };
-        td.draft = { read: read, uoms: ["Nos", "Set", "Mtr", "RMT", "MT", "KG", "Ltr", "KL", "Lot", "SQM"] };
-        $("td-new-start").style.display = "none";
-        $("td-new-form").style.display = "";
-        $("td-new-form").innerHTML = (read && read.aiOff ? '<p class="msg error show">The document was kept, but not read: ' + escapeHtml(read.aiOff) + " Fill it in by hand.</p>" : "") +
-          (read && read.fields ? '<p class="td-ai-note">Read by AI from <b>' + escapeHtml(read.fileName || "the document") + "</b>. Check every field" +
-            (unsure.length ? ", especially those marked <span class=\"td-check\">check</span>" : "") + ", then save.</p>" : "") +
-          tdDetailsHtml(fields, "tdn-", false, lists, unsure) + "<h4>Bill of quantities</h4>" +
-          '<div id="td-new-items">' + tdItemsHtml(fields.items || [], "tdn", false, td.draft.uoms) + "</div>";
-        $("btn-td-new-save").style.display = "";
-        $("td-new-note").textContent = read && read.documentId ? "The document is filed with the tender when you save." : "";
-      }).withFailureHandler(onServerError).getTenderSettings();
-    };
-    if (!quoteCustomers.length) loadQuoteCustomers(go); else go();
-  }
-  function tdNewSave() {
-    var input = tdReadDetails("tdn-");
-    input.items = tdReadItems($("td-new-items"));
-    var read = td.draft && td.draft.read;
-    if (read && read.documentId) input.documentIds = [read.documentId];
-    if (read && read.fields) input.aiRead = true;
-    tdCall("saveTender", [input], function (t) {
-      $("td-new-backdrop").classList.remove("show");
-      td.desk = null;
-      td.open = t;
-      goToTab("tender");
-    }, "Tender saved as a draft. Its next step says what it still needs.", "btn-td-new-save");
-  }
-
-  // -- the Tender Desk's lists --
-  function initTenderSettingsView() {
-    if (!FACE_V2) return;
-    srv.withSuccessHandler(function (s) { td.settings = s; renderTenderSettings(); }).withFailureHandler(onServerError).getTenderSettings();
-  }
-  function renderTenderSettings() {
-    var s = td.settings;
-    if (!s || !$("td-settings")) return;
-    var ro = !s.canEdit;
-    var lists = Object.keys(s.lists).map(function (k) {
-      var l = s.lists[k];
-      var desc = k === "checkpoint";
-      return '<section class="pd-panel td-sec" data-td-list="' + k + '"><header><h3>' + escapeHtml(l.name) + "</h3></header>" +
-        '<div class="td-list-rows">' + l.items.map(function (x) {
-          return '<div class="td-list-row" data-id="' + escapeHtml(x.id) + '"><input data-k="name" value="' + escapeHtml(x.name) + '"' + (ro ? " disabled" : "") + ' aria-label="Name" />' +
-            (desc ? '<input data-k="description" value="' + escapeHtml(x.description) + '"' + (ro ? " disabled" : "") + ' aria-label="What it means" placeholder="What it means" />' : "") +
-            (ro ? "" : '<button type="button" class="btn-ghost" data-td-list-del="1" title="Remove" aria-label="Remove ' + escapeHtml(x.name) + '">✕</button>') + "</div>";
-        }).join("") + "</div>" +
-        (ro ? "" : '<div class="td-foot"><button type="button" class="btn btn-sm" data-td-list-add="' + k + '">+ Add</button><button type="button" class="btn btn-primary btn-sm" data-td-list-save="' + k + '">Save</button></div>') +
-        "</section>";
-    }).join("");
-    var rules = '<section class="pd-panel td-sec"><header><h3>Last-date warnings</h3></header><div class="td-grid">' +
-      tdField("Warn this many days before the last date", "td-r-alert", s.rules.alertDays, { ro: ro, type: "number" }) +
-      tdField("Urgent at this many days or fewer", "td-r-urgent", s.rules.urgentDays, { ro: ro, type: "number" }) + "</div>" +
-      (ro ? "" : '<div class="td-foot"><button type="button" class="btn btn-primary btn-sm" id="btn-td-rules">Save</button></div>') + "</section>";
-    $("td-settings").innerHTML = (ro ? '<p class="sdc-muted">These are kept by a Sales Coordinator, Management or the ERP Admin.</p>' : "") + '<div class="td-settings">' + rules + lists + "</div>";
-  }
-  document.addEventListener("click", function (e) {
-    var add = e.target.closest("[data-td-list-add]");
-    if (add) {
-      var rows = add.closest("section").querySelector(".td-list-rows");
-      var desc = add.dataset.tdListAdd === "checkpoint";
-      rows.insertAdjacentHTML("beforeend", '<div class="td-list-row" data-id=""><input data-k="name" aria-label="Name" />' +
-        (desc ? '<input data-k="description" aria-label="What it means" placeholder="What it means" />' : "") +
-        '<button type="button" class="btn-ghost" data-td-list-del="1" title="Remove" aria-label="Remove">✕</button></div>');
-      rows.lastElementChild.querySelector("input").focus();
-      return;
-    }
-    var del = e.target.closest("[data-td-list-del]");
-    if (del) { del.closest(".td-list-row").remove(); return; }
-    var save = e.target.closest("[data-td-list-save]");
-    if (save) {
-      var sec = save.closest("section");
-      var items = Array.prototype.map.call(sec.querySelectorAll(".td-list-row"), function (r) {
-        var d2 = r.querySelector('[data-k="description"]');
-        return { id: r.dataset.id, name: r.querySelector('[data-k="name"]').value, description: d2 ? d2.value : "" };
-      });
-      srv.withSuccessHandler(function (s) { td.settings = s; td.desk = null; renderTenderSettings(); showMsg("Saved.", "success"); })
-        .withFailureHandler(onServerError).saveTenderList({ list: save.dataset.tdListSave, items: items });
-      return;
-    }
-    if (e.target.closest("#btn-td-rules")) {
-      srv.withSuccessHandler(function (s) { td.settings = s; td.desk = null; renderTenderSettings(); showMsg("Saved.", "success"); })
-        .withFailureHandler(onServerError).saveTenderRules({ alertDays: $("td-r-alert").value, urgentDays: $("td-r-urgent").value });
-    }
-  });
-
-  /** Tender deadlines and approvals on a person's own dashboard. */
-  function tdDashPanelHtml(list) {
-    if (!list || !list.length) return "";
-    return '<section class="dv-panel dv-wide td-dash"><header><h2>Tenders</h2>' + ebChip(String(list.length), list.some(function (a) { return a.sev === "bad"; }) ? "bad" : "sig") + "</header>" +
-      '<div class="dv-body">' + list.map(function (a) {
-        return '<button type="button" class="td-alert ' + escapeHtml(a.sev) + '" data-td-open="' + escapeHtml(a.tenderId) + '"><span class="td-sev"></span><span><b>' +
-          escapeHtml(a.text) + '</b><span class="sdc-muted">' + escapeHtml(a.sub || "") + "</span></span></button>";
-      }).join("") + "</div></section>";
+  function erpSwitchHtml(td) {
+    var n = Number(td && td.alerts) || 0;
+    return '<div class="erp-switch-row"><nav class="erp-switch" aria-label="Switch module"><span class="on" aria-current="page">ERP</span>' +
+      '<a href="/tender-desk">Tender Desk' + (n ? ' <b class="erp-switch-n" title="' + n + ' need you there">' + n + "</b>" : "") + "</a></nav></div>";
   }
 
   // ---------------- Boot ----------------

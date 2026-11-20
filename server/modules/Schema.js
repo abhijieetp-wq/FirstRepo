@@ -61,6 +61,9 @@ var SCHEMA = {
       // TRUE when the ERP admin has opened the Tender Desk to them (Tenders.gs). Management,
       // the ERP Admin and Accounts always have it.
       'tenderDesk',
+      // What they are on the Tender Desk: shortlist, mgmt, exec, items, fp or accounts. Blank:
+      // what their ERP role starts them as (Tenders.gs, tdRoleOf_).
+      'tenderRole',
       // Somebody who works both streams works one desk at a time: 'Compressor Sales',
       // 'Spare Sales', or 'All' for both combined. They choose it at the top of the page
       // (StreamAccess.gs, setMyDesk). Blank: Management and the admin on Combined, anybody
@@ -663,6 +666,9 @@ var SCHEMA = {
       // its id, and what it was called when the task was given.
       'linkKind', 'linkId', 'linkLabel',
       'doneAt', 'doneBy', 'cancelledAt', 'cancelledBy',
+      // Given on the Tender Desk ('tender'), with its steps and its comments as JSON, and
+      // 'auto' or 'voice' when the Tender Desk or a voice note made it.
+      'module', 'checklistJson', 'commentsJson', 'source',
       'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
   },
   Escalations: {
@@ -678,40 +684,35 @@ var SCHEMA = {
       'createdAt', 'createdBy']
   },
   // ---------------------------------------------------------------- the Tender Desk (Tenders.gs)
+  // A tender and a client PO are each a document: the fields searched on are columns, the rest
+  // of the record — its sections of answers, its items and their movements — is dataJson.
   Tenders: {
     label: 'Government and utility tenders PIE bids for, from the notice to the result (Tender Desk)',
     columns: ['id', 'tenderNo', 'title',
-      // The client is a customer in Customers; the plant one of its addresses, or written.
-      'customerId', 'addressId', 'plant',
-      'portal', 'category', 'priority', 'publishedDate', 'lastDate', 'dueTime',
-      'estimatedValue', 'emdAmount', 'emdType', 'tenderFeeAmount', 'deliveryPeriod', 'eligibility',
-      'sdRequired', 'sdPct', 'pbgRequired', 'pbgPct', 'ldClause', 'notes',
-      // draft, approval, approved, assigned, prep, ready, submitted, opened, result (TENDER_STAGES).
-      'stage',
-      // Pending, Approved or Declined, by whom and why.
-      'approvalStatus', 'approvalRequestedBy', 'approvalRequestedAt', 'approvalBy', 'approvalAt', 'approvalNote',
-      'assigneeEmail', 'assignedAt',
-      // Preparation (TENDER_PREP) and the submission checklist's answers, as JSON.
-      'prepJson', 'checklistJson',
-      'submittedDate', 'submittedTime', 'ackNo', 'submissionMode', 'quoteOrRegret', 'submittedValue',
-      'technoDate', 'participantCount', 'priceDate', 'ourPosition', 'l1Value',
-      // won, lost, l2, cancelled or declined (TENDER_RESULTS).
-      'result', 'resultReason', 'resultNote', 'awardedValue', 'resultAt',
-      // TRUE when it was entered from the tender document, read by AI and checked.
-      'aiRead',
+      // The client is a customer in Customers.
+      'customerId',
+      // draft, approval, approved, assigned, prep, ready, submitted, opened, result (TD_STAGES);
+      // won, lost, l2, cancelled or declined once it has a result.
+      'stage', 'result', 'priority', 'lastDate', 'assigneeEmail', 'estimatedValue',
+      // The client's PO once it is won and entered (TenderPOs).
+      'poId',
+      'dataJson',
       'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
   },
-  TenderItems: {
-    label: 'A tender’s bill of quantities, line by line',
-    columns: ['id', 'tenderId', 'lineNo', 'description', 'qty', 'uom', 'spec']
+  TenderPOs: {
+    label: 'A won tender\'s purchase order: its items ordered, procured, dispatched and delivered, LD, invoices, payments, SD / PBG (Tender Desk)',
+    columns: ['id', 'tenderId', 'poNo', 'customerId', 'poDate', 'dueDate', 'poValue', 'closedAt',
+      'dataJson',
+      'active', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']
   },
   TenderEvents: {
-    label: 'What happened to a tender, step by step',
-    columns: ['id', 'tenderId', 'at', 'byEmail', 'text']
+    label: 'What happened to a tender or a PO, step by step (Tender Desk)',
+    // recordKind: tender or po.
+    columns: ['id', 'recordKind', 'recordId', 'at', 'byEmail', 'text']
   },
-  TenderLists: {
-    label: 'The Tender Desk’s own lists: portals, categories, loss reasons, the submission checklist, and its rules',
-    columns: ['id', 'list', 'name', 'description', 'sortOrder', 'active']
+  TenderMasters: {
+    label: 'The Tender Desk\'s masters: portals, categories, units, loss reasons, the submission checklist, suppliers, products, custom fields, and its rules',
+    columns: ['id', 'list', 'name', 'sortOrder', 'active', 'dataJson']
   },
   SalesVisits: {
     label: 'Customer visits a sales engineer plans, and what each found (2.0 visit plans)',
