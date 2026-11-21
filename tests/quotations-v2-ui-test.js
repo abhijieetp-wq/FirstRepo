@@ -89,8 +89,8 @@ const ok = (label, cond, detail) => {
     ok('with every field the screen had', await shown('#qv-new-body #qs-customer') && await shown('#qv-new-body #btn-qs-new-customer') &&
       await shown('#qv-new-body #qs-stream') && await shown('#qv-new-body #qs-model') && await shown('#qv-new-body #qs-serial') &&
       await shown('#qv-new-body #qs-validity') && await shown('#qv-new-body #btn-qs-create'));
-    ok('customers and desks filled in: both desks for somebody who works both', (await page.$$eval('#qs-customer option', (o) => o.length)) >= 1 &&
-      (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.value))).join('|') === 'Compressor Sales|Spare Sales');
+    ok('customers filled in, and unit offers only even for somebody on both desks', (await page.$$eval('#qs-customer option', (o) => o.length)) >= 1 &&
+      (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.value))).join('|') === 'Compressor Sales');
     await page.click('#btn-qv-new-cancel');
     await page.waitForTimeout(200);
     ok('Cancel closes it', !(await page.evaluate(() => document.getElementById('qv-new-backdrop').classList.contains('show'))));
@@ -112,10 +112,15 @@ const ok = (label, cond, detail) => {
         customerId: o.customerId, businessStream: o.businessStream });
     });
     await page.fill('#qs-model', 'EG 37');
+    ok('unit offers only: no spares quotation started here', !(await page.$$eval('#qs-stream option', (os) => os.map((o) => o.value))).includes('Spare Sales'));
+    const seOpts = await page.$$eval('#qs-engineer option', (os) => os.map((o) => o.textContent.trim()));
+    ok('a Sales engineer field, from the Engineers list', seOpts.join('|') === 'Choose…|Chetan Iyer', seOpts);
+    await page.selectOption('#qs-engineer', 'ENG-3');
     await page.click('#btn-qs-create');
     await page.waitForTimeout(600);
     const made = await page.evaluate(() => { const c = window.__calls.filter((x) => x.fn === 'createBlankQuotation'); return c.length ? c[0].args[0] : null; });
-    ok('Create Quotation starts it with what was filled', !!made && made.machineModel === 'EG 37' && made.validityDays === '30' && !!made.customerId, made);
+    ok('Create Quotation starts it with what was filled', !!made && made.machineModel === 'EG 37' && made.validityDays === '30' && !!made.customerId &&
+      made.salesEngineerId === 'ENG-3', made);
     ok('and opens the new quotation, the window closed', await page.evaluate(() => document.getElementById('view-quote').classList.contains('active')) &&
       !(await page.evaluate(() => document.getElementById('qv-new-backdrop').classList.contains('show'))) && /499/.test(await page.textContent('#qb-title')));
 

@@ -301,26 +301,16 @@ function createBlankQuotation(input) {
   if (!stream) throw new Error('Choose whether this is a Compressor Sales (unit) or a Spare Sales quotation.');
   requireStream_(user, stream, 'A quotation in that stream');
 
-  // A spares offer answers a request, and the request is the enquiry: the spares desk's
-  // worklist, which must know the offer exists. Somebody who works both desks picks Spare Sales
-  // here, so the enquiry is logged for them behind the offer (source "Direct quotation") and
-  // the quotation raised from it, exactly as Create Quotation on the enquiry would.
+  // A spares offer answers a request, and the request is the enquiry. PIE's spares desk, Nov
+  // 2026: no shortcut past it – a spares quotation goes through the proper procedure, logged as
+  // an enquiry on Spare Sales (who asked, the source, who generated it) and raised from there.
+  // New quotation is for unit offers only.
   if (stream === STREAM_SPARE) {
-    var enquiry = saveSpareEnquiry({
-      customerId: customer.id, customerName: customer.name,
-      productModel: String(input.machineModel || '').trim(), serialNo: String(input.serialNo || '').trim(),
-      requirementText: String(input.notes || '').trim() || 'Quotation started directly from New quotation',
-      source: 'Direct quotation', enquiryType: 'Spares'
-    });
-    var fromEnquiry = createQuotationFromEnquiry(enquiry.id);
-    var asked = clampValidity_(input.validityDays);
-    if (asked !== Number(fromEnquiry.validityDays)) {
-      updateRowById_('Quotations', 'id', fromEnquiry.id,
-        { validityDays: asked, validUntil: addDays_(todayIso_(), asked) }, 'Validity as asked');
-      return getQuotation(fromEnquiry.id);
-    }
-    return fromEnquiry;
+    throw new Error('A spares quotation starts from an enquiry. Log it on Spare Sales, then press Create Quotation on the enquiry.');
   }
+  // The sales engineer the unit offer is for, from the Engineers list.
+  var salesEngineer = String(input.salesEngineerId || '').trim()
+    ? engineerPick_(input.salesEngineerId, 'Sales Engineer', '') : { id: '', name: '' };
 
   var parties = defaultPartiesFor_(customer.id);
 
@@ -343,6 +333,8 @@ function createBlankQuotation(input) {
     machineModel: String(input.machineModel || '').trim(),
     serialNo: String(input.serialNo || '').trim(),
     preparedBy: user.email,
+    salesEngineerId: salesEngineer.id,
+    salesEngineerName: salesEngineer.name,
     validityDays: validity,
     validUntil: addDays_(todayIso_(), validity),
     status: 'Draft',
@@ -685,6 +677,15 @@ function saveQuotationHeader(input) {
     throw new Error('Tax mode must be Extra or Included.');
   }
 
+  // The sales engineer, from the Engineers list: kept as it was when the caller does not say,
+  // blank clears it.
+  var salesEngineer = { id: String(existing.salesEngineerId || ''), name: String(existing.salesEngineerName || '') };
+  if (input.salesEngineerId !== undefined) {
+    var seId = String(input.salesEngineerId || '').trim();
+    salesEngineer = !seId ? { id: '', name: '' }
+      : seId === salesEngineer.id ? salesEngineer : engineerPick_(seId, 'Sales Engineer', salesEngineer.id);
+  }
+
   var record = {
     date: String(input.date || existing.date).slice(0, 10),
     validityDays: validityDays,
@@ -695,6 +696,8 @@ function saveQuotationHeader(input) {
     deliveryTerms: String(input.deliveryTerms === undefined ? existing.deliveryTerms || '' : input.deliveryTerms || '').trim(),
     deliveryPeriod: String(input.deliveryPeriod || '').trim(),
     warrantyTerms: String(input.warrantyTerms || '').trim(),
+    salesEngineerId: salesEngineer.id,
+    salesEngineerName: salesEngineer.name,
     machineModel: String(input.machineModel || '').trim(),
     serialNo: String(input.serialNo || '').trim(),
     notes: String(input.notes || '').trim(),

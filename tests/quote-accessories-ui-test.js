@@ -150,16 +150,14 @@ const ok = (label, cond, detail) => {
     await page.$eval('[data-cfm-line="QI-1"]', (e) => e.classList.contains('need') && e.placeholder === 'cfm'));
   ok('and the accessories say to type it, rather than guessing', /Type this compressor’s air flow in the CFM box on its line above/.test(await text('#qbv-acc')), await text('#qbv-acc'));
 
-  console.log('\nNEW QUOTATION: EITHER DESK, FOR SOMEBODY WHO WORKS BOTH');
+  console.log('\nNEW QUOTATION: UNIT OFFERS ONLY, EVEN FOR SOMEBODY WHO WORKS BOTH');
   await page.evaluate(() => document.querySelector('#tabs [data-view="quotations"]').click());
   await page.waitForTimeout(600);
   await page.click('#btn-qv-new');
   await page.waitForTimeout(500);
-  ok('Compressor Sales and Spare Sales to choose from', (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.value))).join('|') === 'Compressor Sales|Spare Sales',
+  ok('Compressor Sales alone: a spares quotation is raised from its enquiry', (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.value))).join('|') === 'Compressor Sales',
     await page.$$eval('#qs-stream option', (o) => o.map((x) => x.value)));
-  await page.selectOption('#qs-stream', 'Spare Sales');
-  await page.waitForTimeout(100);
-  ok('a spares one does not ask for the machine first', !(await page.isVisible('#qs-model')));
+  ok('which asks for the machine', await page.isVisible('#qs-model'));
 
   ok('no page errors', errors.length === 0, errors);
   await browser.close();

@@ -129,7 +129,7 @@ function drainDrive(sb, into) {
   ok('the manifest is one of them', fs.existsSync(path.join(dir, '_manifest.json')));
 
   const { manifest, files } = imp.loadExport(dir);
-  ok('the manifest counts all 67 tabs', manifest.tabCount === 67, manifest.tabCount);
+  ok('the manifest counts all 68 tabs', manifest.tabCount === 68, manifest.tabCount);
   ok('and nine rows in all', manifest.totalRows === 9, manifest.totalRows);
   ok('it records which build the data came from', manifest.build === sb.APP_BUILD,
     [manifest.build, sb.APP_BUILD]);
@@ -222,7 +222,7 @@ function drainDrive(sb, into) {
   // "Exception: Service error: Drive" and two line numbers — no tab, no size, no clue
   // whether running it again was worth doing. Drive's service errors are overwhelmingly
   // transient, so they are now retried; and when they are not transient the message says
-  // which of the 67 tabs it was.
+  // which of the 68 tabs it was.
   // Deliberately no reset() here. The harness keeps ONE set of tabs at module level, so
   // resetting a second sandbox empties the sheet the checks above and below are still using —
   // which is exactly what happened, and showed up as the tripwire reporting nothing moved.
@@ -258,7 +258,7 @@ function drainDrive(sb, into) {
 
   console.log('\nAND THE STATUS IS ASKABLE WITHOUT DIGGING THROUGH DRIVE');
   const status = sb.migrationExportStatus();
-  ok('it reports every tab done', /67 of 67 tabs done/.test(status), status.split('\n')[0]);
+  ok('it reports every tab done', /68 of 68 tabs done/.test(status), status.split('\n')[0]);
   ok('and the row count', /9 rows/.test(status), status.split('\n')[0]);
   // Same again: a sandbox of its own gives it empty Script Properties, which is all this
   // needs. reset() would take the sheet with it.
@@ -268,7 +268,7 @@ function drainDrive(sb, into) {
     /Nothing exported yet/.test(fresh.migrationExportStatus()), fresh.migrationExportStatus());
 
   console.log('\nAND IT NOTICES IF SOMEBODY USED THE PORTAL MID-EXPORT');
-  // The 67 tabs are read one after another, and name order puts a document's lines before its
+  // The 68 tabs are read one after another, and name order puts a document's lines before its
   // header — QuotationItems before Quotations. A quotation saved between those two reads
   // arrives as a header with no lines, which loads without complaint and is wrong. The only
   // real answer is that nobody uses the portal during the export; this is the tripwire for
@@ -423,8 +423,8 @@ function drainDrive(sb, into) {
   // the property now, and read back in full.
   const record = big.exportDone_();
   const storedText = big.PropertiesService.getScriptProperties().getProperty('MIGRATION_EXPORT_DONE');
-  ok('all 67 tabs are recorded', Object.keys(record).length === 67, Object.keys(record).length);
-  // 67 tabs (the Tender Desk's four joined at 63) come to about 7,050 bytes: still 2 KB inside the 9 KB.
+  ok('all 68 tabs are recorded', Object.keys(record).length === 68, Object.keys(record).length);
+  // 68 tabs (the Tender Desk's four joined at 63, Engineers at 68) come to about 7,050 bytes: still 2 KB inside the 9 KB.
   ok('and the stored record is well inside the limit', storedText.length < 7500, storedText.length + ' bytes');
   ok('because it holds no column names',
     !/\bpartNo\b|\bquoteNo\b/.test(storedText));
@@ -531,7 +531,7 @@ function drainDrive(sb, into) {
   const spares2 = table('Spares');
   spares2.rows.push(spares2.headers.map((h) => (h === 'id' ? 'SP-X' : h === 'partNo' ? 'PX' : '')));
   mixed.exportForMigration();
-  ok('the first run records what it did', Object.keys(mixed.exportDone_()).length === 67);
+  ok('the first run records what it did', Object.keys(mixed.exportDone_()).length === 68);
   const firstFolder = Object.keys(mixed.DriveApp._folders).pop();
 
   // The same project, a build later.
@@ -539,7 +539,7 @@ function drainDrive(sb, into) {
   const said2 = mixed.exportForMigration();
   ok('it says it started again', /Starting again in a new folder/.test(said2),
     said2.slice(0, 80));
-  ok('and names both builds', /2026-10-16\.99/.test(said2) && /67 tab\(s\) were exported/.test(said2));
+  ok('and names both builds', /2026-10-16\.99/.test(said2) && /68 tab\(s\) were exported/.test(said2));
   ok('in a NEW folder, so no two formats share one',
     Object.keys(mixed.DriveApp._folders).pop() !== firstFolder);
   ok('and the old folder is left alone, not emptied',

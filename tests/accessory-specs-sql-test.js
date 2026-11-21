@@ -410,11 +410,12 @@ const SPEC_CSV = '﻿' + [
   const noHsn = await p.saveQuotationItem({ quotationId: accQuote, itemType: 'Spare', itemId: (qa.accessories.find((a) => a.partNo === 'B900000120') || {}).id, qty: 1, unitPrice: 900 });
   ok('and none at all is no bar to adding the line', noHsn.items.some((i) => i.itemCode === 'B900000120'));
 
-  console.log('\nA SPARES QUOTATION STARTED FROM NEW QUOTATION');
-  const direct = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Spare Sales', validityDays: 15 });
-  ok('it is a spares quotation, with the validity asked for', direct.businessStream === 'Spare Sales' && Number(direct.validityDays) === 15, direct);
-  const behind = (await db.q('SELECT * FROM spare_enquiries WHERE tenant_id = $1 AND id = $2', [TENANT, direct.spareEnquiryId])).rows[0];
-  ok('with its enquiry logged behind it, so the spares desk knows', !!behind && behind.source === 'Direct quotation' && behind.customer_id === 'CU-1', behind);
+  console.log('\nA SPARES QUOTATION GOES THROUGH ITS ENQUIRY');
+  ok('New quotation does not start one', await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Spare Sales', validityDays: 15 })
+    .then(() => false, (e) => /A spares quotation starts from an enquiry/.test(e.message)));
+  const behindId = (await p.saveSpareEnquiry({ customerId: 'CU-1', source: 'Call', requirementText: 'Hose' })).id;
+  const direct = await p.createQuotationFromEnquiry(behindId);
+  ok('it is raised from the enquiry instead', direct.businessStream === 'Spare Sales' && direct.spareEnquiryId === behindId, direct);
   await p.saveQuotationItem({ quotationId: direct.id, itemType: 'Spare', itemId: 'SP-HOSE', qty: 2, unitPrice: 500 });
   await p.saveQuotationHeader({ id: direct.id, packageDiscountPct: 10, discountPctShown: true });
   let sparesHtml = await p.buildQuotationHtml(direct.id);
@@ -466,7 +467,7 @@ const SPEC_CSV = '﻿' + [
   console.log('\nA SPARES OFFER DISCOUNTED LINE BY LINE');
   const spareRowsOf = (h) => { const t = h.slice(h.indexOf('<table class="price">')); return rows(t.slice(0, t.indexOf('</table>'))).map((r) => cells(r)); };
   const lineOffer = async (how) => {
-    const sqo = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Spare Sales' });
+    const sqo = await p.createQuotationFromEnquiry((await p.saveSpareEnquiry({ customerId: 'CU-1', source: 'Call', requirementText: 'Dryer' })).id);
     await p.saveQuotationItem({ quotationId: sqo.id, itemType: 'Spare', itemId: 'SP-DRY', qty: 2, unitPrice: 1000, discountPct: 10 });
     await p.saveQuotationHeader({ id: sqo.id, packageDiscountPct: 0, discountPctShown: how });
     return spareRowsOf(await p.buildQuotationHtml(sqo.id));

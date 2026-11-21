@@ -368,9 +368,18 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await page.fill('#f_n_city', 'Chandrapur'); await page.press('#f_n_city', 'Tab');
   await shot('td-new-client');
   await page.click('[data-act="clientSave"]'); await settle();
-  const fresh = (await p.getTenderApp());
-  const bn = fresh.clients.find((c) => c.name === 'Brand New Utility');
-  ok('a new client added by hand from the tender, and chosen for it', bn && bn.city === 'Chandrapur' && fresh.tenders.find((t) => t.id === nt.id).client === bn.id);
+  // Two saves in a row (the client, then the tender's client field): read until both are in,
+  // for up to 5 seconds, rather than once – under a loaded machine the second can still be
+  // on its way when the first has settled.
+  let fresh, bn;
+  for (let i = 0; i < 25; i++) {
+    fresh = await p.getTenderApp();
+    bn = fresh.clients.find((c) => c.name === 'Brand New Utility');
+    if (bn && fresh.tenders.find((t) => t.id === nt.id).client === bn.id) break;
+    await page.waitForTimeout(200);
+  }
+  ok('a new client added by hand from the tender, and chosen for it', bn && bn.city === 'Chandrapur' && fresh.tenders.find((t) => t.id === nt.id).client === bn.id,
+    [bn, fresh.tenders.find((t) => t.id === nt.id).client]);
 
   console.log('THE SWITCH, A PHONE, THE DARK LOOK');
   await page.goto(B + '/tender-desk'); await page.waitForSelector('.switch');

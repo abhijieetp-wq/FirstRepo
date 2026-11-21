@@ -51,6 +51,92 @@ async function serviceEngineerFor_(value, existing) {
   return String(match.email).trim();
 }
 
+// ---------------------------------------------------------------- the Engineers list
+
+var ENGINEER_KINDS = ['Service Engineer', 'Sales Engineer'];
+
+/** The sales team keeps the list: whoever logs enquiries and quotations. */
+function engineerEditor_(user) {
+  return [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN].indexOf(String(user.role)) !== -1;
+}
+function engineerOut_(e) {
+  return { id: String(e.id), name: String(e.name || ''), kind: ENGINEER_KINDS.indexOf(String(e.kind)) !== -1 ? String(e.kind) : 'Service Engineer',
+    active: String(e.active).toUpperCase() !== 'FALSE' };
+}
+/** Everybody on the list, active or not (a switched-off one still names old records), by type then name. */
+async function listEngineers() {
+  var user = getCurrentUser();
+  var list = (await readTable_('Engineers')).map(engineerOut_).sort(function (a, b) {
+    return ENGINEER_KINDS.indexOf(a.kind) - ENGINEER_KINDS.indexOf(b.kind) || a.name.localeCompare(b.name);
+  });
+  return { engineers: list, kinds: ENGINEER_KINDS, canEdit: engineerEditor_(user) };
+}
+function engineerName_(v) {
+  var name = String(v || '').replace(/\s+/g, ' ').trim();
+  if (!name) throw new Error('Type the engineer\'s name.');
+  if (name.length > 80) throw new Error('That name is too long.');
+  return name;
+}
+/** One engineer added, renamed, given another type, or switched off / on. */
+async function saveEngineer(input) {
+  var user = getCurrentUser();
+  if (!engineerEditor_(user)) throw new Error('The engineers list is kept by the sales team.');
+  var r = input || {};
+  var rows = await readTable_('Engineers');
+  var was = r.id ? rows.filter(function (e) { return String(e.id) === String(r.id); })[0] : null;
+  if (r.id && !was) throw new Error('That engineer is no longer on the list.');
+  var name = r.name === undefined && was ? String(was.name) : engineerName_(r.name);
+  var kind = r.kind === undefined && was ? String(was.kind) : String(r.kind || '');
+  if (ENGINEER_KINDS.indexOf(kind) === -1) throw new Error('Pick Service Engineer or Sales Engineer.');
+  var clash = rows.filter(function (e) { return String(e.id) !== String(r.id || '') && String(e.name).trim().toLowerCase() === name.toLowerCase(); })[0];
+  if (clash) throw new Error(name + ' is already on the list' + (String(clash.active).toUpperCase() === 'FALSE' ? ', switched off. Switch them back on instead.' : '.'));
+  var active = r.active === undefined && was ? String(was.active).toUpperCase() !== 'FALSE' : r.active !== false;
+  var rec = { name: name, kind: kind, active: active ? 'TRUE' : 'FALSE', updatedAt: nowIso_(), updatedBy: user.email };
+  if (was) {
+    await updateRowById_('Engineers', 'id', was.id, rec, 'Engineer ' + name + ' updated');
+  } else {
+    rec.id = generateId_('ENG-'); rec.createdAt = nowIso_(); rec.createdBy = user.email;
+    await appendRow_('Engineers', rec, 'Engineer ' + name + ' added');
+  }
+  return await listEngineers();
+}
+/** Several at once, one name per line (an engineer already on the list is skipped). */
+async function addEngineers(text, kind) {
+  var user = getCurrentUser();
+  if (!engineerEditor_(user)) throw new Error('The engineers list is kept by the sales team.');
+  if (ENGINEER_KINDS.indexOf(String(kind)) === -1) throw new Error('Pick Service Engineer or Sales Engineer.');
+  var have = {};
+  (await readTable_('Engineers')).forEach(function (e) { have[String(e.name).trim().toLowerCase()] = true; });
+  var added = [], skipped = [];
+  var names = String(text || '').split(/[\r\n]+/).map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).filter(Boolean);
+  if (!names.length) throw new Error('Type the names, one per line.');
+  for (var n of names) {
+    var name = engineerName_(n);
+    if (have[name.toLowerCase()]) { skipped.push(name); continue; }
+    have[name.toLowerCase()] = true;
+    await appendRow_('Engineers', { id: generateId_('ENG-'), name: name, kind: String(kind), active: 'TRUE',
+      createdAt: nowIso_(), createdBy: user.email, updatedAt: nowIso_(), updatedBy: user.email }, 'Engineer ' + name + ' added');
+    added.push(name);
+  }
+  var out = await listEngineers();
+  out.added = added; out.skipped = skipped;
+  return out;
+}
+/**
+ * An engineer to name on a record: one on the list, active, of the type wanted when one is.
+ * The one already on the record is accepted as it is, even if since switched off.
+ */
+async function engineerPick_(id, kindWanted, keptId) {
+  var key = String(id || '').trim();
+  var e = (await readTable_('Engineers')).filter(function (x) { return String(x.id) === key; })[0];
+  if (!e) throw new Error('Pick the engineer from the list.');
+  var out = engineerOut_(e);
+  if (key === String(keptId || '')) return out;
+  if (!out.active) throw new Error(out.name + ' is switched off on the engineers list.');
+  if (kindWanted && out.kind !== kindWanted) throw new Error(out.name + ' is on the list as a ' + out.kind + ', not a ' + kindWanted + '.');
+  return out;
+}
+
 /** The columns of the download, in order: [field on each row, heading in the file]. */
 var ENGINEER_LEADS_COLUMNS_ = [
   ['engineer', 'Service engineer'], ['stream', 'Stream'], ['kind', 'Type'], ['ref', 'Ref no.'],
@@ -228,6 +314,11 @@ async function getEngineerLeadsReport(input) {
     var email = String(u.email || '').trim();
     if (email) lineFor(email, String(u.name || '').trim() || email);
   });
+  // And everybody on the Engineers list, which is where Generated by is picked from now.
+  (await readTable_('Engineers')).forEach(function (e) {
+    if (String(e.active).toUpperCase() === 'FALSE') return;
+    lineFor('eng:' + e.id, String(e.name || ''));
+  });
 
   var totals = { spare: emptyTally_('spare'), units: emptyTally_('units') };
   rows.forEach(function (r) {
@@ -277,6 +368,14 @@ function reportDay_(value, which) {
 
 function reportRow_(rec, names, customerNames, extra, got) {
   var engineerEmail = String(rec.serviceEngineerEmail || '').trim();
+  // Picked from the Engineers list: keyed by the list entry, named as it was picked.
+  var picked = String(rec.generatedById || '').trim();
+  if (picked) {
+    return reportRowFor_(rec, names, customerNames, extra, got, 'eng:' + picked, String(rec.generatedByName || ''));
+  }
+  return reportRowFor_(rec, names, customerNames, extra, got, engineerEmail, engineerEmail ? personLine_(engineerEmail, names) : '');
+}
+function reportRowFor_(rec, names, customerNames, extra, got, engineerEmail, engineerName) {
   return {
     id: String(rec.id),
     stream: extra.stream,
@@ -284,7 +383,7 @@ function reportRow_(rec, names, customerNames, extra, got) {
     ref: extra.ref,
     date: String(rec.date || '').slice(0, 10),
     engineerEmail: engineerEmail,
-    engineer: engineerEmail ? personLine_(engineerEmail, names) : '',
+    engineer: engineerName,
     customer: customerNames[String(rec.customerId)] || String(rec.customerName || ''),
     requirement: extra.requirement,
     progress: extra.progress,

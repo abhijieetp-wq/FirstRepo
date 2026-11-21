@@ -62,7 +62,7 @@ const BOSS = { email: 'office@pie.invalid', name: 'Office Admin', role: 'ERP Adm
   };
   const linesOf = async (id) => (await p.getQuotation(id)).items.map((i) => [i.lineNo, i.description, Number(i.unitPrice), String(i.autoCharge || '')]);
   const carting = async (id) => (await p.getQuotation(id)).items.find((i) => /^Carting/.test(i.description));
-  const spareQuote = async () => p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Spare Sales' });
+  const spareQuote = async () => p.createQuotationFromEnquiry((await p.saveSpareEnquiry({ customerId: 'CU-1', source: 'Call', requirementText: 'Parts' })).id);
   const goods = (id, qty, price) => p.saveQuotationItem({ quotationId: id, itemType: 'Spare', itemId: 'SP-1', qty, unitPrice: price });
 
   console.log('THE TERMS');
@@ -89,6 +89,18 @@ const BOSS = { email: 'office@pie.invalid', name: 'Office Admin', role: 'ERP Adm
   await p.saveQuotationHeader({ id: cq.id, deliveryTerms: 'Ex-Works' });
   const ct = termsOf(await p.buildQuotationHtml(cq.id));
   ok('on a compressor offer too, after its Delivery point', ct[ct.findIndex((t) => /^Delivery:/.test(t)) + 1] === 'Delivery basis: Ex-Works.', ct);
+
+  console.log('\nPAYMENT AND WARRANTY TERMS AS TYPED');
+  ok('blank, the standing payment clause prints', termsOf(await p.buildQuotationHtml(q.id)).includes('Terms of payment: 100% advance.'));
+  await p.saveQuotationHeader({ id: q.id, deliveryPeriod: '14-16 Weeks', paymentTerms: '30 days credit from invoice', warrantyTerms: '6 months on the controller' });
+  terms = termsOf(await p.buildQuotationHtml(q.id));
+  ok('the payment terms typed replace it', terms.includes('Terms of payment: 30 days credit from invoice.') && !terms.some((t) => /100% advance/.test(t)), terms);
+  ok('and the warranty typed replaces the standing one', terms.includes('Warranty: 6 months on the controller.') && !terms.some((t) => /three-month warranty/.test(t)), terms);
+  await p.saveQuotationHeader({ id: cq.id, deliveryTerms: 'Ex-Works', paymentTerms: '50% advance, 50% before dispatch', warrantyTerms: '18 months from dispatch' });
+  const html = await p.buildQuotationHtml(cq.id);
+  const ct2 = termsOf(html);
+  ok('on a compressor offer, the payment terms', ct2.includes('Terms of payment: 50% advance, 50% before dispatch.'), ct2);
+  ok('and the warranty, with the standing points under it gone', ct2.some((t) => /^Warranty: 18 months from dispatch\./.test(t)) && !ct2.some((t) => /warranted for a period of 12 months/.test(t)), ct2.filter((t) => /arrant/.test(t)));
 
   console.log('\nTHE TERMS ALREADY INSTALLED');
   const OLD = 'GST shall be extra on the basic value of the order.\nCarting and freight shall be extra.\nTransit insurance shall be arranged by the Purchaser.';

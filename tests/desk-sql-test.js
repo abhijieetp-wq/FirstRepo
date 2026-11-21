@@ -70,7 +70,8 @@ const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'customer_address
   await asUser('U-ADMIN');
   await p.installMissingQuoteTemplates_('desk');
   const comp = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Compressor Sales' });
-  const spare = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Spare Sales' });
+  // A spares one is raised from its enquiry: New quotation no longer starts one.
+  const spare = await p.createQuotationFromEnquiry((await p.saveSpareEnquiry({ customerId: 'CU-1', source: 'Call', requirementText: 'Filters' })).id);
   const streams = async () => (await p.listQuotations({ includeClosed: true })).map((q) => q.businessStream).sort().join(',');
   ok('with both, both desks’ quotations', await streams() === 'Compressor Sales,Spare Sales');
 
@@ -152,7 +153,7 @@ const TABLES = ['users', 'audit_log', 'sessions', 'customers', 'customer_address
   await asUser('U-BOTH');
   ok('on a desk, it is the desk’s', (await p.createBlankQuotation({ customerId: 'CU-1' })).businessStream === 'Compressor Sales');
   await asUser('U-SP');
-  ok('somebody who works one stream gets theirs', (await p.createBlankQuotation({ customerId: 'CU-1' })).businessStream === 'Spare Sales');
+  ok('somebody on the spares desk alone is sent to an enquiry instead', await refuses(() => p.createBlankQuotation({ customerId: 'CU-1' }), /A spares quotation starts from an enquiry/));
 
   console.log('\nTHE USERS LIST SAYS WHAT THE ERP APPLIES');
   await asUser('U-ADMIN');

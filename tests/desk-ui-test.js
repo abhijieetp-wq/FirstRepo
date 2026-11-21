@@ -130,14 +130,14 @@ const variant = (name, user) => {
   await go('quotations');
   await page.evaluate(() => document.getElementById('btn-qv-new').click());
   await page.waitForTimeout(600);
-  ok('Compressor Sales: unit offer, then Spare Sales: spares offer', (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.textContent))).join('|') ===
-    'Compressor Sales: unit offer|Spare Sales: spares offer');
+  ok('unit offers only: a spares quotation is raised from its enquiry', (await page.$$eval('#qs-stream option', (o) => o.map((x) => x.textContent))).join('|') ===
+    'Compressor Sales: unit offer');
   await open(variant('spares', 'role: "Sales Coordinator", businessStream: "Spare Sales", homeStream: "All", desk: "Spare Sales",'));
   await go('quotations');
+  ok('on the spares desk there is no New quotation', await page.$eval('#btn-qv-new', (b) => b.style.display === 'none'));
   await page.evaluate(() => document.getElementById('btn-qv-new').click());
   await page.waitForTimeout(600);
-  ok('on the spares desk, told to switch to Compressor for a unit quotation', /For a compressor \(unit\) quotation, switch to Compressor at the top first\./.test(await text('#qs-desk-note')),
-    await text('#qs-desk-note'));
+  ok('and reached another way, it sends them to Spare Sales', await page.isVisible('#qs-spares-note') && !(await page.isVisible('#qs-start-card')));
 
   ok('no script errors', errors.length === 0, errors);
   await browser.close();

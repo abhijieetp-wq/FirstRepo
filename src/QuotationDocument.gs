@@ -1126,9 +1126,35 @@ function buildQuotationHtml(quotationId) {
     var basis = String(q.deliveryTerms || '').trim();
     var basisLine = basis ? L('deliveryBasis', 'Delivery basis') + ': ' + basis.replace(/\.+$/, '') + '.' : '';
     var statedBasis = false;
+    // The payment and warranty terms typed on the quotation, the same way: they replace the
+    // standing clause (and, for a warranty, the points listed under it), or are added where the
+    // terms have none. Left blank, the standing clause prints as it always did.
+    var pay = String(q.paymentTerms || '').trim();
+    var warranty = String(q.warrantyTerms || '').trim();
+    var sentence = function (t) { return /[.!?]$/.test(t) ? t : t + '.'; };
+    var statedPay = false, statedWarranty = false, inWarranty = false;
     push('<div class="h1">' + esc_(terms.title || L('termsHeading', 'Terms & conditions')) +
       '</div>');
-    var termLines = templateLines_(terms.body).map(function (l) {
+    var termLines = [];
+    templateLines_(terms.body).forEach(function (l) {
+      // The points under a replaced warranty clause go with it.
+      if (inWarranty && /^-\s+/.test(l)) return;
+      inWarranty = false;
+      if (warranty && /^warranty\b[^:]*:/i.test(l)) {
+        statedWarranty = true; inWarranty = true;
+        termLines.push(l.replace(/^(warranty\b[^:]*:).*$/i, '$1') + ' ' + sentence(warranty));
+        return;
+      }
+      if (pay && /^(terms of payment|payment terms|payment)\s*:/i.test(l)) {
+        statedPay = true;
+        termLines.push(l.replace(/^([^:]*:).*$/, '$1') + ' ' + sentence(pay));
+        return;
+      }
+      termLines.push(l);
+    });
+    if (pay && !statedPay) termLines.push(L('paymentTermsLine', 'Terms of payment') + ': ' + sentence(pay));
+    if (warranty && !statedWarranty) termLines.push(L('warrantyLine', 'Warranty') + ': ' + sentence(warranty));
+    termLines = termLines.map(function (l) {
       if (/^validity\b/i.test(l)) { statedValidity = true; return validity; }
       if (basisLine && /^(delivery|price)\s+basis\s*:/i.test(l)) { statedBasis = true; return basisLine; }
       if (deliveryPhrase && /^delivery\s*:/i.test(l)) {
