@@ -460,7 +460,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await as('U-ADMIN');
   st = (await p.saveTenderMember('sanjay@pie.invalid', 'all', null)).state;
   ok('the two combined roles are offered and named', st.roles.all === 'Shortlisting, Executive & PO Execution' &&
-    st.roles.execpo === 'Tender Executive & PO Execution');
+    st.roles.execpo === 'Tender Executive, Submission & PO Execution' && st.roles.exec === 'Tender Executive & Submission');
   ok('all three: Shortlisting, the submission team and the PO\'s work', ['shortlist', 'exec', 'po', 'items', 'fp'].every((r) => p.tdHas_('all', r)) &&
     !p.tdHas_('all', 'mgmt') && !p.tdHas_('all', 'accounts'));
   ok('executive with PO: the submission team and the PO\'s, not Shortlisting', ['exec', 'po', 'items', 'fp'].every((r) => p.tdHas_('execpo', r)) &&
@@ -476,7 +476,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await as('U-ADMIN');
   await p.saveTenderMember('sanjay@pie.invalid', 'execpo', null);
   await as('U-POX');
-  ok('as Tender Executive & PO Execution he does not enter tenders', await refuses(() => p.newTender(), /Shortlisting/));
+  ok('as Tender Executive, Submission & PO Execution he does not enter tenders', await refuses(() => p.newTender(), /Shortlisting/));
   await p.savePoField(pid, 'warranty', '18 months from delivery');
   ok('but keeps the PO', (await p.getTenderApp()).pos.find((x) => x.id === pid).warranty === '18 months from delivery');
   ok('and is told about it', (await p.getTenderApp()).alerts.some((a) => a.ref === 'p:' + pid));

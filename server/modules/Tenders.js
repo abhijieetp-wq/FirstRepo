@@ -47,12 +47,12 @@
  *   Shortlisting & Executive — that, and can also be assigned tenders and execute them.
  *   Shortlisting, Executive & PO Execution — all three: shortlists, works tenders through
  *     submission, and runs the POs.
- *   Tender Executive & PO Execution — the submission team's work and the POs'.
+ *   Tender Executive, Submission & PO Execution — the submission team's work and the POs'.
  * Admin is not a role but a grant (Users.tenderAdmin), given and taken by a fellow admin in
  * Masters → Team members: admins keep the masters, the rules and the team, and open accounts.
  * The ERP Admin is always one, so the Tender Desk is never left without.
  *   Management — approves participation or declines it.
- *   Tender Executive (Sales Engineer) — prepares and submits the tenders assigned to them.
+ *   Tender Executive & Submission (Sales Engineer) — prepares and submits the tenders assigned to them.
  *   PO Execution — runs every PO: enters it, keeps it, moves its quantities, closes it.
  *   Items Entry (Service Coordinator) — enters the client's PO.
  *   Fulfilment (Service Engineer) — orders from suppliers and moves the items to delivery.
@@ -70,7 +70,7 @@
 // ---------------------------------------------------------------- the fixed parts
 
 var TD_ROLES = { shortlist: 'Shortlisting', both: 'Shortlisting & Executive', all: 'Shortlisting, Executive & PO Execution',
-  mgmt: 'Management', exec: 'Tender Executive', execpo: 'Tender Executive & PO Execution',
+  mgmt: 'Management', exec: 'Tender Executive & Submission', execpo: 'Tender Executive, Submission & PO Execution',
   po: 'PO Execution', items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
 /**
  * The combined roles, and the roles each one does the work of. PO Execution is Items Entry's
@@ -855,7 +855,7 @@ async function saveTenderField(id, path, value) {
       if (!tdHas_(ctx.role, 'shortlist') && !mine) throw new Error('The owner of a tender is named by Shortlisting, or taken by an executive while it has none.');
       var m = value ? tdMember_(ctx, value) : null;
       if (value && !m) throw new Error('Pick somebody who is on the Tender Desk.');
-      if (m && !tdHas_(m.role, 'exec')) throw new Error(m.name + ' is not on the submission team (a role with Tender Executive in it).');
+      if (m && !tdHas_(m.role, 'exec')) throw new Error(m.name + ' is not on the submission team (a role with Tender Executive & Submission in it).');
       var before = t.assignee;
       t.assignee = m ? m.id : '';
       if (before !== t.assignee) {
@@ -1006,7 +1006,7 @@ async function approveTender(id, note, owner) {
   if (t.stage !== 'approval') throw new Error('This tender is not waiting for approval.');
   if (owner) {
     var m = tdMember_(ctx, owner);
-    if (!m || !tdHas_(m.role, 'exec')) throw new Error('Pick somebody on the submission team (a role with Tender Executive in it).');
+    if (!m || !tdHas_(m.role, 'exec')) throw new Error('Pick somebody on the submission team (a role with Tender Executive & Submission in it).');
     t.assignee = m.id;
   }
   t.approval = { status: 'approved', by: ctx.me, at: ctx.today, note: String(note || '').trim().slice(0, 1000) };
