@@ -176,6 +176,27 @@ const ok = (label, cond, detail) => {
     'plexsans-latin-500', 'plexsans-latin-600', 'plexsans-latin-700'].map((n) => fetch(base + '/fonts/' + n + '.woff2')
     .then((r) => r.status)))).every((x) => x === 200));
 
+  console.log('\nTHE OLD ADDRESS, ONCE THE PORTAL HAS ITS OWN DOMAIN');
+  // fetch() will not set a Host header, so a plain request stands in for a browser on the old name.
+  const hit = (p, host, method) => new Promise((resolve, reject) => {
+    const r = require('http').request({ host: '127.0.0.1', port: server.address().port, path: p, method: method || 'GET', headers: { host } },
+      (res) => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location || '' }); });
+    r.on('error', reject); r.end();
+  });
+  const wasBase = process.env.ERP_BASE_URL;
+  process.env.ERP_BASE_URL = 'https://erp.example.org';
+  let moved = await hit('/quotations?x=1', 'old-name.up.railway.app');
+  ok('a page opened on the old address is sent to the same page there', moved.status === 302 && moved.location === 'https://erp.example.org/quotations?x=1', moved);
+  moved = await hit('/api/call', 'old-name.up.railway.app', 'POST');
+  ok('a call from a page already open is not', moved.status !== 302, moved);
+  moved = await hit('/health', 'old-name.up.railway.app');
+  ok('nor the health check', moved.status === 200, moved);
+  moved = await hit('/quotations', 'erp.example.org');
+  ok('and the new domain is served', moved.status === 200, moved);
+  if (wasBase === undefined) delete process.env.ERP_BASE_URL; else process.env.ERP_BASE_URL = wasBase;
+  moved = await hit('/quotations', 'old-name.up.railway.app');
+  ok('without ERP_BASE_URL the old address is served as before', moved.status === 200, moved);
+
   console.log('\nAND SIGNING IN WORKS');
   const login = await post('/api/login', { username: 'boss', password });
   ok('a correct password is accepted', login.status === 200, login.status);

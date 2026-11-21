@@ -390,7 +390,7 @@ const ui = { page: 'dashboard', id: null, tab: null, filters: { mine: false, q: 
 const mem = (id) => S.members.find((m) => m.id === id);
 const mName = (id) => (mem(id) || {}).name || (id ? id : '—');
 const role = () => S.me.role;
-// Shortlisting & Executive ('both') is Shortlisting and a Tender Executive at once. Admin is a
+// Shortlisting & Submission ('both') is Shortlisting and a Tender Executive at once. Admin is a
 // separate grant (S.me.admin), not part of any role.
 // PO Execution ('po') runs every PO: Items Entry's part and Fulfilment's part, as on the server.
 // The combined roles and what each does the work of, as on the server (TD_ROLE_PARTS).

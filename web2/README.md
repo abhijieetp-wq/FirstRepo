@@ -181,10 +181,10 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   tenders entered when it used Customers keep theirs, carried over with the same id
   (tdAdoptCustomers_). Accounts can be opened from Masters → Team members (createTenderMember): the ERP role
   'Tender Desk only' (ROLES.TENDER_DESK), which lands on the Tender Desk and is refused every call
-  outside it (Session.gs call, TENDER_ONLY_CALLS_). Roles include Shortlisting & Executive ('both'), who shortlists and can be
+  outside it (Session.gs call, TENDER_ONLY_CALLS_). Roles include Shortlisting & Submission ('both'), who shortlists and can be
   assigned tenders to execute, and PO Execution ('po'), who runs every PO: enters it, keeps it,
   moves its quantities and closes it — Items Entry's part and Fulfilment's together (tdHas_).
-  Two roles combine them: Shortlisting, Executive & PO Execution ('all') and Tender Executive,
+  Two roles combine them: Shortlisting, Submission & PO Execution ('all') and Tender Executive,
   Submission & PO Execution ('execpo'); the submission team's role is Tender Executive & Submission; TD_ROLE_PARTS says what each combined role does the work of.
   A PO's invoices, payments and SD / PBG are kept by Accounts alone (tdAccountsOnly_); everyone else sees them. Admin is not a role but a grant of its own
   (Users.tenderAdmin, tdIsAdmin_), ticked in Team members by a fellow admin; admins keep the team,

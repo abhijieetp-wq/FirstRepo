@@ -66,6 +66,24 @@ for (const p of ['/nope', '/wp-admin', '/quotations/QT-1', '/reports', '/reports
   ok(p + ' is not', isPagePath(p) === false);
 }
 
+console.log('\nTHE OLD ADDRESS SENDS PEOPLE TO THE NEW DOMAIN');
+const { canonicalRedirect } = require(path.join(__dirname, '..', 'server', 'routes.js'));
+const NEW = 'https://erp.example.org';
+const OLD = 'old-name-production.up.railway.app';
+ok('a page on the old address goes to the same page there', canonicalRedirect('GET', OLD, '/quotation/QT-1', '?x=1', NEW) === NEW + '/quotation/QT-1?x=1');
+ok('the front page too', canonicalRedirect('GET', OLD, '/', '', NEW) === NEW + '/');
+ok('a Tender Desk page', canonicalRedirect('GET', OLD, '/tender-desk/po/TPO-1', '', NEW) === NEW + '/tender-desk/po/TPO-1');
+ok('a file link, with its signature', canonicalRedirect('HEAD', OLD + ':443', '/files/DOC-1', '?t=1.ab', NEW) === NEW + '/files/DOC-1?t=1.ab');
+ok('not the calls an open page makes, so it goes on working', canonicalRedirect('GET', OLD, '/api/state', '', NEW) === null &&
+  canonicalRedirect('POST', OLD, '/api/call', '', NEW) === null && canonicalRedirect('GET', OLD, '/fonts/x.woff2', '', NEW) === null);
+ok('not the new domain itself', canonicalRedirect('GET', 'erp.example.org', '/', '', NEW) === null);
+ok('not localhost or the host\'s health check', canonicalRedirect('GET', 'localhost:3000', '/', '', NEW) === null &&
+  canonicalRedirect('GET', 'healthcheck.railway.app', '/', '', NEW) === null);
+ok('nothing without an https ERP_BASE_URL', canonicalRedirect('GET', OLD, '/', '', '') === null &&
+  canonicalRedirect('GET', OLD, '/', '', 'http://erp.example.org') === null && canonicalRedirect('GET', OLD, '/', '', 'not a url') === null);
+ok('nor when ERP_BASE_URL is still the old address', canonicalRedirect('GET', OLD, '/', '', 'https://' + OLD) === null);
+ok('the server asks before serving anything', /canonicalRedirect\(req\.method/.test(fs.readFileSync(path.join(__dirname, '..', 'server', 'index.js'), 'utf8')));
+
 console.log('\n' + (failures.length
   ? 'FAILED ' + failures.length + '  (' + pass + '/' + (pass + failures.length) + ')'
   : 'all ' + pass + ' passed'));

@@ -284,7 +284,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await as('U-COORD');
   res = await p.newTender();
   const tb = res.id;
-  ok('the role is offered and named', res.state.roles.both === 'Shortlisting & Executive' && res.state.me.role === 'both');
+  ok('the role is offered and named', res.state.roles.both === 'Shortlisting & Submission' && res.state.me.role === 'both');
   const cl = res.state.clients[0].id;
   for (const [k, v] of [['no', 'BOTH/2026/1'], ['title', 'Air dryers'], ['client', cl], ['portal', 'TDM-portal-1'], ['lastDate', inDays(6)], ['dueTime', '11:00'], ['estCost', 500000], ['emd', 10000], ['emdType', 'Online']]) {
     await p.saveTenderField(tb, k, v);
@@ -459,7 +459,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   console.log('ALL THREE IN ONE, AND TENDER EXECUTIVE WITH PO EXECUTION');
   await as('U-ADMIN');
   st = (await p.saveTenderMember('sanjay@pie.invalid', 'all', null)).state;
-  ok('the two combined roles are offered and named', st.roles.all === 'Shortlisting, Executive & PO Execution' &&
+  ok('the two combined roles are offered and named', st.roles.all === 'Shortlisting, Submission & PO Execution' &&
     st.roles.execpo === 'Tender Executive, Submission & PO Execution' && st.roles.exec === 'Tender Executive & Submission');
   ok('all three: Shortlisting, the submission team and the PO\'s work', ['shortlist', 'exec', 'po', 'items', 'fp'].every((r) => p.tdHas_('all', r)) &&
     !p.tdHas_('all', 'mgmt') && !p.tdHas_('all', 'accounts'));

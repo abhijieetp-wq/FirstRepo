@@ -44,8 +44,8 @@
  * ERP role and is changed in Masters → Team members:
  *   Shortlisting (Sales Coordinator, ERP Admin) — enters tenders, sends them for approval,
  *     names who prepares them.
- *   Shortlisting & Executive — that, and can also be assigned tenders and execute them.
- *   Shortlisting, Executive & PO Execution — all three: shortlists, works tenders through
+ *   Shortlisting & Submission — that, and can also be assigned tenders and execute them.
+ *   Shortlisting, Submission & PO Execution — all three: shortlists, works tenders through
  *     submission, and runs the POs.
  *   Tender Executive, Submission & PO Execution — the submission team's work and the POs'.
  * Admin is not a role but a grant (Users.tenderAdmin), given and taken by a fellow admin in
@@ -69,7 +69,7 @@
 
 // ---------------------------------------------------------------- the fixed parts
 
-var TD_ROLES = { shortlist: 'Shortlisting', both: 'Shortlisting & Executive', all: 'Shortlisting, Executive & PO Execution',
+var TD_ROLES = { shortlist: 'Shortlisting', both: 'Shortlisting & Submission', all: 'Shortlisting, Submission & PO Execution',
   mgmt: 'Management', exec: 'Tender Executive & Submission', execpo: 'Tender Executive, Submission & PO Execution',
   po: 'PO Execution', items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
 /**
@@ -79,7 +79,7 @@ var TD_ROLES = { shortlist: 'Shortlisting', both: 'Shortlisting & Executive', al
 var TD_ROLE_PARTS = { both: ['shortlist', 'exec'], all: ['shortlist', 'exec', 'po', 'items', 'fp'],
   execpo: ['exec', 'po', 'items', 'fp'], po: ['items', 'fp'] };
 /**
- * Whether a person's Tender Desk role includes another: Shortlisting & Executive is both of those;
+ * Whether a person's Tender Desk role includes another: Shortlisting & Submission is both of those;
  * PO Execution runs the whole PO – what Items Entry does (enter it, close it) and what Fulfilment
  * does (move its quantities), on every PO rather than only the items assigned to them.
  */

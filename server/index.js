@@ -32,7 +32,7 @@ const crypto = require('crypto');
 const { connect } = require('./db.js');
 const { loadPortal } = require('./load.js');
 const { render, escapeHtml } = require('./page.js');
-const { isPagePath, isTenderDeskPath } = require('./routes.js');
+const { isPagePath, isTenderDeskPath, canonicalRedirect } = require('./routes.js');
 const { buildExport, zip, exportName } = require('./export.js');
 const { fileStore } = require('./files.js');
 const { mailer, settings: mailSettings } = require('./mail.js');
@@ -339,6 +339,17 @@ function statusFor(message) {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
+
+    // The old *.up.railway.app address sends people to the portal's own domain (routes.js).
+    // 302, not 301: a browser keeps a 301 for good, and a mistyped ERP_BASE_URL must be
+    // fixable by correcting it, not by everybody clearing their browser.
+    const moveTo = canonicalRedirect(req.method, req.headers['x-forwarded-host'] || req.headers.host,
+      url.pathname, url.search, process.env.ERP_BASE_URL);
+    if (moveTo) {
+      res.writeHead(302, { Location: moveTo, 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
 
     try {
       await ready;

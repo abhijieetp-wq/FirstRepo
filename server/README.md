@@ -16,7 +16,7 @@ variable until it is set — nothing fails silently.
 | `PORT` | default 3000 |
 | `TENANT_ID` | default `pie` |
 | `ERP_UI` | No longer used: ERP 2.0 is the only look (the classic and new-design looks were retired, and `?look=` chooses nothing). Safe to delete. |
-| `ERP_BASE_URL` | what this server calls itself, e.g. `https://erp.pie.in`. Needed for the Google sign-in, which must match a redirect URI registered with Google. Derived from the request when unset. |
+| `ERP_BASE_URL` | what this server calls itself, e.g. `https://erp.example.org`. Needed for the Google sign-in, which must match a redirect URI registered with Google. Derived from the request when unset. When it is an https address of the portal's own domain, a page opened on the host's old `*.up.railway.app` address is sent there (302, same path) — see *Moving to your own domain*. |
 | `ERP_FILES_DIR` | where attachments go; default `var/files` beside the code |
 | `ERP_CHROMIUM` | path to Chromium, for PDFs; found automatically in the usual places |
 | `SMTP_URL` | e.g. `smtps://smtp.gmail.com:465` |
@@ -47,6 +47,23 @@ curl. Unset, sending a quotation refuses and says the quotation itself is saved.
 in the portal, and a Tally that this server can actually reach. Tally normally sits on the
 office LAN, so a server in a data centre may not be able to see it at all; that is a
 network question, not a code one.
+
+## Moving to your own domain
+
+1. Railway → the service → Settings → Networking → **Custom Domain**: add the domain. Railway shows a
+   CNAME target (and sometimes a TXT record to prove the domain is yours).
+2. At the domain's DNS provider, add those records exactly as shown. Wait until Railway shows the
+   domain as active, with its certificate.
+3. Keep the old `*.up.railway.app` domain on the service: it is what the redirect answers on.
+4. Set `ERP_BASE_URL` to `https://` + the new domain, and redeploy. From then on a page, a Tender
+   Desk page or a file link opened on the old address goes to the same place on the new one
+   (`server/routes.js`, `canonicalRedirect`). Background calls from a tab already open are still
+   served, so nobody loses work mid-move; they move over the next time the page loads.
+5. Google Cloud console → the OAuth client → Authorized redirect URIs: add
+   `https://<new domain>/oauth/gmail` (Gmail sending) and `https://<new domain>` (the Google
+   sign-in gate, if it is ever switched on). Gmail already connected keeps working.
+
+A browser keeps its sign-in per address, so everybody signs in once more on the new one.
 
 ## Settings that stick
 

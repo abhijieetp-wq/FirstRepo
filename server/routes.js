@@ -64,4 +64,29 @@ function isTenderDeskPath(pathname) {
     !/^\/tender-desk\/(shortlisting|approvals|tasks|masters)\//.test(p);
 }
 
-module.exports = { PAGES, WITH_ID, isPagePath, isTenderDeskPath };
+/**
+ * Where an address on the host's own domain should send somebody, or null to serve it.
+ *
+ * The portal moved from the hosting service's *.up.railway.app address to a domain of its own.
+ * ERP_BASE_URL names that domain (https://...), and nothing else is configured: no domain is
+ * written here. A page, a Tender Desk page or a file link opened on the old address goes to the
+ * same path and query there. Calls a page makes in the background (/api/..., its scripts and
+ * typefaces) are left alone, so a tab that was open across the move goes on working until it is
+ * reloaded, and a POST is never turned into anything else.
+ *
+ * Only *.up.railway.app is moved: localhost, the host's health check and the new domain itself
+ * never are, and without an https ERP_BASE_URL nothing is.
+ */
+function canonicalRedirect(method, host, pathname, search, baseUrl) {
+  if (method !== 'GET' && method !== 'HEAD') return null;
+  let base;
+  try { base = new URL(String(baseUrl || '')); } catch (e) { return null; }
+  if (base.protocol !== 'https:' || /\.up\.railway\.app$/i.test(base.hostname)) return null;
+  const h = String(host || '').split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+  if (!/\.up\.railway\.app$/.test(h) || h === base.hostname.toLowerCase()) return null;
+  const p = String(pathname || '');
+  if (!(isPagePath(p) || isTenderDeskPath(p) || /^\/files\/[^/]+$/.test(p))) return null;
+  return base.origin + p + String(search || '');
+}
+
+module.exports = { PAGES, WITH_ID, isPagePath, isTenderDeskPath, canonicalRedirect };
