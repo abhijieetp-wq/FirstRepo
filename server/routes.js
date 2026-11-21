@@ -60,8 +60,8 @@ function isPagePath(pathname) {
  */
 function isTenderDeskPath(pathname) {
   const p = String(pathname || '').replace(/\/+$/, '');
-  return /^\/tender-desk(\/(shortlisting|tenders|po|tasks|masters)(\/[A-Za-z0-9_-]{1,64})?)?$/.test(p) &&
-    !/^\/tender-desk\/(shortlisting|tasks|masters)\//.test(p);
+  return /^\/tender-desk(\/(shortlisting|approvals|tenders|po|tasks|masters)(\/[A-Za-z0-9_-]{1,64})?)?$/.test(p) &&
+    !/^\/tender-desk\/(shortlisting|approvals|tasks|masters)\//.test(p);
 }
 
 module.exports = { PAGES, WITH_ID, isPagePath, isTenderDeskPath };

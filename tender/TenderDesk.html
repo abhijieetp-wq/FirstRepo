@@ -416,7 +416,7 @@ function deadlineChip(t) {
 const ckScore = (t) => t.ck || [0, S.checklist.length];
 function stageLabel(t) { if (t.stage === 'result') return (S.results[t.result] || {}).l || 'Result'; return (S.stages.find((s) => s.k === t.stage) || {}).l || t.stage; }
 function prioChip(p) { return p ? `<span class="chip ${p === 'High' ? 'bad' : p === 'Medium' ? 'warn' : ''}">${esc(p)}</span>` : ''; }
-function stageChip(t) { if (t.stage === 'result') { const r = S.results[t.result] || {}; return `<span class="chip ${r.c || ''}">${esc(r.l || 'Result')}</span>`; } const i = stageIdx(t.stage); return `<span class="chip ${i >= 4 ? 'acc' : i === 1 ? 'info' : ''}">${esc(stageLabel(t))}</span>`; }
+function stageChip(t) { if (t.stage === 'result') { const r = S.results[t.result] || {}; return `<span class="chip ${r.c || ''}">${esc(r.l || 'Result')}</span>`; } const i = stageIdx(t.stage); return `<span class="chip ${i === 1 || i === 3 ? 'info' : i >= 2 ? 'acc' : ''}">${esc(stageLabel(t))}</span>`; }
 function dueChip(d, done) { if (done) return '<span class="chip ok">Complete</span>'; if (d == null) return ''; if (d < 0) return `<span class="chip bad">${-d}d overdue</span>`; if (d <= 14) return `<span class="chip warn">${d}d left</span>`; return `<span class="chip">${d}d left</span>`; }
 const qtys = (it) => { const q = { ordered: 0, procured: 0, dispatched: 0, delivered: 0 }; (it.moves || []).forEach((m) => { if (q[m.t] !== undefined) q[m.t] += num(m.qty); }); return q; };
 const itemVal = (it) => num(it.qty) * num(it.rate);
@@ -488,25 +488,29 @@ function docList(docs, canRemove) {
 }
 
 // ================= shell =================
-const PATHS = { dashboard: '/tender-desk', shortlist: '/tender-desk/shortlisting', tenders: '/tender-desk/tenders', tender: '/tender-desk/tenders', pos: '/tender-desk/po', po: '/tender-desk/po', tasks: '/tender-desk/tasks', masters: '/tender-desk/masters' };
+const TEAM = ['prep', 'bidcheck', 'ready', 'submitted', 'opened'];
+const waitingMgmt = () => S.tenders.filter((t) => t.stage === 'approval' || t.stage === 'bidcheck');
+const PATHS = { dashboard: '/tender-desk', shortlist: '/tender-desk/shortlisting', approvals: '/tender-desk/approvals', tenders: '/tender-desk/tenders', tender: '/tender-desk/tenders', pos: '/tender-desk/po', po: '/tender-desk/po', tasks: '/tender-desk/tasks', masters: '/tender-desk/masters' };
 function pathFor() { const base = PATHS[ui.page] || '/tender-desk'; return (ui.page === 'tender' || ui.page === 'po') && ui.id ? base + '/' + encodeURIComponent(ui.id) : base; }
 function fromPath(p) {
-  const m = /^\/tender-desk(?:\/(shortlisting|tenders|po|tasks|masters)(?:\/([A-Za-z0-9_-]{1,64}))?)?\/?$/.exec(p || '');
+  const m = /^\/tender-desk(?:\/(shortlisting|approvals|tenders|po|tasks|masters)(?:\/([A-Za-z0-9_-]{1,64}))?)?\/?$/.exec(p || '');
   if (!m) return { page: 'dashboard', id: null };
-  const map = { shortlisting: 'shortlist', tenders: 'tenders', po: 'pos', tasks: 'tasks', masters: 'masters' };
+  const map = { shortlisting: 'shortlist', approvals: 'approvals', tenders: 'tenders', po: 'pos', tasks: 'tasks', masters: 'masters' };
   if (m[2] && m[1] === 'tenders') return { page: 'tender', id: m[2] };
   if (m[2] && m[1] === 'po') return { page: 'po', id: m[2] };
   return { page: m[1] ? map[m[1]] : 'dashboard', id: null };
 }
 function navItems() {
   const r = role();
-  const sl = S.tenders.filter((t) => ['draft', 'approval', 'approved'].includes(t.stage)).length;
+  const sl = S.tenders.filter((t) => t.stage === 'draft').length;
+  const wait = waitingMgmt().length;
   const myOpen = S.tasks.filter((k) => k.assignee === S.me.id && k.status !== DONE);
   const od = myOpen.some((k) => k.due && dd(k.due) < 0);
   return [
     { p: 'dashboard', l: 'Dashboard', i: 'home' },
     { p: 'shortlist', l: 'Shortlisting', i: 'search', ct: sl },
-    { p: 'tenders', l: 'Tenders', i: 'layers', ct: S.tenders.filter((t) => ['assigned', 'prep', 'ready', 'submitted', 'opened'].includes(t.stage) && (r !== 'exec' || t.assignee === S.me.id)).length },
+    { p: 'approvals', l: 'Approvals', i: 'check', ct: wait, hot: r === 'mgmt' && wait > 0 },
+    { p: 'tenders', l: 'Tenders', i: 'layers', ct: S.tenders.filter((t) => TEAM.includes(t.stage) && (r !== 'exec' || !t.assignee || t.assignee === S.me.id)).length },
     { p: 'pos', l: 'PO execution', i: 'truck', ct: S.pos.filter((p) => !p.closed).length },
     { p: 'tasks', l: 'Tasks', i: 'tasks', ct: myOpen.length, hot: od },
     { p: 'masters', l: 'Masters', i: 'cog' }
@@ -516,6 +520,7 @@ function pageTitle() {
   switch (ui.page) {
     case 'dashboard': return 'Dashboard';
     case 'shortlist': return 'Shortlisting';
+    case 'approvals': return 'Approvals';
     case 'tenders': return 'Tenders';
     case 'tender': { const t = tender(ui.id); return t ? (t.no || 'Draft tender') : 'Tender'; }
     case 'pos': return 'PO execution';
@@ -558,6 +563,7 @@ function page() {
   switch (ui.page) {
     case 'dashboard': return vDashboard();
     case 'shortlist': return vShortlist();
+    case 'approvals': return vApprovals();
     case 'tenders': return vTenders();
     case 'tender': return vTender();
     case 'pos': return vPOs();
@@ -572,9 +578,9 @@ function page() {
 function vDashboard() {
   const r = role();
   const mine = (t) => r !== 'exec' || t.assignee === S.me.id;
-  const live = S.tenders.filter((t) => ['approved', 'assigned', 'prep', 'ready'].includes(t.stage) && mine(t));
+  const live = S.tenders.filter((t) => ['prep', 'bidcheck', 'ready'].includes(t.stage) && mine(t));
   const due7 = live.filter((t) => dd(t.lastDate) != null && dd(t.lastDate) <= S.cfg.alertDays);
-  const appr = S.tenders.filter((t) => t.stage === 'approval');
+  const appr = waitingMgmt();
   const decided = S.tenders.filter((t) => t.stage === 'result' && ['won', 'lost', 'l2'].includes(t.result) && mine(t));
   const won = decided.filter((t) => t.result === 'won');
   const pos = S.pos.filter((p) => !p.closed && (r !== 'fp' || p.items.some((i) => i.fp === S.me.id)));
@@ -586,7 +592,7 @@ function vDashboard() {
   const kpis = [
     { l: 'Bids in progress', v: live.length, s: `${S.tenders.filter((t) => t.stage === 'submitted' || t.stage === 'opened').length} awaiting result`, a: go('tenders') },
     { l: `Due in ${S.cfg.alertDays} days`, v: due7.length, s: due7.length ? `Nearest: ${fD(due7.map((t) => t.lastDate).sort()[0])}` : 'Nothing urgent', c: due7.some((t) => dd(t.lastDate) <= S.cfg.urgentDays) ? 'bad' : due7.length ? 'warn' : 'ok', a: go('tenders') },
-    { l: 'Awaiting approval', v: appr.length, s: appr.length ? inrS(appr.reduce((a, t) => a + num(t.estCost), 0)) + ' est. value' : 'All decided', c: appr.length ? 'warn' : '', a: go('shortlist') },
+    { l: 'Awaiting approval', v: appr.length, s: appr.length ? inrS(appr.reduce((a, t) => a + num(t.estCost), 0)) + ' est. value' : 'All decided', c: appr.length ? 'warn' : '', a: go('approvals') },
     { l: 'Win rate', v: decided.length ? pct(won.length, decided.length) + '%' : '—', s: `${won.length} won of ${decided.length} decided` },
     { l: 'Open PO value', v: inrS(openVal), s: `${pos.length} PO${pos.length === 1 ? '' : 's'} in execution`, a: go('pos') },
     { l: 'Delivered (by value)', v: pct(delVal, totVal) + '%', s: `${inrS(delVal)} of ${inrS(totVal)}`, a: go('pos') },
@@ -594,10 +600,10 @@ function vDashboard() {
     { l: 'My open tasks', v: myTasks.length, s: myOver.length ? `${myOver.length} overdue` : 'None overdue', c: myOver.length ? 'bad' : '', a: go('tasks') }
   ];
   const al = S.alerts.slice(0, 8);
-  const fun = [['Shortlisted', (t) => stageIdx(t.stage) >= 2], ['Assigned', (t) => stageIdx(t.stage) >= 3], ['In preparation', (t) => stageIdx(t.stage) >= 4], ['Submitted', (t) => stageIdx(t.stage) >= 6], ['Won', (t) => t.result === 'won']];
+  const fun = [['Shortlisted', (t) => stageIdx(t.stage) >= 1], ['Approved to bid', (t) => stageIdx(t.stage) >= 2], ['Bid approved', (t) => stageIdx(t.stage) >= 4], ['Submitted', (t) => stageIdx(t.stage) >= 5], ['Won', (t) => t.result === 'won']];
   const base = S.tenders.filter((t) => t.stage !== 'draft' && t.result !== 'declined');
   const fv = fun.map(([l, f]) => [l, base.filter(f).length]); const fmax = Math.max(1, ...fv.map((x) => x[1]));
-  const myT = S.tenders.filter((t) => t.assignee === S.me.id && ['assigned', 'prep', 'ready', 'submitted', 'opened'].includes(t.stage));
+  const myT = S.tenders.filter((t) => TEAM.includes(t.stage) && (t.assignee === S.me.id || (!t.assignee && r === 'exec')));
   return `
   <div class="kpis">${kpis.map((k) => `<div class="kpi ${k.c || ''}" ${k.a || ''}><div class="lbl">${esc(k.l)}</div><div class="v">${k.v}</div><div class="s">${esc(k.s)}</div></div>`).join('')}</div>
   <div class="split">
@@ -631,17 +637,51 @@ function taskRow(k) {
   const st = tStatus(k.status); const d = dd(k.due); const done = k.status === DONE;
   return `<div class="lrow" data-act="openTask" data-id="${esc(k.id)}"><span class="sev ${done ? 'ok' : d != null && d < 0 ? 'bad' : d != null && d <= 1 ? 'warn' : ''}"></span><div class="x"><div class="a" style="${done ? 'text-decoration:line-through;color:var(--ink-3)' : ''}">${esc(k.title)}</div><div class="small faint">${k.link ? esc(linkLabel(k.link)) + ' · ' : ''}${esc((st || {}).name || '')}${k.source === 'voice' ? ' · from voice note' : ''}</div></div>${k.due ? `<span class="chip ${done ? '' : d < 0 ? 'bad' : d <= 1 ? 'warn' : ''}">${fD(k.due)}</span>` : ''}${av(k.assignee)}</div>`;
 }
+/** One line waiting for Management: a tender to bid for, or a bid to approve before it goes on the portal. */
+function approvalRow(t) {
+  const bid = t.stage === 'bidcheck';
+  const sub = t.submission || {};
+  const mgmt = role() === 'mgmt';
+  const boss = S.members.find((m) => m.role === 'mgmt');
+  const info = bid
+    ? `Quote ${inrS(sub.value)} against ${inrS(t.estCost)} estimated${num(t.estCost) ? ' (' + Math.round((num(sub.value) - num(t.estCost)) * 100 / num(t.estCost)) + '%)' : ''} · vendor ${esc((sup((t.prep || {}).finalVendor) || {}).name || '—')} · by ${esc(mName((t.bid || {}).requestedBy))}`
+    : `Est. ${inrS(t.estCost)} · EMD ${inrS(t.emd)} · shortlisted by ${esc(mName((t.approval || {}).requestedBy))}`;
+  return `<div class="lrow" style="cursor:default"><span class="sev info"></span><div class="x"><div class="a" style="white-space:normal">${esc(t.title || 'Untitled')}</div>
+    <div class="small faint"><span class="mono">${esc(t.no)}</span> · ${esc((cli(t.client) || {}).name || t.clientName || '')} · last date ${fD(t.lastDate)}</div><div class="small faint">${info}</div></div>
+    ${deadlineChip(t)}<button class="btn sm" ${go('tender', t.id)}>Review</button>
+    ${mgmt ? (bid ? `<button class="btn sm pri" data-act="bidApprove" data-id="${esc(t.id)}">${ic('check')}Approve bid</button><button class="btn sm" data-act="bidReturn" data-id="${esc(t.id)}">Send back</button>`
+      : `<button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve</button><button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>`)
+      : `<span class="chip info">With ${esc(boss ? boss.name : 'Management')}</span>`}</div>`;
+}
 function approvalsCard(list) {
-  return `<div class="card"><div class="card-h"><h2>Approve participation</h2><span class="chip info">${list.length} waiting</span></div>
-  ${list.map((t) => `<div class="lrow" style="cursor:default"><div class="x"><div class="a" style="white-space:normal">${esc(t.title)}</div><div class="small faint"><span class="mono">${esc(t.no)}</span> · ${esc((cli(t.client) || {}).name || '')} · Est. ${inrS(t.estCost)} · EMD ${inrS(t.emd)} · due ${fD(t.lastDate)}</div></div>
-    <button class="btn sm" ${go('tender', t.id)}>Review</button><button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">Approve</button><button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button></div>`).join('')}</div>`;
+  return `<div class="card"><div class="card-h"><h2>Waiting for your approval</h2><span class="chip info">${list.length} waiting</span><button class="btn sm ghost" ${go('approvals')}>All approvals ${ic('arrow')}</button></div>
+  ${list.slice(0, 6).map(approvalRow).join('')}</div>`;
+}
+
+// ================= approvals: everything waiting for Management =================
+function vApprovals() {
+  const part = S.tenders.filter((t) => t.stage === 'approval').sort((a, b) => (a.lastDate || '9').localeCompare(b.lastDate || '9'));
+  const bids = S.tenders.filter((t) => t.stage === 'bidcheck').sort((a, b) => (a.lastDate || '9').localeCompare(b.lastDate || '9'));
+  // Each decision Management has taken, newest first: to bid or not, and each bid approved or sent back.
+  const recent = [];
+  S.tenders.forEach((t) => {
+    const a = t.approval || {}, b = t.bid || {};
+    if (['approved', 'rejected'].includes(a.status) && a.at) recent.push({ t, kind: 'Participation', st: a.status, by: a.by, at: a.at, note: a.note });
+    if (['approved', 'returned'].includes(b.status) && b.at) recent.push({ t, kind: 'Bid', st: b.status === 'returned' ? 'sent back' : b.status, by: b.by, at: b.at, note: b.note });
+  });
+  recent.sort((x, y) => y.at.localeCompare(x.at)).splice(10);
+  const card = (title, sub, list, empty) => `<div class="card"><div class="card-h"><h2>${title}</h2><span class="faint small">${sub}</span><span class="chip ${list.length ? 'info' : ''}">${list.length}</span></div>${list.length ? list.map(approvalRow).join('') : `<div class="empty">${empty}</div>`}</div>`;
+  return `<div class="note">${ic('check')}<span>Two decisions are Management's: whether to bid for a shortlisted tender, and — once the submission team has prepared it — the bid itself, before it goes on the portal. ${role() === 'mgmt' ? 'Approve, decline or send back from here.' : 'They are decided here by Management.'}</span></div>
+  ${card('1 · Shortlisted tenders – do we bid?', 'Approve and it goes straight to the submission team', part, 'No shortlisted tender is waiting.')}
+  ${card('2 · Bids to approve before submission', 'Prepared by the submission team: the price, the vendor, the documents', bids, 'No bid is waiting.')}
+  <div class="card"><div class="card-h"><h2>Recently decided</h2></div>${recent.length ? recent.map((x) => `<div class="lrow" ${go('tender', x.t.id)}><span class="sev ${x.st === 'approved' ? 'ok' : x.st === 'sent back' ? 'warn' : 'bad'}"></span><div class="x"><div class="a">${esc(x.kind)} ${esc(x.st)}: ${esc(x.t.no)}</div><div class="small faint">${esc(mName(x.by))} · ${fD(x.at)}${x.note ? ' · “' + esc(x.note) + '”' : ''}</div></div>${stageChip(x.t)}</div>`).join('') : '<div class="empty">Nothing decided yet.</div>'}</div>`;
 }
 
 // ================= shortlisting =================
 function vShortlist() {
   const r = role();
   const by = (st) => S.tenders.filter((t) => t.stage === st);
-  const drafts = by('draft'), appr = by('approval'), ok = by('approved'), dec = S.tenders.filter((t) => t.result === 'declined');
+  const drafts = by('draft'), appr = by('approval'), dec = S.tenders.filter((t) => t.result === 'declined');
   const boss = S.members.find((m) => m.role === 'mgmt');
   const section = (title, list, act, sub) => `<div class="card"><div class="card-h"><h2>${title}</h2><span class="faint small">${sub || ''}</span><span class="chip">${list.length}</span></div>
     ${list.length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>Tender</th><th>Client / portal</th><th class="r">Est. cost</th><th class="r">EMD</th><th>Last date</th><th></th></tr></thead><tbody>
@@ -660,9 +700,8 @@ function vShortlist() {
     </div>
     <div class="drop" ${has('shortlist') ? 'data-act="extractPick" data-kind="tender" data-drop="tender" role="button" tabindex="0"' : 'style="cursor:default;opacity:.6"'}>${ic('file')}<div><b>Drop tender PDF here</b></div><div class="small faint">PDF, JPG or PNG · scanned pages are read too · up to 10 MB</div></div>
   </div></div>
-  ${section('Awaiting management approval', appr, (t) => r === 'mgmt' ? `<button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">Approve</button> <button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="chip info">With ${esc(boss ? boss.name : 'Management')}</span>`, 'Management decides which tenders to bid')}
-  ${section('Approved – assign an executive', ok, (t) => has('shortlist') ? `<select class="in" style="width:auto;display:inline-block" id="as_${esc(t.id)}" data-ref="t:${esc(t.id)}:assignee">${opts(membersOf('exec'), t.assignee, 'Choose executive')}</select> <button class="btn sm pri" data-act="advance" data-id="${esc(t.id)}" ${t.assignee ? '' : 'disabled'}>Assign</button>` : `<span class="small faint">${t.assignee ? esc(mName(t.assignee)) : 'Not assigned yet'}</span>`)}
-  ${section('Drafts', drafts, (t) => `<button class="btn sm" ${go('tender', t.id)}>Complete &amp; send</button>`, 'Captured, not yet sent for approval')}
+  ${section('1 · Shortlisting – being entered', drafts, (t) => `<button class="btn sm" ${go('tender', t.id)}>Complete &amp; send for approval</button>`, 'Fill what the checklist asks, then send to Management')}
+  ${section('2 · Sent for management approval', appr, (t) => r === 'mgmt' ? `<button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">Approve</button> <button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="chip info">With ${esc(boss ? boss.name : 'Management')}</span>`, 'Once approved, it goes to the submission team')}
   ${dec.length ? section('Not participating', dec, (t) => `<span class="small faint">${esc((t.postbid || {}).reason || '')}</span>`) : ''}`;
 }
 
@@ -676,10 +715,10 @@ function vTenders() {
   const f = ui.filters; if (role() === 'exec' && !ui._minedef) { f.mine = true; ui._minedef = true; }
   const list = tenderFilter(S.tenders);
   const cols = [
-    ['Draft', (t) => t.stage === 'draft'], ['Awaiting approval', (t) => t.stage === 'approval'], ['Approved', (t) => t.stage === 'approved'], ['Assigned', (t) => t.stage === 'assigned'],
-    ['In preparation', (t) => t.stage === 'prep'], ['Ready to submit', (t) => t.stage === 'ready'], ['Submitted', (t) => t.stage === 'submitted'], ['Bid opened', (t) => t.stage === 'opened'],
+    ['Shortlisting', (t) => t.stage === 'draft'], ['Awaiting approval', (t) => t.stage === 'approval'], ['Submission prep', (t) => t.stage === 'prep'], ['Bid approval', (t) => t.stage === 'bidcheck'],
+    ['Submit on portal', (t) => t.stage === 'ready'], ['Submitted', (t) => t.stage === 'submitted'], ['Bid opened', (t) => t.stage === 'opened'],
     ['Won', (t) => t.stage === 'result' && t.result === 'won'], ['Lost / closed', (t) => t.stage === 'result' && t.result !== 'won']];
-  const card = (t) => { const [a, b] = ckScore(t); const show = stageIdx(t.stage) >= 4 && t.stage !== 'result';
+  const card = (t) => { const [a, b] = ckScore(t); const show = stageIdx(t.stage) >= 2 && t.stage !== 'result';
     return `<div class="tcard" ${go('tender', t.id)} role="button" tabindex="0"><div class="row" style="gap:6px">${prioChip(t.priority)}${deadlineChip(t)}<span class="spacer"></span>${av(t.assignee)}</div>
       <div class="tt">${esc(t.title || 'Untitled')}</div><div class="meta"><span class="mono">${esc(t.no)}</span></div>
       <div class="meta"><span>${esc((cli(t.client) || {}).short || '')}</span><span>·</span><span class="num">${inrS(t.estCost)}</span>${show ? `<span>·</span><span>CP ${a}/${b}</span>` : ''}</div>
@@ -703,7 +742,7 @@ function vTender() {
   const t = tender(ui.id); if (!t) return '<div class="empty">That tender is no longer here.</div>';
   const r = role();
   RO = !t.editable;
-  const tab = ui.tab || (stageIdx(t.stage) >= 4 && t.stage !== 'result' ? (t.stage === 'ready' ? 'checklist' : t.stage === 'prep' ? 'prep' : 'sub') : 'details');
+  const tab = ui.tab || (stageIdx(t.stage) >= 2 && t.stage !== 'result' ? (t.stage === 'ready' ? 'checklist' : t.stage === 'prep' ? 'prep' : 'sub') : 'details');
   ui.tab = tab;
   const g = t.gate;
   const [a, b] = ckScore(t);
@@ -725,7 +764,7 @@ function vTender() {
     ${F('SD required', ref + 'sdReq', t.sdReq, { type: 'yna' })}${t.sdReq === 'Yes' ? F('SD %', ref + 'sdPct', t.sdPct, { type: 'number', req: 1, showMiss }) : ''}
     ${F('PBG required', ref + 'pbgReq', t.pbgReq, { type: 'yna' })}${t.pbgReq === 'Yes' ? F('PBG %', ref + 'pbgPct', t.pbgPct, { type: 'number', req: 1, showMiss }) : ''}
     ${F('LD clause', ref + 'ldClause', t.ldClause, { wide: 1 })}
-    <div class="f wide"><label>Tender document<span class="req">*</span>${t.aiRead ? '<span class="ai-badge">read by AI</span>' : ''}</label>${docList(t.docs, !RO && stageIdx(t.stage) < 6)}${RO ? '' : `<div class="row" style="margin-top:6px"><button class="btn sm" data-act="attach" data-kind="tender" data-id="${esc(t.id)}">${ic('clip')}Attach file</button></div>`}</div>
+    <div class="f wide"><label>Tender document<span class="req">*</span>${t.aiRead ? '<span class="ai-badge">read by AI</span>' : ''}</label>${docList(t.docs, !RO && stageIdx(t.stage) < 5)}${RO ? '' : `<div class="row" style="margin-top:6px"><button class="btn sm" data-act="attach" data-kind="tender" data-id="${esc(t.id)}">${ic('clip')}Attach file</button></div>`}</div>
     ${F('Eligibility (one per line)', ref + 'eligText', (t.eligibility || []).join('\n'), { type: 'textarea', wide: 1 })}
     ${cfFields('tender', t, ref, showMiss)}
   </div></div>`;
@@ -759,16 +798,16 @@ function vTender() {
   else if (tab === 'sub') {
     const s = ref + 'submission.', pb = ref + 'postbid.'; const S1 = t.submission || {}, B = t.postbid || {};
     body = `<div class="card"><div class="card-h"><h3>Submission</h3></div><div class="card-b fgrid">
-    ${F('Submission date', s + 'date', S1.date, { type: 'date', req: 1, showMiss: stageIdx(t.stage) >= 5 })}${F('Submission time', s + 'time', S1.time, { type: 'time' })}
-    ${F('Portal ACK / reference no.', s + 'ack', S1.ack, { req: 1, showMiss: stageIdx(t.stage) >= 5 })}${F('ACK screenshot', s + 'ackFile', S1.ackFile, { ph: 'file name' })}
-    ${F('Submission mode', s + 'mode', S1.mode, { type: 'select', opts: ['Online', 'Offline', 'Both'].map((x) => [x, x]) })}${F('Quote or regret', s + 'quote', S1.quote, { type: 'select', opts: [['Quote', 'Quote – we bid'], ['Regret', 'Regret – we declined']], req: 1, showMiss: stageIdx(t.stage) >= 5 })}
-    ${F('Value submitted (₹)', s + 'value', S1.value, { type: 'number', req: 1, showMiss: stageIdx(t.stage) >= 5 })}${F('Deadline extended by client', s + 'ext', S1.ext, { type: 'yesno' })}${S1.ext === 'Yes' ? F('New due date', s + 'extDate', S1.extDate, { type: 'date', req: 1, showMiss }) : ''}
+    ${F('Submission date', s + 'date', S1.date, { type: 'date', req: 1, showMiss: stageIdx(t.stage) >= 4 })}${F('Submission time', s + 'time', S1.time, { type: 'time' })}
+    ${F('Portal ACK / reference no.', s + 'ack', S1.ack, { req: 1, showMiss: stageIdx(t.stage) >= 4 })}${F('ACK screenshot', s + 'ackFile', S1.ackFile, { ph: 'file name' })}
+    ${F('Submission mode', s + 'mode', S1.mode, { type: 'select', opts: ['Online', 'Offline', 'Both'].map((x) => [x, x]) })}${F('Quote or regret', s + 'quote', S1.quote, { type: 'select', opts: [['Quote', 'Quote – we bid'], ['Regret', 'Regret – we declined']], req: 1, showMiss: stageIdx(t.stage) >= 4 })}
+    ${F('Bid value to quote / submitted (₹)', s + 'value', S1.value, { type: 'number', req: 1, showMiss: stageIdx(t.stage) >= 2, hint: t.stage === 'prep' ? 'Management approves this' : '', ro: t.stage === 'ready' || stageIdx(t.stage) >= 5 ? true : undefined })}${F('Deadline extended by client', s + 'ext', S1.ext, { type: 'yesno' })}${S1.ext === 'Yes' ? F('New due date', s + 'extDate', S1.extDate, { type: 'date', req: 1, showMiss }) : ''}
     ${F('Submission remarks', s + 'remarks', S1.remarks, { wide: 1, type: 'textarea' })}
   </div></div>
   <div class="card"><div class="card-h"><h3>Post-bid tracking & result</h3></div><div class="card-b fgrid">
-    ${F('Techno bid opening date', pb + 'technoDate', B.technoDate, { type: 'date', req: 1, showMiss: stageIdx(t.stage) >= 6 })}${F('No. of participants', pb + 'participants', B.participants, { type: 'number', req: 1, showMiss: stageIdx(t.stage) >= 6 })}
+    ${F('Techno bid opening date', pb + 'technoDate', B.technoDate, { type: 'date', req: 1, showMiss: stageIdx(t.stage) >= 5 })}${F('No. of participants', pb + 'participants', B.participants, { type: 'number', req: 1, showMiss: stageIdx(t.stage) >= 5 })}
     ${F('Price bid opened on', pb + 'priceDate', B.priceDate, { type: 'date' })}${F('No. of items quoted', pb + 'itemsQuoted', B.itemsQuoted, { type: 'number' })}
-    ${F('Final result', pb + 'result', B.result, { type: 'select', opts: Object.keys(S.results).filter((k) => k !== 'declined').map((k) => [k, S.results[k].l]), req: 1, showMiss: stageIdx(t.stage) >= 7 })}
+    ${F('Final result', pb + 'result', B.result, { type: 'select', opts: Object.keys(S.results).filter((k) => k !== 'declined').map((k) => [k, S.results[k].l]), req: 1, showMiss: stageIdx(t.stage) >= 6 })}
     ${F('L1 / awarded value (₹)', pb + 'l1', B.l1, { type: 'number', req: B.result === 'won', showMiss })}
     ${['lost', 'cancelled', 'l2'].includes(B.result) ? F('Reason', pb + 'reason', B.reason, { type: 'select', opts: S.lossReasons.map((x) => [x.name, x.name]).concat([['Cancelled by client', 'Cancelled by client']]), req: 1, showMiss }) : ''}
     ${F('Deviation bid received', pb + 'deviation', B.deviation, { type: 'yesno' })}${B.deviation === 'Yes' ? F('Deviation reply date', pb + 'deviationDate', B.deviationDate, { type: 'date', req: 1, showMiss }) : ''}
@@ -782,11 +821,20 @@ function vTender() {
   let gp = '';
   const boss = S.members.find((m) => m.role === 'mgmt');
   if (t.stage === 'approval') {
-    gp = gatePanel('Management decision', g ? g.reqs : [], r === 'mgmt' ? `<button class="btn pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve – we bid</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}.</span>`);
+    gp = gatePanel('Management decision: do we bid?', g ? g.reqs : [], r === 'mgmt' ? `<button class="btn pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve – we bid</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}. Once approved it goes to the submission team.</span>`);
+  } else if (t.stage === 'bidcheck') {
+    const sub = t.submission || {};
+    const facts2 = `<div style="padding:0 16px 10px"><dl class="kv"><dt>Bid value</dt><dd class="num">${inr(sub.value)}</dd><dt>Estimate</dt><dd class="num">${inr(t.estCost)}</dd><dt>Vendor</dt><dd>${esc((sup((t.prep || {}).finalVendor) || {}).name || '—')}</dd><dt>Sent by</dt><dd>${esc(mName((t.bid || {}).requestedBy))}</dd></dl></div>`;
+    gp = gatePanel('Management decision: approve the bid', g ? g.reqs : [], r === 'mgmt' ? `<button class="btn pri" data-act="bidApprove" data-id="${esc(t.id)}">${ic('check')}Approve bid</button><button class="btn" data-act="bidReturn" data-id="${esc(t.id)}">Send back</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}. Once approved, submit it on the portal.</span>`, facts2);
   } else if (g) {
-    const extraField = t.stage === 'approved' && has('shortlist') ? `<div style="padding:0 16px 4px">${F('Assign to executive', ref + 'assignee', t.assignee, { type: 'select', opts: membersOf('exec'), req: 1 })}</div>` : '';
-    gp = gatePanel(g.action, g.reqs, `<button class="btn pri" data-act="advance" data-id="${esc(t.id)}" ${g.open || !g.canAct ? 'disabled' : ''}>${esc(g.action)} ${ic('arrow')}</button>${!g.canAct ? `<span class="small faint">Needs ${esc(g.who.map((x) => S.roles[x]).join(' or '))}${g.who.includes('exec') ? ' (the executive it is assigned to)' : ''}</span>` : ''}`, extraField);
-    if (['draft', 'approved'].includes(t.stage) && has('shortlist')) gp += `<button class="btn sm ghost" style="align-self:flex-start" data-act="decline" data-id="${esc(t.id)}">Mark as not participating</button>`;
+    // The submission team: Shortlisting names the owner; an executive can take an unowned tender.
+    let extraField = '';
+    if (TEAM.includes(t.stage) && has('shortlist')) extraField = `<div style="padding:0 16px 4px">${F('Owner in the submission team', ref + 'assignee', t.assignee, { type: 'select', opts: membersOf('exec'), ph: 'Whole team (anyone)' })}</div>`;
+    else if (TEAM.includes(t.stage) && has('exec') && !t.assignee) extraField = `<div style="padding:0 16px 12px" class="row"><span class="small faint" style="flex:1">With the submission team, no owner yet.</span><button class="btn sm" data-act="takeIt" data-id="${esc(t.id)}">${ic('user')}Take it</button></div>`;
+    const returned = t.stage === 'prep' && (t.bid || {}).status === 'returned' ? `<div style="padding:0 16px 12px"><div class="note warn">${ic('alert')}<span>Bid sent back by ${esc(mName(t.bid.by))}: “${esc(t.bid.note)}”</span></div></div>` : '';
+    const poBtn = ['submitted', 'opened'].includes(t.stage) && !t.poId && (has('shortlist') || r === 'items') ? `<button class="btn" data-act="extractOpen" data-kind="po" data-tender="${esc(t.id)}">${ic('up')}PO received – upload</button>` : '';
+    gp = gatePanel(g.action, g.reqs, `<button class="btn pri" data-act="advance" data-id="${esc(t.id)}" ${g.open || !g.canAct ? 'disabled' : ''}>${esc(g.action)} ${ic('arrow')}</button>${poBtn}${!g.canAct ? `<span class="small faint">Needs ${esc(g.who.map((x) => S.roles[x]).join(' or '))}${g.who.includes('exec') && t.assignee ? ' (its owner, ' + esc(mName(t.assignee)) + ')' : ''}</span>` : ''}`, returned + extraField);
+    if (['draft', 'prep'].includes(t.stage) && has('shortlist')) gp += `<button class="btn sm ghost" style="align-self:flex-start" data-act="decline" data-id="${esc(t.id)}">Mark as not participating</button>`;
   } else if (t.stage === 'result') {
     const po = t.poId && pobj(t.poId);
     gp = `<div class="gate"><div class="gate-h"><div style="flex:1"><div class="lbl">Result</div><h3>${esc((S.results[t.result] || {}).l || '')}</h3></div>${stageChip(t)}</div><div class="card-b">
@@ -795,8 +843,9 @@ function vTender() {
   const ap = t.approval || {};
   const facts = `<div class="card"><div class="card-b"><dl class="kv">
     <dt>Client</dt><dd>${esc((cli(t.client) || {}).name || t.clientName || '—')}</dd><dt>Est. cost</dt><dd class="num">${inr(t.estCost)}</dd><dt>EMD</dt><dd class="num">${inr(t.emd)}${t.emdType ? ' · ' + esc(t.emdType) : ''}</dd>
-    <dt>Last date</dt><dd>${fDY(t.lastDate)} ${esc(t.dueTime || '')}</dd><dt>Executive</dt><dd>${t.assignee ? esc(mName(t.assignee)) : '—'}</dd>
-    <dt>Approval</dt><dd>${ap.status === 'approved' ? `Approved by ${esc(mName(ap.by))}${ap.note ? ` – “${esc(ap.note)}”` : ''}` : ap.status === 'rejected' ? 'Declined – ' + esc(ap.note || '') : esc(ap.status || '—')}</dd></dl></div></div>`;
+    <dt>Last date</dt><dd>${fDY(t.lastDate)} ${esc(t.dueTime || '')}</dd><dt>Owner</dt><dd>${t.assignee ? esc(mName(t.assignee)) : stageIdx(t.stage) >= 2 ? 'Submission team' : '—'}</dd>
+    <dt>To bid</dt><dd>${ap.status === 'approved' ? `Approved by ${esc(mName(ap.by))}${ap.note ? ` – “${esc(ap.note)}”` : ''}` : ap.status === 'rejected' ? 'Declined – ' + esc(ap.note || '') : esc(ap.status || '—')}</dd>
+    <dt>The bid</dt><dd>${(t.bid || {}).status === 'approved' ? `Approved by ${esc(mName(t.bid.by))} at ${inr(t.bid.value)}${t.bid.note ? ` – “${esc(t.bid.note)}”` : ''}` : (t.bid || {}).status === 'returned' ? 'Sent back – ' + esc(t.bid.note || '') : esc((t.bid || {}).status || '—')}</dd></dl></div></div>`;
   const brief = `<div class="card"><div class="card-h"><h3>AI bid brief</h3><button class="btn sm ai" data-act="brief" data-id="${esc(t.id)}">${ic('spark')}${t.brief ? 'Refresh' : 'Generate'}</button></div><div class="card-b small" style="white-space:pre-wrap">${t.brief ? esc(t.brief) : '<span class="faint">Eligibility, risks and open points for this bid, written from the captured data.</span>'}</div></div>`;
 
   return `<div class="card"><div class="card-b" style="display:flex;flex-direction:column;gap:12px">
@@ -1032,8 +1081,8 @@ function vExtract() {
   const title = isT ? 'Capture tender from document' : 'Capture PO from document';
   let b = '', f = '';
   if (X.status === 'pick') {
-    const won = S.tenders.filter((t) => t.result === 'won' && !t.poId);
-    b = `${!isT ? F('Won tender this PO is against', 'xt:tenderId', X.tenderId, { type: 'select', opts: won.map((t) => [t.id, t.no + ' · ' + ((cli(t.client) || {}).short || '')]), ph: 'Pick, or let AI match from the PO' }) : ''}
+    const won = S.tenders.filter((t) => !t.poId && (t.result === 'won' || ['submitted', 'opened'].includes(t.stage)));
+    b = `${!isT ? F('Tender this PO is against (won, or submitted – the PO makes it won)', 'xt:tenderId', X.tenderId, { type: 'select', opts: won.map((t) => [t.id, t.no + ' · ' + ((cli(t.client) || {}).short || '')]), ph: 'Pick, or let AI match from the PO' }) : ''}
       <div class="drop" data-act="pickFile" data-drop="${X.kind}" role="button" tabindex="0">${ic('up')}<div><b>Drop the ${isT ? 'tender / NIT' : 'purchase order'} here, or click to choose</b></div><div class="small faint">PDF, JPG, PNG, up to 10 MB. Scanned PDFs are read page by page.</div></div>
       <div class="row"><span class="faint small">No file handy?</span><button class="btn sm" data-act="${isT ? 'newTender' : 'poManual'}">Enter by hand</button></div>
       ${S.ai ? '' : `<div class="note">${ic('alert')}<span>AI reading is off on this server (${esc(S.aiOff)}). The file is still kept, and the form opens for you to fill.</span></div>`}`;
@@ -1069,7 +1118,7 @@ function vExtract() {
     } else {
       const checks = X.checks || [];
       const miss = !checks.length || checks.some((r) => !r.ok);
-      const won = S.tenders.filter((t) => t.result === 'won' && !t.poId);
+      const won = S.tenders.filter((t) => !t.poId && (t.result === 'won' || ['submitted', 'opened'].includes(t.stage)));
       const sum = d.items.reduce((a, i) => a + num(i.qty) * num(i.rate), 0);
       b = `${head}<div class="split" style="grid-template-columns:minmax(0,1fr) 300px">
         <div class="grid" style="gap:16px">
@@ -1232,7 +1281,12 @@ function vSmall() {
       `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="clientSave" ${blank(ui.form.name) ? 'disabled' : ''}>${ic('plus')}Add client</button>`);
   }
   const t = tender(m.id); if (!t) return '';
-  if (m.type === 'approve') return modalShell('Approve participation', `<p style="margin:0"><b>${esc(t.no)}</b><br><span class="muted">${esc(t.title)}</span></p><dl class="kv"><dt>Est. cost</dt><dd>${inr(t.estCost)}</dd><dt>EMD</dt><dd>${inr(t.emd)} (${esc(t.emdType || '')})</dd><dt>Last date</dt><dd>${fDY(t.lastDate)}</dd></dl>${F('Note to the team (optional)', 'n:note', ui.form.note, { type: 'textarea', ph: 'e.g. Strategic client – quote sharp' })}`, `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="approveSave">${ic('check')}Approve</button>`);
+  if (m.type === 'approve') return modalShell('Approve participation', `<p style="margin:0"><b>${esc(t.no)}</b><br><span class="muted">${esc(t.title)}</span></p><dl class="kv"><dt>Est. cost</dt><dd>${inr(t.estCost)}</dd><dt>EMD</dt><dd>${inr(t.emd)} (${esc(t.emdType || '')})</dd><dt>Last date</dt><dd>${fDY(t.lastDate)}</dd></dl>${F('Who prepares it (optional)', 'n:owner', ui.form.owner, { type: 'select', opts: membersOf('exec'), ph: 'The whole submission team' })}${F('Note to the team (optional)', 'n:note', ui.form.note, { type: 'textarea', ph: 'e.g. Strategic client – quote sharp' })}`, `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="approveSave">${ic('check')}Approve – send to the submission team</button>`);
+  if (m.type === 'bidApprove' || m.type === 'bidReturn') {
+    const sub = t.submission || {};
+    return modalShell(m.type === 'bidApprove' ? 'Approve the bid' : 'Send the bid back', `<p style="margin:0"><b>${esc(t.no)}</b><br><span class="muted">${esc(t.title)}</span></p><dl class="kv"><dt>Bid value</dt><dd>${inr(sub.value)}</dd><dt>Estimate</dt><dd>${inr(t.estCost)}</dd><dt>Vendor</dt><dd>${esc((sup((t.prep || {}).finalVendor) || {}).name || '—')}</dd><dt>Last date</dt><dd>${fDY(t.lastDate)} ${esc(t.dueTime || '')}</dd></dl>${F(m.type === 'bidApprove' ? 'Note (optional)' : 'What should change', 'n:note', ui.form.note, { type: 'textarea', req: m.type === 'bidReturn', ph: m.type === 'bidApprove' ? 'e.g. Go ahead at this price' : 'e.g. Bring the price under the estimate' })}`,
+      `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="bidSave" ${m.type === 'bidReturn' && blank(ui.form.note) ? 'disabled' : ''}>${m.type === 'bidApprove' ? ic('check') + 'Approve bid' : 'Send back'}</button>`);
+  }
   if (m.type === 'reject' || m.type === 'decline') return modalShell(m.type === 'reject' ? 'Do not bid' : 'Mark as not participating', `<p style="margin:0"><b>${esc(t.no)}</b> · ${esc(t.title)}</p>${F('Reason', 'n:note', ui.form.note, { type: 'select', req: 1, opts: S.declineReasons.map((x) => [x, x]) })}${F('Comments', 'n:note2', ui.form.note2, { type: 'textarea' })}`, `<button class="btn" data-act="closeModal">Cancel</button><button class="btn danger" data-act="rejectSave" ${blank(ui.form.note) ? 'disabled' : ''}>Confirm</button>`);
   return '';
 }
@@ -1371,6 +1425,7 @@ document.addEventListener('input', (e) => {
   const el = e.target;
   if (el.dataset.filter === 'q') { ui.filters.q = el.value; clearTimeout(window.__rq); window.__rq = setTimeout(render, 250); }
   if (el.dataset.ref === 'v:text') { ui.voice.text = el.value; const b = document.querySelector('[data-act="vProcess"]'); if (b) b.disabled = blank(el.value); }
+  if (el.dataset.ref === 'n:note' && ui.modal && ui.modal.type === 'bidReturn') { ui.form.note = el.value; const b = document.querySelector('[data-act="bidSave"]'); if (b) b.disabled = blank(el.value); }
   if (el.dataset.ref === 'n:name' && ui.modal && ui.modal.type === 'client') { ui.form.name = el.value; const b = document.querySelector('[data-act="clientSave"]'); if (b) b.disabled = blank(el.value); }
   if (el.dataset.ref === 'k:title') { ui.task.title = el.value; const b = document.querySelector('[data-act="kSave"]'); if (b) b.disabled = blank(el.value) || !ui.task.assignee; }
 });
@@ -1466,7 +1521,11 @@ const ACT = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tender-desk-clients.csv';
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   },
-  approveSave() { const id = ui.modal.id; ui.modal = null; mutate('approveTender', [id, ui.form.note || '']); },
+  approveSave() { const id = ui.modal.id; ui.modal = null; mutate('approveTender', [id, ui.form.note || '', ui.form.owner || '']); },
+  bidApprove(d) { ui.form = {}; ui.modal = { type: 'bidApprove', id: d.id }; render(); },
+  bidReturn(d) { ui.form = {}; ui.modal = { type: 'bidReturn', id: d.id }; render(); },
+  bidSave() { const m = ui.modal; ui.modal = null; mutate(m.type === 'bidApprove' ? 'approveBid' : 'returnBid', [m.id, ui.form.note || '']); },
+  takeIt(d) { mutate('saveTenderField', [d.id, 'assignee', S.me.id]); },
   reject(d) { ui.form = {}; ui.modal = { type: 'reject', id: d.id }; render(); },
   decline(d) { ui.form = {}; ui.modal = { type: 'decline', id: d.id }; render(); },
   rejectSave() { const m = ui.modal; ui.modal = null; mutate('declineTender', [m.id, m.type, ui.form.note, ui.form.note2 || '']); },

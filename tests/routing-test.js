@@ -44,7 +44,7 @@ ok('and the browser reads the same two: a quotation and its progress', /\(quotat
 
 console.log('\nTHE TENDER DESK IS A PAGE OF ITS OWN');
 const { isTenderDeskPath } = require(path.join(__dirname, '..', 'server', 'routes.js'));
-ok('its screens and records are its addresses', ['/tender-desk', '/tender-desk/', '/tender-desk/shortlisting', '/tender-desk/tenders', '/tender-desk/tenders/TN-ab12',
+ok('its screens and records are its addresses', ['/tender-desk', '/tender-desk/', '/tender-desk/shortlisting', '/tender-desk/approvals', '/tender-desk/tenders', '/tender-desk/tenders/TN-ab12',
   '/tender-desk/po', '/tender-desk/po/TPO-9', '/tender-desk/tasks', '/tender-desk/masters'].every(isTenderDeskPath));
 ok('and nothing else is', !['/tender-desk/tasks/x', '/tender-desk/../etc', '/tender-deskx', '/tenders', '/tender/TN-1'].some(isTenderDeskPath));
 ok('none of them is the portal\'s page', !isPagePath('/tender-desk') && !isPagePath('/tenders'));

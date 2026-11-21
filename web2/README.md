@@ -183,8 +183,12 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   assigned tenders to execute (tdHas_). It shares the ERP's sign-in (the same session), people
   (Users; a Tender Desk role per person, Users.tenderRole, starting from their ERP role), tasks
   (Tasks: module 'tender', linkKind tender / tenderpo, with steps and comments; also on the Tasks
-  page, with a new "Waiting on others" status), files (Documents) and AI. A tender goes through
-  nine gated steps (tdGate_); a won tender's PO tracks each item ordered → procured → dispatched →
+  page, with a new "Waiting on others" status), files (Documents) and AI. A tender goes, step by
+  gated step (tdGate_), Shortlisting → Awaiting approval (Management: do we bid?) → Submission
+  prep (the submission team: any Tender Executive, or the owner named) → Bid approval (Management
+  approves the bid or sends it back) → Submit on portal → Submitted → Bid opened → Result; a PO
+  entered against a submitted tender makes it won. Approvals (its own screen) is everything
+  waiting for Management; a won tender's PO tracks each item ordered → procured → dispatched →
   delivered with its document, LD worked out live, invoices, payments, SD / PBG and closing. AI
   reads a tender or a PO into its form (Claude, the PDF as a document block), turns a voice note
   into tasks / quantity updates / notes to confirm, and writes a bid brief. Every record is one

@@ -22,12 +22,18 @@
  * own (Masters → Clients, added by hand or uploaded from a CSV): the utilities and departments that
  * issue tenders are not the ERP's customers (PIE, Nov 2026).
  *
- * A tender moves through nine steps, each with the list of what must be true before it can
- * move on (tdGate_):
+ * A tender moves step by step, each step with the list of what must be true before it can move
+ * on (tdGate_), the way PIE works a tender (Nov 2026):
  *
- *   Draft → Awaiting approval → Approved → Assigned → In preparation → Ready to submit →
- *   Submitted → Bid opened → Result (Won, Lost / Regret, L2, Cancelled by client, or Not
- *   participating).
+ *   Shortlisting → Awaiting approval (Management: do we bid?) → Submission prep (the submission
+ *   team prepares the documents, the quotes and the price) → Bid approval (Management approves
+ *   the bid, or sends it back) → Submit on portal → Submitted → Bid opened → Result (Won, Lost /
+ *   Regret, L2, Cancelled by client, or Not participating) — and once the client's PO comes,
+ *   PO execution. A PO entered against a submitted tender marks it Won.
+ *
+ * Once Management approves, the tender is with the submission team at once: every Tender
+ * Executive can work it, or only its owner when one is named (at approval, or by Shortlisting,
+ * or by an executive taking it).
  *
  * A won tender's purchase order is a record of its own (TenderPOs): its items, each ordered
  * from a supplier, procured, dispatched and delivered, every movement with its document; the
@@ -63,9 +69,11 @@ function tdHas_(role, r) { return role === r || (role === 'both' && (r === 'shor
 var TD_ALWAYS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS];
 
 var TD_STAGES = [
-  { k: 'draft', l: 'Draft' }, { k: 'approval', l: 'Awaiting approval' }, { k: 'approved', l: 'Approved' }, { k: 'assigned', l: 'Assigned' },
-  { k: 'prep', l: 'In preparation' }, { k: 'ready', l: 'Ready to submit' }, { k: 'submitted', l: 'Submitted' }, { k: 'opened', l: 'Bid opened' }, { k: 'result', l: 'Result' }
+  { k: 'draft', l: 'Shortlisting' }, { k: 'approval', l: 'Awaiting approval' }, { k: 'prep', l: 'Submission prep' }, { k: 'bidcheck', l: 'Bid approval' },
+  { k: 'ready', l: 'Submit on portal' }, { k: 'submitted', l: 'Submitted' }, { k: 'opened', l: 'Bid opened' }, { k: 'result', l: 'Result' }
 ];
+/** The submission team's steps: an executive works a tender only in these. */
+var TD_TEAM_STAGES = ['prep', 'bidcheck', 'ready', 'submitted', 'opened'];
 var TD_RESULTS = { won: { l: 'Won', c: 'ok' }, lost: { l: 'Lost / Regret', c: 'bad' }, l2: { l: 'L2 – not awarded', c: 'warn' },
   cancelled: { l: 'Cancelled by client', c: '' }, declined: { l: 'Not participating', c: '' } };
 var TD_PSTAGES = [
@@ -264,7 +272,8 @@ function tdTenderOut_(r) {
   var d = tdJson_(r.dataJson, {});
   var t = {
     id: String(r.id), no: String(r.tenderNo || ''), title: String(r.title || ''), client: String(r.customerId || ''),
-    stage: String(r.stage || 'draft'), result: String(r.result || ''), priority: String(r.priority || 'Medium'),
+    // 'approved' and 'assigned' were steps of their own until Nov 2026; such a tender is in submission prep now.
+    stage: ['approved', 'assigned'].indexOf(String(r.stage)) !== -1 ? 'prep' : String(r.stage || 'draft'), result: String(r.result || ''), priority: String(r.priority || 'Medium'),
     lastDate: tdDay_(r.lastDate), assignee: String(r.assigneeEmail || '').toLowerCase(), estCost: r.estimatedValue === '' || r.estimatedValue === null || r.estimatedValue === undefined ? '' : tdNum_(r.estimatedValue),
     poId: String(r.poId || ''), createdBy: String(r.createdBy || '').toLowerCase()
   };
@@ -274,14 +283,14 @@ function tdTenderOut_(r) {
   });
   t.eligibility = Array.isArray(d.eligibility) ? d.eligibility : [];
   t.items = Array.isArray(d.items) ? d.items : [];
-  ['prep', 'checklist', 'submission', 'postbid', 'approval', 'custom'].forEach(function (k) { t[k] = d[k] && typeof d[k] === 'object' ? d[k] : {}; });
+  ['prep', 'checklist', 'submission', 'postbid', 'approval', 'bid', 'custom'].forEach(function (k) { t[k] = d[k] && typeof d[k] === 'object' ? d[k] : {}; });
   return t;
 }
 function tdTenderRow_(t, email) {
   var d = {};
   ['plant', 'portal', 'category', 'publishedDate', 'dueTime', 'tenderFee', 'emd', 'emdType', 'bgOk', 'subType', 'payTerms', 'sdReq', 'sdPct',
     'pbgReq', 'pbgPct', 'deliveryPeriod', 'ldClause', 'brief', 'clientName', 'assignedOn', 'aiRead', 'eligibility', 'items',
-    'prep', 'checklist', 'submission', 'postbid', 'approval', 'custom'].forEach(function (k) { d[k] = t[k]; });
+    'prep', 'checklist', 'submission', 'postbid', 'approval', 'bid', 'custom'].forEach(function (k) { d[k] = t[k]; });
   return {
     tenderNo: t.no, title: t.title, customerId: t.client, stage: t.stage, result: t.result, priority: t.priority,
     lastDate: t.lastDate, assigneeEmail: t.assignee, estimatedValue: t.estCost, poId: t.poId,
@@ -400,23 +409,19 @@ function tdGate_(t, ctx) {
       ].concat(cg('approval')) };
       break;
     case 'approval':
-      g = { next: 'approved', action: 'Approve participation', who: ['mgmt'], reqs: [R(t.approval.status === 'approved', 'Management has approved participation')].concat(cg('approved')) };
-      break;
-    case 'approved':
-      var m = tdMember_(ctx, t.assignee);
-      g = { next: 'assigned', action: 'Assign to executive', who: ['shortlist'], reqs: [R(t.assignee, 'Tender executive selected'),
-        R(m && tdHas_(m.role, 'exec'), 'Assignee is a Tender Executive (or Shortlisting & Executive)')].concat(cg('assigned')) };
-      break;
-    case 'assigned':
-      g = { next: 'prep', action: 'Start preparation', who: ['exec', 'shortlist'], reqs: [R(true, 'Executive acknowledges assignment')].concat(cg('prep')) };
+      g = { next: 'prep', action: 'Approve participation', who: ['mgmt'], reqs: [R(t.approval.status === 'approved', 'Management has approved participation')].concat(cg('prep')) };
       break;
     case 'prep':
-      g = { next: 'ready', action: 'Mark ready to submit', who: ['exec', 'shortlist'], reqs: [
+      g = { next: 'bidcheck', action: 'Send bid for management approval', who: ['exec', 'shortlist'], reqs: [
         R(p.enquiryDate, 'Vendor enquiry mail sent (date)'), R(['Yes', 'Partial'].indexOf(p.offersPerSpec) !== -1, 'Offers received as per specs'),
         R(p.tcAccepted === 'Yes', 'Suppliers accepted T&C'), R(p.min3 === 'Yes', 'Minimum 3 manufacturers agreed'), R(p.compChart === 'Yes', 'Comparative chart done'),
         R(['Yes', 'NA'].indexOf(p.docsRecv) !== -1, 'All documents received from supplier'), R(['Yes', 'NA'].indexOf(p.nego) !== -1, 'Negotiation done'),
-        R(p.finalVendor, 'Final vendor / manufacturer selected'), R(p.emdBal === 'Yes', 'Tender account EMD balance sufficient')
-      ].concat(cg('ready')) };
+        R(p.finalVendor, 'Final vendor / manufacturer selected'), R(p.emdBal === 'Yes', 'Tender account EMD balance sufficient'),
+        R(tdNum_(s.value) > 0, 'Bid value to quote entered (Submission & result)')
+      ].concat(cg('bidcheck')) };
+      break;
+    case 'bidcheck':
+      g = { next: 'ready', action: 'Approve the bid', who: ['mgmt'], reqs: [R(t.bid.status === 'approved', 'Management has approved the bid')].concat(cg('ready')) };
       break;
     case 'ready':
       g = { next: 'submitted', action: 'Confirm submission', who: ['exec', 'shortlist'], reqs: ctx.masters.checklist.map(function (c, i) {
@@ -437,18 +442,23 @@ function tdGate_(t, ctx) {
       break;
   }
   if (!g) return null;
-  // Shortlisting takes any step it is named for; an executive only on a tender assigned to them.
+  // Shortlisting takes any step it is named for; the submission team, any tender it has no owner
+  // for, or the ones they own.
   g.canAct = (g.who.indexOf(ctx.role) !== -1 && ctx.role !== 'exec') ||
     (g.who.indexOf('shortlist') !== -1 && tdHas_(ctx.role, 'shortlist')) ||
-    (g.who.indexOf('exec') !== -1 && tdHas_(ctx.role, 'exec') && t.assignee === ctx.me);
+    (g.who.indexOf('exec') !== -1 && tdTeamMay_(t, ctx));
   g.open = g.reqs.filter(function (r) { return !r.ok; }).length;
   return g;
 }
 
+/** A Tender Executive's part: a tender with the submission team, unowned or owned by them. */
+function tdTeamMay_(t, ctx) {
+  return tdHas_(ctx.role, 'exec') && TD_TEAM_STAGES.indexOf(t.stage) !== -1 && (!t.assignee || t.assignee === ctx.me);
+}
 /** Whether this person may change this tender's fields. */
 function tdTenderEditable_(t, ctx) {
   if (tdHas_(ctx.role, 'shortlist')) return true;
-  return tdHas_(ctx.role, 'exec') && t.assignee === ctx.me;
+  return tdTeamMay_(t, ctx);
 }
 
 
@@ -542,17 +552,21 @@ function tdPoEditable_(ctx) { return tdHas_(ctx.role, 'shortlist') || ['items', 
 function tdAlerts_(ctx, calcs) {
   var A = [];
   ctx.tenders.forEach(function (t) {
-    if (['draft', 'approval', 'approved', 'assigned', 'prep', 'ready'].indexOf(t.stage) !== -1) {
+    if (['draft', 'approval', 'prep', 'bidcheck', 'ready'].indexOf(t.stage) !== -1) {
+      // With the submission team and nobody named: every executive is told.
+      var who = t.assignee || (TD_TEAM_STAGES.indexOf(t.stage) !== -1 ? 'exec' : '');
       var d = tdDaysLeft_(t.lastDate, ctx.today);
       var sc = tdChecklistScore_(t, ctx);
       if (d !== null && d <= tdNum_(ctx.cfg.urgentDays)) {
         A.push({ sev: 'bad', t: t.no + ' due ' + (d < 0 ? '– OVERDUE' : d === 0 ? 'today' : 'in ' + d + ' day' + (d > 1 ? 's' : '')),
-          s: tdStageLabel_(t) + ' · checklist ' + sc.join('/'), ref: 't:' + t.id, who: t.assignee });
+          s: tdStageLabel_(t) + ' · checklist ' + sc.join('/'), ref: 't:' + t.id, who: who });
       } else if (d !== null && d <= tdNum_(ctx.cfg.alertDays)) {
-        A.push({ sev: 'warn', t: t.no + ' due in ' + d + ' days', s: tdStageLabel_(t), ref: 't:' + t.id, who: t.assignee });
+        A.push({ sev: 'warn', t: t.no + ' due in ' + d + ' days', s: tdStageLabel_(t), ref: 't:' + t.id, who: who });
       }
     }
     if (t.stage === 'approval') A.push({ sev: 'info', t: 'Approval needed: ' + t.no, s: tdInrShort_(t.estCost) + (t.clientShort ? ' · ' + t.clientShort : ''), ref: 't:' + t.id, who: 'mgmt' });
+    if (t.stage === 'bidcheck') A.push({ sev: 'info', t: 'Bid to approve: ' + t.no, s: 'Quote ' + tdInrShort_(t.submission.value) + ' against ' + tdInrShort_(t.estCost) + ' estimated', ref: 't:' + t.id, who: 'mgmt' });
+    if (t.stage === 'prep' && t.bid.status === 'returned') A.push({ sev: 'warn', t: 'Bid sent back: ' + t.no, s: t.bid.note || 'See the tender', ref: 't:' + t.id, who: t.assignee || 'exec' });
     if (t.stage === 'result' && t.result === 'won' && !t.poId) A.push({ sev: 'warn', t: 'Won but PO not entered: ' + t.no, s: 'Upload the PO to start execution', ref: 't:' + t.id, who: 'items' });
   });
   ctx.pos.forEach(function (p) {
@@ -783,12 +797,17 @@ async function saveTenderField(id, path, value) {
     } else if (p === 'client') {
       t.client = tdClientOk_(ctx, String(value || ''));
     } else if (p === 'assignee') {
-      if (!tdHas_(ctx.role, 'shortlist')) throw new Error('A tender is assigned by Shortlisting & Admin.');
+      var mine = String(value || '').toLowerCase() === ctx.me && !t.assignee && tdTeamMay_(t, ctx);
+      if (!tdHas_(ctx.role, 'shortlist') && !mine) throw new Error('The owner of a tender is named by Shortlisting & Admin, or taken by an executive while it has none.');
       var m = value ? tdMember_(ctx, value) : null;
       if (value && !m) throw new Error('Pick somebody who is on the Tender Desk.');
+      if (m && !tdHas_(m.role, 'exec')) throw new Error(m.name + ' is not on the submission team (Tender Executive, or Shortlisting & Executive).');
       var before = t.assignee;
       t.assignee = m ? m.id : '';
-      if (before && t.stage !== 'approved' && before !== t.assignee) await tdEvent_('tender', t.id, user, 'Reassigned to ' + (m ? m.name : 'nobody'));
+      if (before !== t.assignee) {
+        await tdEvent_('tender', t.id, user, m ? (mine ? m.name + ' took it' : 'Owner: ' + m.name) : 'No owner now');
+        if (m && TD_TEAM_STAGES.indexOf(t.stage) !== -1) await tdPrepTask_(ctx, t);
+      }
     } else if (p === 'priority') {
       if (TD_PRIORITIES.indexOf(String(value)) === -1) throw new Error('Priority is High, Medium or Low.');
       t.priority = String(value);
@@ -822,6 +841,10 @@ async function saveTenderField(id, path, value) {
       await tdEvent_('tender', t.id, user, 'Checklist went back: ' + (cp ? cp.label : parts[1]) + ' is No again');
     }
   } else if (parts.length === 2 && parts[0] === 'submission' && TD_SUB_KEYS.indexOf(parts[1]) !== -1) {
+    // The value Management approved is the value submitted: changing it means sending the bid back.
+    if (parts[1] === 'value' && ['bidcheck', 'ready', 'submitted', 'opened', 'result'].indexOf(t.stage) !== -1 && String(value) !== String(t.submission.value)) {
+      throw new Error('The bid value has gone to Management. To change it, Management sends the bid back.');
+    }
     t.submission[parts[1]] = tdClean_(parts[1] === 'date' ? 'date' : parts[1], value, parts[1]);
   } else if (parts.length === 2 && parts[0] === 'postbid' && TD_POSTBID_KEYS.indexOf(parts[1]) !== -1) {
     if (parts[1] === 'result' && value && (!TD_RESULTS[value] || value === 'declined')) throw new Error('Pick a result from the list.');
@@ -870,20 +893,19 @@ async function tdAdvance_(ctx, t, user) {
   if (!g) throw new Error('This tender has no next step.');
   var miss = g.reqs.filter(function (r) { return !r.ok; });
   if (miss.length) throw new Error(miss.length + ' item' + (miss.length > 1 ? 's are' : ' is') + ' still open – see the checklist on the right.');
-  if (!g.canAct) throw new Error('Only ' + g.who.map(function (r) { return TD_ROLES[r]; }).join(' / ') + (g.who.indexOf('exec') !== -1 ? ' (the executive it is assigned to)' : '') + ' can do this step.');
+  if (!g.canAct) throw new Error('Only ' + g.who.map(function (r) { return TD_ROLES[r]; }).join(' / ') + (g.who.indexOf('exec') !== -1 && t.assignee ? ' (its owner, ' + (tdMember_(ctx, t.assignee) || {}).name + ')' : '') + ' can do this step.');
   var from = tdStageLabel_(t);
   var link = 't:' + t.id;
+  var boss = ctx.members.filter(function (m) { return m.role === 'mgmt'; })[0];
   if (g.next === 'approval') {
     t.approval = { status: 'pending', requestedBy: ctx.me, at: ctx.today };
-    var boss = ctx.members.filter(function (m) { return m.role === 'mgmt'; })[0];
     if (boss) await tdAddTask_(ctx, { title: 'Approve participation: ' + t.no, link: link, assignee: boss.id, priority: t.priority, due: tdAddDays_(ctx.today, 1), source: 'auto' });
   }
-  if (g.next === 'assigned') {
-    t.assignedOn = ctx.today;
-    var due = t.lastDate ? tdAddDays_(t.lastDate, -1) : tdAddDays_(ctx.today, 7);
-    if (due < ctx.today) due = ctx.today;
-    await tdAddTask_(ctx, { title: 'Prepare & submit bid – ' + t.no, link: link, assignee: t.assignee, priority: t.priority, due: due, source: 'auto',
-      checklist: ctx.masters.checklist.map(function (c) { return { t: c.label, d: false }; }) });
+  // Approved: with the submission team at once; its owner, if named, gets the task.
+  if (g.next === 'prep' && t.assignee) await tdPrepTask_(ctx, t);
+  if (g.next === 'bidcheck') {
+    t.bid = { status: 'pending', requestedBy: ctx.me, at: ctx.today, value: tdNum_(t.submission.value) };
+    if (boss) await tdAddTask_(ctx, { title: 'Approve bid: ' + t.no + ' at ' + tdInrShort_(t.submission.value), link: link, assignee: boss.id, priority: t.priority, due: ctx.today, source: 'auto' });
   }
   if (g.next === 'result') t.result = t.postbid.result;
   if (g.next === 'submitted') await tdCloseAutoTasks_(ctx, link, 'Prepare & submit bid');
@@ -894,14 +916,30 @@ async function tdAdvance_(ctx, t, user) {
   return await tdAnswer_(user, { message: msg });
 }
 
-/** Management: we bid. */
-async function approveTender(id, note) {
+/** The submission task for a tender's owner, once: with the checklist, due the day before the last date. */
+async function tdPrepTask_(ctx, t) {
+  var link = 't:' + t.id;
+  if (ctx.tasks.some(function (k) { return k.link === link && k.source === 'auto' && k.status !== 'Done' && k.assignee === t.assignee && k.title.indexOf('Prepare & submit bid') === 0; })) return;
+  t.assignedOn = ctx.today;
+  var due = t.lastDate ? tdAddDays_(t.lastDate, -1) : tdAddDays_(ctx.today, 7);
+  if (due < ctx.today) due = ctx.today;
+  await tdAddTask_(ctx, { title: 'Prepare & submit bid – ' + t.no, link: link, assignee: t.assignee, priority: t.priority, due: due, source: 'auto',
+    checklist: ctx.masters.checklist.map(function (c) { return { t: c.label, d: false }; }) });
+}
+
+/** Management: we bid. It goes to the submission team at once; `owner`, if given, is who prepares it. */
+async function approveTender(id, note, owner) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = await tdContext_(user);
   tdRequireRole_(ctx, ['mgmt'], 'Approving participation');
   var t = tdTender_(ctx, id);
   if (t.stage !== 'approval') throw new Error('This tender is not waiting for approval.');
+  if (owner) {
+    var m = tdMember_(ctx, owner);
+    if (!m || !tdHas_(m.role, 'exec')) throw new Error('Pick somebody on the submission team (Tender Executive, or Shortlisting & Executive).');
+    t.assignee = m.id;
+  }
   t.approval = { status: 'approved', by: ctx.me, at: ctx.today, note: String(note || '').trim().slice(0, 1000) };
   await tdCloseAutoTasks_(ctx, 't:' + t.id, 'Approve');
   await tdSaveTender_(t, user, 'Tender ' + t.no + ' approved');
@@ -909,7 +947,39 @@ async function approveTender(id, note) {
   return await tdAdvance_(ctx, t, user);
 }
 
-/** Management declines (at approval), or Shortlisting marks it not participating (draft or approved). */
+/** Management approves the bid the submission team prepared: it can be submitted on the portal. */
+async function approveBid(id, note) {
+  var user = getCurrentUser();
+  requireTenderDesk_(user);
+  var ctx = await tdContext_(user);
+  tdRequireRole_(ctx, ['mgmt'], 'Approving the bid');
+  var t = tdTender_(ctx, id);
+  if (t.stage !== 'bidcheck') throw new Error('This tender\'s bid is not waiting for approval.');
+  t.bid = { status: 'approved', by: ctx.me, at: ctx.today, value: tdNum_(t.submission.value), note: String(note || '').trim().slice(0, 1000) };
+  await tdCloseAutoTasks_(ctx, 't:' + t.id, 'Approve bid');
+  await tdSaveTender_(t, user, 'Bid for ' + t.no + ' approved');
+  return await tdAdvance_(ctx, t, user);
+}
+/** Management sends the bid back to the submission team, saying what to change. */
+async function returnBid(id, note) {
+  var user = getCurrentUser();
+  requireTenderDesk_(user);
+  var ctx = await tdContext_(user);
+  tdRequireRole_(ctx, ['mgmt'], 'Sending a bid back');
+  var t = tdTender_(ctx, id);
+  if (t.stage !== 'bidcheck') throw new Error('This tender\'s bid is not waiting for approval.');
+  var n = String(note || '').trim();
+  if (!n) throw new Error('Say what should change.');
+  t.bid = { status: 'returned', by: ctx.me, at: ctx.today, note: n.slice(0, 1000) };
+  t.stage = 'prep';
+  await tdCloseAutoTasks_(ctx, 't:' + t.id, 'Approve bid');
+  await tdSaveTender_(t, user, 'Bid for ' + t.no + ' sent back');
+  await tdEvent_('tender', t.id, user, 'Bid sent back: ' + n);
+  if (t.assignee) await tdAddTask_(ctx, { title: 'Rework bid – ' + t.no, desc: n, link: 't:' + t.id, assignee: t.assignee, priority: 'High', due: ctx.today, source: 'auto' });
+  return await tdAnswer_(user, { message: 'Sent back to the submission team' });
+}
+
+/** Management decides not to bid (at either approval), or Shortlisting withdraws it before the bid is approved. */
 async function declineTender(id, mode, reason, comments) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
@@ -919,10 +989,10 @@ async function declineTender(id, mode, reason, comments) {
   if (!r) throw new Error('Give the reason.');
   if (mode === 'reject') {
     tdRequireRole_(ctx, ['mgmt'], 'Deciding not to bid');
-    if (t.stage !== 'approval') throw new Error('This tender is not waiting for approval.');
+    if (['approval', 'bidcheck'].indexOf(t.stage) === -1) throw new Error('This tender is not waiting for Management.');
   } else {
     tdRequireRole_(ctx, ['shortlist'], 'Marking a tender as not participating');
-    if (['draft', 'approved'].indexOf(t.stage) === -1) throw new Error('Only a draft or an approved tender can be marked as not participating here.');
+    if (['draft', 'prep'].indexOf(t.stage) === -1) throw new Error('A tender in shortlisting or submission prep can be marked as not participating here.');
   }
   var text = r + (String(comments || '').trim() ? ' – ' + String(comments).trim() : '');
   if (mode === 'reject') t.approval = { status: 'rejected', by: ctx.me, at: ctx.today, note: text };
@@ -1208,7 +1278,7 @@ function tdBlankPoData_(ctx, tenderId) {
 function tdNormPo_(a, ctx, tenderId) {
   var s = function (v) { return String(v === undefined || v === null ? '' : v).trim(); };
   var ref = s(a.tenderRef).toLowerCase();
-  var won = ctx.tenders.filter(function (t) { return t.result === 'won' && !t.poId; });
+  var won = ctx.tenders.filter(tdPoReady_);
   var tid = tenderId || ((ref && won.filter(function (t) { return t.no && (ref.indexOf(t.no.toLowerCase()) !== -1 || t.no.toLowerCase().indexOf(ref) !== -1); })[0]) || {}).id || '';
   var x = tdBlankPoData_(ctx, tid);
   ['no', 'clientName', 'deliveryPeriod', 'payTerms', 'inspection', 'gaDrawing', 'warranty'].forEach(function (k) { x[k] = s(a[k]).slice(0, 1000); });
@@ -1232,6 +1302,9 @@ function tdNormPo_(a, ctx, tenderId) {
   }).filter(function (i) { return i.desc; });
   return x;
 }
+/** A tender a client's PO can be entered against: won, or submitted and waiting (the PO is the win). */
+function tdPoReady_(t) { return !t.poId && (t.result === 'won' || t.stage === 'submitted' || t.stage === 'opened'); }
+
 /** What must be true before a PO is created from the form. */
 function tdPoChecks_(d, ctx) {
   var R = function (ok, t) { return { ok: !!ok, t: t }; };
@@ -1241,7 +1314,7 @@ function tdPoChecks_(d, ctx) {
   var sumOk = !tdNum_(d.value) || Math.abs(sum - tdNum_(d.value)) <= tdNum_(d.value) * 0.01 ||
     (tdNum_(d.valueExGst) && Math.abs(sum - tdNum_(d.valueExGst)) <= tdNum_(d.valueExGst) * 0.01);
   var fps = rows.every(function (i) { var m = tdMember_(ctx, i.fp); return !!m; });
-  return [R(d.tenderId && ctx.tenders.some(function (t) { return t.id === d.tenderId && t.result === 'won' && !t.poId; }), 'Linked to a won tender without a PO'),
+  return [R(d.tenderId && ctx.tenders.some(function (t) { return t.id === d.tenderId && tdPoReady_(t); }), 'Linked to a submitted or won tender without a PO'),
     R(d.no, 'PO number captured'), R(!ctx.pos.some(function (p) { return tdSame_(p.no, d.no); }), 'PO number is not already in the system'),
     R(tdDay_(d.poDate), 'PO date captured'), R(tdDay_(d.dueDate), 'Delivery due date set'), R(rows.length, 'At least one item'),
     R(rows.every(function (i) { return i.desc && tdNum_(i.qty) > 0 && tdNum_(i.rate) > 0; }), 'Every item has description, quantity and rate'),
@@ -1294,6 +1367,15 @@ async function createTenderPo(data, documentId) {
   row.id = id; row.active = 'TRUE'; row.createdAt = nowIso_(); row.createdBy = user.email; row.closedAt = '';
   await appendRow_('TenderPOs', row, 'PO ' + p.no + ' entered against tender ' + t.no);
   t.poId = id;
+  if (t.stage !== 'result') {
+    // The PO is the result: a submitted tender whose PO has come is won, at the PO's value.
+    t.stage = 'result';
+    t.result = 'won';
+    t.postbid.result = 'won';
+    if (!(tdNum_(t.postbid.l1) > 0)) t.postbid.l1 = tdNum_(p.value) || base;
+    await tdCloseAutoTasks_(ctx, 't:' + t.id, '');
+    await tdEvent_('tender', t.id, user, 'Won – the client’s PO received');
+  }
   await tdSaveTender_(t, user, 'Tender ' + t.no + ' PO entered');
   if (documentId) {
     var doc = await findRowById_('Documents', documentId);

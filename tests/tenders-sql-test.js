@@ -144,37 +144,31 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('the client must be in the client list — an ERP customer is not', await refuses(() => p.saveTenderField(tid, 'client', 'CU-OTHER'), /not in the client list/));
   ok('a client on a tender cannot be deleted', await refuses(() => p.deleteTenderMaster('client', gen.id), /stays/));
 
-  console.log('APPROVAL AND ASSIGNING');
+  console.log('SHORTLISTING, THEN MANAGEMENT');
   await as('U-ENG');
-  ok('an executive cannot change a tender not assigned to him', await refuses(() => p.saveTenderField(tid, 'title', 'x'), /look at this tender but not change/));
+  ok('an executive cannot touch a tender still being shortlisted', await refuses(() => p.saveTenderField(tid, 'title', 'x'), /look at this tender but not change/));
   await as('U-COORD');
   res = await p.advanceTender(tid);
   t = res.state.tenders.find((x) => x.id === tid);
   ok('sent for approval', t.stage === 'approval' && t.approval.status === 'pending', t.stage);
+  ok('the steps are the way PIE works', res.state.stages.map((x) => x.l).join(' → ') === 'Shortlisting → Awaiting approval → Submission prep → Bid approval → Submit on portal → Submitted → Bid opened → Result');
   ok('Management gets a task to approve, on the main Tasks list', res.state.tasks.some((k) => k.link === 't:' + tid && /^Approve participation/.test(k.title) && k.assignee === 'vikram@pie.invalid'));
   const erpTasks = await p.readTable_('Tasks');
   ok('the task is an ERP task linked to the tender', erpTasks.some((k) => k.linkKind === 'tender' && k.linkId === tid && k.module === 'tender' && k.source === 'auto'));
   ok('only Management approves', await refuses(() => p.approveTender(tid, ''), /Management/));
   await as('U-MGMT');
-  res = await p.approveTender(tid, 'Repeat client – quote sharp');
+  ok('Management sees it waiting, in its alerts', (await p.getTenderApp()).alerts.some((a) => a.t === 'Approval needed: TG/KTPS/2026/1187'));
+  ok('the owner, if named, must be on the submission team', await refuses(() => p.approveTender(tid, '', 'kiran@pie.invalid'), /submission team/));
+  res = await p.approveTender(tid, 'Repeat client – quote sharp', 'rohan@pie.invalid');
   t = res.state.tenders.find((x) => x.id === tid);
-  ok('approved, and moved on; the approval task is done', t.stage === 'approved' && t.approval.by === 'vikram@pie.invalid' &&
-    res.state.tasks.find((k) => /^Approve participation/.test(k.title)).status === 'Done');
-  await as('U-COORD');
-  ok('the assignee must be on the Tender Desk', await refuses(() => p.saveTenderField(tid, 'assignee', 'kiran@nowhere.invalid'), /on the Tender Desk/));
-  await p.saveTenderField(tid, 'assignee', 'kiran@pie.invalid');
-  st = await p.getTenderApp();
-  ok('a fulfilment person is not an executive: the gate says so', st.tenders.find((x) => x.id === tid).gate.reqs.some((r) => !r.ok && /Assignee is a Tender Executive/.test(r.t)));
-  await p.saveTenderField(tid, 'assignee', 'rohan@pie.invalid');
-  res = await p.advanceTender(tid);
-  t = res.state.tenders.find((x) => x.id === tid);
-  ok('assigned, with a task carrying the checklist', t.stage === 'assigned' && res.state.tasks.some((k) => k.assignee === 'rohan@pie.invalid' && /^Prepare & submit bid/.test(k.title) && k.checklist.length === 10));
+  ok('approved: straight to the submission team, no assigning step between', t.stage === 'prep' && t.approval.by === 'vikram@pie.invalid' && t.assignee === 'rohan@pie.invalid' &&
+    res.state.tasks.find((k) => /^Approve participation/.test(k.title)).status === 'Done', t.stage);
+  ok('its owner gets the task with the checklist', res.state.tasks.some((k) => k.assignee === 'rohan@pie.invalid' && /^Prepare & submit bid/.test(k.title) && k.checklist.length === 10));
 
-  console.log('PREPARATION, THE CHECKLIST AND SUBMISSION');
+  console.log('SUBMISSION PREP, BID APPROVAL, SUBMISSION');
   await as('U-ENG2');
-  ok('another executive cannot take his step', await refuses(() => p.advanceTender(tid), /can do this step/));
+  ok('another executive cannot work a tender that has an owner', await refuses(() => p.saveTenderField(tid, 'prep.min3', 'Yes'), /not change it/));
   await as('U-ENG');
-  await p.advanceTender(tid);
   for (const [k, v] of [['enquiryDate', inDays(-1)], ['offersPerSpec', 'Yes'], ['tcAccepted', 'Yes'], ['min3', 'Yes'], ['compChart', 'Yes'], ['docsRecv', 'NA'], ['nego', 'Yes']]) {
     await p.saveTenderField(tid, 'prep.' + k, v);
   }
@@ -183,6 +177,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   const supId = st.suppliers.find((s) => s.name === 'Invented Motors Pvt Ltd').id;
   await as('U-ENG');
   await p.saveTenderField(tid, 'prep.finalVendor', supId);
+  await p.saveTenderField(tid, 'submission.value', '2310000');
   st = await p.getTenderApp();
   ok('preparation waits on Accounts for the EMD balance', st.tenders.find((x) => x.id === tid).gate.reqs.filter((r) => !r.ok).map((r) => r.t).join() === 'Tender account EMD balance sufficient');
   await as('U-ACC');
@@ -190,13 +185,31 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await p.saveTenderField(tid, 'prep.emdBal', 'Yes');
   await as('U-ENG');
   res = await p.advanceTender(tid);
-  ok('ready to submit', res.state.tenders.find((x) => x.id === tid).stage === 'ready');
+  t = res.state.tenders.find((x) => x.id === tid);
+  ok('the bid goes to Management for approval', t.stage === 'bidcheck' && t.bid.status === 'pending' && t.bid.value === 2310000 &&
+    res.state.tasks.some((k) => /^Approve bid: TG\/KTPS\/2026\/1187/.test(k.title) && k.assignee === 'vikram@pie.invalid'));
+  ok('its value is locked while Management looks at it', await refuses(() => p.saveTenderField(tid, 'submission.value', '2000000'), /sends the bid back/));
+  ok('the executive cannot approve it', await refuses(() => p.approveBid(tid, ''), /Management/));
+  await as('U-MGMT');
+  ok('Management sees the bid waiting', (await p.getTenderApp()).alerts.some((a) => /^Bid to approve: TG\/KTPS\/2026\/1187/.test(a.t)));
+  ok('sending back needs a reason', await refuses(() => p.returnBid(tid, ''), /what should change/));
+  res = await p.returnBid(tid, 'Take 2% off');
+  t = res.state.tenders.find((x) => x.id === tid);
+  ok('sent back: the team prepares again, told why', t.stage === 'prep' && t.bid.status === 'returned' && res.state.tasks.some((k) => /^Rework bid/.test(k.title) && k.assignee === 'rohan@pie.invalid'));
+  await as('U-ENG');
+  await p.saveTenderField(tid, 'submission.value', '2263800');
+  await p.advanceTender(tid);
+  await as('U-MGMT');
+  res = await p.approveBid(tid, 'Go');
+  t = res.state.tenders.find((x) => x.id === tid);
+  ok('approved: it is to be submitted on the portal', t.stage === 'ready' && t.bid.status === 'approved' && t.bid.value === 2263800);
+  await as('U-ENG');
   const cps = res.state.checklist;
   for (const c of cps) await p.saveTenderField(tid, 'checklist.' + c.id, 'Yes');
   res = await p.saveTenderField(tid, 'checklist.' + cps[2].id, 'No');
   ok('a checkpoint going back is on the record', res.state.tenders.find((x) => x.id === tid).log.some((e) => /Checklist went back: EMD arranged/.test(e.text)));
   await p.saveTenderField(tid, 'checklist.' + cps[2].id, 'NA');
-  for (const [k, v] of [['date', inDays(0)], ['ack', 'MT-2026-1187-55410'], ['value', '2310000'], ['quote', 'Quote']]) await p.saveTenderField(tid, 'submission.' + k, v);
+  for (const [k, v] of [['date', inDays(0)], ['ack', 'MT-2026-1187-55410'], ['quote', 'Quote']]) await p.saveTenderField(tid, 'submission.' + k, v);
   res = await p.advanceTender(tid);
   t = res.state.tenders.find((x) => x.id === tid);
   ok('submitted; the preparation task is done', t.stage === 'submitted' && t.ck[0] === 10 && res.state.tasks.find((k) => /^Prepare & submit bid/.test(k.title)).status === 'Done');
@@ -214,7 +227,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('and Items Entry is asked for the PO', (await p.getTenderApp()).alerts.some((a) => /Won but PO not entered/.test(a.t)));
   await as('U-ENG');
 
-  console.log('SHORTLISTING & EXECUTIVE, ONE PERSON');
+  console.log('THE WHOLE TEAM, AND SHORTLISTING & EXECUTIVE IN ONE PERSON');
   await as('U-MGMT');
   await p.saveTenderMember('isha@pie.invalid', 'both', null);
   await as('U-COORD');
@@ -222,7 +235,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   const tb = res.id;
   ok('the role is offered and named', res.state.roles.both === 'Shortlisting & Executive' && res.state.me.role === 'both');
   const cl = res.state.clients[0].id;
-  for (const [k, v] of [['no', 'BOTH/2026/1'], ['title', 'Air dryers'], ['client', cl], ['portal', 'TDM-portal-1'], ['lastDate', inDays(9)], ['dueTime', '11:00'], ['estCost', 500000], ['emd', 10000], ['emdType', 'Online']]) {
+  for (const [k, v] of [['no', 'BOTH/2026/1'], ['title', 'Air dryers'], ['client', cl], ['portal', 'TDM-portal-1'], ['lastDate', inDays(6)], ['dueTime', '11:00'], ['estCost', 500000], ['emd', 10000], ['emdType', 'Online']]) {
     await p.saveTenderField(tb, k, v);
   }
   await p.tenderItemLine(tb, 'add');
@@ -230,18 +243,36 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await p.attachTenderFile('tender', tb, pdf);
   res = await p.advanceTender(tb);
   ok('she enters a tender and sends it, as Shortlisting', res.state.tenders.find((x) => x.id === tb).stage === 'approval');
-  await as('U-MGMT'); await p.approveTender(tb, '');
+  await as('U-MGMT'); res = await p.approveTender(tb, '');
+  ok('approved with no owner: with the whole submission team', res.state.tenders.find((x) => x.id === tb).stage === 'prep' && !res.state.tenders.find((x) => x.id === tb).assignee);
+  await as('U-ENG');
+  ok('every executive is told about it', (await p.getTenderApp()).alerts.some((a) => /BOTH\/2026\/1/.test(a.t)));
+  await p.saveTenderField(tb, 'prep.min3', 'Yes');
+  ok('any executive can work it while nobody owns it', (await p.getTenderApp()).tenders.find((x) => x.id === tb).prep.min3 === 'Yes');
+  ok('and can take it only for himself', await refuses(() => p.saveTenderField(tb, 'assignee', 'amol@pie.invalid'), /named by Shortlisting/));
   await as('U-COORD');
   res = await p.saveTenderField(tb, 'assignee', 'isha@pie.invalid');
-  ok('she can be the executive it is assigned to', res.state.tenders.find((x) => x.id === tb).gate.reqs.every((r) => r.ok));
-  res = await p.advanceTender(tb);
-  ok('assigned to herself, with the preparation task', res.state.tenders.find((x) => x.id === tb).stage === 'assigned' && res.state.tasks.some((k) => k.assignee === 'isha@pie.invalid' && /^Prepare & submit bid – BOTH/.test(k.title)));
-  res = await p.advanceTender(tb);
-  ok('and works it as the executive', res.state.tenders.find((x) => x.id === tb).stage === 'prep');
+  ok('she names herself the owner, and gets the task', res.state.tenders.find((x) => x.id === tb).assignee === 'isha@pie.invalid' &&
+    res.state.tasks.some((k) => k.assignee === 'isha@pie.invalid' && /^Prepare & submit bid – BOTH/.test(k.title)));
   await as('U-ENG');
-  ok('another executive still cannot', await refuses(() => p.saveTenderField(tb, 'prep.min3', 'Yes'), /not change it/));
+  ok('now another executive cannot', await refuses(() => p.saveTenderField(tb, 'prep.min3', 'No'), /not change it/));
   await as('U-COORD');
+  for (const [k, v] of [['enquiryDate', inDays(-1)], ['offersPerSpec', 'Yes'], ['tcAccepted', 'Yes'], ['min3', 'Yes'], ['compChart', 'Yes'], ['docsRecv', 'NA'], ['nego', 'NA'], ['finalVendor', supId], ['emdBal', 'Yes']]) {
+    await p.saveTenderField(tb, 'prep.' + k, v);
+  }
+  await p.saveTenderField(tb, 'submission.value', 480000);
+  await p.advanceTender(tb);
+  await as('U-MGMT'); await p.approveBid(tb, '');
+  await as('U-COORD');
+  for (const c of cps) await p.saveTenderField(tb, 'checklist.' + c.id, 'Yes');
+  for (const [k, v] of [['date', inDays(0)], ['ack', 'ACK-BOTH-1'], ['quote', 'Quote']]) await p.saveTenderField(tb, 'submission.' + k, v);
+  res = await p.advanceTender(tb);
+  ok('and works it through to submission herself', res.state.tenders.find((x) => x.id === tb).stage === 'submitted');
   ok('and she still keeps the masters', !!(await p.saveTenderMaster('lossReason', { name: 'Specification not met' })));
+  res = await p.createTenderPo({ tenderId: tb, no: 'PO-BOTH-1', poDate: inDays(0), dueDate: inDays(30), value: 480000, ld: { rate: 0.5, per: 'week', cap: 10, basis: 'delayed' },
+    items: [{ sr: 1, desc: 'Refrigerated air dryer', qty: 1, uom: 'Nos', rate: 480000, due: inDays(30), fp: 'kiran@pie.invalid' }] }, '');
+  t = res.state.tenders.find((x) => x.id === tb);
+  ok('the client\'s PO on a submitted tender: it is won, at the PO\'s value, and goes to execution', t.stage === 'result' && t.result === 'won' && t.postbid.l1 === 480000 && t.poId === res.id);
 
   console.log('NOT PARTICIPATING');
   await as('U-COORD');
