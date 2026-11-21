@@ -220,6 +220,16 @@ function tdUserHasAccess_(u) {
 }
 /** Who keeps the masters: Shortlisting & Admin, Management, and the ERP Admin whatever their role here. */
 function tdMasterEditor_(ctx) { return tdHas_(ctx.role, 'shortlist') || ctx.role === 'mgmt' || String(ctx.user.role) === ROLES.ERP_ADMIN; }
+/**
+ * Who approves — whether to bid, and the bid before it goes on the portal: the Tender Desk's
+ * Management, and, as in the rest of the ERP, whoever is Management or the ERP Admin there.
+ * An approver's own shortlisting and bids need no second look (tdAdvance_), the way the ERP
+ * takes an approver's own new customer as approved.
+ */
+function tdApprover_(ctx) { return ctx.role === 'mgmt' || [ROLES.MANAGEMENT, ROLES.ERP_ADMIN].indexOf(String(ctx.user.role)) !== -1; }
+function tdRequireApprover_(ctx, what) {
+  if (!tdApprover_(ctx)) throw new Error(what + ' is done by Management or the ERP Admin.');
+}
 /** Who decides who is on the Tender Desk at all: Management and the ERP Admin. */
 function tdTeamEditor_(ctx) { return ctx.role === 'mgmt' || String(ctx.user.role) === ROLES.ERP_ADMIN; }
 
@@ -397,7 +407,7 @@ function tdGate_(t, ctx) {
   var g = null;
   switch (t.stage) {
     case 'draft':
-      g = { next: 'approval', action: 'Send for management approval', who: ['shortlist'], reqs: [
+      g = { next: 'approval', action: tdApprover_(ctx) ? 'Approve & send to the submission team' : 'Send for management approval', who: ['shortlist'], reqs: [
         R(t.no, 'Tender number entered'),
         R(!ctx.tenders.some(function (x) { return x.id !== t.id && x.no && tdSame_(x.no, t.no); }), 'Tender number is not a duplicate'),
         R(t.title, 'Title / scope entered'), R(t.client, 'Client chosen from the client list'), R(t.portal, 'Portal source selected'),
@@ -412,7 +422,7 @@ function tdGate_(t, ctx) {
       g = { next: 'prep', action: 'Approve participation', who: ['mgmt'], reqs: [R(t.approval.status === 'approved', 'Management has approved participation')].concat(cg('prep')) };
       break;
     case 'prep':
-      g = { next: 'bidcheck', action: 'Send bid for management approval', who: ['exec', 'shortlist'], reqs: [
+      g = { next: 'bidcheck', action: tdApprover_(ctx) ? 'Approve the bid & go to submission' : 'Send bid for management approval', who: ['exec', 'shortlist'], reqs: [
         R(p.enquiryDate, 'Vendor enquiry mail sent (date)'), R(['Yes', 'Partial'].indexOf(p.offersPerSpec) !== -1, 'Offers received as per specs'),
         R(p.tcAccepted === 'Yes', 'Suppliers accepted T&C'), R(p.min3 === 'Yes', 'Minimum 3 manufacturers agreed'), R(p.compChart === 'Yes', 'Comparative chart done'),
         R(['Yes', 'NA'].indexOf(p.docsRecv) !== -1, 'All documents received from supplier'), R(['Yes', 'NA'].indexOf(p.nego) !== -1, 'Negotiation done'),
@@ -444,7 +454,7 @@ function tdGate_(t, ctx) {
   if (!g) return null;
   // Shortlisting takes any step it is named for; the submission team, any tender it has no owner
   // for, or the ones they own.
-  g.canAct = (g.who.indexOf(ctx.role) !== -1 && ctx.role !== 'exec') ||
+  g.canAct = (g.who.indexOf(ctx.role) !== -1 && ctx.role !== 'exec') || (g.who.indexOf('mgmt') !== -1 && tdApprover_(ctx)) ||
     (g.who.indexOf('shortlist') !== -1 && tdHas_(ctx.role, 'shortlist')) ||
     (g.who.indexOf('exec') !== -1 && tdTeamMay_(t, ctx));
   g.open = g.reqs.filter(function (r) { return !r.ok; }).length;
@@ -591,7 +601,7 @@ function tdAlerts_(ctx, calcs) {
   A.sort(function (a, b) { return order[a.sev] - order[b.sev]; });
   if (tdHas_(ctx.role, 'shortlist') || ctx.role === 'mgmt') return A;
   return A.filter(function (a) {
-    return a.who === ctx.me || a.who === ctx.role || a.ref.indexOf('k:') === 0 ||
+    return a.who === ctx.me || a.who === ctx.role || (a.who === 'mgmt' && tdApprover_(ctx)) || a.ref.indexOf('k:') === 0 ||
       ((ctx.role === 'fp' || ctx.role === 'items') && a.ref.indexOf('p:') === 0);
   });
 }
@@ -667,7 +677,7 @@ async function tdState_(ctx) {
   return {
     today: ctx.today, build: typeof APP_BUILD !== 'undefined' ? APP_BUILD : '',
     me: { id: ctx.me, name: String(ctx.user.name || ctx.user.email), role: ctx.role, erpRole: String(ctx.user.role || ''),
-      masters: tdMasterEditor_(ctx), team: tdTeamEditor_(ctx) },
+      masters: tdMasterEditor_(ctx), team: tdTeamEditor_(ctx), approver: tdApprover_(ctx) },
     roles: TD_ROLES, stages: TD_STAGES, results: TD_RESULTS, pstages: TD_PSTAGES, moves: TD_MOVES, emdTypes: TD_EMD_TYPES,
     declineReasons: TD_DECLINE_REASONS, taskStatuses: TD_TASK_STATUSES,
     members: ctx.members, others: tdTeamEditor_(ctx) ? ctx.others : [],
@@ -897,22 +907,37 @@ async function tdAdvance_(ctx, t, user) {
   var from = tdStageLabel_(t);
   var link = 't:' + t.id;
   var boss = ctx.members.filter(function (m) { return m.role === 'mgmt'; })[0];
-  if (g.next === 'approval') {
-    t.approval = { status: 'pending', requestedBy: ctx.me, at: ctx.today };
-    if (boss) await tdAddTask_(ctx, { title: 'Approve participation: ' + t.no, link: link, assignee: boss.id, priority: t.priority, due: tdAddDays_(ctx.today, 1), source: 'auto' });
+  var next = g.next;
+  var self = tdApprover_(ctx) && (next === 'approval' || next === 'bidcheck');
+  if (next === 'approval') {
+    if (self) {
+      // An approver's own shortlisting is approved as it is sent: straight to the submission team.
+      t.approval = { status: 'approved', requestedBy: ctx.me, by: ctx.me, at: ctx.today, note: 'Self-approved', self: true };
+      next = 'prep';
+    } else {
+      t.approval = { status: 'pending', requestedBy: ctx.me, at: ctx.today };
+      if (boss) await tdAddTask_(ctx, { title: 'Approve participation: ' + t.no, link: link, assignee: boss.id, priority: t.priority, due: tdAddDays_(ctx.today, 1), source: 'auto' });
+    }
   }
   // Approved: with the submission team at once; its owner, if named, gets the task.
-  if (g.next === 'prep' && t.assignee) await tdPrepTask_(ctx, t);
-  if (g.next === 'bidcheck') {
-    t.bid = { status: 'pending', requestedBy: ctx.me, at: ctx.today, value: tdNum_(t.submission.value) };
-    if (boss) await tdAddTask_(ctx, { title: 'Approve bid: ' + t.no + ' at ' + tdInrShort_(t.submission.value), link: link, assignee: boss.id, priority: t.priority, due: ctx.today, source: 'auto' });
+  if (next === 'prep' && t.assignee) await tdPrepTask_(ctx, t);
+  if (next === 'bidcheck') {
+    if (self) {
+      t.bid = { status: 'approved', requestedBy: ctx.me, by: ctx.me, at: ctx.today, value: tdNum_(t.submission.value), note: 'Self-approved', self: true };
+      next = 'ready';
+    } else {
+      t.bid = { status: 'pending', requestedBy: ctx.me, at: ctx.today, value: tdNum_(t.submission.value) };
+      if (boss) await tdAddTask_(ctx, { title: 'Approve bid: ' + t.no + ' at ' + tdInrShort_(t.submission.value), link: link, assignee: boss.id, priority: t.priority, due: ctx.today, source: 'auto' });
+    }
   }
-  if (g.next === 'result') t.result = t.postbid.result;
-  if (g.next === 'submitted') await tdCloseAutoTasks_(ctx, link, 'Prepare & submit bid');
-  t.stage = g.next;
+  if (next === 'result') t.result = t.postbid.result;
+  if (next === 'submitted') await tdCloseAutoTasks_(ctx, link, 'Prepare & submit bid');
+  t.stage = next;
   await tdSaveTender_(t, user, 'Tender ' + t.no + ' moved to ' + tdStageLabel_(t));
-  await tdEvent_('tender', t.id, user, from + ' → ' + tdStageLabel_(t));
-  var msg = t.stage === 'result' && t.result === 'won' ? 'Marked as Won. Next: upload the client’s PO to start execution.' : 'Moved to ' + tdStageLabel_(t);
+  await tdEvent_('tender', t.id, user, from + ' → ' + tdStageLabel_(t) + (self ? ' (approved by them, as an approver)' : ''));
+  var msg = t.stage === 'result' && t.result === 'won' ? 'Marked as Won. Next: upload the client’s PO to start execution.'
+    : self ? 'Approved by you – ' + (t.stage === 'prep' ? 'it is with the submission team now' : 'it can be submitted on the portal now')
+      : 'Moved to ' + tdStageLabel_(t);
   return await tdAnswer_(user, { message: msg });
 }
 
@@ -932,7 +957,7 @@ async function approveTender(id, note, owner) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = await tdContext_(user);
-  tdRequireRole_(ctx, ['mgmt'], 'Approving participation');
+  tdRequireApprover_(ctx, 'Approving participation');
   var t = tdTender_(ctx, id);
   if (t.stage !== 'approval') throw new Error('This tender is not waiting for approval.');
   if (owner) {
@@ -952,7 +977,7 @@ async function approveBid(id, note) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = await tdContext_(user);
-  tdRequireRole_(ctx, ['mgmt'], 'Approving the bid');
+  tdRequireApprover_(ctx, 'Approving the bid');
   var t = tdTender_(ctx, id);
   if (t.stage !== 'bidcheck') throw new Error('This tender\'s bid is not waiting for approval.');
   t.bid = { status: 'approved', by: ctx.me, at: ctx.today, value: tdNum_(t.submission.value), note: String(note || '').trim().slice(0, 1000) };
@@ -965,7 +990,7 @@ async function returnBid(id, note) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = await tdContext_(user);
-  tdRequireRole_(ctx, ['mgmt'], 'Sending a bid back');
+  tdRequireApprover_(ctx, 'Sending a bid back');
   var t = tdTender_(ctx, id);
   if (t.stage !== 'bidcheck') throw new Error('This tender\'s bid is not waiting for approval.');
   var n = String(note || '').trim();
@@ -988,7 +1013,7 @@ async function declineTender(id, mode, reason, comments) {
   var r = String(reason || '').trim();
   if (!r) throw new Error('Give the reason.');
   if (mode === 'reject') {
-    tdRequireRole_(ctx, ['mgmt'], 'Deciding not to bid');
+    tdRequireApprover_(ctx, 'Deciding not to bid');
     if (['approval', 'bidcheck'].indexOf(t.stage) === -1) throw new Error('This tender is not waiting for Management.');
   } else {
     tdRequireRole_(ctx, ['shortlist'], 'Marking a tender as not participating');

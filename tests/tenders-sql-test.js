@@ -274,6 +274,46 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   t = res.state.tenders.find((x) => x.id === tb);
   ok('the client\'s PO on a submitted tender: it is won, at the PO\'s value, and goes to execution', t.stage === 'result' && t.result === 'won' && t.postbid.l1 === 480000 && t.poId === res.id);
 
+  console.log('APPROVERS, AND AN APPROVER\'S OWN TENDER');
+  await as('U-COORD');
+  ok('a coordinator is not an approver', (await p.getTenderApp()).me.approver === false);
+  res = await p.newTender();
+  const tq = res.id;
+  for (const [k, v] of [['no', 'ADMIN/2026/7'], ['title', 'Air receivers'], ['client', cl], ['portal', 'TDM-portal-1'], ['lastDate', inDays(6)], ['dueTime', '11:00'], ['estCost', 300000], ['emd', 6000], ['emdType', 'Online']]) {
+    await p.saveTenderField(tq, k, v);
+  }
+  await p.tenderItemLine(tq, 'add');
+  await p.saveTenderField(tq, 'items.0.desc', 'Air receiver 2 m3');
+  await p.attachTenderFile('tender', tq, pdf);
+  ok('her button sends it for approval', (await p.getTenderApp()).tenders.find((x) => x.id === tq).gate.action === 'Send for management approval');
+  await p.advanceTender(tq);
+  await as('U-ADMIN');
+  st = await p.getTenderApp();
+  ok('the ERP Admin approves, as in the rest of the ERP', st.me.approver === true && st.tenders.find((x) => x.id === tq).gate.canAct === true);
+  res = await p.approveTender(tq, 'Fine');
+  ok('and it goes to the submission team', res.state.tenders.find((x) => x.id === tq).stage === 'prep' && res.state.tenders.find((x) => x.id === tq).approval.by === 'office@pie.invalid');
+  res = await p.newTender();
+  const tz = res.id;
+  for (const [k, v] of [['no', 'ADMIN/2026/8'], ['title', 'Air receivers, second lot'], ['client', cl], ['portal', 'TDM-portal-1'], ['lastDate', inDays(6)], ['dueTime', '11:00'], ['estCost', 300000], ['emd', 6000], ['emdType', 'Online']]) {
+    await p.saveTenderField(tz, k, v);
+  }
+  await p.tenderItemLine(tz, 'add');
+  await p.saveTenderField(tz, 'items.0.desc', 'Air receiver 1 m3');
+  await p.attachTenderFile('tender', tz, pdf);
+  ok('an approver\'s own button says it approves', (await p.getTenderApp()).tenders.find((x) => x.id === tz).gate.action === 'Approve & send to the submission team');
+  res = await p.advanceTender(tz);
+  t = res.state.tenders.find((x) => x.id === tz);
+  ok('self-approved as it is sent: straight to the submission team, no task for Management', t.stage === 'prep' && t.approval.self === true && t.approval.by === 'office@pie.invalid' &&
+    !res.state.tasks.some((k) => k.link === 't:' + tz && /^Approve participation/.test(k.title)) && /Approved by you/.test(res.message), t.approval);
+  for (const [k, v] of [['enquiryDate', inDays(-1)], ['offersPerSpec', 'Yes'], ['tcAccepted', 'Yes'], ['min3', 'Yes'], ['compChart', 'Yes'], ['docsRecv', 'NA'], ['nego', 'NA'], ['finalVendor', supId], ['emdBal', 'Yes']]) {
+    await p.saveTenderField(tz, 'prep.' + k, v);
+  }
+  await p.saveTenderField(tz, 'submission.value', 290000);
+  res = await p.advanceTender(tz);
+  t = res.state.tenders.find((x) => x.id === tz);
+  ok('and the bid, prepared by an approver, is approved as it is sent: on to the portal', t.stage === 'ready' && t.bid.status === 'approved' && t.bid.self === true && t.bid.value === 290000);
+  ok('it is on the record as self-approved', t.log.some((e) => /approved by them, as an approver/.test(e.text)));
+
   console.log('NOT PARTICIPATING');
   await as('U-COORD');
   res = await p.newTender();

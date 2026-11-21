@@ -253,6 +253,12 @@ input.in:focus,select.in:focus,textarea.in:focus{outline:none;border-color:var(-
 .docs{display:flex;flex-direction:column;gap:6px}
 .docs a{overflow-wrap:anywhere}
 .hero{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:20px;align-items:center}
+.appr{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.appr:last-child{border-bottom:0}
+.appr-main{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1 1 360px}
+.appr-t{font-weight:600;font-size:14.5px}
+.appr-facts{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--ink-2)}
+.appr-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
 .splash{min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center}
 .splash .card{max-width:460px;padding:28px}
 
@@ -490,6 +496,8 @@ function docList(docs, canRemove) {
 // ================= shell =================
 const TEAM = ['prep', 'bidcheck', 'ready', 'submitted', 'opened'];
 const waitingMgmt = () => S.tenders.filter((t) => t.stage === 'approval' || t.stage === 'bidcheck');
+// Who approves: the Tender Desk's Management, and the ERP's Management and ERP Admin (Tenders.gs, tdApprover_).
+const approver = () => !!S.me.approver;
 const PATHS = { dashboard: '/tender-desk', shortlist: '/tender-desk/shortlisting', approvals: '/tender-desk/approvals', tenders: '/tender-desk/tenders', tender: '/tender-desk/tenders', pos: '/tender-desk/po', po: '/tender-desk/po', tasks: '/tender-desk/tasks', masters: '/tender-desk/masters' };
 function pathFor() { const base = PATHS[ui.page] || '/tender-desk'; return (ui.page === 'tender' || ui.page === 'po') && ui.id ? base + '/' + encodeURIComponent(ui.id) : base; }
 function fromPath(p) {
@@ -509,8 +517,8 @@ function navItems() {
   return [
     { p: 'dashboard', l: 'Dashboard', i: 'home' },
     { p: 'shortlist', l: 'Shortlisting', i: 'search', ct: sl },
-    { p: 'approvals', l: 'Approvals', i: 'check', ct: wait, hot: r === 'mgmt' && wait > 0 },
-    { p: 'tenders', l: 'Tenders', i: 'layers', ct: S.tenders.filter((t) => TEAM.includes(t.stage) && (r !== 'exec' || !t.assignee || t.assignee === S.me.id)).length },
+    { p: 'approvals', l: 'Approvals', i: 'check', ct: wait, hot: approver() && wait > 0 },
+    { p: 'tenders', l: 'Tender submission', i: 'layers', ct: S.tenders.filter((t) => TEAM.includes(t.stage) && (r !== 'exec' || !t.assignee || t.assignee === S.me.id)).length },
     { p: 'pos', l: 'PO execution', i: 'truck', ct: S.pos.filter((p) => !p.closed).length },
     { p: 'tasks', l: 'Tasks', i: 'tasks', ct: myOpen.length, hot: od },
     { p: 'masters', l: 'Masters', i: 'cog' }
@@ -521,7 +529,7 @@ function pageTitle() {
     case 'dashboard': return 'Dashboard';
     case 'shortlist': return 'Shortlisting';
     case 'approvals': return 'Approvals';
-    case 'tenders': return 'Tenders';
+    case 'tenders': return 'Tender submission';
     case 'tender': { const t = tender(ui.id); return t ? (t.no || 'Draft tender') : 'Tender'; }
     case 'pos': return 'PO execution';
     case 'po': return 'PO ' + ((pobj(ui.id) || {}).no || '');
@@ -608,7 +616,7 @@ function vDashboard() {
   <div class="kpis">${kpis.map((k) => `<div class="kpi ${k.c || ''}" ${k.a || ''}><div class="lbl">${esc(k.l)}</div><div class="v">${k.v}</div><div class="s">${esc(k.s)}</div></div>`).join('')}</div>
   <div class="split">
     <div class="grid">
-      ${r === 'mgmt' && appr.length ? approvalsCard(appr) : ''}
+      ${approver() && appr.length ? approvalsCard(appr) : ''}
       ${has('exec') ? `<div class="card"><div class="card-h"><h2>My tenders</h2><span class="faint small">${myT.length} active</span></div>${myT.length ? myT.map(tRow).join('') : '<div class="empty">No tenders assigned to you right now.</div>'}</div>` : ''}
       <div class="card"><div class="card-h"><h2>Needs attention</h2><span class="faint small">${al.length} item${al.length === 1 ? '' : 's'}</span></div>
         ${al.length ? al.map((a) => `<div class="lrow" ${refGo(a.ref)}><span class="sev ${a.sev}"></span><div class="x"><div class="a">${esc(a.t)}</div><div class="small faint">${esc(a.s)}</div></div>${ic('arrow', 'faint')}</div>`).join('') : '<div class="empty">All clear. Nothing needs your attention.</div>'}
@@ -637,21 +645,24 @@ function taskRow(k) {
   const st = tStatus(k.status); const d = dd(k.due); const done = k.status === DONE;
   return `<div class="lrow" data-act="openTask" data-id="${esc(k.id)}"><span class="sev ${done ? 'ok' : d != null && d < 0 ? 'bad' : d != null && d <= 1 ? 'warn' : ''}"></span><div class="x"><div class="a" style="${done ? 'text-decoration:line-through;color:var(--ink-3)' : ''}">${esc(k.title)}</div><div class="small faint">${k.link ? esc(linkLabel(k.link)) + ' · ' : ''}${esc((st || {}).name || '')}${k.source === 'voice' ? ' · from voice note' : ''}</div></div>${k.due ? `<span class="chip ${done ? '' : d < 0 ? 'bad' : d <= 1 ? 'warn' : ''}">${fD(k.due)}</span>` : ''}${av(k.assignee)}</div>`;
 }
-/** One line waiting for Management: a tender to bid for, or a bid to approve before it goes on the portal. */
+/** One tender waiting for Management, with its decision buttons where they can be seen. */
 function approvalRow(t) {
   const bid = t.stage === 'bidcheck';
   const sub = t.submission || {};
-  const mgmt = role() === 'mgmt';
   const boss = S.members.find((m) => m.role === 'mgmt');
-  const info = bid
-    ? `Quote ${inrS(sub.value)} against ${inrS(t.estCost)} estimated${num(t.estCost) ? ' (' + Math.round((num(sub.value) - num(t.estCost)) * 100 / num(t.estCost)) + '%)' : ''} · vendor ${esc((sup((t.prep || {}).finalVendor) || {}).name || '—')} · by ${esc(mName((t.bid || {}).requestedBy))}`
-    : `Est. ${inrS(t.estCost)} · EMD ${inrS(t.emd)} · shortlisted by ${esc(mName((t.approval || {}).requestedBy))}`;
-  return `<div class="lrow" style="cursor:default"><span class="sev info"></span><div class="x"><div class="a" style="white-space:normal">${esc(t.title || 'Untitled')}</div>
-    <div class="small faint"><span class="mono">${esc(t.no)}</span> · ${esc((cli(t.client) || {}).name || t.clientName || '')} · last date ${fD(t.lastDate)}</div><div class="small faint">${info}</div></div>
-    ${deadlineChip(t)}<button class="btn sm" ${go('tender', t.id)}>Review</button>
-    ${mgmt ? (bid ? `<button class="btn sm pri" data-act="bidApprove" data-id="${esc(t.id)}">${ic('check')}Approve bid</button><button class="btn sm" data-act="bidReturn" data-id="${esc(t.id)}">Send back</button>`
-      : `<button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve</button><button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>`)
-      : `<span class="chip info">With ${esc(boss ? boss.name : 'Management')}</span>`}</div>`;
+  const diff = num(t.estCost) ? Math.round((num(sub.value) - num(t.estCost)) * 100 / num(t.estCost)) : null;
+  const facts = bid
+    ? `<span><b class="num">${inrS(sub.value)}</b> bid</span><span>${inrS(t.estCost)} estimated${diff !== null ? ` (${diff > 0 ? '+' : ''}${diff}%)` : ''}</span><span>vendor ${esc((sup((t.prep || {}).finalVendor) || {}).name || '—')}</span><span>prepared by ${esc(mName((t.bid || {}).requestedBy))}</span>`
+    : `<span><b class="num">${inrS(t.estCost)}</b> estimated</span><span>EMD ${inrS(t.emd)}</span><span>${esc((portal(t.portal) || {}).name || '')}</span><span>shortlisted by ${esc(mName((t.approval || {}).requestedBy))}</span>`;
+  const acts = approver()
+    ? (bid ? `<button class="btn pri" data-act="bidApprove" data-id="${esc(t.id)}">${ic('check')}Approve bid</button><button class="btn" data-act="bidReturn" data-id="${esc(t.id)}">Send back</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>`
+      : `<button class="btn pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve – we bid</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>`)
+    : `<span class="chip info">Waiting for ${esc(boss ? boss.name : 'Management')}</span>`;
+  return `<div class="appr"><div class="appr-main"><div class="row" style="gap:6px">${prioChip(t.priority)}${deadlineChip(t)}<span class="chip ${bid ? 'acc' : 'info'}">${bid ? 'Bid approval' : 'Do we bid?'}</span></div>
+      <div class="appr-t">${esc(t.title || 'Untitled')}</div>
+      <div class="small faint"><span class="mono">${esc(t.no)}</span> · ${esc((cli(t.client) || {}).name || t.clientName || '')} · last date ${fDY(t.lastDate)} ${esc(t.dueTime || '')}</div>
+      <div class="appr-facts small">${facts}</div></div>
+    <div class="appr-acts"><button class="btn ghost" ${go('tender', t.id)}>Review ${ic('arrow')}</button>${acts}</div></div>`;
 }
 function approvalsCard(list) {
   return `<div class="card"><div class="card-h"><h2>Waiting for your approval</h2><span class="chip info">${list.length} waiting</span><button class="btn sm ghost" ${go('approvals')}>All approvals ${ic('arrow')}</button></div>
@@ -671,7 +682,7 @@ function vApprovals() {
   });
   recent.sort((x, y) => y.at.localeCompare(x.at)).splice(10);
   const card = (title, sub, list, empty) => `<div class="card"><div class="card-h"><h2>${title}</h2><span class="faint small">${sub}</span><span class="chip ${list.length ? 'info' : ''}">${list.length}</span></div>${list.length ? list.map(approvalRow).join('') : `<div class="empty">${empty}</div>`}</div>`;
-  return `<div class="note">${ic('check')}<span>Two decisions are Management's: whether to bid for a shortlisted tender, and — once the submission team has prepared it — the bid itself, before it goes on the portal. ${role() === 'mgmt' ? 'Approve, decline or send back from here.' : 'They are decided here by Management.'}</span></div>
+  return `<div class="note">${ic('check')}<span>Two decisions are Management's: whether to bid for a shortlisted tender, and — once the submission team has prepared it — the bid itself, before it goes on the portal. ${approver() ? 'Approve, decline or send back from here. Your own shortlisting and bids are approved as you send them.' : 'Management or the ERP Admin decides them here.'}</span></div>
   ${card('1 · Shortlisted tenders – do we bid?', 'Approve and it goes straight to the submission team', part, 'No shortlisted tender is waiting.')}
   ${card('2 · Bids to approve before submission', 'Prepared by the submission team: the price, the vendor, the documents', bids, 'No bid is waiting.')}
   <div class="card"><div class="card-h"><h2>Recently decided</h2></div>${recent.length ? recent.map((x) => `<div class="lrow" ${go('tender', x.t.id)}><span class="sev ${x.st === 'approved' ? 'ok' : x.st === 'sent back' ? 'warn' : 'bad'}"></span><div class="x"><div class="a">${esc(x.kind)} ${esc(x.st)}: ${esc(x.t.no)}</div><div class="small faint">${esc(mName(x.by))} · ${fD(x.at)}${x.note ? ' · “' + esc(x.note) + '”' : ''}</div></div>${stageChip(x.t)}</div>`).join('') : '<div class="empty">Nothing decided yet.</div>'}</div>`;
@@ -701,7 +712,7 @@ function vShortlist() {
     <div class="drop" ${has('shortlist') ? 'data-act="extractPick" data-kind="tender" data-drop="tender" role="button" tabindex="0"' : 'style="cursor:default;opacity:.6"'}>${ic('file')}<div><b>Drop tender PDF here</b></div><div class="small faint">PDF, JPG or PNG · scanned pages are read too · up to 10 MB</div></div>
   </div></div>
   ${section('1 · Shortlisting – being entered', drafts, (t) => `<button class="btn sm" ${go('tender', t.id)}>Complete &amp; send for approval</button>`, 'Fill what the checklist asks, then send to Management')}
-  ${section('2 · Sent for management approval', appr, (t) => r === 'mgmt' ? `<button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">Approve</button> <button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="chip info">With ${esc(boss ? boss.name : 'Management')}</span>`, 'Once approved, it goes to the submission team')}
+  ${section('2 · Sent for management approval', appr, (t) => approver() ? `<button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">Approve</button> <button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="chip info">With ${esc(boss ? boss.name : 'Management')}</span>`, 'Once approved, it goes to the submission team')}
   ${dec.length ? section('Not participating', dec, (t) => `<span class="small faint">${esc((t.postbid || {}).reason || '')}</span>`) : ''}`;
 }
 
@@ -821,11 +832,11 @@ function vTender() {
   let gp = '';
   const boss = S.members.find((m) => m.role === 'mgmt');
   if (t.stage === 'approval') {
-    gp = gatePanel('Management decision: do we bid?', g ? g.reqs : [], r === 'mgmt' ? `<button class="btn pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve – we bid</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}. Once approved it goes to the submission team.</span>`);
+    gp = gatePanel('Management decision: do we bid?', g ? g.reqs : [], approver() ? `<button class="btn pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve – we bid</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}. Once approved it goes to the submission team.</span>`);
   } else if (t.stage === 'bidcheck') {
     const sub = t.submission || {};
     const facts2 = `<div style="padding:0 16px 10px"><dl class="kv"><dt>Bid value</dt><dd class="num">${inr(sub.value)}</dd><dt>Estimate</dt><dd class="num">${inr(t.estCost)}</dd><dt>Vendor</dt><dd>${esc((sup((t.prep || {}).finalVendor) || {}).name || '—')}</dd><dt>Sent by</dt><dd>${esc(mName((t.bid || {}).requestedBy))}</dd></dl></div>`;
-    gp = gatePanel('Management decision: approve the bid', g ? g.reqs : [], r === 'mgmt' ? `<button class="btn pri" data-act="bidApprove" data-id="${esc(t.id)}">${ic('check')}Approve bid</button><button class="btn" data-act="bidReturn" data-id="${esc(t.id)}">Send back</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}. Once approved, submit it on the portal.</span>`, facts2);
+    gp = gatePanel('Management decision: approve the bid', g ? g.reqs : [], approver() ? `<button class="btn pri" data-act="bidApprove" data-id="${esc(t.id)}">${ic('check')}Approve bid</button><button class="btn" data-act="bidReturn" data-id="${esc(t.id)}">Send back</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}. Once approved, submit it on the portal.</span>`, facts2);
   } else if (g) {
     // The submission team: Shortlisting names the owner; an executive can take an unowned tender.
     let extraField = '';

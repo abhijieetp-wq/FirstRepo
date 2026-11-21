@@ -160,7 +160,7 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   console.log('THE DASHBOARD');
   await page.goto(B + '/tender-desk');
   await page.waitForSelector('.kpis .kpi');
-  ok('its own page: the rail with its seven screens, not the ERP\'s menu', (await page.$$eval('.rail .nav-btn', (b) => b.map((x) => x.textContent.trim().replace(/\d+$/, '')))).join('|') === 'Dashboard|Shortlisting|Approvals|Tenders|PO execution|Tasks|Masters');
+  ok('its own page: the rail with its seven screens, not the ERP\'s menu', (await page.$$eval('.rail .nav-btn', (b) => b.map((x) => x.textContent.trim().replace(/\d+$/, '')))).join('|') === 'Dashboard|Shortlisting|Approvals|Tender submission|PO execution|Tasks|Masters');
   ok('eight figures', (await page.$$('.kpi')).length === 8);
   ok('the switch to the ERP, with the Tender Desk lit', (await page.textContent('.top .switch')).includes('ERP') && (await page.textContent('.switch .on')).includes('Tender Desk'));
   ok('what needs attention, LD first among them', /LD running on PO GEMC-511687702544810/.test(await page.textContent('.content')) && /due in 2 days/.test(await page.textContent('.content')));
@@ -173,7 +173,7 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   ok('the address follows', new globalThis.URL(page.url()).pathname === '/tender-desk/shortlisting');
   ok('upload a tender, enter by hand, and the approval waiting', (await page.$('[data-act="extractOpen"]')) && (await page.$('[data-act="newTender"]')) && /ST\/O&M\/NGP\/2026\/88/.test(await page.textContent('.content')));
   await shot('td-shortlisting');
-  await page.click('.nav-btn:has-text("Tenders")'); await settle();
+  await page.click('.nav-btn[data-page="tenders"]'); await settle();
   ok('the board has a column for each step', (await page.$$eval('.kan .col-h', (h) => h.map((x) => x.firstChild.textContent.trim()))).join('|') ===
     'Shortlisting|Awaiting approval|Submission prep|Bid approval|Submit on portal|Submitted|Bid opened|Won|Lost / closed');
   await shot('td-tenders');
@@ -200,7 +200,8 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   ok('Management sees what waits for it on the dashboard', /Waiting for your approval/.test(await page.textContent('.content')) && /GEM\/2026\/B\/5531902/.test(await page.textContent('.content')));
   ok('and Approvals in the menu, with the count, marked for them', (await page.textContent('.nav-btn[data-page="approvals"] .ct.hot')).trim() === '3');
   await page.click('.nav-btn[data-page="approvals"]'); await settle();
-  ok('the approvals screen: tenders to bid for, and bids to approve', (await page.$$('.card .lrow [data-act="approve"]')).length === 2 && (await page.$$('.card .lrow [data-act="bidApprove"]')).length === 1);
+  ok('the approvals screen: each tender with its buttons, to bid for and bids to approve', (await page.$$('.appr button[data-act="approve"]')).length === 2 && (await page.$$('.appr button[data-act="bidApprove"]')).length === 1 &&
+    (await page.$$('.appr button[data-act="bidReturn"]')).length === 1 && (await page.textContent('.appr button[data-act="approve"]')).includes('Approve'));
   await shot('td-approvals');
   await page.click(`[data-act="approve"][data-id="${tB}"]`);
   await page.selectOption('#f_n_owner', 'sneha@pie.invalid');
@@ -215,6 +216,10 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await page.click('[data-act="bidSave"]'); await settle();
   ok('a bid approved through the page: on to the portal', (await p.getTenderApp()).tenders.find((t) => t.id === tE).stage === 'ready');
   ok('and it shows under recently decided', /Bid approved: GEM\/2026\/B\/5531902/.test(await page.textContent('.content')));
+
+  actor = 'U-COORD';
+  await page.goto(B + '/tender-desk/approvals'); await page.waitForSelector('.appr');
+  ok('somebody who is not an approver sees who it waits for, not buttons', !(await page.$('.appr button[data-act="approve"]')) && /Waiting for Vikram Joshi/.test(await page.textContent('.content')));
 
   console.log('THE PO');
   actor = 'U-SVC';
