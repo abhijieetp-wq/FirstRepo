@@ -77,24 +77,47 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await as('U-ADMIN');
   let st = await p.getTenderApp();
   const roleOf = (s, email) => (s.members.find((m) => m.id === email) || {}).role;
-  ok('the ERP admin starts as Shortlisting & Admin and may keep the team', st.me.role === 'shortlist' && st.me.team === true && st.me.masters === true, st.me);
+  ok('the ERP admin starts as Shortlisting, and is a Tender Desk admin always', st.me.role === 'shortlist' && st.roles.shortlist === 'Shortlisting' && st.me.admin === true &&
+    st.me.team === true && st.me.masters === true && st.members.find((m) => m.id === 'office@pie.invalid').adminAlways === true, st.me);
   ok('Management, Accounts and the ticked users are members, each as their ERP role starts them',
     roleOf(st, 'vikram@pie.invalid') === 'mgmt' && roleOf(st, 'neha@pie.invalid') === 'accounts' && roleOf(st, 'isha@pie.invalid') === 'shortlist' &&
     roleOf(st, 'rohan@pie.invalid') === 'exec' && roleOf(st, 'kiran@pie.invalid') === 'fp' && roleOf(st, 'meera@pie.invalid') === 'items', st.members);
   ok('the unticked engineer is not on it, and is offered to add', !roleOf(st, 'amol@pie.invalid') && st.others.some((o) => o.id === 'amol@pie.invalid'));
   await as('U-ENG2');
   ok('nor can he open it', await refuses(() => p.getTenderApp(), /not open to your account/));
+  console.log('ADMIN IS A GRANT OF ITS OWN');
   await as('U-MGMT');
-  st = (await p.saveTenderMember('amol@pie.invalid', 'exec', true)).state;
-  ok('Management adds him, as a Tender Executive', roleOf(st, 'amol@pie.invalid') === 'exec');
-  ok('Accounts cannot be taken off', await refuses(() => p.saveTenderMember('neha@pie.invalid', null, false), /always has the Tender Desk/));
+  st = await p.getTenderApp();
+  ok('Management is not an admin by being Management', st.me.admin === false && st.me.team === false && st.me.approver === true);
+  ok('so cannot change the team', await refuses(() => p.saveTenderMember('amol@pie.invalid', 'exec', true), /Tender Desk admins/));
   await as('U-COORD');
-  ok('a coordinator cannot change the team', await refuses(() => p.saveTenderMember('amol@pie.invalid', 'fp', null), /Management or the ERP Admin/));
+  st = await p.getTenderApp();
+  ok('nor is Shortlisting an admin', st.me.role === 'shortlist' && st.me.admin === false && st.me.masters === false && st.me.addClients === true);
+  ok('a coordinator cannot change the team', await refuses(() => p.saveTenderMember('amol@pie.invalid', 'fp', null), /Tender Desk admins/));
+  ok('nor keep the masters', await refuses(() => p.saveTenderMaster('portal', { name: 'Some portal' }), /Tender Desk admins/));
+  ok('nor make herself an admin', await refuses(() => p.saveTenderMember('isha@pie.invalid', null, null, true), /Tender Desk admins/));
+  await as('U-ADMIN');
+  st = (await p.saveTenderMember('amol@pie.invalid', 'exec', true)).state;
+  ok('an admin adds him, as a Tender Executive', roleOf(st, 'amol@pie.invalid') === 'exec');
+  ok('Accounts cannot be taken off', await refuses(() => p.saveTenderMember('neha@pie.invalid', null, false), /always has the Tender Desk/));
+  ok('the ERP Admin cannot be unmade', await refuses(() => p.saveTenderMember('office@pie.invalid', null, null, false), /always a Tender Desk admin/));
+  ok('nobody is made admin before they are on the Tender Desk', await refuses(() => p.saveTenderMember('kiran2@pie.invalid', null, null, true), /nobody active/));
+  st = (await p.saveTenderMember('isha@pie.invalid', null, null, true)).state;
+  ok('an admin makes the coordinator an admin too', st.members.find((m) => m.id === 'isha@pie.invalid').admin === true);
+  await as('U-COORD');
+  st = await p.getTenderApp();
+  ok('and now she keeps the team and the masters', st.me.admin === true && st.me.team === true && st.me.masters === true && st.me.accounts === true);
+  ok('but cannot take away her own', await refuses(() => p.saveTenderMember('isha@pie.invalid', null, null, false), /your own admin/));
+  await as('U-ADMIN');
+  await p.saveTenderMember('vikram@pie.invalid', null, null, true);
+  await p.saveTenderMember('vikram@pie.invalid', null, null, false);
+  ok('and an admin can be taken away by a fellow admin', (await p.getTenderApp()).members.find((m) => m.id === 'vikram@pie.invalid').admin === false);
+  await as('U-COORD');
   ok('the defaults are there before anybody keeps a master', st.portals.length === 5 && st.checklist.length === 10 && st.uoms.some((u) => u.name === 'Nos') && st.cfg.alertDays === 7);
 
   console.log('A TENDER DESK ONLY ACCOUNT');
   await as('U-COORD');
-  ok('a coordinator cannot open accounts', await refuses(() => p.createTenderMember({ name: 'X Y', password: 'cedar-teak-42' }), /Management or the ERP Admin/));
+  ok('somebody who is not an admin cannot open accounts', await (async () => { await as('U-ENG'); const r = await refuses(() => p.createTenderMember({ name: 'X Y', password: 'cedar-teak-42' }), /Tender Desk admins/); await as('U-COORD'); return r; })());
   await as('U-ADMIN');
   ok('the ERP Admin may open them', (await p.getTenderApp()).me.accounts === true);
   ok('a weak first password is refused', await refuses(() => p.createTenderMember({ name: 'Pooja Wankhede', password: 'abc' }), /at least/));
@@ -122,7 +145,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   console.log('THE TENDER DESK\'S OWN CLIENTS');
   ok('no clients to start with: the ERP\'s Customers are not its clients', st.clients.length === 0, st.clients);
   await as('U-ENG');
-  ok('an executive cannot add clients', await refuses(() => p.saveTenderMaster('client', { name: 'X' }), /Shortlisting & Admin or Management/));
+  ok('an executive cannot add clients', await refuses(() => p.saveTenderMaster('client', { name: 'X' }), /Tender Desk admins/));
   await as('U-COORD');
   st = (await p.saveTenderMaster('client', { name: 'Test State Power Generation Co Ltd', short: 'TSPGCL', city: 'Nagpur', state: 'Maharashtra', gstin: '27aaacT1234a1z5' })).state;
   const gen = st.clients.find((c) => c.name === 'Test State Power Generation Co Ltd');
@@ -151,7 +174,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
     deliveryPeriod: '90 days', ldClause: '0.5% per week, max 10%', eligibility: ['OEM or authorised dealer', ''], items: [{ desc: 'Screw air compressor 160 cfm', qty: '2', uom: 'nos', spec: 'IS 5456' }, { desc: '', qty: '', uom: '', spec: '' }],
     unsure: ['emd'] };
   await as('U-ENG');
-  ok('an executive cannot enter a tender', await refuses(() => p.readTenderDocument(pdf), /Shortlisting & Admin/));
+  ok('an executive cannot enter a tender', await refuses(() => p.readTenderDocument(pdf), /Shortlisting/));
   await as('U-COORD');
   const read = await p.readTenderDocument(pdf);
   ok('the PDF goes to Claude as a document, before the instruction', aiAsked && aiAsked.content[0].type === 'document' && aiAsked.content[0].source.media_type === 'application/pdf' && aiAsked.content[1].type === 'text');
@@ -255,7 +278,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await as('U-ENG');
 
   console.log('THE WHOLE TEAM, AND SHORTLISTING & EXECUTIVE IN ONE PERSON');
-  await as('U-MGMT');
+  await as('U-ADMIN');
   await p.saveTenderMember('isha@pie.invalid', 'both', null);
   await as('U-COORD');
   res = await p.newTender();
@@ -355,7 +378,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
     sdPct: '3', sdDays: '21', pbgPct: '', inspection: 'Pre-dispatch', gaDrawing: '', warranty: '18 months', ackDays: '7',
     items: [{ sr: '1', code: 'C-160', desc: 'Screw air compressor 160 cfm', qty: '2', uom: 'Nos', rate: '1155000', amount: '2310000', due: '' }], unsure: [] };
   await as('U-ENG');
-  ok('an executive does not enter POs', await refuses(() => p.readPoDocument(pdf, ''), /Shortlisting & Admin or Items Entry/));
+  ok('an executive does not enter POs', await refuses(() => p.readPoDocument(pdf, ''), /Shortlisting or Items Entry/));
   await as('U-SVCC');
   const poRead = await p.readPoDocument(pdf, '');
   ok('the PO is read and matched to the won tender by its reference; the due date from the period', poRead.data.tenderId === tid && poRead.data.dueDate === inDays(-10) &&
@@ -443,7 +466,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
 
   console.log('MASTERS AND RULES');
   await as('U-ENG');
-  ok('an executive cannot keep the masters', await refuses(() => p.saveTenderMaster('portal', { name: 'X' }), /Shortlisting & Admin or Management/));
+  ok('an executive cannot keep the masters', await refuses(() => p.saveTenderMaster('portal', { name: 'X' }), /Tender Desk admins/));
   await as('U-COORD');
   res = await p.saveTenderMaster('portal', { name: 'KPCL eProcurement' });
   ok('a portal added, and the defaults kept with their ids', res.state.portals.length === 6 && res.state.portals[1].id === 'TDM-portal-2');

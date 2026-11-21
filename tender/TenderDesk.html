@@ -389,7 +389,8 @@ const ui = { page: 'dashboard', id: null, tab: null, filters: { mine: false, q: 
 const mem = (id) => S.members.find((m) => m.id === id);
 const mName = (id) => (mem(id) || {}).name || (id ? id : '—');
 const role = () => S.me.role;
-// Shortlisting & Executive ('both') is Shortlisting & Admin and a Tender Executive at once.
+// Shortlisting & Executive ('both') is Shortlisting and a Tender Executive at once. Admin is a
+// separate grant (S.me.admin), not part of any role.
 const roleHas = (m, r) => m === r || (m === 'both' && (r === 'shortlist' || r === 'exec'));
 const has = (r) => roleHas(role(), r);
 const ROLES = () => S.roles;
@@ -459,7 +460,7 @@ function F(label, ref, val, o) {
     const rows = first.map(cli).filter(Boolean).concat(S.clients.filter((x) => first.indexOf(x.id) === -1));
     ctl = `<div class="row" style="gap:6px;flex-wrap:nowrap"><input class="${cls}" id="${id}" type="search" list="${list}" data-client="${esc(ref)}" value="${esc(c ? c.name : '')}" ${ro ? 'readonly' : ''} placeholder="${esc(o.ph || (S.clients.length ? 'Type to pick a client' : 'No clients yet – add one'))}" autocomplete="off">` +
       `<datalist id="${list}">${rows.map((x) => `<option value="${esc(x.name)}">${esc([x.short, x.city].filter(Boolean).join(' · '))}</option>`).join('')}</datalist>` +
-      `${ro || !S.me.masters ? '' : `<button type="button" class="btn sm" data-act="newClient" data-ref="${esc(ref)}" data-name="${esc(o.newName || '')}" title="Add a client to the list">${ic('plus')}New</button>`}</div>`;
+      `${ro || !S.me.addClients ? '' : `<button type="button" class="btn sm" data-act="newClient" data-ref="${esc(ref)}" data-name="${esc(o.newName || '')}" title="Add a client to the list">${ic('plus')}New</button>`}</div>`;
   } else ctl = `<input class="${cls}" id="${id}" type="${t}" data-ref="${esc(ref)}" value="${esc(val)}" ${ro ? 'readonly' : ''} placeholder="${esc(o.ph || '')}" ${t === 'number' ? 'step="any" inputmode="decimal" min="0"' : ''}>`;
   return `<div class="f${o.wide ? ' wide' : ''}"><label for="${id}">${esc(label)}${o.req ? '<span class="req">*</span>' : ''}${o.low ? '<span class="ai-badge" title="AI was not sure – please check">check</span>' : ''}${o.hint ? `<span class="faint small">${esc(o.hint)}</span>` : ''}</label>${ctl}</div>`;
 }
@@ -706,7 +707,7 @@ function vShortlist() {
       <span class="ai-badge" style="align-self:flex-start">${ic('spark')} AI capture</span>
       <h2 style="font-size:20px">Upload a tender. AI fills the record.</h2>
       <p class="muted" style="margin:0;max-width:60ch">Drop the NIT / tender PDF (or a photo of it). AI reads the tender number, client, dates, EMD, SD/PBG, eligibility and every BOQ line, and flags anything it was unsure about for you to check. Then send it to management for a participate / don't-bid decision.</p>
-      ${has('shortlist') ? `<div class="row"><button class="btn pri" data-act="extractOpen" data-kind="tender">${ic('up')}Upload tender document</button><button class="btn ghost" data-act="newTender">Enter manually</button></div>` : `<div class="note">${ic('user')}<span>You're on the Tender Desk as ${esc(S.roles[r])}. Tenders are entered by Shortlisting &amp; Admin.</span></div>`}
+      ${has('shortlist') ? `<div class="row"><button class="btn pri" data-act="extractOpen" data-kind="tender">${ic('up')}Upload tender document</button><button class="btn ghost" data-act="newTender">Enter manually</button></div>` : `<div class="note">${ic('user')}<span>You're on the Tender Desk as ${esc(S.roles[r])}. Tenders are entered by Shortlisting.</span></div>`}
       ${S.ai ? '' : `<div class="note">${ic('alert')}<span>AI reading is off on this server (${esc(S.aiOff)}). The document is still kept and you fill the form by hand.</span></div>`}
     </div>
     <div class="drop" ${has('shortlist') ? 'data-act="extractPick" data-kind="tender" data-drop="tender" role="button" tabindex="0"' : 'style="cursor:default;opacity:.6"'}>${ic('file')}<div><b>Drop tender PDF here</b></div><div class="small faint">PDF, JPG or PNG · scanned pages are read too · up to 10 MB</div></div>
@@ -1007,9 +1008,11 @@ function vMasters() {
   let body;
   if (k === 'members') {
     RO = !S.me.team;
-    body = `<div class="card"><div class="card-h"><h3>Team members</h3><span class="faint small">Somebody who also works in the ERP is added from the list below. Somebody who works only on tenders gets a <b>Tender Desk only</b> account with <b>New member</b>: they sign in with it and see the Tender Desk and nothing else. Management and the ERP Admin keep the team.</span>${S.me.accounts ? `<button class="btn sm pri" data-act="memberNew">${ic('plus')}New member</button>` : ''}</div>
-    <div class="tbl-wrap"><table class="t"><thead><tr><th>Name</th><th>ERP role</th><th>Tender Desk role</th><th></th></tr></thead><tbody>
+    body = `<div class="card"><div class="card-h"><h3>Team members</h3><span class="faint small">Somebody who also works in the ERP is added from the list below. Somebody who works only on tenders gets a <b>Tender Desk only</b> account with <b>New member</b>: they sign in with it and see the Tender Desk and nothing else. <b>Admin</b> is a separate grant, given by a fellow admin: admins keep the team, the masters and the rules, and open accounts. The ERP Admin always is one.</span>${S.me.accounts ? `<button class="btn sm pri" data-act="memberNew">${ic('plus')}New member</button>` : ''}</div>
+    <div class="tbl-wrap"><table class="t"><thead><tr><th>Name</th><th>ERP role</th><th>Tender Desk role</th><th>Admin</th><th></th></tr></thead><tbody>
     ${S.members.map((m) => `<tr><td>${av(m.id)} ${esc(m.name)}${m.username ? `<div class="small faint">signs in as ${esc(m.username)}</div>` : ''}</td><td class="small muted">${m.tenderOnly ? '<span class="chip acc">Tender Desk only</span>' : esc(m.erpRole)}</td><td><select class="in" id="mr_${fid(m.id)}" data-member="${esc(m.id)}" ${RO ? 'disabled' : ''}>${opts(Object.entries(S.roles), m.role, 'Role')}</select></td>
+      <td>${m.adminAlways ? '<span class="chip acc" title="The ERP Admin always is one">Admin · always</span>'
+        : `<label class="row small" style="gap:6px;flex-wrap:nowrap"><input type="checkbox" id="ma_${fid(m.id)}" data-admin="${esc(m.id)}" ${m.admin ? 'checked' : ''} ${RO || m.id === S.me.id ? 'disabled' : ''}> ${m.admin ? 'Admin' : 'No'}</label>`}</td>
       <td style="white-space:nowrap">${m.tenderOnly ? (S.me.accounts ? `<button class="btn sm" data-act="memberPw" data-id="${esc(m.id)}">Set password</button> <button class="btn sm ghost danger" data-act="memberClose" data-id="${esc(m.id)}">Close account</button>` : '')
         : RO || ['Management', 'ERP Admin', 'Accounts'].includes(m.erpRole) ? '' : `<button class="btn sm ghost" data-act="memberOff" data-id="${esc(m.id)}">Remove from Tender Desk</button>`}</td></tr>`).join('')}
     </tbody></table></div>
@@ -1043,7 +1046,7 @@ function vMasters() {
       <td style="white-space:nowrap">${RO ? '' : row.id === 'new' ? `<button class="btn sm ghost" data-act="mDelCancel" data-k="${k}">Cancel</button>` : ui.confirmDel === row.id ? `<button class="btn sm danger" data-act="mDel" data-k="${k}" data-id="${esc(row.id)}">Delete</button> <button class="btn sm ghost" data-act="mDelKeep">Keep</button>` : `<button class="btn sm ghost" data-act="mDelAsk" data-id="${esc(row.id)}" aria-label="Delete">${ic('trash')}</button>`}</td></tr>`).join('') || `<tr><td colspan="${M.cols.length + 1}" class="empty">Nothing yet.</td></tr>`}
     </tbody></table></div></div>`;
   }
-  const roNote = k === 'taskStatuses' ? '' : (k === 'members' ? !S.me.team : !S.me.masters) ? `<div class="note">${ic('user')}<span>View only. ${k === 'members' ? 'The team is kept by Management or the ERP Admin.' : 'Masters are kept by Shortlisting &amp; Admin or Management.'}</span></div>` : '';
+  const roNote = k === 'taskStatuses' ? '' : (k === 'members' ? !S.me.team : !S.me.masters) ? `<div class="note">${ic('user')}<span>View only. ${k === 'members' ? 'The team is kept by the Tender Desk admins.' : 'Masters are kept by the Tender Desk admins.'}</span></div>` : '';
   RO = false;
   return roNote + `<div class="tabs">${tabs.map(([key, l, n]) => `<button class="tab${k === key ? ' on' : ''}" data-act="mtab" data-v="${key}">${esc(l)}${n != null ? `<span class="ct">${n}</span>` : ''}</button>`).join('')}</div>${body}`;
 }
@@ -1452,6 +1455,11 @@ document.addEventListener('change', (e) => {
   if (el.dataset.ref) setRef(el.dataset.ref, readVal(el));
   if (el.dataset.filter) { ui.filters[el.dataset.filter] = el.type === 'checkbox' ? el.checked : el.value; render(); }
   if (el.dataset.member) mutate('saveTenderMember', [el.dataset.member, el.value, null]);
+  if (el.dataset.admin) {
+    const who = mName(el.dataset.admin);
+    if (!confirm(el.checked ? 'Make ' + who + ' a Tender Desk admin? They will keep the team, the masters and the rules, and open accounts.' : 'Take admin away from ' + who + '?')) { render(); return; }
+    mutate('saveTenderMember', [el.dataset.admin, null, null, el.checked]);
+  }
   if (el.dataset.chg === 'fpAll' && el.value) { ui.extract.data.items.forEach((i) => { i.fp = el.value; }); refreshPoChecks(); render(); }
 });
 document.addEventListener('input', (e) => {

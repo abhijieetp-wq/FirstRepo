@@ -30,9 +30,12 @@
  *
  * Who does what is the person's Tender Desk role (Users.tenderRole), which starts from their
  * ERP role and is changed in Masters → Team members:
- *   Shortlisting & Admin (Sales Coordinator, ERP Admin) — enters tenders, sends them for
- *     approval, assigns them, keeps the masters.
- *   Shortlisting & Executive — all of that, and can also be assigned tenders and execute them.
+ *   Shortlisting (Sales Coordinator, ERP Admin) — enters tenders, sends them for approval,
+ *     names who prepares them.
+ *   Shortlisting & Executive — that, and can also be assigned tenders and execute them.
+ * Admin is not a role but a grant (Users.tenderAdmin), given and taken by a fellow admin in
+ * Masters → Team members: admins keep the masters, the rules and the team, and open accounts.
+ * The ERP Admin is always one, so the Tender Desk is never left without.
  *   Management — approves participation or declines it.
  *   Tender Executive (Sales Engineer) — prepares and submits the tenders assigned to them.
  *   Items Entry (Service Coordinator) — enters the client's PO.
@@ -50,7 +53,7 @@
 
 // ---------------------------------------------------------------- the fixed parts
 
-var TD_ROLES = { shortlist: 'Shortlisting & Admin', both: 'Shortlisting & Executive', mgmt: 'Management', exec: 'Tender Executive',
+var TD_ROLES = { shortlist: 'Shortlisting', both: 'Shortlisting & Executive', mgmt: 'Management', exec: 'Tender Executive',
   items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
 /** Whether a person's Tender Desk role includes another: Shortlisting & Executive is both of those. */
 function tdHas_(role, r) { return role === r || (role === 'both' && (r === 'shortlist' || r === 'exec')); }
@@ -216,8 +219,10 @@ function tdUserHasAccess_(u) {
   if (String(u.active).toUpperCase() === 'FALSE' || !String(u.email || '')) return false;
   return TD_ALWAYS.indexOf(String(u.role)) !== -1 || String(u.tenderDesk).toUpperCase() === 'TRUE';
 }
-/** Who keeps the masters: Shortlisting & Admin, Management, and the ERP Admin whatever their role here. */
-function tdMasterEditor_(ctx) { return tdHas_(ctx.role, 'shortlist') || ctx.role === 'mgmt' || String(ctx.user.role) === ROLES.ERP_ADMIN; }
+/** A Tender Desk admin: granted by a fellow admin (Users.tenderAdmin), and the ERP Admin always. */
+function tdIsAdmin_(u) { return !!u && (String(u.role) === ROLES.ERP_ADMIN || String(u.tenderAdmin).toUpperCase() === 'TRUE'); }
+/** Who keeps the masters and the rules: the Tender Desk's admins. */
+function tdMasterEditor_(ctx) { return ctx.admin === true; }
 /**
  * Who approves — whether to bid, and the bid before it goes on the portal: the Tender Desk's
  * Management, and, as in the rest of the ERP, whoever is Management or the ERP Admin there.
@@ -229,7 +234,7 @@ function tdRequireApprover_(ctx, what) {
   if (!tdApprover_(ctx)) throw new Error(what + ' is done by Management or the ERP Admin.');
 }
 /** Who decides who is on the Tender Desk at all: Management and the ERP Admin. */
-function tdTeamEditor_(ctx) { return ctx.role === 'mgmt' || String(ctx.user.role) === ROLES.ERP_ADMIN; }
+function tdTeamEditor_(ctx) { return ctx.admin === true; }
 
 
 // ---------------------------------------------------------------- the masters
@@ -350,7 +355,8 @@ function tdContext_(user) {
   var meRow = users.filter(function (u) { return tdSame_(u.email, user.email); })[0] || {};
   var members = users.filter(tdUserHasAccess_).map(function (u) {
     return { id: String(u.email).toLowerCase(), email: String(u.email), name: String(u.name || u.email), role: tdRoleOf_(u), erpRole: String(u.role || ''),
-      username: String(u.username || ''), tenderOnly: String(u.role) === ROLES.TENDER_DESK, userId: String(u.id) };
+      username: String(u.username || ''), tenderOnly: String(u.role) === ROLES.TENDER_DESK, userId: String(u.id),
+      admin: tdIsAdmin_(u), adminAlways: String(u.role) === ROLES.ERP_ADMIN };
   }).sort(function (a, b) { return a.name.localeCompare(b.name); });
   var others = users.filter(function (u) { return String(u.active).toUpperCase() !== 'FALSE' && String(u.email || '') && !tdUserHasAccess_(u); })
     .map(function (u) { return { id: String(u.email).toLowerCase(), name: String(u.name || u.email), erpRole: String(u.role || '') }; })
@@ -363,6 +369,7 @@ function tdContext_(user) {
   }).map(tdTaskOut_);
   return {
     user: user, me: String(user.email).toLowerCase(), role: tdRoleOf_({ tenderRole: meRow.tenderRole, role: user.role }),
+    admin: tdIsAdmin_({ role: user.role, tenderAdmin: meRow.tenderAdmin }),
     today: todayIso_(), masters: masters, cfg: masters.cfg, members: members, others: others, tenders: tenders, pos: pos, tasks: tasks
   };
 }
@@ -677,7 +684,9 @@ function tdState_(ctx) {
     today: ctx.today, build: typeof APP_BUILD !== 'undefined' ? APP_BUILD : '',
     me: { id: ctx.me, name: String(ctx.user.name || ctx.user.email), role: ctx.role, erpRole: String(ctx.user.role || ''),
       masters: tdMasterEditor_(ctx), team: tdTeamEditor_(ctx), approver: tdApprover_(ctx), accounts: tdAccountMaker_(ctx),
-      tenderOnly: String(ctx.user.role) === ROLES.TENDER_DESK },
+      tenderOnly: String(ctx.user.role) === ROLES.TENDER_DESK, admin: ctx.admin === true,
+      // Shortlisting adds a client while entering a tender; the rest of the masters are the admins'.
+      addClients: ctx.admin === true || tdHas_(ctx.role, 'shortlist') },
     roles: TD_ROLES, stages: TD_STAGES, results: TD_RESULTS, pstages: TD_PSTAGES, moves: TD_MOVES, emdTypes: TD_EMD_TYPES,
     declineReasons: TD_DECLINE_REASONS, taskStatuses: TD_TASK_STATUSES,
     members: ctx.members, others: tdTeamEditor_(ctx) ? ctx.others : [],
@@ -808,7 +817,7 @@ function saveTenderField(id, path, value) {
       t.client = tdClientOk_(ctx, String(value || ''));
     } else if (p === 'assignee') {
       var mine = String(value || '').toLowerCase() === ctx.me && !t.assignee && tdTeamMay_(t, ctx);
-      if (!tdHas_(ctx.role, 'shortlist') && !mine) throw new Error('The owner of a tender is named by Shortlisting & Admin, or taken by an executive while it has none.');
+      if (!tdHas_(ctx.role, 'shortlist') && !mine) throw new Error('The owner of a tender is named by Shortlisting, or taken by an executive while it has none.');
       var m = value ? tdMember_(ctx, value) : null;
       if (value && !m) throw new Error('Pick somebody who is on the Tender Desk.');
       if (m && !tdHas_(m.role, 'exec')) throw new Error(m.name + ' is not on the submission team (Tender Executive, or Shortlisting & Executive).');
@@ -1508,7 +1517,7 @@ function recordPoMove(poId, itemId, move) {
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
   var p = tdPo_(ctx, poId);
-  if (!tdHas_(ctx.role, 'shortlist') && ['items', 'fp'].indexOf(ctx.role) === -1) throw new Error('Quantities are updated by Fulfilment, Items Entry or Shortlisting & Admin.');
+  if (!tdHas_(ctx.role, 'shortlist') && ['items', 'fp'].indexOf(ctx.role) === -1) throw new Error('Quantities are updated by Fulfilment, Items Entry or Shortlisting.');
   if (p.closed) throw new Error('This PO is closed.');
   var it = p.items.filter(function (i) { return i.id === itemId; })[0];
   if (!it) throw new Error('That item is no longer on the PO.');
@@ -1587,7 +1596,7 @@ function deleteTenderTask(id) {
   var ctx = tdContext_(user);
   var k = ctx.tasks.filter(function (x) { return x.id === String(id); })[0];
   if (!k) throw new Error('That task is no longer there.');
-  if (k.by !== ctx.me && !tdHas_(ctx.role, 'shortlist') && ctx.role !== 'mgmt') throw new Error('Only whoever gave this task, or Shortlisting & Admin / Management, can delete it.');
+  if (k.by !== ctx.me && !tdHas_(ctx.role, 'shortlist') && ctx.role !== 'mgmt') throw new Error('Only whoever gave this task, or Shortlisting / Management, can delete it.');
   updateRowById_('Tasks', 'id', k.id, { active: 'FALSE', updatedAt: nowIso_(), updatedBy: user.email }, 'Task deleted on the Tender Desk');
   return tdAnswer_(user, { message: 'Task deleted' });
 }
@@ -1748,10 +1757,12 @@ function saveTenderMaster(list, row) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
-  if (!tdMasterEditor_(ctx)) throw new Error('Masters are kept by Shortlisting & Admin or Management.');
   var spec = TD_MASTERS[list];
   if (!spec) throw new Error('That is not one of the masters.');
   var r = row || {};
+  // A new client from a tender is Shortlisting's to add; every other change is the admins'.
+  var newClient = list === 'client' && !r.id && tdHas_(ctx.role, 'shortlist');
+  if (!tdMasterEditor_(ctx) && !newClient) throw new Error('Masters are kept by the Tender Desk admins.');
   var name = String(r[spec.name] || '').trim().slice(0, 400);
   if (!name) throw new Error('Give it a ' + (spec.name === 'label' ? 'label' : 'name') + ' first.');
   var data = {};
@@ -1791,7 +1802,7 @@ function deleteTenderMaster(list, id) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
-  if (!tdMasterEditor_(ctx)) throw new Error('Masters are kept by Shortlisting & Admin or Management.');
+  if (!tdMasterEditor_(ctx)) throw new Error('Masters are kept by the Tender Desk admins.');
   var spec = TD_MASTERS[list];
   if (!spec) throw new Error('That is not one of the masters.');
   if (['portal', 'category', 'uom', 'checkpoint'].indexOf(list) !== -1 && ctx.masters[spec.key].length <= 1) throw new Error('Keep at least one entry in ' + spec.label + '.');
@@ -1809,7 +1820,7 @@ function saveTenderRules(cfg) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
-  if (!tdMasterEditor_(ctx)) throw new Error('The rules are kept by Shortlisting & Admin or Management.');
+  if (!tdMasterEditor_(ctx)) throw new Error('The rules are kept by the Tender Desk admins.');
   var c = cfg || {};
   var out = {};
   Object.keys(TD_RULE_DEFAULTS).forEach(function (k) { out[k] = ctx.cfg[k]; });
@@ -1826,15 +1837,26 @@ function saveTenderRules(cfg) {
   else appendRow_('TenderMasters', { id: 'TDM-RULES', list: 'rules', name: 'Rules', sortOrder: 0, active: 'TRUE', dataJson: JSON.stringify(out) }, 'Tender Desk rules set');
   return tdAnswer_(user);
 }
-/** Who is on the Tender Desk, and as what. Management and the ERP Admin. */
-function saveTenderMember(email, role, access) {
+/**
+ * Who is on the Tender Desk, as what, and whether they are one of its admins. Decided by its
+ * admins. `admin` true or false makes or unmakes an admin; the ERP Admin always is one, and
+ * nobody unmakes themselves, so there is always somebody to hand it on.
+ */
+function saveTenderMember(email, role, access, admin) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
-  if (!tdTeamEditor_(ctx)) throw new Error('Who is on the Tender Desk is decided by Management or the ERP Admin.');
+  if (!tdTeamEditor_(ctx)) throw new Error('The team is kept by the Tender Desk admins.');
   var u = readTable_('Users').filter(function (x) { return tdSame_(x.email, email) && String(x.active).toUpperCase() !== 'FALSE'; })[0];
   if (!u) throw new Error('There is nobody active with that address in Users.');
   var patch = {};
+  if (admin === true || admin === false) {
+    if (String(u.role) === ROLES.ERP_ADMIN && !admin) throw new Error('The ERP Admin is always a Tender Desk admin.');
+    if (tdSame_(u.email, user.email) && !admin) throw new Error('You cannot take away your own admin. Ask a fellow admin.');
+    if (admin && !tdUserHasAccess_(u)) throw new Error('Add them to the Tender Desk first.');
+    patch.tenderAdmin = admin ? 'TRUE' : '';
+    if (!admin && String(u.tenderAdmin).toUpperCase() !== 'TRUE') return tdAnswer_(user);
+  }
   if (role !== undefined && role !== null && role !== '') {
     if (!TD_ROLES[role]) throw new Error('Pick a Tender Desk role from the list.');
     patch.tenderRole = role;
@@ -1842,7 +1864,7 @@ function saveTenderMember(email, role, access) {
   if (access === true || access === false) {
     if (String(u.role) === ROLES.TENDER_DESK) {
       // A Tender Desk only account has nothing else: taking it off the Tender Desk closes it.
-      if (!tdAccountMaker_(ctx)) throw new Error('Accounts are closed by Management or the ERP Admin of the ERP.');
+      if (!tdAccountMaker_(ctx)) throw new Error('Accounts are closed by the Tender Desk admins.');
       if (!access) {
         patch.active = 'FALSE';
         updateRowById_('Users', 'id', u.id, patch, 'Tender Desk only account closed: ' + u.email);
@@ -1855,13 +1877,15 @@ function saveTenderMember(email, role, access) {
     patch.tenderDesk = access ? 'TRUE' : '';
   }
   if (!Object.keys(patch).length) return tdAnswer_(user);
-  updateRowById_('Users', 'id', u.id, patch, 'Tender Desk access / role for ' + u.email);
+  updateRowById_('Users', 'id', u.id, patch, patch.tenderAdmin !== undefined
+    ? (patch.tenderAdmin ? 'Made a Tender Desk admin: ' : 'No longer a Tender Desk admin: ') + u.email
+    : 'Tender Desk access / role for ' + u.email);
   if (typeof refreshSessionsFor_ === 'function') refreshSessionsFor_(u.email);
   return tdAnswer_(user);
 }
 
-/** Who opens accounts here: Management and the ERP Admin of the ERP, as in Settings → Users. */
-function tdAccountMaker_(ctx) { return [ROLES.MANAGEMENT, ROLES.ERP_ADMIN].indexOf(String(ctx.user.role)) !== -1; }
+/** Who opens accounts here: the Tender Desk's admins. */
+function tdAccountMaker_(ctx) { return ctx.admin === true; }
 
 /**
  * A new account for somebody who works only on the Tender Desk: { name, username, password,
@@ -1874,7 +1898,7 @@ function createTenderMember(input) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
-  if (!tdAccountMaker_(ctx)) throw new Error('New accounts are opened by Management or the ERP Admin.');
+  if (!tdAccountMaker_(ctx)) throw new Error('New accounts are opened by the Tender Desk admins.');
   var i = input || {};
   var name = String(i.name || '').trim();
   if (!name) throw new Error('Enter the person’s name.');
@@ -1905,7 +1929,7 @@ function setTenderMemberPassword(email, password) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
-  if (!tdAccountMaker_(ctx)) throw new Error('Passwords are set by Management or the ERP Admin.');
+  if (!tdAccountMaker_(ctx)) throw new Error('Passwords are set by the Tender Desk admins.');
   var u = readTable_('Users').filter(function (x) { return tdSame_(x.email, email); })[0];
   if (!u || String(u.role) !== ROLES.TENDER_DESK) throw new Error('Passwords of ERP accounts are set in the ERP, Settings → Users.');
   storePassword_(u, String(password || ''), true);
@@ -1937,7 +1961,7 @@ function importTenderClients(rows) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
-  if (!tdMasterEditor_(ctx)) throw new Error('Masters are kept by Shortlisting & Admin or Management.');
+  if (!tdMasterEditor_(ctx)) throw new Error('Masters are kept by the Tender Desk admins.');
   var list = Array.isArray(rows) ? rows : [];
   if (!list.length) throw new Error('The file has no clients in it.');
   if (list.length > 2000) throw new Error('Upload up to 2,000 clients at a time; this file has ' + list.length + '.');

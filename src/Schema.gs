@@ -52,6 +52,9 @@ var SCHEMA = {
       // What they are on the Tender Desk: shortlist, mgmt, exec, items, fp or accounts. Blank:
       // what their ERP role starts them as (Tenders.gs, tdRoleOf_).
       'tenderRole',
+      // TRUE when a Tender Desk admin has made them one: they keep its masters, rules and team
+      // and open its accounts. A grant of its own, not part of any role; the ERP Admin always is.
+      'tenderAdmin',
       // Somebody who works both streams works one desk at a time: 'Compressor Sales',
       // 'Spare Sales', or 'All' for both combined. They choose it at the top of the page
       // (StreamAccess.gs, setMyDesk). Blank: Management and the admin on Combined, anybody

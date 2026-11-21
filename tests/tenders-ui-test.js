@@ -46,7 +46,8 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   const clean = async () => { for (const t of TABLES) { try { await db.q('DELETE FROM ' + t + ' WHERE tenant_id = $1', [TENANT]); } catch (e) { /* none */ } } };
   await clean();
   const person = (id, username, name, role, extra) => db.appendRow('Users', Object.assign({ id, username, email: username + '@pie.invalid', name, role, businessStream: 'All', active: 'TRUE' }, extra || {}));
-  await person('U-COORD', 'isha', 'Isha Kulkarni', 'Sales Coordinator', { tenderDesk: 'TRUE' });
+  // An admin of the Tender Desk by a grant of its own (Users.tenderAdmin), not by being Shortlisting.
+  await person('U-COORD', 'isha', 'Isha Kulkarni', 'Sales Coordinator', { tenderDesk: 'TRUE', tenderAdmin: 'TRUE' });
   await person('U-MGMT', 'vikram', 'Vikram Joshi', 'Management');
   await person('U-ENG', 'rohan', 'Rohan Patil', 'Sales Engineer', { tenderDesk: 'TRUE' });
   await person('U-ENG3', 'sneha', 'Sneha Gokhale', 'Sales Engineer', { tenderDesk: 'TRUE' });
@@ -266,7 +267,20 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await shot('td-clients');
   await page.click('.tab[data-v="members"]');
   ok('the team can be given the combined role', (await page.$$eval('select[data-member] option', (o) => o.map((x) => x.textContent))).includes('Shortlisting & Executive'));
+  // Admin is a tick of its own on the team list, given by a fellow admin.
+  ok('the team shows who is an admin', (await page.$$eval('input[data-admin]', (b) => b.filter((x) => x.checked).length)) === 1 &&
+    await page.$eval('input[data-admin="isha@pie.invalid"]', (b) => b.disabled));
+  page.once('dialog', (d) => d.accept());
+  await page.check('input[data-admin="rohan@pie.invalid"]'); await settle();
+  ok('an admin makes a colleague an admin from the list', (await p.readTable_('Users')).find((u) => u.id === 'U-ENG').tenderAdmin === 'TRUE');
+  page.once('dialog', (d) => d.accept());
+  await page.uncheck('input[data-admin="rohan@pie.invalid"]'); await settle();
+  ok('and takes it away again', (await p.readTable_('Users')).find((u) => u.id === 'U-ENG').tenderAdmin !== 'TRUE');
   actor = 'U-MGMT';
+  await page.reload(); await page.waitForSelector('.tabs');
+  await page.click('.tab[data-v="members"]');
+  ok('Management that is not an admin only looks at the team', !(await page.$('[data-act="memberNew"]')) && /View only/.test(await page.textContent('.content')));
+  actor = 'U-COORD';
   await page.reload(); await page.waitForSelector('.tabs');
   await page.click('.tab[data-v="members"]');
   await page.click('[data-act="memberNew"]');
