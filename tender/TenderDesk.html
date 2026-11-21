@@ -551,13 +551,13 @@ function shell() {
     <div class="rail-foot">
       <div class="lbl">Signed in</div>
       <div class="row" style="gap:8px">${av(S.me.id)}<div style="min-width:0"><div class="small" style="font-weight:600">${esc(S.me.name)}</div><div class="small faint">${esc(S.roles[S.me.role])}</div></div></div>
-      <a class="btn sm" href="/dashboard" data-act="toErp">${ic('back')}Back to the ERP</a>
+      ${S.me.tenderOnly ? `<button class="btn sm" data-act="signOut">${ic('back')}Sign out</button>` : `<a class="btn sm" href="/dashboard" data-act="toErp">${ic('back')}Back to the ERP</a>`}
     </div>
   </aside>
   <div class="main">
     <header class="top">
       <div class="crumbs">${back}<h1>${esc(pageTitle())}</h1></div>
-      ${ui.page === 'dashboard' ? erpSwitch() : ''}
+      ${ui.page === 'dashboard' && !S.me.tenderOnly ? erpSwitch() : ''}
       <button class="btn mic-btn" data-act="voice" title="Voice note">${ic('mic')}<span>Voice note</span></button>
       <button class="icon-btn" data-act="drawer" title="Alerts" aria-label="Alerts">${ic('bell')}${al.length ? `<span class="dot">${al.length}</span>` : ''}</button>
       <button class="icon-btn" data-act="theme" title="${isDark() ? 'Light mode' : 'Dark mode'}" aria-label="Switch light or dark">${ic(isDark() ? 'sun' : 'moon')}</button>
@@ -1007,11 +1007,13 @@ function vMasters() {
   let body;
   if (k === 'members') {
     RO = !S.me.team;
-    body = `<div class="card"><div class="card-h"><h3>Team members</h3><span class="faint small">People come from the ERP's Users. Management and the ERP Admin decide who is on the Tender Desk and as what; Management, the ERP Admin and Accounts are always on it.</span></div>
+    body = `<div class="card"><div class="card-h"><h3>Team members</h3><span class="faint small">Somebody who also works in the ERP is added from the list below. Somebody who works only on tenders gets a <b>Tender Desk only</b> account with <b>New member</b>: they sign in with it and see the Tender Desk and nothing else. Management and the ERP Admin keep the team.</span>${S.me.accounts ? `<button class="btn sm pri" data-act="memberNew">${ic('plus')}New member</button>` : ''}</div>
     <div class="tbl-wrap"><table class="t"><thead><tr><th>Name</th><th>ERP role</th><th>Tender Desk role</th><th></th></tr></thead><tbody>
-    ${S.members.map((m) => `<tr><td>${av(m.id)} ${esc(m.name)}</td><td class="small muted">${esc(m.erpRole)}</td><td><select class="in" id="mr_${fid(m.id)}" data-member="${esc(m.id)}" ${RO ? 'disabled' : ''}>${opts(Object.entries(S.roles), m.role, 'Role')}</select></td>
-      <td style="white-space:nowrap">${RO || ['Management', 'ERP Admin', 'Accounts'].includes(m.erpRole) ? '' : `<button class="btn sm ghost" data-act="memberOff" data-id="${esc(m.id)}">Remove from Tender Desk</button>`}</td></tr>`).join('')}
+    ${S.members.map((m) => `<tr><td>${av(m.id)} ${esc(m.name)}${m.username ? `<div class="small faint">signs in as ${esc(m.username)}</div>` : ''}</td><td class="small muted">${m.tenderOnly ? '<span class="chip acc">Tender Desk only</span>' : esc(m.erpRole)}</td><td><select class="in" id="mr_${fid(m.id)}" data-member="${esc(m.id)}" ${RO ? 'disabled' : ''}>${opts(Object.entries(S.roles), m.role, 'Role')}</select></td>
+      <td style="white-space:nowrap">${m.tenderOnly ? (S.me.accounts ? `<button class="btn sm" data-act="memberPw" data-id="${esc(m.id)}">Set password</button> <button class="btn sm ghost danger" data-act="memberClose" data-id="${esc(m.id)}">Close account</button>` : '')
+        : RO || ['Management', 'ERP Admin', 'Accounts'].includes(m.erpRole) ? '' : `<button class="btn sm ghost" data-act="memberOff" data-id="${esc(m.id)}">Remove from Tender Desk</button>`}</td></tr>`).join('')}
     </tbody></table></div>
+    ${ui.made ? `<div class="card-b"><div class="note ok">${ic('check')}<span><b>${esc(ui.made.name)}</b> signs in as <b class="mono">${esc(ui.made.username)}</b> with the password <b class="mono">${esc(ui.made.password)}</b>, once – then chooses their own. Give it to them in person; it is not shown again.</span><button class="btn sm ghost" data-act="madeSeen">Done</button></div></div>` : ''}
     ${RO || !S.others.length ? '' : `<div class="card-b row"><select class="in" style="width:auto;flex:1;min-width:200px" id="madd">${opts(S.others.map((o) => [o.id, o.name + ' · ' + o.erpRole]), '', 'Add somebody from the ERP')}</select><button class="btn sm pri" data-act="memberOn">${ic('plus')}Add to Tender Desk</button></div>`}</div>`;
   } else if (k === 'taskStatuses') {
     body = `<div class="card"><div class="card-h"><h3>Task statuses</h3><span class="faint small">Tender Desk tasks are ERP tasks, so they use the ERP's statuses, in this order; the last is done. The ERP's Tasks page and scorecard read the same ones.</span></div>
@@ -1282,8 +1284,28 @@ function vTask() {
 
 // ================= small modals =================
 const modalShell = (title, body, foot) => `<div class="scrim" data-act="scrim"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="modal-h"><h2>${esc(title)}</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button></div><div class="modal-b">${body}</div><div class="modal-f">${foot}</div></div></div>`;
+// A password somebody can read out: two words and a number, like the ERP's own (Session.gs).
+function readablePassword() {
+  const w = ['amber', 'cedar', 'copper', 'delta', 'falcon', 'garnet', 'harbour', 'indigo', 'jasper', 'lantern', 'marble', 'quartz', 'saffron', 'teak', 'walnut', 'zephyr'];
+  const r = (n) => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+  return w[r(w.length)] + '-' + w[r(w.length)] + '-' + (10 + r(90));
+}
 function vSmall() {
   const m = ui.modal;
+  if (m.type === 'member') {
+    const f = (label, key, o) => F(label, 'n:' + key, ui.form[key], o);
+    return modalShell('New member – Tender Desk only', `<p class="muted" style="margin:0">An account for somebody who works only on tenders. They sign in on the ERP's sign-in page with this username and password, choose their own password the first time, and land on the Tender Desk. They cannot open the ERP.</p><div class="fgrid">
+      ${f('Full name', 'name', { req: 1, wide: 1, ph: 'e.g. Pooja Wankhede' })}${f('Username', 'username', { ph: 'made from the name if left blank' })}${f('Designation', 'designation', { ph: 'e.g. Tender Executive' })}
+      ${f('Tender Desk role', 'role', { type: 'select', opts: Object.entries(S.roles), ph: null })}
+      <div class="f"><label for="f_n_password">First password<span class="req">*</span><span class="faint small">give it to them; they change it</span></label><div class="row" style="gap:6px;flex-wrap:nowrap"><input class="in" id="f_n_password" data-ref="n:password" value="${esc(ui.form.password)}"><button type="button" class="btn sm" data-act="pwMake">New</button></div></div></div>`,
+      `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="memberSave" ${blank(ui.form.name) || blank(ui.form.password) ? 'disabled' : ''}>${ic('plus')}Open the account</button>`);
+  }
+  if (m.type === 'memberPw') {
+    const who = mem(m.id) || {};
+    return modalShell('Set a password – ' + (who.name || ''), `<p class="muted" style="margin:0">${esc(who.name || '')} signs in as <b>${esc(who.username || '')}</b> with this password once, then chooses their own. They are signed out everywhere now.</p>
+      <div class="f"><label for="f_n_password">New password</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input class="in" id="f_n_password" data-ref="n:password" value="${esc(ui.form.password)}"><button type="button" class="btn sm" data-act="pwMake">New</button></div></div>`,
+      `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="memberPwSave" ${blank(ui.form.password) ? 'disabled' : ''}>Set password</button>`);
+  }
   if (m.type === 'client') {
     const f = (label, key, o) => F(label, 'n:' + key, ui.form[key], o);
     return modalShell('New client', `<p class="muted" style="margin:0">Added to the Tender Desk's client list (Masters → Clients) and chosen here.</p><div class="fgrid">
@@ -1310,7 +1332,7 @@ function vDrawer() {
 
 // ================= drawing =================
 function overlay() {
-  if (ui.modal && ui.modal.type === 'client') return vSmall();
+  if (ui.modal && ['client', 'member', 'memberPw'].includes(ui.modal.type)) return vSmall();
   if (ui.extract && ui.extract.status) return vExtract();
   if (ui.voice) return vVoice();
   if (ui.drawer) return vDrawer();
@@ -1437,6 +1459,11 @@ document.addEventListener('input', (e) => {
   if (el.dataset.filter === 'q') { ui.filters.q = el.value; clearTimeout(window.__rq); window.__rq = setTimeout(render, 250); }
   if (el.dataset.ref === 'v:text') { ui.voice.text = el.value; const b = document.querySelector('[data-act="vProcess"]'); if (b) b.disabled = blank(el.value); }
   if (el.dataset.ref === 'n:note' && ui.modal && ui.modal.type === 'bidReturn') { ui.form.note = el.value; const b = document.querySelector('[data-act="bidSave"]'); if (b) b.disabled = blank(el.value); }
+  if ((el.dataset.ref === 'n:name' || el.dataset.ref === 'n:password') && ui.modal && (ui.modal.type === 'member' || ui.modal.type === 'memberPw')) {
+    ui.form[el.dataset.ref.slice(2)] = el.value;
+    const b = document.querySelector('[data-act="memberSave"],[data-act="memberPwSave"]');
+    if (b) b.disabled = blank(ui.form.password) || (ui.modal.type === 'member' && blank(ui.form.name));
+  }
   if (el.dataset.ref === 'n:name' && ui.modal && ui.modal.type === 'client') { ui.form.name = el.value; const b = document.querySelector('[data-act="clientSave"]'); if (b) b.disabled = blank(el.value); }
   if (el.dataset.ref === 'k:title') { ui.task.title = el.value; const b = document.querySelector('[data-act="kSave"]'); if (b) b.disabled = blank(el.value) || !ui.task.assignee; }
 });
@@ -1602,6 +1629,24 @@ const ACT = {
   mDelKeep() { ui.confirmDel = null; render(); },
   mDelCancel(d) { ui.newRow[d.k] = null; render(); },
   mDel(d) { ui.confirmDel = null; mutate('deleteTenderMaster', [MASTERS[d.k].list, d.id]); },
+  memberNew() { ui.form = { name: '', username: '', designation: '', role: 'exec', password: readablePassword() }; ui.modal = { type: 'member' }; render(); setTimeout(() => { const el = document.getElementById('f_n_name'); if (el) el.focus(); }, 30); },
+  pwMake() { ui.form.password = readablePassword(); render(); },
+  memberSave() {
+    const f = ui.form; ui.modal = null;
+    mutate('createTenderMember', [{ name: f.name, username: f.username, designation: f.designation, role: f.role, password: f.password }], (res) => {
+      if (res && res.username) ui.made = { name: f.name, username: res.username, password: f.password };
+    }).catch(() => { ui.form = f; ui.modal = { type: 'member' }; render(); });
+  },
+  memberPw(d) { ui.form = { password: readablePassword() }; ui.modal = { type: 'memberPw', id: d.id }; render(); },
+  memberPwSave() { const id = ui.modal.id; const pw = ui.form.password; ui.modal = null; const who = mem(id) || {}; mutate('setTenderMemberPassword', [id, pw], () => { ui.made = { name: who.name, username: who.username, password: pw }; }); },
+  memberClose(d) { if (confirm('Close ' + mName(d.id) + '’s account? They can no longer sign in. Their tenders and tasks stay as they are.')) mutate('saveTenderMember', [d.id, null, false]); },
+  signOut() {
+    fetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) }).catch(() => {}).then(() => {
+      try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+      location.href = '/';
+    });
+  },
+  madeSeen() { ui.made = null; render(); },
   memberOn() { const el = $('#madd'); if (!el || !el.value) return; mutate('saveTenderMember', [el.value, null, true]); },
   memberOff(d) { if (confirm('Take ' + mName(d.id) + ' off the Tender Desk? Their tenders and tasks stay as they are.')) mutate('saveTenderMember', [d.id, null, false]); }
 };

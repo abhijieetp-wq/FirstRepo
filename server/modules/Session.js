@@ -498,6 +498,10 @@ async function call(token, fnName, args) {
   if (typeof PORTAL_FUNCTIONS_ !== 'undefined' && !PORTAL_FUNCTIONS_[name]) {
     throw new Error('Unknown action: ' + name);
   }
+  // A Tender Desk only account reaches the Tender Desk and its own password, nothing else.
+  if (String(user.role) === ROLES.TENDER_DESK && TENDER_ONLY_CALLS_.indexOf(name) === -1) {
+    throw new Error('This account is for the Tender Desk only.');
+  }
   var fn = this[name];
   if (typeof fn !== 'function') throw new Error('Unknown action: ' + name);
 

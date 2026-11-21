@@ -54,7 +54,16 @@ var TD_ROLES = { shortlist: 'Shortlisting & Admin', both: 'Shortlisting & Execut
   items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
 /** Whether a person's Tender Desk role includes another: Shortlisting & Executive is both of those. */
 function tdHas_(role, r) { return role === r || (role === 'both' && (r === 'shortlist' || r === 'exec')); }
-var TD_ALWAYS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS];
+var TD_ALWAYS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS, ROLES.TENDER_DESK];
+/**
+ * All a Tender Desk only account may call (Session.gs, call): the Tender Desk's own functions,
+ * and what signing in needs — the page's start and changing their password.
+ */
+var TENDER_ONLY_CALLS_ = ['bootstrap', 'changeMyPassword', 'getTenderApp', 'newTender', 'saveTenderField', 'tenderItemLine', 'advanceTender',
+  'approveTender', 'approveBid', 'returnBid', 'declineTender', 'attachTenderFile', 'removeTenderFile', 'readTenderDocument', 'saveTenderFromDocument',
+  'readPoDocument', 'checkTenderPo', 'createTenderPo', 'savePoField', 'poLine', 'recordPoMove', 'closeTenderPo', 'saveTenderTask', 'deleteTenderTask',
+  'commentTenderTask', 'addTenderNote', 'organiseTenderVoice', 'tenderBrief', 'saveTenderMaster', 'deleteTenderMaster', 'saveTenderRules',
+  'saveTenderMember', 'importTenderClients', 'createTenderMember', 'setTenderMemberPassword'];
 
 var TD_STAGES = [
   { k: 'draft', l: 'Shortlisting' }, { k: 'approval', l: 'Awaiting approval' }, { k: 'prep', l: 'Submission prep' }, { k: 'bidcheck', l: 'Bid approval' },
@@ -200,6 +209,7 @@ function tdRoleOf_(u) {
   if (r === ROLES.SALES_ENGINEER) return 'exec';
   if (r === ROLES.SERVICE_COORDINATOR) return 'items';
   if (r === ROLES.SERVICE_ENGINEER) return 'fp';
+  if (r === ROLES.TENDER_DESK) return 'exec';
   return 'shortlist';
 }
 function tdUserHasAccess_(u) {
@@ -339,7 +349,8 @@ function tdContext_(user) {
   var users = readTable_('Users');
   var meRow = users.filter(function (u) { return tdSame_(u.email, user.email); })[0] || {};
   var members = users.filter(tdUserHasAccess_).map(function (u) {
-    return { id: String(u.email).toLowerCase(), email: String(u.email), name: String(u.name || u.email), role: tdRoleOf_(u), erpRole: String(u.role || '') };
+    return { id: String(u.email).toLowerCase(), email: String(u.email), name: String(u.name || u.email), role: tdRoleOf_(u), erpRole: String(u.role || ''),
+      username: String(u.username || ''), tenderOnly: String(u.role) === ROLES.TENDER_DESK, userId: String(u.id) };
   }).sort(function (a, b) { return a.name.localeCompare(b.name); });
   var others = users.filter(function (u) { return String(u.active).toUpperCase() !== 'FALSE' && String(u.email || '') && !tdUserHasAccess_(u); })
     .map(function (u) { return { id: String(u.email).toLowerCase(), name: String(u.name || u.email), erpRole: String(u.role || '') }; })
@@ -665,7 +676,8 @@ function tdState_(ctx) {
   return {
     today: ctx.today, build: typeof APP_BUILD !== 'undefined' ? APP_BUILD : '',
     me: { id: ctx.me, name: String(ctx.user.name || ctx.user.email), role: ctx.role, erpRole: String(ctx.user.role || ''),
-      masters: tdMasterEditor_(ctx), team: tdTeamEditor_(ctx), approver: tdApprover_(ctx) },
+      masters: tdMasterEditor_(ctx), team: tdTeamEditor_(ctx), approver: tdApprover_(ctx), accounts: tdAccountMaker_(ctx),
+      tenderOnly: String(ctx.user.role) === ROLES.TENDER_DESK },
     roles: TD_ROLES, stages: TD_STAGES, results: TD_RESULTS, pstages: TD_PSTAGES, moves: TD_MOVES, emdTypes: TD_EMD_TYPES,
     declineReasons: TD_DECLINE_REASONS, taskStatuses: TD_TASK_STATUSES,
     members: ctx.members, others: tdTeamEditor_(ctx) ? ctx.others : [],
@@ -1828,13 +1840,77 @@ function saveTenderMember(email, role, access) {
     patch.tenderRole = role;
   }
   if (access === true || access === false) {
-    if (!access && TD_ALWAYS.indexOf(String(u.role)) !== -1) throw new Error(u.role + ' always has the Tender Desk.');
+    if (String(u.role) === ROLES.TENDER_DESK) {
+      // A Tender Desk only account has nothing else: taking it off the Tender Desk closes it.
+      if (!tdAccountMaker_(ctx)) throw new Error('Accounts are closed by Management or the ERP Admin of the ERP.');
+      if (!access) {
+        patch.active = 'FALSE';
+        updateRowById_('Users', 'id', u.id, patch, 'Tender Desk only account closed: ' + u.email);
+        forgetSessionsFor_(u.email);
+        return tdAnswer_(user, { message: String(u.name || u.email) + '’s account is closed.' });
+      }
+    } else if (!access && TD_ALWAYS.indexOf(String(u.role)) !== -1) {
+      throw new Error(u.role + ' always has the Tender Desk.');
+    }
     patch.tenderDesk = access ? 'TRUE' : '';
   }
   if (!Object.keys(patch).length) return tdAnswer_(user);
   updateRowById_('Users', 'id', u.id, patch, 'Tender Desk access / role for ' + u.email);
   if (typeof refreshSessionsFor_ === 'function') refreshSessionsFor_(u.email);
   return tdAnswer_(user);
+}
+
+/** Who opens accounts here: Management and the ERP Admin of the ERP, as in Settings → Users. */
+function tdAccountMaker_(ctx) { return [ROLES.MANAGEMENT, ROLES.ERP_ADMIN].indexOf(String(ctx.user.role)) !== -1; }
+
+/**
+ * A new account for somebody who works only on the Tender Desk: { name, username, password,
+ * role (their Tender Desk role), designation }. They sign in with the username and this
+ * password once, then choose their own; they land on the Tender Desk and see nothing else.
+ * Somebody who also works in the ERP gets their account in Settings → Users and is added here
+ * from the list.
+ */
+function createTenderMember(input) {
+  var user = getCurrentUser();
+  requireTenderDesk_(user);
+  var ctx = tdContext_(user);
+  if (!tdAccountMaker_(ctx)) throw new Error('New accounts are opened by Management or the ERP Admin.');
+  var i = input || {};
+  var name = String(i.name || '').trim();
+  if (!name) throw new Error('Enter the person’s name.');
+  var role = String(i.role || 'exec');
+  if (!TD_ROLES[role]) throw new Error('Pick their Tender Desk role.');
+  var username = String(i.username || '').trim();
+  if (username) {
+    var problem = usernameComplaint_(username, '');
+    if (problem) throw new Error(problem);
+  } else {
+    username = freeUsername_(derivedUsername_({ email: '', name: name, id: '' }), '');
+  }
+  var pw = String(i.password || '');
+  var complaint = passwordComplaint_(pw);
+  if (complaint) throw new Error(complaint);
+  var users = readTable_('Users');
+  var email = freeErpId_(username, users);
+  var row = { id: generateId_('USR-'), username: username, email: email, name: name, role: ROLES.TENDER_DESK,
+    designation: String(i.designation || '').trim().slice(0, 200), businessStream: '', active: 'TRUE',
+    tenderDesk: 'TRUE', tenderRole: role, createdAt: todayIso_(), createdBy: user.email };
+  appendRow_('Users', row, 'Tender Desk only account opened for ' + name);
+  storePassword_(row, pw, true);
+  return tdAnswer_(user, { message: name + ' can sign in as “' + username + '” with this password once, then chooses their own.', username: username });
+}
+
+/** A new password for a Tender Desk only account, to be changed at the next sign-in. */
+function setTenderMemberPassword(email, password) {
+  var user = getCurrentUser();
+  requireTenderDesk_(user);
+  var ctx = tdContext_(user);
+  if (!tdAccountMaker_(ctx)) throw new Error('Passwords are set by Management or the ERP Admin.');
+  var u = readTable_('Users').filter(function (x) { return tdSame_(x.email, email); })[0];
+  if (!u || String(u.role) !== ROLES.TENDER_DESK) throw new Error('Passwords of ERP accounts are set in the ERP, Settings → Users.');
+  storePassword_(u, String(password || ''), true);
+  forgetSessionsFor_(u.email);
+  return tdAnswer_(user, { message: String(u.name || u.email) + ' can sign in as “' + loginNameFor_(u) + '” with this password once, then chooses their own.' });
 }
 
 /** A client's or supplier's GSTIN and e-mail, if given, are the right shape. */

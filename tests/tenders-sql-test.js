@@ -92,6 +92,33 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('a coordinator cannot change the team', await refuses(() => p.saveTenderMember('amol@pie.invalid', 'fp', null), /Management or the ERP Admin/));
   ok('the defaults are there before anybody keeps a master', st.portals.length === 5 && st.checklist.length === 10 && st.uoms.some((u) => u.name === 'Nos') && st.cfg.alertDays === 7);
 
+  console.log('A TENDER DESK ONLY ACCOUNT');
+  await as('U-COORD');
+  ok('a coordinator cannot open accounts', await refuses(() => p.createTenderMember({ name: 'X Y', password: 'cedar-teak-42' }), /Management or the ERP Admin/));
+  await as('U-ADMIN');
+  ok('the ERP Admin may open them', (await p.getTenderApp()).me.accounts === true);
+  ok('a weak first password is refused', await refuses(() => p.createTenderMember({ name: 'Pooja Wankhede', password: 'abc' }), /at least/));
+  let res = await p.createTenderMember({ name: 'Pooja Wankhede', username: 'pooja', designation: 'Tender Executive', role: 'exec', password: 'cedar-teak-42' });
+  const pooja = res.state.members.find((m) => m.username === 'pooja');
+  ok('a new member, made here: on the team, as its role, marked Tender Desk only', pooja && pooja.role === 'exec' && pooja.tenderOnly === true && /sign in as “pooja”/.test(res.message), pooja);
+  const prow = (await p.readTable_('Users')).find((u) => u.username === 'pooja');
+  ok('an account of the ERP\'s own kind, which must choose its own password first', prow.role === 'Tender Desk only' && String(prow.mustChangePassword).toUpperCase() === 'TRUE' && /@pie\.invalid$/.test(prow.email));
+  ok('the username must be free', await refuses(() => p.createTenderMember({ name: 'Another Pooja', username: 'pooja', password: 'cedar-teak-42' }), /taken|already|use/i));
+  const signedIn = await p.login('pooja', 'cedar-teak-42', '');
+  ok('she signs in with it', !!(signedIn && signedIn.token) && signedIn.user.role === 'Tender Desk only');
+  const asPooja = await p.call(signedIn.token, 'getTenderApp', []);
+  ok('and opens the Tender Desk', asPooja && asPooja.me.tenderOnly === true && asPooja.me.role === 'exec');
+  ok('but nothing in the ERP', await refuses(() => p.call(signedIn.token, 'listCustomers', []), /Tender Desk only/) &&
+    await refuses(() => p.call(signedIn.token, 'getPersonDashboard', [{}]), /Tender Desk only/));
+  await as('U-ADMIN');
+  res = await p.setTenderMemberPassword(pooja.id, 'walnut-zephyr-17');
+  ok('a new password is set from the team list, to be changed again', /walnut|sign in as “pooja”/.test(res.message));
+  ok('the old one stops working', await refuses(() => p.login('pooja', 'cedar-teak-42', ''), /./));
+  ok('the password of an ERP account is not set here', await refuses(() => p.setTenderMemberPassword('isha@pie.invalid', 'walnut-zephyr-17'), /set in the ERP/));
+  res = await p.saveTenderMember(pooja.id, null, false);
+  ok('closing the account', /account is closed/.test(res.message) && !res.state.members.some((m) => m.username === 'pooja'));
+  ok('and she can no longer sign in', await refuses(() => p.login('pooja', 'walnut-zephyr-17', ''), /./));
+
   console.log('THE TENDER DESK\'S OWN CLIENTS');
   ok('no clients to start with: the ERP\'s Customers are not its clients', st.clients.length === 0, st.clients);
   await as('U-ENG');
@@ -102,7 +129,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('one added by hand, its GSTIN made upper case', gen && gen.short === 'TSPGCL' && gen.gstin === '27AAACT1234A1Z5', gen);
   ok('a GSTIN of the wrong shape is refused', await refuses(() => p.saveTenderMaster('client', { name: 'Bad GST Ltd', gstin: '1234' }), /15 letters and digits/));
   ok('and the same client twice', await refuses(() => p.saveTenderMaster('client', { name: 'test state power generation co ltd' }), /already in Clients/));
-  let res = await p.importTenderClients([
+  res = await p.importTenderClients([
     { Name: 'Sample Transmission Utility', 'Short name': 'STU', City: 'Mumbai', State: 'Maharashtra', GSTIN: '', 'Contact person': 'Store officer', Phone: '0712 000000', 'E-mail': 'stores@stu.invalid' },
     { Name: 'Test State Power Generation Co Ltd', City: 'Koradi', GSTIN: '' },
     { Name: 'Demo Thermal Power Station', 'Short name': '', City: 'Mouda' },

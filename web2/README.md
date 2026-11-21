@@ -179,7 +179,9 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   no tender screens. Its clients are its own (Masters → Clients, list 'client' in TenderMasters),
   added by hand — also from a tender's client field — or uploaded from a CSV (importTenderClients);
   tenders entered when it used Customers keep theirs, carried over with the same id
-  (tdAdoptCustomers_). Roles include Shortlisting & Executive ('both'), who shortlists and can be
+  (tdAdoptCustomers_). Accounts can be opened from Masters → Team members (createTenderMember): the ERP role
+  'Tender Desk only' (ROLES.TENDER_DESK), which lands on the Tender Desk and is refused every call
+  outside it (Session.gs call, TENDER_ONLY_CALLS_). Roles include Shortlisting & Executive ('both'), who shortlists and can be
   assigned tenders to execute (tdHas_). It shares the ERP's sign-in (the same session), people
   (Users; a Tender Desk role per person, Users.tenderRole, starting from their ERP role), tasks
   (Tasks: module 'tender', linkKind tender / tenderpo, with steps and comments; also on the Tasks

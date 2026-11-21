@@ -182,7 +182,9 @@
 
   // Five roles per decision D4. Order here is the display order.
   var ALL_ROLES = ["Sales Coordinator", "Sales Engineer", "Service Coordinator",
-    "Service Engineer", "Management", "ERP Admin", "Accounts"];
+    "Service Engineer", "Management", "ERP Admin", "Accounts", "Tender Desk only"];
+  // Staff who work only on the Tender Desk: signed in here, they are sent to it (onBootSuccess).
+  var TENDER_ONLY_ROLE = "Tender Desk only";
 
   // Must match BUSINESS_STREAMS in Schema.gs exactly — these strings are stored on every
   // transaction and filtered on by value, so a short form here silently matches nothing.
@@ -19276,6 +19278,13 @@
   function onBootSuccess(user) {
     bootWaited();
     currentUser = user;
+    // A Tender Desk only account has nothing here: it chooses its own password first, if an
+    // admin set the one it used, and then goes to the Tender Desk.
+    if (user.role === TENDER_ONLY_ROLE) {
+      if (pendingPasswordChange) { $("boot-screen").style.display = "none"; openPasswordModal(true); return; }
+      location.replace("/tender-desk");
+      return;
+    }
     if (user.appName) {
       $("app-name").textContent = user.appName;
       $("app-subtitle").textContent = user.appSubtitle || "";
@@ -19534,6 +19543,7 @@
       // fresh token so the person is not thrown out of the screen in front of them.
       rememberSession(result.token);
       pendingPasswordChange = false;
+      if (currentUser && currentUser.role === TENDER_ONLY_ROLE) { location.replace("/tender-desk"); return; }
       $("password-modal-backdrop").classList.remove("show");
       showMsg("Password changed.", "success");
     }).withFailureHandler(function (err) {

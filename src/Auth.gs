@@ -33,11 +33,14 @@ var ROLES = {
   // The Tender Desk's money side (Tenders.gs): the EMD now; the client's payments, the
   // guarantees and the penalties with the PO screen. Sees the Tender Desk, Tasks and its own
   // dashboard, and nothing commercial beyond them.
-  ACCOUNTS: 'Accounts'
+  ACCOUNTS: 'Accounts',
+  // Staff who work tenders and nothing else (Tenders.gs): they sign in and land on the Tender
+  // Desk, and the server refuses them everything outside it (Session.gs, call).
+  TENDER_DESK: 'Tender Desk only'
 };
 
 var ALL_ROLES = [ROLES.SALES_COORDINATOR, ROLES.SALES_ENGINEER, ROLES.SERVICE_COORDINATOR,
-  ROLES.SERVICE_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS];
+  ROLES.SERVICE_ENGINEER, ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS, ROLES.TENDER_DESK];
 
 /**
  * Two different questions about the catalogue, and they deserve two different answers.
