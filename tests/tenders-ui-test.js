@@ -110,7 +110,7 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await p.advanceTender(tW);
   await p.saveTenderField(tW, 'postbid.technoDate', inDays(0)); await p.saveTenderField(tW, 'postbid.participants', 4); await p.advanceTender(tW);
   await p.saveTenderField(tW, 'postbid.result', 'won'); await p.saveTenderField(tW, 'postbid.l1', 1388000); await p.advanceTender(tW);
-  const po = await p.createTenderPo({ tenderId: tW, no: 'GEMC-511687702544810', poDate: inDays(-50), dueDate: inDays(-5), value: 1388000, deliveryPeriod: '45 days',
+  const po = await p.createTenderPo({ tenderId: tW, no: 'GEMC-511687702544810', poDate: inDays(-50), dueDate: inDays(-5), value: 1388000, deliveryPeriod: '45 days', inspection: 'Yes', gaDrawing: 'No',
     ld: { rate: 0.5, per: 'week', cap: 10, basis: 'delayed', clause: 'GeM GTC: 0.5% per week of delayed value, max 10%.' }, sdPct: 3, sdDays: 30,
     items: [{ sr: 1, desc: 'Bearing set 6316 C3 for 630 kW motor', qty: 20, uom: 'Set', rate: 28500, due: inDays(-5), fp: 'kiran@pie.invalid' },
       { sr: 2, desc: 'PT100 RTD duplex, 3-wire', qty: 60, uom: 'Nos', rate: 4600, due: inDays(-5), fp: 'kiran@pie.invalid' },
@@ -235,6 +235,18 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await page.click('[data-act="moveSave"]'); await settle();
   const after = (await p.getTenderApp()).pos.find((x) => x.id === pid).items[1].moves.slice(-1)[0];
   ok('recorded on the server, by him', after.t === 'delivered' && after.qty === 30 && after.by === 'kiran@pie.invalid');
+  await page.click('.tab[data-v="terms"]');
+  ok('inspection and GA drawing are Yes/No questions', (await page.$$('[data-act="seg"][data-ref$=":inspection"]')).length === 2 &&
+    (await page.$$('[data-act="seg"][data-ref$=":gaDrawing"]')).length === 2 && !(await page.$('[data-act="attach"][data-kind="ga"]')));
+  await page.click('[data-act="seg"][data-ref$=":gaDrawing"][data-v="Yes"]'); await settle();
+  ok('GA drawing Yes asks for the drawing', !!(await page.$('[data-act="attach"][data-kind="ga"]')) && (await p.getTenderApp()).pos.find((x) => x.id === pid).gaDrawing === 'Yes');
+  const ga = path.join(require('os').tmpdir(), 'td-ui-ga.pdf');
+  fs.writeFileSync(ga, '%PDF-1.4 invented GA');
+  await page.click('[data-act="attach"][data-kind="ga"]');
+  await page.setInputFiles('#filepick', ga);
+  await page.waitForFunction(() => /td-ui-ga\.pdf/.test(document.querySelector('.content').textContent), null, { timeout: 15000 }); await settle();
+  ok('attached under GA drawing, apart from the PO document', (await p.getTenderApp()).pos.find((x) => x.id === pid).docs.some((d) => d.type === 'GA drawing' && /td-ui-ga/.test(d.name)));
+  await shot('td-po-terms');
   await page.click('.tab[data-v="money"]');
   ok('invoices and payments: he only looks', /kept by Accounts/.test(await page.textContent('.content')) && !(await page.$('[data-act="addRow"][data-list="invoices"]')) &&
     await page.$eval('[data-act="addRow"][data-list="payments"]', () => false).catch(() => true));

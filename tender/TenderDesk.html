@@ -491,6 +491,9 @@ function gatePanel(title, reqs, btn, foot) {
 }
 function qbar(label, cls, n, d) { const p = d ? Math.min(100, Math.round(n * 100 / d)) : 0; return `<span class="faint">${label}</span><div class="pbar"><i class="${cls}" style="width:${p}%"></i></div><span class="num" style="text-align:right">${p}%</span>`; }
 function poBars(c) { return `<div class="qstack">${qbar('Ordered', 'o', c.v.ordered, c.tot)}${qbar('Procured', 'p', c.v.procured, c.tot)}${qbar('Dispatched', 'd', c.v.dispatched, c.tot)}${qbar('Delivered', 'v', c.v.delivered, c.tot)}</div>`; }
+// Inspection and GA drawing are Yes/No; a PO typed before keeps its words, shown under the question.
+const yn = (v) => (v === 'Yes' || v === 'No' ? v : '');
+const wasText = (v) => (v && v !== 'Yes' && v !== 'No' ? 'Recorded as: ' + v : '');
 function docList(docs, canRemove) {
   if (!docs || !docs.length) return '<div class="small faint">No document attached yet.</div>';
   return `<div class="docs">${docs.map((d) => `<div class="row" style="gap:6px">${ic('file', 'faint')}<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.name)}</a>${canRemove ? `<button class="btn sm ghost" data-act="rmDoc" data-id="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ic('trash')}</button>` : ''}</div>`).join('')}</div>`;
@@ -894,6 +897,7 @@ function vPO() {
   const moneyOnly = r === 'accounts';
   RO = !canEdit || moneyOnly;
   const c = p.calc; const t = tender(p.tenderId);
+  const gaDocs = (p.docs || []).filter((d) => d.type === 'GA drawing'); const poDocs = (p.docs || []).filter((d) => d.type !== 'GA drawing');
   const tab = ui.tab || 'items'; ui.tab = tab;
   const tasks = S.tasks.filter((k) => k.link === 'p:' + p.id);
   const allMoves = p.items.flatMap((i) => i.moves.map((m) => Object.assign({}, m, { it: i }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -915,8 +919,9 @@ function vPO() {
     ${F('Total PO value (₹)', ref + 'value', p.value, { type: 'number', req: 1, hint: Math.abs(num(p.value) - c.tot) > 1 ? `items total ${inr(c.tot)}` : '' })}${F('Delivery period', ref + 'deliveryPeriod', p.deliveryPeriod)}${F('Delivery due date', ref + 'dueDate', p.dueDate, { type: 'date', req: 1 })}
     ${F('Payment terms', ref + 'payTerms', p.payTerms, { wide: 1 })}${F('PO received by', ref + 'receivedBy', p.receivedBy, { type: 'select', opts: ['Email', 'Hard copy', 'Both'].map((x) => [x, x]) })}${F('Original PO filed', ref + 'filed', p.filed, { type: 'yesno' })}
     ${F('PO covers all quoted items', ref + 'allItems', p.allItems, { type: 'ynp' })}${F('Discrepancy in PO', ref + 'discrepancy', p.discrepancy, { type: 'yesno' })}${p.discrepancy === 'Yes' ? F('Discrepancy informed to client on', ref + 'discrepancyInformed', p.discrepancyInformed, { type: 'date', req: 1, showMiss: 1, hint: `within ${S.cfg.poDiscrepancyDays} days` }) : ''}
-    ${F('Inspection', ref + 'inspection', p.inspection)}${F('GA drawing approval', ref + 'gaDrawing', p.gaDrawing)}${F('Warranty', ref + 'warranty', p.warranty)}${F('Performance certificate received', ref + 'perfCert', p.perfCert, { type: 'yesno' })}
-    <div class="f wide"><label>PO document</label>${docList(p.docs, !RO)}${RO ? '' : `<div class="row" style="margin-top:6px"><button class="btn sm" data-act="attach" data-kind="po" data-id="${esc(p.id)}">${ic('clip')}Attach file</button></div>`}</div>
+    ${F('Inspection', ref + 'inspection', yn(p.inspection), { type: 'yesno', hint: wasText(p.inspection) })}${F('GA drawing', ref + 'gaDrawing', yn(p.gaDrawing), { type: 'yesno', hint: wasText(p.gaDrawing) })}${F('Warranty', ref + 'warranty', p.warranty)}${F('Performance certificate received', ref + 'perfCert', p.perfCert, { type: 'yesno' })}
+    ${p.gaDrawing === 'Yes' || gaDocs.length ? `<div class="f wide"><label>GA drawing</label>${docList(gaDocs, !RO)}${RO ? '' : `<div class="row" style="margin-top:6px"><button class="btn sm" data-act="attach" data-kind="ga" data-id="${esc(p.id)}">${ic('clip')}Attach GA drawing</button></div>`}</div>` : ''}
+    <div class="f wide"><label>PO document</label>${docList(poDocs, !RO)}${RO ? '' : `<div class="row" style="margin-top:6px"><button class="btn sm" data-act="attach" data-kind="po" data-id="${esc(p.id)}">${ic('clip')}Attach file</button></div>`}</div>
     ${cfFields('po', p, ref, false)}
   </div></div>
   <div class="card"><div class="card-h"><h3>Liquidated damages clause</h3></div><div class="card-b fgrid">
@@ -1146,7 +1151,10 @@ function vExtract() {
           ${F('PO value incl. GST (₹)', 'x:value', d.value, { type: 'number', low: low('value') })}${F('Value excl. GST (₹)', 'x:valueExGst', d.valueExGst, { type: 'number', low: low('valueExGst') })}
           ${F('Delivery period', 'x:deliveryPeriod', d.deliveryPeriod, { low: low('deliveryPeriod') })}${F('Delivery due date', 'x:dueDate', d.dueDate, { type: 'date', req: 1, low: low('dueDate') })}
           ${F('Payment terms', 'x:payTerms', d.payTerms, { wide: 1, low: low('payTerms') })}
-          ${F('Inspection', 'x:inspection', d.inspection, { low: low('inspection') })}${F('GA drawing', 'x:gaDrawing', d.gaDrawing, { low: low('gaDrawing') })}${F('Warranty', 'x:warranty', d.warranty)}
+          ${F('Inspection', 'x:inspection', d.inspection, { type: 'yesno', req: 1, low: low('inspection') })}${F('GA drawing', 'x:gaDrawing', d.gaDrawing, { type: 'yesno', req: 1, low: low('gaDrawing') })}${F('Warranty', 'x:warranty', d.warranty)}
+          ${d.gaDrawing === 'Yes' ? `<div class="f wide"><label>GA drawing file<span class="req">*</span></label>${X.gaFile
+            ? `<div class="row" style="gap:6px">${ic('file', 'faint')}<span>${esc(X.gaFile.name)}</span><button type="button" class="btn sm ghost" data-act="xGaClear" aria-label="Remove the GA drawing">${ic('trash')}</button></div>`
+            : `<div class="row" style="gap:8px"><button type="button" class="btn sm" data-act="xGaPick">${ic('clip')}Attach GA drawing</button><span class="small faint">PDF or a photograph</span></div>`}</div>` : ''}
           ${F('SD %', 'x:sdPct', d.sdPct, { type: 'number', low: low('sdPct') })}${F('SD due within (days)', 'x:sdDays', d.sdDays, { type: 'number' })}${F('PBG %', 'x:pbgPct', d.pbgPct, { type: 'number', low: low('pbgPct') })}${F('Acknowledge PO within (days)', 'x:ackDays', d.ackDays, { type: 'number' })}
         </div>
         <div class="card"><div class="card-h"><h3>LD clause</h3>${low('ldRate') || low('ldClause') ? '<span class="ai-badge">check</span>' : ''}</div><div class="card-b fgrid">
@@ -1513,6 +1521,12 @@ $('#csvpick').addEventListener('change', (e) => {
 });
 $('#filepick').addEventListener('change', (e) => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  if (pickFor && pickFor.kind === 'xga') {
+    // Kept on the form until the PO is created; the checks are told only that it is there.
+    pickFor = null;
+    readFile(f).then((file) => { if (!ui.extract) return; ui.extract.gaFile = file; ui.extract.data.gaAttached = true; refreshPoChecks(); render(); }).catch((err) => toast(err.message));
+    return;
+  }
   if (pickFor) { const pf = pickFor; pickFor = null; readFile(f).then((file) => mutate('attachTenderFile', [pf.kind, pf.id, file])).catch((err) => toast(err.message)); return; }
   if (ui.extract) startExtract(ui.extract.kind, f);
 });
@@ -1541,7 +1555,7 @@ const ACT = {
     else if (kind === 'p') { const P = ref.split(':'); cur = getPath(pobj(P[1]) || {}, P.slice(2).join(':')); }
     else if (kind === 'x') cur = getPath(ui.extract.data, ref.slice(2));
     setRef(ref, cur === d.v ? '' : d.v);
-    if (kind !== 'x') render();
+    if (kind !== 'x' || ref === 'x:gaDrawing') render();
   },
   drawer() { ui.drawer = true; render(); },
   closeModal() { if (REC) { try { REC.stop(); } catch (e) {} REC = null; } if (ui.modal && ui.modal.type === 'client' && ui.clientOver) { ui.extract = ui.clientOver; ui.clientOver = null; ui.modal = null; render(); return; } ui.modal = null; ui.extract = null; ui.voice = null; ui.drawer = false; ui.task = null; render(); },
@@ -1587,6 +1601,8 @@ const ACT = {
 
   extractOpen(d) { ui.extract = { kind: d.kind, status: 'pick', tenderId: d.tender || '' }; ui.voice = null; render(); },
   pickFile() { pickFor = null; $('#filepick').click(); },
+  xGaPick() { pickFor = { kind: 'xga' }; $('#filepick').click(); },
+  xGaClear() { ui.extract.gaFile = null; ui.extract.data.gaAttached = false; refreshPoChecks(); render(); },
   extractPick(d) { pickFor = null; ui.extract = { kind: d.kind, status: 'pick', tenderId: '' }; render(); $('#filepick').click(); },
   extractRetry() { ui.extract.status = 'pick'; render(); },
   poManual() { const X = ui.extract; X.kind = 'po'; X.status = 'review'; X.data = blankPo(X.tenderId); X.conf = {}; X.documentId = ''; X.fileName = ''; X.aiOff = ''; refreshPoChecks(); render(); },
@@ -1597,7 +1613,7 @@ const ACT = {
     if (X.kind === 'tender') {
       mutate('saveTenderFromDocument', [X.data, X.documentId || '', d.send === '1'], (res) => { ui.extract = null; if (res && (res.id || res.state)) { const id = res.id; if (id) { ui.page = 'tender'; ui.id = id; ui.tab = 'details'; history.pushState(null, '', pathFor()); } } });
     } else {
-      mutate('createTenderPo', [X.data, X.documentId || ''], (res) => { ui.extract = null; if (res && res.id) { ui.page = 'po'; ui.id = res.id; ui.tab = 'items'; history.pushState(null, '', pathFor()); } });
+      mutate('createTenderPo', [X.data, X.documentId || '', X.data.gaDrawing === 'Yes' ? X.gaFile || null : null], (res) => { ui.extract = null; if (res && res.id) { ui.page = 'po'; ui.id = res.id; ui.tab = 'items'; history.pushState(null, '', pathFor()); } });
     }
   },
 

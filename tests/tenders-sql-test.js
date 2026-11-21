@@ -320,7 +320,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   res = await p.advanceTender(tb);
   ok('and works it through to submission herself', res.state.tenders.find((x) => x.id === tb).stage === 'submitted');
   ok('and she still keeps the masters', !!(await p.saveTenderMaster('lossReason', { name: 'Specification not met' })));
-  res = await p.createTenderPo({ tenderId: tb, no: 'PO-BOTH-1', poDate: inDays(0), dueDate: inDays(30), value: 480000, ld: { rate: 0.5, per: 'week', cap: 10, basis: 'delayed' },
+  res = await p.createTenderPo({ tenderId: tb, no: 'PO-BOTH-1', poDate: inDays(0), dueDate: inDays(30), value: 480000, inspection: 'No', gaDrawing: 'No', ld: { rate: 0.5, per: 'week', cap: 10, basis: 'delayed' },
     items: [{ sr: 1, desc: 'Refrigerated air dryer', qty: 1, uom: 'Nos', rate: 480000, due: inDays(30), fp: 'kiran@pie.invalid' }] }, '');
   t = res.state.tenders.find((x) => x.id === tb);
   ok('the client\'s PO on a submitted tender: it is won, at the PO\'s value, and goes to execution', t.stage === 'result' && t.result === 'won' && t.postbid.l1 === 480000 && t.poId === res.id);
@@ -376,7 +376,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   console.log('THE CLIENT’S PO');
   aiAnswer = { no: 'TG/KTPS/PUR/2026/4417', poDate: inDays(-40), clientName: 'Test State Power', tenderRef: 'TG/KTPS/2026/1187', value: '2310000', valueExGst: '',
     deliveryPeriod: '30 days from PO', dueDate: '', payTerms: '100% in 60 days', ldRate: '0.5', ldPer: 'week', ldCap: '10', ldBasis: 'delayed', ldClause: '0.5% per week of delayed value',
-    sdPct: '3', sdDays: '21', pbgPct: '', inspection: 'Pre-dispatch', gaDrawing: '', warranty: '18 months', ackDays: '7',
+    sdPct: '3', sdDays: '21', pbgPct: '', inspection: 'Pre-dispatch', gaDrawing: 'Required for approval', warranty: '18 months', ackDays: '7',
     items: [{ sr: '1', code: 'C-160', desc: 'Screw air compressor 160 cfm', qty: '2', uom: 'Nos', rate: '1155000', amount: '2310000', due: '' }], unsure: [] };
   await as('U-ENG');
   ok('an executive does not enter POs', await refuses(() => p.readPoDocument(pdf, ''), /Shortlisting or PO Execution or Items Entry/));
@@ -384,14 +384,21 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   const poRead = await p.readPoDocument(pdf, '');
   ok('the PO is read and matched to the won tender by its reference; the due date from the period', poRead.data.tenderId === tid && poRead.data.dueDate === inDays(-10) &&
     poRead.data.items[0].rate === 1155000 && poRead.data.ld.rate === 0.5, poRead.data);
+  ok('inspection and GA drawing read as Yes/No questions', poRead.data.inspection === 'Yes' && poRead.data.gaDrawing === 'Yes', [poRead.data.inspection, poRead.data.gaDrawing]);
   let checks = await p.checkTenderPo(poRead.data);
+  ok('a GA drawing asked for must be attached', checks.some((c) => !c.ok && c.t === 'GA drawing attached'));
+  ok('and the form cannot claim it is', await refuses(() => p.createTenderPo(Object.assign({}, poRead.data, { gaAttached: true, items: [Object.assign({}, poRead.data.items[0], { fp: 'kiran@pie.invalid' })] }), poRead.documentId), /GA drawing attached/));
+  ok('Yes or No must be answered', (await p.checkTenderPo(Object.assign({}, poRead.data, { inspection: '' }))).some((c) => !c.ok && c.t === 'Inspection: Yes or No'));
   ok('it cannot be created until every item has a fulfilment person', checks.some((c) => !c.ok && /Fulfilment person/.test(c.t)));
   ok('the save refuses the same', await refuses(() => p.createTenderPo(poRead.data, poRead.documentId), /Fulfilment person/));
   poRead.data.items[0].fp = 'kiran@pie.invalid';
-  res = await p.createTenderPo(poRead.data, poRead.documentId);
+  res = await p.createTenderPo(poRead.data, poRead.documentId, { name: 'GA-drawing.pdf', dataUrl: pdf.dataUrl });
   const pid = res.id;
   let po = res.state.pos.find((x) => x.id === pid);
-  ok('the PO is created against the tender', po && po.no === 'TG/KTPS/PUR/2026/4417' && res.state.tenders.find((x) => x.id === tid).poId === pid && po.docs.length === 1);
+  ok('the PO is created against the tender', po && po.no === 'TG/KTPS/PUR/2026/4417' && res.state.tenders.find((x) => x.id === tid).poId === pid &&
+    po.docs.filter((d) => d.type === 'Purchase order').length === 1 && po.docs.filter((d) => d.type === 'GA drawing').length === 1, po.docs);
+  ok('with its answers', po.inspection === 'Yes' && po.gaDrawing === 'Yes');
+  ok('which stay Yes or No', await refuses(() => p.savePoField(pid, 'inspection', 'Third party'), /Yes or No/));
   ok('the SD is an obligation at 3%, due 21 days from the PO', po.obligations.length === 1 && po.obligations[0].amount === 69300 && po.obligations[0].lastDate === inDays(-19));
   ok('tasks went to fulfilment, Accounts and to acknowledge', res.state.tasks.some((k) => k.assignee === 'kiran@pie.invalid' && /Raise supplier POs/.test(k.title)) &&
     res.state.tasks.some((k) => k.assignee === 'neha@pie.invalid' && /Submit SD/.test(k.title)) && res.state.tasks.some((k) => /PO acknowledgement/.test(k.title)));

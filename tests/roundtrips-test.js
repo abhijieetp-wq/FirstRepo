@@ -66,7 +66,7 @@ spy.reset();
 
 sb.saveSpareEnquiry({
   customerId: 'CU-1', customerName: 'Topworth Urja', contactName: 'Mr Pathak',
-  contactPhone: '9822737001', requirementText: 'Air oil separator', urgency: 'Normal'
+  contactPhone: '9822737001', requirementText: 'Air oil separator', urgency: 'Normal', source: 'Call'
 });
 
 const tally = spy.tally();

@@ -373,7 +373,8 @@ async function raiseSpareEnquiryFromServiceJob(serviceJobId, input) {
     installedBaseId: '',
     requirementText: need,
     urgency: urgency,
-    source: 'Service visit ' + String(job.jobNo || ''),
+    // Brought in by the engineer at the machine; the visit itself is serviceJobId.
+    source: 'Service Engineer',
     ownerEmail: '',
     // The engineer who found the need generated the enquiry: whoever pressed the button if
     // that was the engineer, otherwise the engineer the job is assigned to.

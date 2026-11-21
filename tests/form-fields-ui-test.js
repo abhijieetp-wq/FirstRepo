@@ -131,6 +131,7 @@ const ok = (label, cond, detail) => {
       c.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await page.fill('#em-requirement', 'Separator element');
+    await page.selectOption('#em-source', 'Call');
     await page.click('#btn-save-enquiry');
     await page.waitForTimeout(300);
     ok('a required one empty stops the save', (await calls('saveSpareEnquiry')).length === 0 && /Fill in: Plant shift\./.test(await page.evaluate(() => document.body.innerText)));

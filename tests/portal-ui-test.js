@@ -89,6 +89,7 @@ const ok = (label, cond, detail) => {
   console.log('\nCREATE QUOTATION GOES STRAIGHT THERE, FROM AN UNSAVED ENQUIRY');
   ok('the button is offered before saving', await shown('#btn-quote-enquiry'));
   await page.fill('#em-requirement', 'Air oil separator');
+  await page.selectOption('#em-source', 'Email');
   await page.click('#btn-quote-enquiry');
   await page.waitForTimeout(900);
 
