@@ -579,6 +579,10 @@ function tdValidateMove_(it, f, today) {
   else if (f.date > today) E.push('Date cannot be in the future');
   return E;
 }
+/** Invoices and payments on a PO are Accounts' alone; nobody else adds, changes or removes them. */
+function tdAccountsOnly_(ctx, list) {
+  if (['invoices', 'payments'].indexOf(list) !== -1 && ctx.role !== 'accounts') throw new Error('Invoices and payments are kept by Accounts.');
+}
 function tdPoEditable_(ctx) { return ['shortlist', 'items', 'fp', 'accounts'].some(function (r) { return tdHas_(ctx.role, r); }); }
 
 
@@ -1472,6 +1476,7 @@ async function savePoField(id, path, value) {
   var parts = String(path || '').split('.');
   var money = ['invoices', 'payments', 'obligations'].indexOf(parts[0]) !== -1;
   if (ctx.role === 'accounts' && !money) throw new Error('Accounts keeps the invoices, payments and guarantees; the rest of the PO is kept by the PO team.');
+  tdAccountsOnly_(ctx, parts[0]);
   if (parts.length === 1 && TD_PO_KEYS.indexOf(parts[0]) !== -1) {
     var k = parts[0];
     if (k === 'no' && !String(value || '').trim()) throw new Error('The PO number cannot be blank.');
@@ -1516,6 +1521,7 @@ async function poLine(id, list, op, index) {
   if (!tdPoEditable_(ctx)) throw new Error('You can look at this PO but not change it.');
   if (p.closed) throw new Error('This PO is closed.');
   if (['invoices', 'payments', 'obligations'].indexOf(list) === -1) throw new Error('That list is not on a PO.');
+  tdAccountsOnly_(ctx, list);
   if (op === 'add') {
     p[list].push(list === 'invoices' ? { id: generateId_('IV-'), no: '', date: ctx.today, amount: '' }
       : list === 'payments' ? { id: generateId_('PY-'), date: ctx.today, amount: '', utr: '' }

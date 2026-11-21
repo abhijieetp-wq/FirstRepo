@@ -235,6 +235,16 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await page.click('[data-act="moveSave"]'); await settle();
   const after = (await p.getTenderApp()).pos.find((x) => x.id === pid).items[1].moves.slice(-1)[0];
   ok('recorded on the server, by him', after.t === 'delivered' && after.qty === 30 && after.by === 'kiran@pie.invalid');
+  await page.click('.tab[data-v="money"]');
+  ok('invoices and payments: he only looks', /kept by Accounts/.test(await page.textContent('.content')) && !(await page.$('[data-act="addRow"][data-list="invoices"]')) &&
+    await page.$eval('[data-act="addRow"][data-list="payments"]', () => false).catch(() => true));
+  actor = 'U-ACC';
+  await page.reload(); await page.waitForSelector('.ld-box');
+  await page.click('.tab[data-v="money"]');
+  ok('Accounts keeps them', !!(await page.$('[data-act="addRow"][data-list="invoices"]')) && !/kept by Accounts/.test(await page.textContent('.content')));
+  await shot('td-po-money');
+  actor = 'U-SVC';
+  await page.reload(); await page.waitForSelector('.ld-box');
   await page.click('[data-act="go"][data-page="pos"]'); await settle();
   await shot('td-pos');
 

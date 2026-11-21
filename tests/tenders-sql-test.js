@@ -416,6 +416,12 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   console.log('MONEY, GUARANTEES AND CLOSING');
   await as('U-ACC');
   ok('Accounts cannot change the PO header', await refuses(() => p.savePoField(pid, 'payTerms', 'x'), /Accounts keeps the invoices/));
+  for (const who of ['U-COORD', 'U-SVCC', 'U-SVC', 'U-POX']) {
+    await as(who);
+    ok('invoices and payments are Accounts\' alone, not ' + who + '\'s', await refuses(() => p.poLine(pid, 'invoices', 'add'), /kept by Accounts/) &&
+      await refuses(() => p.poLine(pid, 'payments', 'add'), /kept by Accounts/));
+  }
+  await as('U-ACC');
   await p.poLine(pid, 'invoices', 'add');
   await p.savePoField(pid, 'invoices.0.no', 'PIE/26-27/0412');
   res = await p.savePoField(pid, 'invoices.0.amount', '2310000');
@@ -424,6 +430,10 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   res = await p.savePoField(pid, 'payments.0.amount', '2298450');
   po = res.state.pos.find((x) => x.id === pid);
   ok('paid net of LD meets the close check', po.closeGate.find((r) => /Payment received/.test(r.t)).ok);
+  await as('U-POX');
+  ok('nor are they changed by anybody else', await refuses(() => p.savePoField(pid, 'payments.0.amount', '1'), /kept by Accounts/) &&
+    await refuses(() => p.savePoField(pid, 'invoices.0.no', 'X'), /kept by Accounts/) && await refuses(() => p.poLine(pid, 'invoices', 'del', 0), /kept by Accounts/));
+  await as('U-ACC');
   await p.savePoField(pid, 'obligations.0.status', 'Released');
   ok('a status must be from the list', await refuses(() => p.savePoField(pid, 'obligations.0.status', 'Lost'), /from the list/));
   await as('U-SVCC');
