@@ -139,7 +139,8 @@ table.t td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:m
 table.t tr:last-child td{border-bottom:0}
 table.t tr.click{cursor:pointer} table.t tr.click:hover td{background:var(--surface-2)}
 table.t td.r,table.t th.r{text-align:right}
-table.t input,table.t select{width:100%;min-width:70px}
+table.t input:not([type=checkbox]),table.t select{width:100%;min-width:70px}
+table.t input[type=checkbox]{width:16px;height:16px;min-width:0;margin:0;flex:none}
 table.t input[id$="_name"][id^="m_clients_"],table.t input[id$="_name"][id^="m_suppliers_"]{min-width:240px}
 
 .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px 16px}
