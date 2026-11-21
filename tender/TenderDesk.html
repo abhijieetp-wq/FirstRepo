@@ -392,7 +392,8 @@ const mName = (id) => (mem(id) || {}).name || (id ? id : '—');
 const role = () => S.me.role;
 // Shortlisting & Executive ('both') is Shortlisting and a Tender Executive at once. Admin is a
 // separate grant (S.me.admin), not part of any role.
-const roleHas = (m, r) => m === r || (m === 'both' && (r === 'shortlist' || r === 'exec'));
+// PO Execution ('po') runs every PO: Items Entry's part and Fulfilment's part, as on the server.
+const roleHas = (m, r) => m === r || (m === 'both' && (r === 'shortlist' || r === 'exec')) || (m === 'po' && (r === 'items' || r === 'fp'));
 const has = (r) => roleHas(role(), r);
 const ROLES = () => S.roles;
 const cli = (id) => S.clients.find((c) => c.id === id);
@@ -845,13 +846,13 @@ function vTender() {
     if (TEAM.includes(t.stage) && has('shortlist')) extraField = `<div style="padding:0 16px 4px">${F('Owner in the submission team', ref + 'assignee', t.assignee, { type: 'select', opts: membersOf('exec'), ph: 'Whole team (anyone)' })}</div>`;
     else if (TEAM.includes(t.stage) && has('exec') && !t.assignee) extraField = `<div style="padding:0 16px 12px" class="row"><span class="small faint" style="flex:1">With the submission team, no owner yet.</span><button class="btn sm" data-act="takeIt" data-id="${esc(t.id)}">${ic('user')}Take it</button></div>`;
     const returned = t.stage === 'prep' && (t.bid || {}).status === 'returned' ? `<div style="padding:0 16px 12px"><div class="note warn">${ic('alert')}<span>Bid sent back by ${esc(mName(t.bid.by))}: “${esc(t.bid.note)}”</span></div></div>` : '';
-    const poBtn = ['submitted', 'opened'].includes(t.stage) && !t.poId && (has('shortlist') || r === 'items') ? `<button class="btn" data-act="extractOpen" data-kind="po" data-tender="${esc(t.id)}">${ic('up')}PO received – upload</button>` : '';
+    const poBtn = ['submitted', 'opened'].includes(t.stage) && !t.poId && (has('shortlist') || has('items')) ? `<button class="btn" data-act="extractOpen" data-kind="po" data-tender="${esc(t.id)}">${ic('up')}PO received – upload</button>` : '';
     gp = gatePanel(g.action, g.reqs, `<button class="btn pri" data-act="advance" data-id="${esc(t.id)}" ${g.open || !g.canAct ? 'disabled' : ''}>${esc(g.action)} ${ic('arrow')}</button>${poBtn}${!g.canAct ? `<span class="small faint">Needs ${esc(g.who.map((x) => S.roles[x]).join(' or '))}${g.who.includes('exec') && t.assignee ? ' (its owner, ' + esc(mName(t.assignee)) + ')' : ''}</span>` : ''}`, returned + extraField);
     if (['draft', 'prep'].includes(t.stage) && has('shortlist')) gp += `<button class="btn sm ghost" style="align-self:flex-start" data-act="decline" data-id="${esc(t.id)}">Mark as not participating</button>`;
   } else if (t.stage === 'result') {
     const po = t.poId && pobj(t.poId);
     gp = `<div class="gate"><div class="gate-h"><div style="flex:1"><div class="lbl">Result</div><h3>${esc((S.results[t.result] || {}).l || '')}</h3></div>${stageChip(t)}</div><div class="card-b">
-      ${t.result === 'won' ? (po ? `<button class="btn pri" ${go('po', po.id)}>Open PO ${esc(po.no)} ${ic('arrow')}</button>` : `<p class="muted" style="margin-top:0">Tender won. Upload the client's PO – AI reads items, quantities, delivery dates and the LD clause.</p>${has('shortlist') || r === 'items' ? `<button class="btn pri" data-act="extractOpen" data-kind="po" data-tender="${esc(t.id)}">${ic('up')}Upload PO</button>` : ''}`) : `<p class="muted" style="margin:0">${esc((t.postbid || {}).reason || 'Closed')}</p>`}</div></div>`;
+      ${t.result === 'won' ? (po ? `<button class="btn pri" ${go('po', po.id)}>Open PO ${esc(po.no)} ${ic('arrow')}</button>` : `<p class="muted" style="margin-top:0">Tender won. Upload the client's PO – AI reads items, quantities, delivery dates and the LD clause.</p>${has('shortlist') || has('items') ? `<button class="btn pri" data-act="extractOpen" data-kind="po" data-tender="${esc(t.id)}">${ic('up')}Upload PO</button>` : ''}`) : `<p class="muted" style="margin:0">${esc((t.postbid || {}).reason || 'Closed')}</p>`}</div></div>`;
   }
   const ap = t.approval || {};
   const facts = `<div class="card"><div class="card-b"><dl class="kv">
@@ -880,7 +881,7 @@ function vPOs() {
   const list = S.pos.filter((p) => r !== 'fp' || p.items.some((i) => i.fp === S.me.id));
   const wonNoPo = S.tenders.filter((t) => t.result === 'won' && !t.poId);
   return `<div class="row"><p class="muted" style="margin:0;flex:1;min-width:240px">Every PO shows how much is ordered on suppliers, procured, dispatched and delivered – by value – against the delivery date, with liquidated damages calculated live.</p>
-    ${has('shortlist') || r === 'items' ? `<button class="btn pri" data-act="extractOpen" data-kind="po">${ic('up')}Upload PO</button>` : ''}</div>
+    ${has('shortlist') || has('items') ? `<button class="btn pri" data-act="extractOpen" data-kind="po">${ic('up')}Upload PO</button>` : ''}</div>
   ${wonNoPo.length ? `<div class="note warn">${ic('alert')}<span>${wonNoPo.length} won tender${wonNoPo.length > 1 ? 's' : ''} without a PO: ${wonNoPo.map((t) => `<a href="#" ${go('tender', t.id)}>${esc(t.no)}</a>`).join(', ')}</span></div>` : ''}
   <div class="grid g2">${list.map((p) => { const c = p.calc; const d = dd(p.dueDate);
     return `<div class="card" ${go('po', p.id)} style="cursor:pointer"><div class="card-h"><div style="flex:1;min-width:0"><div class="mono small">${esc(p.no)}</div><div class="small faint">${esc((cli(p.client) || {}).name || '')} · ${esc((tender(p.tenderId) || {}).no || '')}</div></div><span class="chip acc">${esc(pstageLabel(p))}</span>${dueChip(d, c.pc.delivered >= 100)}</div>
@@ -889,7 +890,7 @@ function vPOs() {
 function vPO() {
   const p = pobj(ui.id); if (!p) return '<div class="empty">That PO is no longer here.</div>';
   const r = role();
-  const canEdit = (has('shortlist') || ['items', 'fp', 'accounts'].includes(r)) && !p.closed;
+  const canEdit = (has('shortlist') || ['items', 'fp', 'accounts'].some(has)) && !p.closed;
   const moneyOnly = r === 'accounts';
   RO = !canEdit || moneyOnly;
   const c = p.calc; const t = tender(p.tenderId);
@@ -898,7 +899,7 @@ function vPO() {
   const allMoves = p.items.flatMap((i) => i.moves.map((m) => Object.assign({}, m, { it: i }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const tabs = [['items', 'Items & quantities', p.items.length], ['terms', 'PO terms & LD'], ['log', 'Movement log', allMoves.length], ['money', 'Invoices & payments'], ['obl', 'SD / PBG', p.obligations.length], ['tasks', 'Tasks', tasks.filter((k) => k.status !== DONE).length], ['activity', 'Activity']];
   const ref = 'p:' + p.id + ':';
-  const canMove = (has('shortlist') || ['items', 'fp'].includes(r)) && !p.closed;
+  const canMove = (has('shortlist') || ['items', 'fp'].some(has)) && !p.closed;
   let body = '';
   if (tab === 'items') body = `<div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th style="min-width:220px">Item</th><th class="r">PO qty</th><th class="r">Ordered</th><th class="r">Procured</th><th class="r">Dispatched</th><th class="r">Delivered</th><th>Due</th><th style="min-width:130px">Fulfilment</th><th class="r">LD</th><th></th></tr></thead><tbody>
     ${p.items.map((it) => { const q = qtys(it); const lr = c.ld.rows.find((x) => x.it === it.id); const cell = (v) => `<td class="r num" style="${v >= it.qty ? 'color:var(--ok);font-weight:600' : v > 0 ? '' : 'color:var(--ink-3)'}">${v}</td>`;
@@ -963,7 +964,7 @@ function vPO() {
   <div class="split">
     <div class="grid" style="gap:12px"><div class="tabs">${tabs.map(([k, l, n]) => `<button class="tab${tab === k ? ' on' : ''}" data-act="tab" data-v="${k}">${l}${n ? `<span class="ct">${n}</span>` : ''}</button>`).join('')}</div>${body}</div>
     <div class="grid" style="gap:12px">${ldBox}${risk}
-      ${gatePanel('Close this PO', p.closeGate, has('shortlist') || r === 'items' ? `<button class="btn" data-act="closePO" data-id="${esc(p.id)}" ${p.closeGate.some((x) => !x.ok) || p.closed ? 'disabled' : ''}>${p.closed ? 'Closed' : 'Close PO'}</button>` : '')}
+      ${gatePanel('Close this PO', p.closeGate, has('shortlist') || has('items') ? `<button class="btn" data-act="closePO" data-id="${esc(p.id)}" ${p.closeGate.some((x) => !x.ok) || p.closed ? 'disabled' : ''}>${p.closed ? 'Closed' : 'Close PO'}</button>` : '')}
       <div class="card"><div class="card-h"><h3>Open tasks</h3><button class="btn sm" data-act="newTask" data-link="p:${esc(p.id)}">${ic('plus')}Assign</button></div>${tasks.filter((k) => k.status !== DONE).map(taskRow).join('') || '<div class="empty small">None</div>'}</div>
     </div>
   </div>`;

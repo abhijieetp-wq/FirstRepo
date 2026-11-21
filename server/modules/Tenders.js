@@ -50,6 +50,7 @@
  * The ERP Admin is always one, so the Tender Desk is never left without.
  *   Management — approves participation or declines it.
  *   Tender Executive (Sales Engineer) — prepares and submits the tenders assigned to them.
+ *   PO Execution — runs every PO: enters it, keeps it, moves its quantities, closes it.
  *   Items Entry (Service Coordinator) — enters the client's PO.
  *   Fulfilment (Service Engineer) — orders from suppliers and moves the items to delivery.
  *   Accounts — the EMD, invoices, payments, the deposit and the guarantee.
@@ -66,9 +67,15 @@
 // ---------------------------------------------------------------- the fixed parts
 
 var TD_ROLES = { shortlist: 'Shortlisting', both: 'Shortlisting & Executive', mgmt: 'Management', exec: 'Tender Executive',
-  items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
-/** Whether a person's Tender Desk role includes another: Shortlisting & Executive is both of those. */
-function tdHas_(role, r) { return role === r || (role === 'both' && (r === 'shortlist' || r === 'exec')); }
+  po: 'PO Execution', items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
+/**
+ * Whether a person's Tender Desk role includes another: Shortlisting & Executive is both of those;
+ * PO Execution runs the whole PO – what Items Entry does (enter it, close it) and what Fulfilment
+ * does (move its quantities), on every PO rather than only the items assigned to them.
+ */
+function tdHas_(role, r) {
+  return role === r || (role === 'both' && (r === 'shortlist' || r === 'exec')) || (role === 'po' && (r === 'items' || r === 'fp'));
+}
 var TD_ALWAYS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS, ROLES.TENDER_DESK];
 /**
  * All a Tender Desk only account may call (Session.gs, call): the Tender Desk's own functions,
@@ -572,7 +579,7 @@ function tdValidateMove_(it, f, today) {
   else if (f.date > today) E.push('Date cannot be in the future');
   return E;
 }
-function tdPoEditable_(ctx) { return tdHas_(ctx.role, 'shortlist') || ['items', 'fp', 'accounts'].indexOf(ctx.role) !== -1; }
+function tdPoEditable_(ctx) { return ['shortlist', 'items', 'fp', 'accounts'].some(function (r) { return tdHas_(ctx.role, r); }); }
 
 
 // ---------------------------------------------------------------- alerts
@@ -619,8 +626,8 @@ function tdAlerts_(ctx, calcs) {
   A.sort(function (a, b) { return order[a.sev] - order[b.sev]; });
   if (tdHas_(ctx.role, 'shortlist') || ctx.role === 'mgmt') return A;
   return A.filter(function (a) {
-    return a.who === ctx.me || a.who === ctx.role || (a.who === 'mgmt' && tdApprover_(ctx)) || a.ref.indexOf('k:') === 0 ||
-      ((ctx.role === 'fp' || ctx.role === 'items') && a.ref.indexOf('p:') === 0);
+    return a.who === ctx.me || tdHas_(ctx.role, a.who) || (a.who === 'mgmt' && tdApprover_(ctx)) || a.ref.indexOf('k:') === 0 ||
+      ((tdHas_(ctx.role, 'fp') || tdHas_(ctx.role, 'items')) && a.ref.indexOf('p:') === 0);
   });
 }
 
@@ -1284,7 +1291,7 @@ async function readPoDocument(file, tenderId) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = await tdContext_(user);
-  tdRequireRole_(ctx, ['shortlist', 'items'], 'Entering a PO');
+  tdRequireRole_(ctx, ['shortlist', 'po', 'items'], 'Entering a PO');
   var block = tdAiBlock_(file && file.dataUrl);
   var doc = await tdStoreDoc_(file, user, 'TenderPO', 'NEW:' + user.email, 'Purchase order');
   var out = { documentId: doc.id, fileName: String((file && file.name) || doc.fileName), data: tdBlankPoData_(ctx, tenderId), conf: {}, aiOff: '' };
@@ -1381,7 +1388,7 @@ async function createTenderPo(data, documentId) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = await tdContext_(user);
-  tdRequireRole_(ctx, ['shortlist', 'items'], 'Entering a PO');
+  tdRequireRole_(ctx, ['shortlist', 'po', 'items'], 'Entering a PO');
   var d = data || {};
   var checks = tdPoChecks_(d, ctx);
   var open = checks.filter(function (r) { return !r.ok; });
@@ -1529,7 +1536,7 @@ async function recordPoMove(poId, itemId, move) {
   requireTenderDesk_(user);
   var ctx = await tdContext_(user);
   var p = tdPo_(ctx, poId);
-  if (!tdHas_(ctx.role, 'shortlist') && ['items', 'fp'].indexOf(ctx.role) === -1) throw new Error('Quantities are updated by Fulfilment, Items Entry or Shortlisting.');
+  if (!['shortlist', 'items', 'fp'].some(function (r) { return tdHas_(ctx.role, r); })) throw new Error('Quantities are updated by PO Execution, Fulfilment, Items Entry or Shortlisting.');
   if (p.closed) throw new Error('This PO is closed.');
   var it = p.items.filter(function (i) { return i.id === itemId; })[0];
   if (!it) throw new Error('That item is no longer on the PO.');
@@ -1550,7 +1557,7 @@ async function closeTenderPo(id) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
   var ctx = await tdContext_(user);
-  tdRequireRole_(ctx, ['shortlist', 'items'], 'Closing a PO');
+  tdRequireRole_(ctx, ['shortlist', 'po', 'items'], 'Closing a PO');
   var p = tdPo_(ctx, id);
   if (p.closed) throw new Error('This PO is already closed.');
   var open = tdPoCloseGate_(p, tdPoCalc_(p, ctx)).filter(function (r) { return !r.ok; });

@@ -61,6 +61,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await person('U-ACC', 'neha', 'Neha Rao', 'Accounts');
   await person('U-SVC', 'kiran', 'Kiran Pawar', 'Service Engineer', { tenderDesk: 'TRUE' });
   await person('U-SVCC', 'meera', 'Meera Das', 'Service Coordinator', { tenderDesk: 'TRUE' });
+  await person('U-POX', 'sanjay', 'Sanjay More', 'Service Coordinator', { tenderDesk: 'TRUE', tenderRole: 'po' });
   await db.appendRow('Customers', { id: 'CU-GEN', customerCode: 'TG1', name: 'Test State Power Generation Co Ltd', active: 'TRUE' });
   await db.appendRow('Customers', { id: 'CU-OTHER', customerCode: 'TO1', name: 'Another Test Mills', active: 'TRUE' });
 
@@ -378,7 +379,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
     sdPct: '3', sdDays: '21', pbgPct: '', inspection: 'Pre-dispatch', gaDrawing: '', warranty: '18 months', ackDays: '7',
     items: [{ sr: '1', code: 'C-160', desc: 'Screw air compressor 160 cfm', qty: '2', uom: 'Nos', rate: '1155000', amount: '2310000', due: '' }], unsure: [] };
   await as('U-ENG');
-  ok('an executive does not enter POs', await refuses(() => p.readPoDocument(pdf, ''), /Shortlisting or Items Entry/));
+  ok('an executive does not enter POs', await refuses(() => p.readPoDocument(pdf, ''), /Shortlisting or PO Execution or Items Entry/));
   await as('U-SVCC');
   const poRead = await p.readPoDocument(pdf, '');
   ok('the PO is read and matched to the won tender by its reference; the due date from the period', poRead.data.tenderId === tid && poRead.data.dueDate === inDays(-10) &&
@@ -427,6 +428,15 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('a status must be from the list', await refuses(() => p.savePoField(pid, 'obligations.0.status', 'Lost'), /from the list/));
   await as('U-SVCC');
   ok('it cannot close without the performance certificate', await refuses(() => p.closeTenderPo(pid), /Performance certificate/));
+  console.log('PO EXECUTION');
+  await as('U-POX');
+  st = await p.getTenderApp();
+  ok('PO Execution is a Tender Desk role of its own', st.roles.po === 'PO Execution' && st.me.role === 'po');
+  ok('it is told about every PO, with nothing assigned to it', st.alerts.some((a) => a.ref === 'p:' + pid));
+  ok('and can be given a PO\'s items to fulfil', (await p.savePoField(pid, 'items.' + itId + '.fp', 'sanjay@pie.invalid')).state.pos.find((x) => x.id === pid).items[0].fp === 'sanjay@pie.invalid');
+  await p.savePoField(pid, 'items.' + itId + '.fp', 'kiran@pie.invalid');
+  await p.savePoField(pid, 'warranty', '18 months from delivery');
+  ok('it keeps the PO\'s terms', (await p.getTenderApp()).pos.find((x) => x.id === pid).warranty === '18 months from delivery');
   await p.savePoField(pid, 'perfCert', 'Yes');
   res = await p.closeTenderPo(pid);
   ok('closed', res.state.pos.find((x) => x.id === pid).closed === true && res.state.pos.find((x) => x.id === pid).calc.stage === 'closed');
