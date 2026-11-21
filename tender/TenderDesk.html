@@ -15,7 +15,7 @@
 <!--
   THE TENDER DESK — a module of its own, with its own page (PIE, Nov 2026).
 
-  The ERP's sign-in, people, clients (Customers), tasks, files and AI, behind a page of its
+  The ERP's sign-in, people, tasks, files and AI, with clients of its own, behind a page of its
   own: Dashboard, Shortlisting, Tenders, PO execution, Tasks and Masters. The server keeps
   every record and every rule (src/Tenders.gs); this page draws what getTenderApp returns and
   sends each change back through one call, which answers with the fresh picture.
@@ -140,6 +140,7 @@ table.t tr:last-child td{border-bottom:0}
 table.t tr.click{cursor:pointer} table.t tr.click:hover td{background:var(--surface-2)}
 table.t td.r,table.t th.r{text-align:right}
 table.t input,table.t select{width:100%;min-width:70px}
+table.t input[id$="_name"][id^="m_clients_"],table.t input[id$="_name"][id^="m_suppliers_"]{min-width:240px}
 
 .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px 16px}
 .f{display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -278,6 +279,7 @@ input.in:focus,select.in:focus,textarea.in:focus{outline:none;border-color:var(-
 <div id="app"><div class="splash"><div><span class="pulse" style="display:inline-block"></span><p class="muted">Opening the Tender Desk…</p></div></div></div>
 <div id="overlay"></div>
 <input type="file" id="filepick" hidden accept=".pdf,.png,.jpg,.jpeg,.webp">
+<input type="file" id="csvpick" hidden accept=".csv,text/csv">
 <script>
 "use strict";
 // ================= utils =================
@@ -375,14 +377,17 @@ function refresh() { return api('getTenderApp').then((st) => { S = st; TODAY = S
 // ================= state =================
 let S = null;
 const ui = { page: 'dashboard', id: null, tab: null, filters: { mine: false, q: '', prio: '', portal: '', view: 'board', tview: 'mine', tlink: '' },
-  modal: null, drawer: false, form: {}, extract: null, voice: null, toast: null, mtab: 'members', newRow: {}, clientCache: {} };
+  modal: null, drawer: false, form: {}, extract: null, voice: null, toast: null, mtab: 'members', newRow: {}, importNote: null };
 
 // ================= lookups =================
 const mem = (id) => S.members.find((m) => m.id === id);
 const mName = (id) => (mem(id) || {}).name || (id ? id : '—');
 const role = () => S.me.role;
+// Shortlisting & Executive ('both') is Shortlisting & Admin and a Tender Executive at once.
+const roleHas = (m, r) => m === r || (m === 'both' && (r === 'shortlist' || r === 'exec'));
+const has = (r) => roleHas(role(), r);
 const ROLES = () => S.roles;
-const cli = (id) => S.clients.find((c) => c.id === id) || ui.clientCache[id];
+const cli = (id) => S.clients.find((c) => c.id === id);
 const sup = (id) => S.suppliers.find((s) => s.id === id);
 const portal = (id) => S.portals.find((p) => p.id === id);
 const tender = (id) => S.tenders.find((t) => t.id === id);
@@ -441,10 +446,14 @@ function F(label, ref, val, o) {
   else if (t === 'yna') ctl = seg(ref, val, ['Yes', 'No', 'NA'], ro);
   else if (t === 'ynp') ctl = seg(ref, val, ['Yes', 'No', 'Partial'], ro);
   else if (t === 'client') {
+    // The Tender Desk's own clients, picked by typing; "+ New" adds one without leaving the form.
     const c = cli(val);
     const list = 'dl_' + id;
-    const extra = (o.matches || []).map((m) => `<option value="${esc(m.name)}" data-id="${esc(m.id)}"></option>`).join('');
-    ctl = `<input class="${cls}" id="${id}" type="search" list="${list}" data-client="${esc(ref)}" value="${esc(c ? c.name : '')}" ${ro ? 'readonly' : ''} placeholder="${esc(o.ph || 'Type to search Customers')}" autocomplete="off"><datalist id="${list}">${extra}</datalist>`;
+    const first = (o.matches || []).map((m) => m.id);
+    const rows = first.map(cli).filter(Boolean).concat(S.clients.filter((x) => first.indexOf(x.id) === -1));
+    ctl = `<div class="row" style="gap:6px;flex-wrap:nowrap"><input class="${cls}" id="${id}" type="search" list="${list}" data-client="${esc(ref)}" value="${esc(c ? c.name : '')}" ${ro ? 'readonly' : ''} placeholder="${esc(o.ph || (S.clients.length ? 'Type to pick a client' : 'No clients yet – add one'))}" autocomplete="off">` +
+      `<datalist id="${list}">${rows.map((x) => `<option value="${esc(x.name)}">${esc([x.short, x.city].filter(Boolean).join(' · '))}</option>`).join('')}</datalist>` +
+      `${ro || !S.me.masters ? '' : `<button type="button" class="btn sm" data-act="newClient" data-ref="${esc(ref)}" data-name="${esc(o.newName || '')}" title="Add a client to the list">${ic('plus')}New</button>`}</div>`;
   } else ctl = `<input class="${cls}" id="${id}" type="${t}" data-ref="${esc(ref)}" value="${esc(val)}" ${ro ? 'readonly' : ''} placeholder="${esc(o.ph || '')}" ${t === 'number' ? 'step="any" inputmode="decimal" min="0"' : ''}>`;
   return `<div class="f${o.wide ? ' wide' : ''}"><label for="${id}">${esc(label)}${o.req ? '<span class="req">*</span>' : ''}${o.low ? '<span class="ai-badge" title="AI was not sure – please check">check</span>' : ''}${o.hint ? `<span class="faint small">${esc(o.hint)}</span>` : ''}</label>${ctl}</div>`;
 }
@@ -459,7 +468,7 @@ function cfFields(entity, obj, prefix, showMiss) {
   }).join('');
 }
 const L = (arr, key) => arr.map((x) => [x.id, x[key || 'name']]);
-const membersOf = (r) => S.members.filter((m) => !r || m.role === r).map((m) => [m.id, m.name + (r ? '' : ' · ' + S.roles[m.role])]);
+const membersOf = (r) => S.members.filter((m) => !r || roleHas(m.role, r)).map((m) => [m.id, m.name + (r ? (m.role !== r ? ' · ' + S.roles[m.role] : '') : ' · ' + S.roles[m.role])]);
 function stepper(list, curKey, extra) {
   const ci = list.findIndex((s) => s.k === curKey);
   return `<div class="stepper">${list.map((s, i) => `<div class="step ${i < ci ? 'done' : i === ci ? 'cur' : ''}"><div class="bar"></div><div class="nm">${esc(i === ci && extra ? extra : s.l)}</div></div>`).join('')}</div>`;
@@ -594,7 +603,7 @@ function vDashboard() {
   <div class="split">
     <div class="grid">
       ${r === 'mgmt' && appr.length ? approvalsCard(appr) : ''}
-      ${r === 'exec' ? `<div class="card"><div class="card-h"><h2>My tenders</h2><span class="faint small">${myT.length} active</span></div>${myT.length ? myT.map(tRow).join('') : '<div class="empty">No tenders assigned to you right now.</div>'}</div>` : ''}
+      ${has('exec') ? `<div class="card"><div class="card-h"><h2>My tenders</h2><span class="faint small">${myT.length} active</span></div>${myT.length ? myT.map(tRow).join('') : '<div class="empty">No tenders assigned to you right now.</div>'}</div>` : ''}
       <div class="card"><div class="card-h"><h2>Needs attention</h2><span class="faint small">${al.length} item${al.length === 1 ? '' : 's'}</span></div>
         ${al.length ? al.map((a) => `<div class="lrow" ${refGo(a.ref)}><span class="sev ${a.sev}"></span><div class="x"><div class="a">${esc(a.t)}</div><div class="small faint">${esc(a.s)}</div></div>${ic('arrow', 'faint')}</div>`).join('') : '<div class="empty">All clear. Nothing needs your attention.</div>'}
       </div>
@@ -646,13 +655,13 @@ function vShortlist() {
       <span class="ai-badge" style="align-self:flex-start">${ic('spark')} AI capture</span>
       <h2 style="font-size:20px">Upload a tender. AI fills the record.</h2>
       <p class="muted" style="margin:0;max-width:60ch">Drop the NIT / tender PDF (or a photo of it). AI reads the tender number, client, dates, EMD, SD/PBG, eligibility and every BOQ line, and flags anything it was unsure about for you to check. Then send it to management for a participate / don't-bid decision.</p>
-      ${r === 'shortlist' ? `<div class="row"><button class="btn pri" data-act="extractOpen" data-kind="tender">${ic('up')}Upload tender document</button><button class="btn ghost" data-act="newTender">Enter manually</button></div>` : `<div class="note">${ic('user')}<span>You're on the Tender Desk as ${esc(S.roles[r])}. Tenders are entered by Shortlisting &amp; Admin.</span></div>`}
+      ${has('shortlist') ? `<div class="row"><button class="btn pri" data-act="extractOpen" data-kind="tender">${ic('up')}Upload tender document</button><button class="btn ghost" data-act="newTender">Enter manually</button></div>` : `<div class="note">${ic('user')}<span>You're on the Tender Desk as ${esc(S.roles[r])}. Tenders are entered by Shortlisting &amp; Admin.</span></div>`}
       ${S.ai ? '' : `<div class="note">${ic('alert')}<span>AI reading is off on this server (${esc(S.aiOff)}). The document is still kept and you fill the form by hand.</span></div>`}
     </div>
-    <div class="drop" ${r === 'shortlist' ? 'data-act="extractPick" data-kind="tender" data-drop="tender" role="button" tabindex="0"' : 'style="cursor:default;opacity:.6"'}>${ic('file')}<div><b>Drop tender PDF here</b></div><div class="small faint">PDF, JPG or PNG · scanned pages are read too · up to 10 MB</div></div>
+    <div class="drop" ${has('shortlist') ? 'data-act="extractPick" data-kind="tender" data-drop="tender" role="button" tabindex="0"' : 'style="cursor:default;opacity:.6"'}>${ic('file')}<div><b>Drop tender PDF here</b></div><div class="small faint">PDF, JPG or PNG · scanned pages are read too · up to 10 MB</div></div>
   </div></div>
   ${section('Awaiting management approval', appr, (t) => r === 'mgmt' ? `<button class="btn sm pri" data-act="approve" data-id="${esc(t.id)}">Approve</button> <button class="btn sm danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="chip info">With ${esc(boss ? boss.name : 'Management')}</span>`, 'Management decides which tenders to bid')}
-  ${section('Approved – assign an executive', ok, (t) => r === 'shortlist' ? `<select class="in" style="width:auto;display:inline-block" id="as_${esc(t.id)}" data-ref="t:${esc(t.id)}:assignee">${opts(membersOf('exec'), t.assignee, 'Choose executive')}</select> <button class="btn sm pri" data-act="advance" data-id="${esc(t.id)}" ${t.assignee ? '' : 'disabled'}>Assign</button>` : `<span class="small faint">${t.assignee ? esc(mName(t.assignee)) : 'Not assigned yet'}</span>`)}
+  ${section('Approved – assign an executive', ok, (t) => has('shortlist') ? `<select class="in" style="width:auto;display:inline-block" id="as_${esc(t.id)}" data-ref="t:${esc(t.id)}:assignee">${opts(membersOf('exec'), t.assignee, 'Choose executive')}</select> <button class="btn sm pri" data-act="advance" data-id="${esc(t.id)}" ${t.assignee ? '' : 'disabled'}>Assign</button>` : `<span class="small faint">${t.assignee ? esc(mName(t.assignee)) : 'Not assigned yet'}</span>`)}
   ${section('Drafts', drafts, (t) => `<button class="btn sm" ${go('tender', t.id)}>Complete &amp; send</button>`, 'Captured, not yet sent for approval')}
   ${dec.length ? section('Not participating', dec, (t) => `<span class="small faint">${esc((t.postbid || {}).reason || '')}</span>`) : ''}`;
 }
@@ -686,7 +695,7 @@ function vTenders() {
     <label class="row small" style="gap:6px"><input type="checkbox" id="tmine" data-filter="mine" ${f.mine ? 'checked' : ''}> Only mine</label>
     <span class="spacer"></span>
     <div class="seg"><button class="${f.view === 'board' ? 'on na' : ''}" data-act="view" data-v="board">Board</button><button class="${f.view === 'list' ? 'on na' : ''}" data-act="view" data-v="list">List</button></div>
-    ${role() === 'shortlist' ? `<button class="btn pri" data-act="extractOpen" data-kind="tender">${ic('up')}New tender</button>` : ''}
+    ${has('shortlist') ? `<button class="btn pri" data-act="extractOpen" data-kind="tender">${ic('up')}New tender</button>` : ''}
   </div>${f.view === 'board' ? board : table}`;
 }
 
@@ -704,7 +713,7 @@ function vTender() {
   const showMiss = true;
   let body = '';
   if (tab === 'details') body = `<div class="card"><div class="card-b fgrid">
-    ${F('Tender number', ref + 'no', t.no, { req: 1, showMiss })}${F('Client (from Customers)', ref + 'client', t.client, { type: 'client', req: 1, showMiss, hint: !t.client && t.clientName ? 'document says: ' + t.clientName : '' })}
+    ${F('Tender number', ref + 'no', t.no, { req: 1, showMiss })}${F('Client', ref + 'client', t.client, { type: 'client', req: 1, showMiss, newName: t.clientName || '', hint: !t.client && t.clientName ? 'document says: ' + t.clientName : '' })}
     ${F('Title / scope', ref + 'title', t.title, { req: 1, wide: 1, type: 'textarea', showMiss })}
     ${F('Plant / site', ref + 'plant', t.plant)}${F('Portal source', ref + 'portal', t.portal, { type: 'select', opts: L(S.portals), req: 1, showMiss })}
     ${F('Tender category', ref + 'category', t.category, { type: 'select', opts: L(S.categories), req: 1, showMiss })}${F('Priority', ref + 'priority', t.priority, { type: 'select', opts: [['High', 'High'], ['Medium', 'Medium'], ['Low', 'Low']], req: 1, showMiss })}
@@ -775,13 +784,13 @@ function vTender() {
   if (t.stage === 'approval') {
     gp = gatePanel('Management decision', g ? g.reqs : [], r === 'mgmt' ? `<button class="btn pri" data-act="approve" data-id="${esc(t.id)}">${ic('check')}Approve – we bid</button><button class="btn danger" data-act="reject" data-id="${esc(t.id)}">Don't bid</button>` : `<span class="small faint">Waiting on ${esc(boss ? boss.name : 'Management')}.</span>`);
   } else if (g) {
-    const extraField = t.stage === 'approved' && r === 'shortlist' ? `<div style="padding:0 16px 4px">${F('Assign to executive', ref + 'assignee', t.assignee, { type: 'select', opts: membersOf('exec'), req: 1 })}</div>` : '';
+    const extraField = t.stage === 'approved' && has('shortlist') ? `<div style="padding:0 16px 4px">${F('Assign to executive', ref + 'assignee', t.assignee, { type: 'select', opts: membersOf('exec'), req: 1 })}</div>` : '';
     gp = gatePanel(g.action, g.reqs, `<button class="btn pri" data-act="advance" data-id="${esc(t.id)}" ${g.open || !g.canAct ? 'disabled' : ''}>${esc(g.action)} ${ic('arrow')}</button>${!g.canAct ? `<span class="small faint">Needs ${esc(g.who.map((x) => S.roles[x]).join(' or '))}${g.who.includes('exec') ? ' (the executive it is assigned to)' : ''}</span>` : ''}`, extraField);
-    if (['draft', 'approved'].includes(t.stage) && r === 'shortlist') gp += `<button class="btn sm ghost" style="align-self:flex-start" data-act="decline" data-id="${esc(t.id)}">Mark as not participating</button>`;
+    if (['draft', 'approved'].includes(t.stage) && has('shortlist')) gp += `<button class="btn sm ghost" style="align-self:flex-start" data-act="decline" data-id="${esc(t.id)}">Mark as not participating</button>`;
   } else if (t.stage === 'result') {
     const po = t.poId && pobj(t.poId);
     gp = `<div class="gate"><div class="gate-h"><div style="flex:1"><div class="lbl">Result</div><h3>${esc((S.results[t.result] || {}).l || '')}</h3></div>${stageChip(t)}</div><div class="card-b">
-      ${t.result === 'won' ? (po ? `<button class="btn pri" ${go('po', po.id)}>Open PO ${esc(po.no)} ${ic('arrow')}</button>` : `<p class="muted" style="margin-top:0">Tender won. Upload the client's PO – AI reads items, quantities, delivery dates and the LD clause.</p>${['shortlist', 'items'].includes(r) ? `<button class="btn pri" data-act="extractOpen" data-kind="po" data-tender="${esc(t.id)}">${ic('up')}Upload PO</button>` : ''}`) : `<p class="muted" style="margin:0">${esc((t.postbid || {}).reason || 'Closed')}</p>`}</div></div>`;
+      ${t.result === 'won' ? (po ? `<button class="btn pri" ${go('po', po.id)}>Open PO ${esc(po.no)} ${ic('arrow')}</button>` : `<p class="muted" style="margin-top:0">Tender won. Upload the client's PO – AI reads items, quantities, delivery dates and the LD clause.</p>${has('shortlist') || r === 'items' ? `<button class="btn pri" data-act="extractOpen" data-kind="po" data-tender="${esc(t.id)}">${ic('up')}Upload PO</button>` : ''}`) : `<p class="muted" style="margin:0">${esc((t.postbid || {}).reason || 'Closed')}</p>`}</div></div>`;
   }
   const ap = t.approval || {};
   const facts = `<div class="card"><div class="card-b"><dl class="kv">
@@ -809,7 +818,7 @@ function vPOs() {
   const list = S.pos.filter((p) => r !== 'fp' || p.items.some((i) => i.fp === S.me.id));
   const wonNoPo = S.tenders.filter((t) => t.result === 'won' && !t.poId);
   return `<div class="row"><p class="muted" style="margin:0;flex:1;min-width:240px">Every PO shows how much is ordered on suppliers, procured, dispatched and delivered – by value – against the delivery date, with liquidated damages calculated live.</p>
-    ${['shortlist', 'items'].includes(r) ? `<button class="btn pri" data-act="extractOpen" data-kind="po">${ic('up')}Upload PO</button>` : ''}</div>
+    ${has('shortlist') || r === 'items' ? `<button class="btn pri" data-act="extractOpen" data-kind="po">${ic('up')}Upload PO</button>` : ''}</div>
   ${wonNoPo.length ? `<div class="note warn">${ic('alert')}<span>${wonNoPo.length} won tender${wonNoPo.length > 1 ? 's' : ''} without a PO: ${wonNoPo.map((t) => `<a href="#" ${go('tender', t.id)}>${esc(t.no)}</a>`).join(', ')}</span></div>` : ''}
   <div class="grid g2">${list.map((p) => { const c = p.calc; const d = dd(p.dueDate);
     return `<div class="card" ${go('po', p.id)} style="cursor:pointer"><div class="card-h"><div style="flex:1;min-width:0"><div class="mono small">${esc(p.no)}</div><div class="small faint">${esc((cli(p.client) || {}).name || '')} · ${esc((tender(p.tenderId) || {}).no || '')}</div></div><span class="chip acc">${esc(pstageLabel(p))}</span>${dueChip(d, c.pc.delivered >= 100)}</div>
@@ -818,7 +827,7 @@ function vPOs() {
 function vPO() {
   const p = pobj(ui.id); if (!p) return '<div class="empty">That PO is no longer here.</div>';
   const r = role();
-  const canEdit = ['shortlist', 'items', 'fp', 'accounts'].includes(r) && !p.closed;
+  const canEdit = (has('shortlist') || ['items', 'fp', 'accounts'].includes(r)) && !p.closed;
   const moneyOnly = r === 'accounts';
   RO = !canEdit || moneyOnly;
   const c = p.calc; const t = tender(p.tenderId);
@@ -827,7 +836,7 @@ function vPO() {
   const allMoves = p.items.flatMap((i) => i.moves.map((m) => Object.assign({}, m, { it: i }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const tabs = [['items', 'Items & quantities', p.items.length], ['terms', 'PO terms & LD'], ['log', 'Movement log', allMoves.length], ['money', 'Invoices & payments'], ['obl', 'SD / PBG', p.obligations.length], ['tasks', 'Tasks', tasks.filter((k) => k.status !== DONE).length], ['activity', 'Activity']];
   const ref = 'p:' + p.id + ':';
-  const canMove = ['shortlist', 'items', 'fp'].includes(r) && !p.closed;
+  const canMove = (has('shortlist') || ['items', 'fp'].includes(r)) && !p.closed;
   let body = '';
   if (tab === 'items') body = `<div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th style="min-width:220px">Item</th><th class="r">PO qty</th><th class="r">Ordered</th><th class="r">Procured</th><th class="r">Dispatched</th><th class="r">Delivered</th><th>Due</th><th style="min-width:130px">Fulfilment</th><th class="r">LD</th><th></th></tr></thead><tbody>
     ${p.items.map((it) => { const q = qtys(it); const lr = c.ld.rows.find((x) => x.it === it.id); const cell = (v) => `<td class="r num" style="${v >= it.qty ? 'color:var(--ok);font-weight:600' : v > 0 ? '' : 'color:var(--ink-3)'}">${v}</td>`;
@@ -892,7 +901,7 @@ function vPO() {
   <div class="split">
     <div class="grid" style="gap:12px"><div class="tabs">${tabs.map(([k, l, n]) => `<button class="tab${tab === k ? ' on' : ''}" data-act="tab" data-v="${k}">${l}${n ? `<span class="ct">${n}</span>` : ''}</button>`).join('')}</div>${body}</div>
     <div class="grid" style="gap:12px">${ldBox}${risk}
-      ${gatePanel('Close this PO', p.closeGate, ['shortlist', 'items'].includes(r) ? `<button class="btn" data-act="closePO" data-id="${esc(p.id)}" ${p.closeGate.some((x) => !x.ok) || p.closed ? 'disabled' : ''}>${p.closed ? 'Closed' : 'Close PO'}</button>` : '')}
+      ${gatePanel('Close this PO', p.closeGate, has('shortlist') || r === 'items' ? `<button class="btn" data-act="closePO" data-id="${esc(p.id)}" ${p.closeGate.some((x) => !x.ok) || p.closed ? 'disabled' : ''}>${p.closed ? 'Closed' : 'Close PO'}</button>` : '')}
       <div class="card"><div class="card-h"><h3>Open tasks</h3><button class="btn sm" data-act="newTask" data-link="p:${esc(p.id)}">${ic('plus')}Assign</button></div>${tasks.filter((k) => k.status !== DONE).map(taskRow).join('') || '<div class="empty small">None</div>'}</div>
     </div>
   </div>`;
@@ -922,7 +931,7 @@ function vTasks() {
 const MASTERS = {
   members: { l: 'Team members' },
   products: { l: 'Products', list: 'product', name: 'name', cols: [['name', 'Product'], ['category', 'Category'], ['uom', 'UOM', 'select', () => S.uoms.map((u) => [u.name, u.name])], ['hsn', 'HSN']] },
-  clients: { l: 'Clients' },
+  clients: { l: 'Clients', list: 'client', name: 'name', cols: [['name', 'Client / department'], ['short', 'Short name'], ['city', 'City'], ['state', 'State'], ['gstin', 'GSTIN'], ['contact', 'Contact person'], ['phone', 'Phone'], ['email', 'E-mail']] },
   suppliers: { l: 'Suppliers', list: 'supplier', name: 'name', cols: [['name', 'Supplier'], ['city', 'City'], ['contact', 'Contact'], ['gstin', 'GSTIN'], ['rating', 'Rating', 'select', () => ['A', 'B', 'C'].map((x) => [x, x])]] },
   portals: { l: 'Portals', list: 'portal', name: 'name', cols: [['name', 'Portal']] },
   categories: { l: 'Tender categories', list: 'category', name: 'name', cols: [['name', 'Category']] },
@@ -944,11 +953,6 @@ function vMasters() {
       <td style="white-space:nowrap">${RO || ['Management', 'ERP Admin', 'Accounts'].includes(m.erpRole) ? '' : `<button class="btn sm ghost" data-act="memberOff" data-id="${esc(m.id)}">Remove from Tender Desk</button>`}</td></tr>`).join('')}
     </tbody></table></div>
     ${RO || !S.others.length ? '' : `<div class="card-b row"><select class="in" style="width:auto;flex:1;min-width:200px" id="madd">${opts(S.others.map((o) => [o.id, o.name + ' · ' + o.erpRole]), '', 'Add somebody from the ERP')}</select><button class="btn sm pri" data-act="memberOn">${ic('plus')}Add to Tender Desk</button></div>`}</div>`;
-  } else if (k === 'clients') {
-    body = `<div class="card"><div class="card-h"><h3>Clients</h3><span class="faint small">The Tender Desk's clients are the ERP's own Customers, so a client is the same record in sales, service and tenders. Add or change one in the ERP (Customers); here are those named on tenders and POs.</span><a class="btn sm" href="/customers">${ic('arrow')}Open Customers in the ERP</a></div>
-    <div class="tbl-wrap"><table class="t"><thead><tr><th>Client</th><th class="r">Tenders</th><th class="r">Won</th><th class="r">POs</th></tr></thead><tbody>
-    ${S.clients.slice().sort((a, b) => a.name.localeCompare(b.name)).map((c) => `<tr><td>${esc(c.name)}</td><td class="r num">${S.tenders.filter((t) => t.client === c.id).length}</td><td class="r num">${S.tenders.filter((t) => t.client === c.id && t.result === 'won').length}</td><td class="r num">${S.pos.filter((p) => p.client === c.id).length}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No clients on tenders yet.</td></tr>'}
-    </tbody></table></div></div>`;
   } else if (k === 'taskStatuses') {
     body = `<div class="card"><div class="card-h"><h3>Task statuses</h3><span class="faint small">Tender Desk tasks are ERP tasks, so they use the ERP's statuses, in this order; the last is done. The ERP's Tasks page and scorecard read the same ones.</span></div>
     <div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th>Column on the board</th><th>In the ERP</th></tr></thead><tbody>
@@ -966,7 +970,10 @@ function vMasters() {
     RO = !S.me.masters;
     const M = MASTERS[k];
     const rows = S[k].concat(ui.newRow[k] ? [ui.newRow[k]] : []);
-    body = `<div class="card"><div class="card-h"><h3>${esc(M.l)}</h3><span class="faint small">${k === 'customFields' ? 'Fields appear on the form right away; a “mandatory before” stage blocks that step until it is filled.' : k === 'checklist' ? 'Every tender\'s checklist uses this list; submission is blocked until each is Yes or NA.' : 'Changes apply everywhere this list is used.'}</span>${RO || ui.newRow[k] ? '' : `<button class="btn sm pri" data-act="mAdd" data-k="${k}">${ic('plus')}Add</button>`}</div>
+    const csv = k === 'clients' && !RO ? `<button class="btn sm" data-act="clientCsv">${ic('up')}Upload CSV</button><button class="btn sm ghost" data-act="clientTemplate">${ic('file')}CSV template</button>` : '';
+    const note = k === 'clients' && ui.importNote ? `<div class="card-b" style="padding-bottom:0"><div class="note ${ui.importNote.skipped.length ? 'warn' : 'ok'}">${ic(ui.importNote.skipped.length ? 'alert' : 'check')}<span>${ui.importNote.added} added, ${ui.importNote.updated} updated${ui.importNote.skipped.length ? ', ' + ui.importNote.skipped.length + ' skipped: ' + ui.importNote.skipped.map((x) => 'line ' + x.line + ' – ' + esc(String(x.reason).replace(/\.$/, ''))).join('; ') : ''}.</span></div></div>` : '';
+    body = `<div class="card"><div class="card-h"><h3>${esc(M.l)}</h3><span class="faint small">${k === 'clients' ? 'The utilities and departments that issue tenders — the Tender Desk\'s own list, separate from the ERP\'s Customers. Add one here, or upload many from a CSV (Name, Short name, City, State, GSTIN, Contact person, Phone, E-mail).' : k === 'customFields' ? 'Fields appear on the form right away; a “mandatory before” stage blocks that step until it is filled.' : k === 'checklist' ? 'Every tender\'s checklist uses this list; submission is blocked until each is Yes or NA.' : 'Changes apply everywhere this list is used.'}</span>${RO || ui.newRow[k] ? '' : `<button class="btn sm pri" data-act="mAdd" data-k="${k}">${ic('plus')}Add</button>`}
+    ${csv}</div>${note}
     <div class="tbl-wrap"><table class="t"><thead><tr>${M.cols.map((c) => `<th>${esc(c[1])}</th>`).join('')}<th></th></tr></thead><tbody>
     ${rows.map((row) => `<tr>${M.cols.map(([f, , type, o]) => { const id = `m_${k}_${row.id}_${f}`; const ref = `m:${k}:${row.id}:${f}`;
       if (type === 'select') return `<td><select class="in" id="${id}" data-ref="${ref}" ${RO ? 'disabled' : ''}>${opts(o(), row[f], f === 'gate' ? 'Not mandatory' : 'Select…')}</select></td>`;
@@ -974,7 +981,7 @@ function vMasters() {
       <td style="white-space:nowrap">${RO ? '' : row.id === 'new' ? `<button class="btn sm ghost" data-act="mDelCancel" data-k="${k}">Cancel</button>` : ui.confirmDel === row.id ? `<button class="btn sm danger" data-act="mDel" data-k="${k}" data-id="${esc(row.id)}">Delete</button> <button class="btn sm ghost" data-act="mDelKeep">Keep</button>` : `<button class="btn sm ghost" data-act="mDelAsk" data-id="${esc(row.id)}" aria-label="Delete">${ic('trash')}</button>`}</td></tr>`).join('') || `<tr><td colspan="${M.cols.length + 1}" class="empty">Nothing yet.</td></tr>`}
     </tbody></table></div></div>`;
   }
-  const roNote = ['clients', 'taskStatuses'].includes(k) ? '' : (k === 'members' ? !S.me.team : !S.me.masters) ? `<div class="note">${ic('user')}<span>View only. ${k === 'members' ? 'The team is kept by Management or the ERP Admin.' : 'Masters are kept by Shortlisting &amp; Admin or Management.'}</span></div>` : '';
+  const roNote = k === 'taskStatuses' ? '' : (k === 'members' ? !S.me.team : !S.me.masters) ? `<div class="note">${ic('user')}<span>View only. ${k === 'members' ? 'The team is kept by Management or the ERP Admin.' : 'Masters are kept by Shortlisting &amp; Admin or Management.'}</span></div>` : '';
   RO = false;
   return roNote + `<div class="tabs">${tabs.map(([key, l, n]) => `<button class="tab${k === key ? ' on' : ''}" data-act="mtab" data-v="${key}">${esc(l)}${n != null ? `<span class="ct">${n}</span>` : ''}</button>`).join('')}</div>${body}`;
 }
@@ -1000,7 +1007,6 @@ function startExtract(kind, file) {
     if (ui.extract !== X) return;
     X.documentId = out.documentId; X.fileName = out.fileName || X.fileName;
     X.data = out.data; X.conf = out.conf || {}; X.matches = out.matches || []; X.aiOff = out.aiOff || '';
-    (X.matches || []).forEach((m) => { ui.clientCache[m.id] = { id: m.id, name: m.name, short: m.name.split(/\s+/)[0] }; });
     X.status = 'review';
     if (kind === 'po') refreshPoChecks();
     render();
@@ -1044,7 +1050,7 @@ function vExtract() {
       const dup = S.tenders.find((t) => t.no && d.no && t.no.toLowerCase() === String(d.no).toLowerCase());
       b = `${head}${dup ? `<div class="note bad">${ic('alert')}<span>Tender ${esc(d.no)} is already in the system (${esc(stageLabel(dup))}). Saving will create a duplicate.</span></div>` : ''}
       <div class="fgrid">
-        ${F('Tender number', 'x:no', d.no, { req: 1, low: low('no') })}${F('Client (as the document says)', 'x:clientName', d.clientName, { low: low('clientName'), ro: true })}${F('Client in Customers', 'x:client', d.client, { type: 'client', matches: X.matches, ph: X.matches.length ? 'Pick a suggestion or search' : 'Search Customers', hint: !d.client ? 'not in Customers? add it in the ERP first' : '' })}
+        ${F('Tender number', 'x:no', d.no, { req: 1, low: low('no') })}${F('Client (as the document says)', 'x:clientName', d.clientName, { low: low('clientName'), ro: true })}${F('Client in the client list', 'x:client', d.client, { type: 'client', matches: X.matches, newName: d.clientName, ph: X.matches.length ? 'Pick a suggestion or type' : 'Type to pick a client', hint: !d.client ? (d.clientName ? 'not in the list? + New adds it' : '') : '' })}
         ${F('Title / scope', 'x:title', d.title, { wide: 1, type: 'textarea', req: 1, low: low('title') })}
         ${F('Plant / site', 'x:plant', d.plant, { low: low('plant') })}${F('Portal', 'x:portal', d.portal, { type: 'select', opts: L(S.portals), low: low('portalName') })}${F('Category', 'x:category', d.category, { type: 'select', opts: L(S.categories) })}${F('Priority', 'x:priority', d.priority, { type: 'select', opts: [['High', 'High'], ['Medium', 'Medium'], ['Low', 'Low']] })}
         ${F('Published', 'x:publishedDate', d.publishedDate, { type: 'date', low: low('publishedDate') })}${F('Last date', 'x:lastDate', d.lastDate, { type: 'date', req: 1, low: low('lastDate') })}${F('Due time', 'x:dueTime', d.dueTime, { type: 'time', low: low('dueTime') })}
@@ -1191,7 +1197,7 @@ function vTask() {
   const k = ui.task; if (!k) return '';
   const r = 'k:';
   const linkOpts = S.tenders.map((t) => ['t:' + t.id, 'Tender ' + (t.no || t.title || 'draft')]).concat(S.pos.map((p) => ['p:' + p.id, 'PO ' + p.no]));
-  const mine = !k.id || k.by === S.me.id || ['shortlist', 'mgmt'].includes(role());
+  const mine = !k.id || k.by === S.me.id || has('shortlist') || role() === 'mgmt';
   RO = !mine;
   const body = `<div class="fgrid">
       ${F('Task', r + 'title', k.title, { wide: 1, req: 1, ph: 'e.g. Get revised quote from the supplier' })}
@@ -1217,7 +1223,15 @@ function vTask() {
 // ================= small modals =================
 const modalShell = (title, body, foot) => `<div class="scrim" data-act="scrim"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="modal-h"><h2>${esc(title)}</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">${ic('x')}</button></div><div class="modal-b">${body}</div><div class="modal-f">${foot}</div></div></div>`;
 function vSmall() {
-  const m = ui.modal; const t = tender(m.id); if (!t) return '';
+  const m = ui.modal;
+  if (m.type === 'client') {
+    const f = (label, key, o) => F(label, 'n:' + key, ui.form[key], o);
+    return modalShell('New client', `<p class="muted" style="margin:0">Added to the Tender Desk's client list (Masters → Clients) and chosen here.</p><div class="fgrid">
+      ${f('Client / department', 'name', { req: 1, wide: 1, ph: 'e.g. State Power Generation Co Ltd – Unit 3' })}${f('Short name', 'short', { ph: 'e.g. SPGCL' })}${f('City', 'city')}${f('State', 'state')}
+      ${f('GSTIN', 'gstin')}${f('Contact person', 'contact')}${f('Phone', 'phone')}${f('E-mail', 'email', { type: 'email' })}</div>`,
+      `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="clientSave" ${blank(ui.form.name) ? 'disabled' : ''}>${ic('plus')}Add client</button>`);
+  }
+  const t = tender(m.id); if (!t) return '';
   if (m.type === 'approve') return modalShell('Approve participation', `<p style="margin:0"><b>${esc(t.no)}</b><br><span class="muted">${esc(t.title)}</span></p><dl class="kv"><dt>Est. cost</dt><dd>${inr(t.estCost)}</dd><dt>EMD</dt><dd>${inr(t.emd)} (${esc(t.emdType || '')})</dd><dt>Last date</dt><dd>${fDY(t.lastDate)}</dd></dl>${F('Note to the team (optional)', 'n:note', ui.form.note, { type: 'textarea', ph: 'e.g. Strategic client – quote sharp' })}`, `<button class="btn" data-act="closeModal">Cancel</button><button class="btn pri" data-act="approveSave">${ic('check')}Approve</button>`);
   if (m.type === 'reject' || m.type === 'decline') return modalShell(m.type === 'reject' ? 'Do not bid' : 'Mark as not participating', `<p style="margin:0"><b>${esc(t.no)}</b> · ${esc(t.title)}</p>${F('Reason', 'n:note', ui.form.note, { type: 'select', req: 1, opts: S.declineReasons.map((x) => [x, x]) })}${F('Comments', 'n:note2', ui.form.note2, { type: 'textarea' })}`, `<button class="btn" data-act="closeModal">Cancel</button><button class="btn danger" data-act="rejectSave" ${blank(ui.form.note) ? 'disabled' : ''}>Confirm</button>`);
   return '';
@@ -1231,6 +1245,7 @@ function vDrawer() {
 
 // ================= drawing =================
 function overlay() {
+  if (ui.modal && ui.modal.type === 'client') return vSmall();
   if (ui.extract && ui.extract.status) return vExtract();
   if (ui.voice) return vVoice();
   if (ui.drawer) return vDrawer();
@@ -1309,33 +1324,40 @@ let softTimer = null;
 function soft() { clearTimeout(softTimer); softTimer = setTimeout(render, 0); }
 function readVal(el) { if (el.type === 'checkbox') return el.checked; return el.value; }
 
-// The client picker: Customers searched as you type, chosen from the list.
-let clientTimer = null;
-function clientInput(el) {
-  clearTimeout(clientTimer);
-  const q = el.value.trim();
-  if (q.length < 2) return;
-  clientTimer = setTimeout(() => {
-    api('searchTenderClients', [q]).then((list) => {
-      list.forEach((c) => { ui.clientCache[c.id] = { id: c.id, name: c.name, short: c.name.split(/\s+/)[0] }; });
-      const dl = document.getElementById(el.getAttribute('list'));
-      if (dl) dl.innerHTML = list.map((c) => `<option value="${esc(c.name)}" data-id="${esc(c.id)}"></option>`).join('');
-    }).catch(() => {});
-  }, 250);
-}
+// The client picker: a name typed or picked from the Tender Desk's own list.
 function clientChosen(el) {
   const name = el.value.trim();
   const ref = el.dataset.client;
   let id = '';
   if (name) {
-    const dl = document.getElementById(el.getAttribute('list'));
-    const hit = dl && Array.from(dl.options).find((o) => o.value === name);
-    const cached = Object.values(ui.clientCache).concat(S.clients).find((c) => c.name === name);
-    id = hit ? hit.dataset.id : cached ? cached.id : '';
-    if (!id) { toast('Pick the client from the list — it has to be in the ERP\'s Customers.'); render(); return; }
+    const hit = S.clients.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    if (!hit) { toast('“' + name + '” is not in the client list. Press + New to add it.'); render(); return; }
+    id = hit.id;
   }
   setRef(ref, id);
 }
+
+// A CSV, read in the browser: the first line is the headings, quotes and commas as Excel writes them.
+function parseCsv(text) {
+  // Each row keeps the line of the file it started on, so a skipped one is reported where it is.
+  const rows = []; let row = []; let cell = ''; let q = false; let line = 1; let start = 1;
+  const t = String(text || '').replace(/^\uFEFF/, '');
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) {
+      if (c === '"' && t[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else { if (c === '\n') line++; cell += c; }
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(cell); row.line = start; rows.push(row); row = []; cell = ''; line++; start = line; }
+    else cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); row.line = start; rows.push(row); }
+  const clean = rows.filter((r) => r.some((x) => String(x).trim() !== ''));
+  if (!clean.length) return [];
+  const head = clean[0].map((h) => String(h).trim());
+  return clean.slice(1).map((r) => { const o = { _line: r.line }; head.forEach((h, i) => { if (h) o[h] = (r[i] || '').trim(); }); return o; });
+}
+const CLIENT_CSV_HEAD = 'Name,Short name,City,State,GSTIN,Contact person,Phone,E-mail';
 
 document.addEventListener('change', (e) => {
   const el = e.target;
@@ -1347,9 +1369,9 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('input', (e) => {
   const el = e.target;
-  if (el.dataset.client) { clientInput(el); return; }
   if (el.dataset.filter === 'q') { ui.filters.q = el.value; clearTimeout(window.__rq); window.__rq = setTimeout(render, 250); }
   if (el.dataset.ref === 'v:text') { ui.voice.text = el.value; const b = document.querySelector('[data-act="vProcess"]'); if (b) b.disabled = blank(el.value); }
+  if (el.dataset.ref === 'n:name' && ui.modal && ui.modal.type === 'client') { ui.form.name = el.value; const b = document.querySelector('[data-act="clientSave"]'); if (b) b.disabled = blank(el.value); }
   if (el.dataset.ref === 'k:title') { ui.task.title = el.value; const b = document.querySelector('[data-act="kSave"]'); if (b) b.disabled = blank(el.value) || !ui.task.assignee; }
 });
 document.addEventListener('keydown', (e) => {
@@ -1375,6 +1397,16 @@ document.addEventListener('drop', (e) => {
   ui.extract = ui.extract || { kind, tenderId: '' }; ui.extract.kind = kind; startExtract(kind, f);
 });
 let pickFor = null;
+$('#csvpick').addEventListener('change', (e) => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  if (f.size > 2 * 1024 * 1024) { toast('That file is over 2 MB. Upload up to 2,000 clients at a time.'); return; }
+  f.text().then((text) => {
+    const rows = parseCsv(text);
+    if (!rows.length) { toast('No clients found in that file. The first line should be the headings: ' + CLIENT_CSV_HEAD); return; }
+    if (!Object.keys(rows[0]).some((h) => /^(name|client|client name|department|organi[sz]ation)$/i.test(h.trim()))) { toast('The file needs a “Name” column. Download the CSV template to see the layout.'); return; }
+    mutate('importTenderClients', [rows], (res) => { ui.importNote = res && res.imported; });
+  }).catch(() => toast('That file could not be read.'));
+});
 $('#filepick').addEventListener('change', (e) => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   if (pickFor) { const pf = pickFor; pickFor = null; readFile(f).then((file) => mutate('attachTenderFile', [pf.kind, pf.id, file])).catch((err) => toast(err.message)); return; }
@@ -1408,10 +1440,32 @@ const ACT = {
     if (kind !== 'x') render();
   },
   drawer() { ui.drawer = true; render(); },
-  closeModal() { if (REC) { try { REC.stop(); } catch (e) {} REC = null; } ui.modal = null; ui.extract = null; ui.voice = null; ui.drawer = false; ui.task = null; render(); },
+  closeModal() { if (REC) { try { REC.stop(); } catch (e) {} REC = null; } if (ui.modal && ui.modal.type === 'client' && ui.clientOver) { ui.extract = ui.clientOver; ui.clientOver = null; ui.modal = null; render(); return; } ui.modal = null; ui.extract = null; ui.voice = null; ui.drawer = false; ui.task = null; render(); },
   scrim(d, el, e) { if (e.target === el) ACT.closeModal(); },
   advance(d) { mutate('advanceTender', [d.id]); },
   approve(d) { ui.form = {}; ui.modal = { type: 'approve', id: d.id }; render(); },
+  newClient(d) {
+    // Opened from a client field; on the AI review it sits over that window, which stays as it is.
+    ui.form = { name: d.name || '', short: '', city: '', state: '', gstin: '', contact: '', phone: '', email: '', forRef: d.ref };
+    ui.modal = { type: 'client' }; ui.clientOver = ui.extract; ui.extract = null; render();
+    setTimeout(() => { const el = document.getElementById('f_n_name'); if (el) el.focus(); }, 30);
+  },
+  clientSave() {
+    const f = ui.form; const name = String(f.name || '').trim(); if (!name) return;
+    const back = ui.clientOver; ui.clientOver = null; ui.modal = null;
+    const row = { name, short: f.short, city: f.city, state: f.state, gstin: f.gstin, contact: f.contact, phone: f.phone, email: f.email };
+    mutate('saveTenderMaster', ['client', row], () => {
+      if (back) ui.extract = back;
+      const c = S.clients.find((x) => x.name.toLowerCase() === name.toLowerCase());
+      if (c && f.forRef) setRef(f.forRef, c.id);
+    }).catch(() => { if (back) ui.extract = back; ui.form = f; ui.modal = { type: 'client' }; ui.clientOver = back; render(); });
+  },
+  clientCsv() { ui.importNote = null; $('#csvpick').click(); },
+  clientTemplate() {
+    const blob = new Blob([CLIENT_CSV_HEAD + '\r\nExample Power Generation Co Ltd – Unit 3,EPGCL,Nagpur,Maharashtra,,Store officer,,\r\n'], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tender-desk-clients.csv';
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  },
   approveSave() { const id = ui.modal.id; ui.modal = null; mutate('approveTender', [id, ui.form.note || '']); },
   reject(d) { ui.form = {}; ui.modal = { type: 'reject', id: d.id }; render(); },
   decline(d) { ui.form = {}; ui.modal = { type: 'decline', id: d.id }; render(); },

@@ -5,8 +5,10 @@
  * A MODULE OF ITS OWN (PIE, Nov 2026). It has its own page at /tender-desk (tender/TenderDesk.html)
  * with its own menu — Dashboard, Shortlisting, Tenders, PO execution, Tasks, Masters — and the
  * dashboard has a switch between the ERP and the Tender Desk. What it shares with the ERP is
- * the sign-in, the people (Users), the clients (Customers), the tasks (Tasks: everything given
- * here is on the main Tasks page too), the file store (Documents) and the AI.
+ * the sign-in, the people (Users), the tasks (Tasks: everything given
+ * here is on the main Tasks page too), the file store (Documents) and the AI. Its clients are its
+ * own (Masters → Clients, added by hand or uploaded from a CSV): the utilities and departments that
+ * issue tenders are not the ERP's customers (PIE, Nov 2026).
  *
  * A tender moves through nine steps, each with the list of what must be true before it can
  * move on (tdGate_):
@@ -24,6 +26,7 @@
  * ERP role and is changed in Masters → Team members:
  *   Shortlisting & Admin (Sales Coordinator, ERP Admin) — enters tenders, sends them for
  *     approval, assigns them, keeps the masters.
+ *   Shortlisting & Executive — all of that, and can also be assigned tenders and execute them.
  *   Management — approves participation or declines it.
  *   Tender Executive (Sales Engineer) — prepares and submits the tenders assigned to them.
  *   Items Entry (Service Coordinator) — enters the client's PO.
@@ -41,7 +44,10 @@
 
 // ---------------------------------------------------------------- the fixed parts
 
-var TD_ROLES = { shortlist: 'Shortlisting & Admin', mgmt: 'Management', exec: 'Tender Executive', items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
+var TD_ROLES = { shortlist: 'Shortlisting & Admin', both: 'Shortlisting & Executive', mgmt: 'Management', exec: 'Tender Executive',
+  items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
+/** Whether a person's Tender Desk role includes another: Shortlisting & Executive is both of those. */
+function tdHas_(role, r) { return role === r || (role === 'both' && (r === 'shortlist' || r === 'exec')); }
 var TD_ALWAYS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS];
 
 var TD_STAGES = [
@@ -69,6 +75,8 @@ var TD_MASTERS = {
   uom: { key: 'uoms', label: 'Units (UOM)', name: 'name', fields: [] },
   lossReason: { key: 'lossReasons', label: 'Loss / regret reasons', name: 'name', fields: [] },
   checkpoint: { key: 'checklist', label: 'Submission checklist', name: 'label', fields: ['desc'] },
+  // The Tender Desk's own clients — not the ERP's Customers.
+  client: { key: 'clients', label: 'Clients', name: 'name', fields: ['short', 'city', 'state', 'gstin', 'contact', 'phone', 'email'] },
   supplier: { key: 'suppliers', label: 'Suppliers', name: 'name', fields: ['city', 'contact', 'gstin', 'rating'] },
   product: { key: 'products', label: 'Products', name: 'name', fields: ['category', 'uom', 'hsn'] },
   customField: { key: 'customFields', label: 'Custom fields', name: 'label', fields: ['entity', 'type', 'options', 'gate'] }
@@ -92,7 +100,7 @@ var TD_MASTER_DEFAULTS = {
     { label: 'EMD paid online', desc: 'Paid from the tender account / gateway; confirmation screenshot saved.' },
     { label: 'Tender submitted online', desc: 'Final submit clicked before the deadline; acknowledgement number received; screenshot taken.' }
   ],
-  supplier: [], product: [], customField: []
+  client: [], supplier: [], product: [], customField: []
 };
 var TD_RULE_DEFAULTS = { ldRate: 0.5, ldPer: 'week', ldCap: 10, alertDays: 7, urgentDays: 3, costDiffFlag: 15, poDiscrepancyDays: 7 };
 
@@ -191,7 +199,7 @@ function tdUserHasAccess_(u) {
   return TD_ALWAYS.indexOf(String(u.role)) !== -1 || String(u.tenderDesk).toUpperCase() === 'TRUE';
 }
 /** Who keeps the masters: Shortlisting & Admin, Management, and the ERP Admin whatever their role here. */
-function tdMasterEditor_(ctx) { return ctx.role === 'shortlist' || ctx.role === 'mgmt' || String(ctx.user.role) === ROLES.ERP_ADMIN; }
+function tdMasterEditor_(ctx) { return tdHas_(ctx.role, 'shortlist') || ctx.role === 'mgmt' || String(ctx.user.role) === ROLES.ERP_ADMIN; }
 /** Who decides who is on the Tender Desk at all: Management and the ERP Admin. */
 function tdTeamEditor_(ctx) { return ctx.role === 'mgmt' || String(ctx.user.role) === ROLES.ERP_ADMIN; }
 
@@ -328,6 +336,12 @@ function tdContext_(user) {
     today: todayIso_(), masters: masters, cfg: masters.cfg, members: members, others: others, tenders: tenders, pos: pos, tasks: tasks
   };
 }
+/** tdContext_, with clients carried over from Customers where an older tender still names one. */
+function tdContextFull_(user) {
+  var ctx = tdContext_(user);
+  tdAdoptCustomers_(ctx);
+  return ctx;
+}
 function tdMember_(ctx, email) { return ctx.members.filter(function (m) { return m.id === String(email || '').toLowerCase(); })[0] || null; }
 function tdTender_(ctx, id) {
   var t = ctx.tenders.filter(function (x) { return x.id === String(id); })[0];
@@ -365,7 +379,7 @@ function tdGate_(t, ctx) {
       g = { next: 'approval', action: 'Send for management approval', who: ['shortlist'], reqs: [
         R(t.no, 'Tender number entered'),
         R(!ctx.tenders.some(function (x) { return x.id !== t.id && x.no && tdSame_(x.no, t.no); }), 'Tender number is not a duplicate'),
-        R(t.title, 'Title / scope entered'), R(t.client, 'Client chosen from Customers'), R(t.portal, 'Portal source selected'),
+        R(t.title, 'Title / scope entered'), R(t.client, 'Client chosen from the client list'), R(t.portal, 'Portal source selected'),
         R(t.category, 'Tender category selected'), R(t.priority, 'Priority set'),
         R(t.lastDate, 'Last date of submission entered'), R(t.lastDate && dl >= 0, 'Last date is not in the past'), R(t.dueTime, 'Due time entered'),
         R(tdNum_(t.estCost) > 0, 'Estimated cost entered'), R(!tdBlank_(t.emd), 'EMD amount entered (0 if exempted)'),
@@ -379,7 +393,7 @@ function tdGate_(t, ctx) {
     case 'approved':
       var m = tdMember_(ctx, t.assignee);
       g = { next: 'assigned', action: 'Assign to executive', who: ['shortlist'], reqs: [R(t.assignee, 'Tender executive selected'),
-        R(m && m.role === 'exec', 'Assignee has the Tender Executive role')].concat(cg('assigned')) };
+        R(m && tdHas_(m.role, 'exec'), 'Assignee is a Tender Executive (or Shortlisting & Executive)')].concat(cg('assigned')) };
       break;
     case 'assigned':
       g = { next: 'prep', action: 'Start preparation', who: ['exec', 'shortlist'], reqs: [R(true, 'Executive acknowledges assignment')].concat(cg('prep')) };
@@ -411,15 +425,18 @@ function tdGate_(t, ctx) {
       break;
   }
   if (!g) return null;
-  g.canAct = g.who.indexOf(ctx.role) !== -1 && (ctx.role !== 'exec' || t.assignee === ctx.me);
+  // Shortlisting takes any step it is named for; an executive only on a tender assigned to them.
+  g.canAct = (g.who.indexOf(ctx.role) !== -1 && ctx.role !== 'exec') ||
+    (g.who.indexOf('shortlist') !== -1 && tdHas_(ctx.role, 'shortlist')) ||
+    (g.who.indexOf('exec') !== -1 && tdHas_(ctx.role, 'exec') && t.assignee === ctx.me);
   g.open = g.reqs.filter(function (r) { return !r.ok; }).length;
   return g;
 }
 
 /** Whether this person may change this tender's fields. */
 function tdTenderEditable_(t, ctx) {
-  if (ctx.role === 'shortlist') return true;
-  return ctx.role === 'exec' && t.assignee === ctx.me;
+  if (tdHas_(ctx.role, 'shortlist')) return true;
+  return tdHas_(ctx.role, 'exec') && t.assignee === ctx.me;
 }
 
 
@@ -505,7 +522,7 @@ function tdValidateMove_(it, f, today) {
   else if (f.date > today) E.push('Date cannot be in the future');
   return E;
 }
-function tdPoEditable_(ctx) { return ['shortlist', 'items', 'fp', 'accounts'].indexOf(ctx.role) !== -1; }
+function tdPoEditable_(ctx) { return tdHas_(ctx.role, 'shortlist') || ['items', 'fp', 'accounts'].indexOf(ctx.role) !== -1; }
 
 
 // ---------------------------------------------------------------- alerts
@@ -546,7 +563,7 @@ function tdAlerts_(ctx, calcs) {
   });
   var order = { bad: 0, warn: 1, info: 2 };
   A.sort(function (a, b) { return order[a.sev] - order[b.sev]; });
-  if (ctx.role === 'shortlist' || ctx.role === 'mgmt') return A;
+  if (tdHas_(ctx.role, 'shortlist') || ctx.role === 'mgmt') return A;
   return A.filter(function (a) {
     return a.who === ctx.me || a.who === ctx.role || a.ref.indexOf('k:') === 0 ||
       ((ctx.role === 'fp' || ctx.role === 'items') && a.ref.indexOf('p:') === 0);
@@ -556,21 +573,36 @@ function tdAlerts_(ctx, calcs) {
 
 // ---------------------------------------------------------------- the page's state
 
-/** Customers named on tenders and POs, as { id: { id, name, short } }. */
-function tdClients_(ctx) {
-  var ids = {};
-  ctx.tenders.forEach(function (t) { if (t.client) ids[t.client] = true; });
-  ctx.pos.forEach(function (p) { if (p.client) ids[p.client] = true; });
-  var list = Object.keys(ids);
-  if (!list.length) return [];
-  return findRowsByIds_('Customers', list).filter(Boolean).map(function (c) {
-    var name = String(c.name || '');
-    return { id: String(c.id), name: name, short: name.split(/[\s–\-,]+/)[0] || name };
-  });
+/**
+ * Tenders entered before the Tender Desk had clients of its own named one of the ERP's
+ * Customers. The first time they are read, each of those customers becomes a client here, with
+ * the same id, so every tender and PO keeps its client without anybody re-entering it.
+ */
+function tdAdoptCustomers_(ctx) {
+  var have = {};
+  ctx.masters.clients.forEach(function (c) { have[c.id] = true; });
+  var want = {};
+  ctx.tenders.forEach(function (t) { if (t.client && !have[t.client]) want[t.client] = true; });
+  ctx.pos.forEach(function (p) { if (p.client && !have[p.client]) want[p.client] = true; });
+  var ids = Object.keys(want);
+  if (!ids.length) return;
+  var rows = findRowsByIds_('Customers', ids).filter(Boolean);
+  for (var c of rows) {
+    var name = String(c.name || '').trim();
+    if (!name || ctx.masters.clients.some(function (x) { return x.id === String(c.id); })) continue;
+    var data = { short: name.split(/[\s–\-,]+/)[0] || name, city: '', state: '', gstin: String(c.gstin || ''), contact: '', phone: '', email: '' };
+    try {
+      appendRow_('TenderMasters', { id: String(c.id), list: 'client', name: name, sortOrder: 0, active: 'TRUE', dataJson: JSON.stringify(data) }, 'Tender Desk client kept from Customers: ' + name);
+      var out = { id: String(c.id), name: name };
+      Object.keys(data).forEach(function (k) { out[k] = data[k]; });
+      ctx.masters.clients.push(out);
+    } catch (err) { /* somebody else kept it a moment ago */ }
+  }
 }
+function tdClientShort_(c) { return String(c.short || '').trim() || String(c.name || '').split(/[\s–\-,]+/)[0] || ''; }
 
 function tdState_(ctx) {
-  var clients = tdClients_(ctx);
+  var clients = ctx.masters.clients.map(function (c) { var o = {}; Object.keys(c).forEach(function (k) { o[k] = c[k]; }); o.short = tdClientShort_(c); return o; });
   var docs = readTable_('Documents').filter(function (d) { return String(d.recordType) === 'Tender' || String(d.recordType) === 'TenderPO'; });
   var events = readTable_('TenderEvents');
   var byRecord = {};
@@ -626,7 +658,7 @@ function tdState_(ctx) {
 function getTenderApp() {
   var user = getCurrentUser();
   requireTenderDesk_(user);
-  var ctx = tdContext_(user);
+  var ctx = tdContextFull_(user);
   return tdState_(ctx);
 }
 /** After a change: the fresh picture, and anything the change wants to say or open. */
@@ -689,15 +721,14 @@ function tdCloseAutoTasks_(ctx, link, prefix) {
   }
 }
 function tdRequireRole_(ctx, roles, what) {
-  if (roles.indexOf(ctx.role) === -1) {
+  if (!roles.some(function (r) { return tdHas_(ctx.role, r); })) {
     throw new Error(what + ' is done by ' + roles.map(function (r) { return TD_ROLES[r]; }).join(' or ') + '.');
   }
 }
-function tdClientOk_(id) {
+function tdClientOk_(ctx, id) {
   if (!id) return '';
-  var c = findRowById_('Customers', id);
-  if (!c || String(c.active).toUpperCase() === 'FALSE') throw new Error('That client is not in Customers.');
-  return String(c.id);
+  if (!ctx.masters.clients.some(function (c) { return c.id === String(id); })) throw new Error('That client is not in the client list. Add it in Masters → Clients.');
+  return String(id);
 }
 
 
@@ -738,9 +769,9 @@ function saveTenderField(id, path, value) {
     if (p === 'eligText') {
       t.eligibility = String(value || '').split('\n').map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 60);
     } else if (p === 'client') {
-      t.client = tdClientOk_(String(value || ''));
+      t.client = tdClientOk_(ctx, String(value || ''));
     } else if (p === 'assignee') {
-      if (ctx.role !== 'shortlist') throw new Error('A tender is assigned by Shortlisting & Admin.');
+      if (!tdHas_(ctx.role, 'shortlist')) throw new Error('A tender is assigned by Shortlisting & Admin.');
       var m = value ? tdMember_(ctx, value) : null;
       if (value && !m) throw new Error('Pick somebody who is on the Tender Desk.');
       var before = t.assignee;
@@ -976,12 +1007,13 @@ function tdMatchName_(list, name, field) {
   }
   return hit ? hit.id : '';
 }
-function tdCustomerMatches_(clientName) {
+/** The Tender Desk's clients whose name or short name shares the most words with the one the document names. */
+function tdClientMatches_(ctx, clientName) {
   var words = function (x) { return String(x || '').toLowerCase().split(/[^a-z0-9]+/).filter(function (w) { return w.length > 2; }); };
   var want = words(clientName);
   if (!want.length) return [];
-  return readTable_('Customers').filter(function (c) { return String(c.active).toUpperCase() !== 'FALSE'; }).map(function (c) {
-    var have = words(c.name);
+  return ctx.masters.clients.map(function (c) {
+    var have = words(c.name + ' ' + (c.short || ''));
     return { id: String(c.id), name: String(c.name || ''), score: want.filter(function (w) { return have.indexOf(w) !== -1; }).length };
   }).filter(function (m) { return m.score > 0; }).sort(function (a, b) { return b.score - a.score || a.name.localeCompare(b.name); }).slice(0, 6);
 }
@@ -1034,7 +1066,7 @@ function readTenderDocument(file) {
     out.aiOff = String(err && err.message ? err.message : err);
     return out;
   }
-  out.matches = tdCustomerMatches_(a.clientName);
+  out.matches = tdClientMatches_(ctx, a.clientName);
   out.data = tdNormTender_(a, ctx, out.matches);
   (Array.isArray(a.unsure) ? a.unsure : []).forEach(function (k) { out.conf[String(k)] = 0.5; });
   return out;
@@ -1080,7 +1112,7 @@ function saveTenderFromDocument(data, documentId, send) {
   var t = { id: id, stage: 'draft', result: '', assignee: '', poId: '', prep: {}, checklist: {}, submission: {}, postbid: {}, approval: {}, custom: {} };
   t.no = String(d.no || '').trim().slice(0, 400);
   t.title = String(d.title || '').trim().slice(0, 1000);
-  t.client = tdClientOk_(String(d.client || ''));
+  t.client = tdClientOk_(ctx, String(d.client || ''));
   t.clientName = String(d.clientName || '').trim().slice(0, 400);
   ['plant', 'payTerms', 'deliveryPeriod', 'ldClause'].forEach(function (k) { t[k] = String(d[k] || '').trim().slice(0, 1000); });
   t.portal = ctx.masters.portals.some(function (x) { return x.id === d.portal; }) ? d.portal : '';
@@ -1357,7 +1389,7 @@ function recordPoMove(poId, itemId, move) {
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
   var p = tdPo_(ctx, poId);
-  if (['shortlist', 'items', 'fp'].indexOf(ctx.role) === -1) throw new Error('Quantities are updated by Fulfilment, Items Entry or Shortlisting & Admin.');
+  if (!tdHas_(ctx.role, 'shortlist') && ['items', 'fp'].indexOf(ctx.role) === -1) throw new Error('Quantities are updated by Fulfilment, Items Entry or Shortlisting & Admin.');
   if (p.closed) throw new Error('This PO is closed.');
   var it = p.items.filter(function (i) { return i.id === itemId; })[0];
   if (!it) throw new Error('That item is no longer on the PO.');
@@ -1413,7 +1445,7 @@ function saveTenderTask(input) {
   }
   var k = ctx.tasks.filter(function (x) { return x.id === String(i.id); })[0];
   if (!k) throw new Error('That task is no longer there.');
-  var boss = ctx.role === 'shortlist' || ctx.role === 'mgmt';
+  var boss = tdHas_(ctx.role, 'shortlist') || ctx.role === 'mgmt';
   var mine = k.by === ctx.me || boss;
   if (!mine && k.assignee !== ctx.me) throw new Error('This task is not yours to change.');
   var patch = { status: status, checklistJson: JSON.stringify(checklist), updatedAt: nowIso_(), updatedBy: user.email,
@@ -1436,7 +1468,7 @@ function deleteTenderTask(id) {
   var ctx = tdContext_(user);
   var k = ctx.tasks.filter(function (x) { return x.id === String(id); })[0];
   if (!k) throw new Error('That task is no longer there.');
-  if (k.by !== ctx.me && ctx.role !== 'shortlist' && ctx.role !== 'mgmt') throw new Error('Only whoever gave this task, or Shortlisting & Admin / Management, can delete it.');
+  if (k.by !== ctx.me && !tdHas_(ctx.role, 'shortlist') && ctx.role !== 'mgmt') throw new Error('Only whoever gave this task, or Shortlisting & Admin / Management, can delete it.');
   updateRowById_('Tasks', 'id', k.id, { active: 'FALSE', updatedAt: nowIso_(), updatedBy: user.email }, 'Task deleted on the Tender Desk');
   return tdAnswer_(user, { message: 'Task deleted' });
 }
@@ -1564,7 +1596,7 @@ function tenderBrief(id) {
   requireTenderDesk_(user);
   var ctx = tdContext_(user);
   var t = tdTender_(ctx, id);
-  var client = t.client ? findRowById_('Customers', t.client) : null;
+  var client = t.client ? ctx.masters.clients.filter(function (c) { return c.id === t.client; })[0] : null;
   var data = { no: t.no, title: t.title, client: client ? client.name : t.clientName, plant: t.plant, estCost: t.estCost, emd: t.emd, emdType: t.emdType,
     lastDate: t.lastDate, today: ctx.today, deliveryPeriod: t.deliveryPeriod, payTerms: t.payTerms, sd: t.sdReq === 'Yes' ? t.sdPct : null, pbg: t.pbgReq === 'Yes' ? t.pbgPct : null,
     eligibility: t.eligibility, items: t.items, stage: tdStageLabel_(t), preparation: t.prep,
@@ -1611,6 +1643,7 @@ function saveTenderMaster(list, row) {
     if (data.gate && (data.entity !== 'tender' || !TD_STAGES.some(function (s) { return s.k === data.gate; }))) data.gate = '';
   }
   if (list === 'supplier' && data.rating && ['A', 'B', 'C'].indexOf(data.rating) === -1) data.rating = '';
+  if (list === 'client' || list === 'supplier') tdCheckParty_(data, name);
   var current = ctx.masters[spec.key];
   if (current.some(function (x) { return x.id !== r.id && String(x[spec.name]).toLowerCase() === name.toLowerCase(); })) throw new Error('“' + name + '” is already in ' + spec.label + '.');
   tdMaterialise_(list, ctx);
@@ -1644,6 +1677,10 @@ function deleteTenderMaster(list, id) {
   if (!spec) throw new Error('That is not one of the masters.');
   if (['portal', 'category', 'uom', 'checkpoint'].indexOf(list) !== -1 && ctx.masters[spec.key].length <= 1) throw new Error('Keep at least one entry in ' + spec.label + '.');
   tdMaterialise_(list, ctx);
+  if (list === 'client') {
+    var used = ctx.tenders.filter(function (t) { return t.client === String(id); }).length + ctx.pos.filter(function (p) { return p.client === String(id); }).length;
+    if (used) throw new Error('This client is on ' + used + ' tender' + (used > 1 ? 's or POs' : ' or PO') + ', so it stays. Change it there first.');
+  }
   var row = findRowById_('TenderMasters', id);
   if (!row || String(row.list) !== list) throw new Error('That entry is no longer there.');
   updateRowById_('TenderMasters', 'id', row.id, { active: 'FALSE' }, spec.label + ': ' + row.name + ' removed');
@@ -1693,13 +1730,70 @@ function saveTenderMember(email, role, access) {
   return tdAnswer_(user);
 }
 
-/** Customers for the client picker: name contains what was typed. */
-function searchTenderClients(q) {
+/** A client's or supplier's GSTIN and e-mail, if given, are the right shape. */
+function tdCheckParty_(data, name) {
+  if (data.gstin) {
+    data.gstin = data.gstin.toUpperCase().replace(/\s+/g, '');
+    if (!/^[0-9]{2}[A-Z0-9]{13}$/.test(data.gstin)) throw new Error('The GSTIN of ' + name + ' should be 15 letters and digits, starting with the state code.');
+  }
+  if (data.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email)) throw new Error('The e-mail of ' + name + ' does not look like an address.');
+}
+
+var TD_CLIENT_COLUMNS = { name: ['name', 'client', 'client name', 'department', 'organisation', 'organization'],
+  short: ['short', 'short name', 'shortname', 'abbreviation'], city: ['city', 'place', 'location'], state: ['state'],
+  gstin: ['gstin', 'gst', 'gst no', 'gst number'], contact: ['contact', 'contact person', 'person'], phone: ['phone', 'mobile', 'contact no', 'phone no'],
+  email: ['email', 'e-mail', 'mail'] };
+
+/**
+ * Clients from a CSV, as the page read it: [{ name, short, city, state, gstin, contact, phone,
+ * email }], or rows keyed by the file's own headings, which are matched to those. A client
+ * already in the list (same name, or same GSTIN) is updated with what the file gives; the rest
+ * are added. Rows that cannot be taken are reported by their line, and the others still go in.
+ */
+function importTenderClients(rows) {
   var user = getCurrentUser();
   requireTenderDesk_(user);
-  var s = String(q || '').trim().toLowerCase();
-  if (s.length < 2) return [];
-  return readTable_('Customers').filter(function (c) {
-    return String(c.active).toUpperCase() !== 'FALSE' && (String(c.name || '').toLowerCase().indexOf(s) !== -1 || String(c.customerCode || '').toLowerCase() === s);
-  }).slice(0, 20).map(function (c) { return { id: String(c.id), name: String(c.name || '') }; });
+  var ctx = tdContext_(user);
+  if (!tdMasterEditor_(ctx)) throw new Error('Masters are kept by Shortlisting & Admin or Management.');
+  var list = Array.isArray(rows) ? rows : [];
+  if (!list.length) throw new Error('The file has no clients in it.');
+  if (list.length > 2000) throw new Error('Upload up to 2,000 clients at a time; this file has ' + list.length + '.');
+  var pick = function (r, key) {
+    var names = TD_CLIENT_COLUMNS[key];
+    var hit = Object.keys(r || {}).filter(function (k) { return names.indexOf(String(k).trim().toLowerCase()) !== -1; })[0];
+    return hit === undefined ? '' : String(r[hit] === undefined || r[hit] === null ? '' : r[hit]).trim().slice(0, 400);
+  };
+  tdMaterialise_('client', ctx);
+  var byName = {};
+  var byGst = {};
+  ctx.masters.clients.forEach(function (c) { byName[c.name.toLowerCase()] = c; if (c.gstin) byGst[String(c.gstin).toUpperCase()] = c; });
+  var adds = [];
+  var updates = [];
+  var skipped = [];
+  var seen = {};
+  list.forEach(function (r, i) {
+    // The file's own line when the page says it (blank lines are dropped before sending), else counted.
+    var line = Number(r && r._line) > 0 ? Number(r._line) : i + 2;
+    var d = {};
+    Object.keys(TD_CLIENT_COLUMNS).forEach(function (k) { d[k] = pick(r, k); });
+    if (!d.name) { if (Object.keys(d).some(function (k) { return d[k]; })) skipped.push({ line: line, reason: 'no client name' }); return; }
+    try { tdCheckParty_(d, d.name); } catch (err) { skipped.push({ line: line, reason: err.message }); return; }
+    var key = d.name.toLowerCase();
+    if (seen[key]) { skipped.push({ line: line, reason: d.name + ' is in the file twice' }); return; }
+    seen[key] = true;
+    var have = byName[key] || (d.gstin && byGst[d.gstin]);
+    if (have) {
+      var data = {};
+      TD_MASTERS.client.fields.forEach(function (f) { data[f] = d[f] || String(have[f] || ''); });
+      updates.push({ id: have.id, name: have.name, data: data });
+    } else {
+      var fresh = {};
+      TD_MASTERS.client.fields.forEach(function (f) { fresh[f] = d[f]; });
+      adds.push({ id: generateId_('TCL-'), list: 'client', name: d.name, sortOrder: ctx.masters.clients.length + adds.length + 1, active: 'TRUE', dataJson: JSON.stringify(fresh) });
+    }
+  });
+  if (adds.length) appendRows_('TenderMasters', adds, adds.length + ' Tender Desk client(s) uploaded');
+  for (var u of updates) updateRowById_('TenderMasters', 'id', u.id, { dataJson: JSON.stringify(u.data), active: 'TRUE' }, 'Tender Desk client updated from a CSV: ' + u.name);
+  var msg = adds.length + ' client' + (adds.length === 1 ? '' : 's') + ' added, ' + updates.length + ' updated' + (skipped.length ? ', ' + skipped.length + ' skipped' : '');
+  return tdAnswer_(user, { message: msg, imported: { added: adds.length, updated: updates.length, skipped: skipped.slice(0, 50) } });
 }

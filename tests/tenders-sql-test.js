@@ -92,6 +92,31 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('a coordinator cannot change the team', await refuses(() => p.saveTenderMember('amol@pie.invalid', 'fp', null), /Management or the ERP Admin/));
   ok('the defaults are there before anybody keeps a master', st.portals.length === 5 && st.checklist.length === 10 && st.uoms.some((u) => u.name === 'Nos') && st.cfg.alertDays === 7);
 
+  console.log('THE TENDER DESK\'S OWN CLIENTS');
+  ok('no clients to start with: the ERP\'s Customers are not its clients', st.clients.length === 0, st.clients);
+  await as('U-ENG');
+  ok('an executive cannot add clients', await refuses(() => p.saveTenderMaster('client', { name: 'X' }), /Shortlisting & Admin or Management/));
+  await as('U-COORD');
+  st = (await p.saveTenderMaster('client', { name: 'Test State Power Generation Co Ltd', short: 'TSPGCL', city: 'Nagpur', state: 'Maharashtra', gstin: '27aaacT1234a1z5' })).state;
+  const gen = st.clients.find((c) => c.name === 'Test State Power Generation Co Ltd');
+  ok('one added by hand, its GSTIN made upper case', gen && gen.short === 'TSPGCL' && gen.gstin === '27AAACT1234A1Z5', gen);
+  ok('a GSTIN of the wrong shape is refused', await refuses(() => p.saveTenderMaster('client', { name: 'Bad GST Ltd', gstin: '1234' }), /15 letters and digits/));
+  ok('and the same client twice', await refuses(() => p.saveTenderMaster('client', { name: 'test state power generation co ltd' }), /already in Clients/));
+  let res = await p.importTenderClients([
+    { Name: 'Sample Transmission Utility', 'Short name': 'STU', City: 'Mumbai', State: 'Maharashtra', GSTIN: '', 'Contact person': 'Store officer', Phone: '0712 000000', 'E-mail': 'stores@stu.invalid' },
+    { Name: 'Test State Power Generation Co Ltd', City: 'Koradi', GSTIN: '' },
+    { Name: 'Demo Thermal Power Station', 'Short name': '', City: 'Mouda' },
+    { Name: '', City: 'Nowhere' },
+    { Name: 'Broken GST Co', GSTIN: '99' },
+    { Name: 'Sample Transmission Utility', City: 'again' }]);
+  ok('a CSV upload: new ones added, an existing one updated, the bad lines reported by line', res.imported.added === 2 && res.imported.updated === 1 && res.imported.skipped.length === 3 &&
+    res.imported.skipped.map((x) => x.line).join() === '5,6,7', res.imported);
+  ok('the update keeps what the file did not give', res.state.clients.find((c) => c.id === gen.id).city === 'Koradi' && res.state.clients.find((c) => c.id === gen.id).short === 'TSPGCL');
+  ok('and the uploaded client has its details, a short name made when none was given', res.state.clients.find((c) => c.name === 'Sample Transmission Utility').email === 'stores@stu.invalid' &&
+    res.state.clients.find((c) => c.name === 'Demo Thermal Power Station').short === 'Demo');
+  ok('headings are matched however they are written', (await p.importTenderClients([{ 'client name': 'Heading Test Mills', 'GST No': '' }])).imported.added === 1);
+  ok('an empty file is refused', await refuses(() => p.importTenderClients([]), /no clients/));
+
   console.log('A TENDER FROM ITS DOCUMENT');
   aiAnswer = { no: 'TG/KTPS/2026/1187', title: 'Supply of screw air compressors for ash handling', clientName: 'Test State Power Generation', plant: 'Unit 8',
     portalName: 'Mahatenders portal', category: 'Goods Supply', publishedDate: inDays(-2), lastDate: inDays(10), dueTime: '15:00', estCost: 'Rs. 24,50,000/-',
@@ -106,8 +131,8 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('what it read comes back as the form: money as numbers, lists matched, Yes/No made', read.data.no === 'TG/KTPS/2026/1187' && read.data.estCost === 2450000 && read.data.emd === 49000 &&
     read.data.portal === 'TDM-portal-2' && read.data.category === 'TDM-category-1' && read.data.bgOk === 'Yes' && read.data.sdReq === 'Yes' && read.data.pbgReq === 'No' &&
     read.data.items.length === 1 && read.data.items[0].uom === 'Nos' && read.data.items[0].qty === 2 && read.data.eligText === 'OEM or authorised dealer', read.data);
-  ok('the client is matched in Customers, and what it was unsure of is marked', read.data.client === 'CU-GEN' && read.matches[0].id === 'CU-GEN' && read.conf.emd === 0.5, read);
-  let res = await p.saveTenderFromDocument(Object.assign({}, read.data, { dueTime: '' }), read.documentId, true);
+  ok('the client is matched in the client list, and what it was unsure of is marked', read.data.client === gen.id && read.matches[0].id === gen.id && read.conf.emd === 0.5, read);
+  res = await p.saveTenderFromDocument(Object.assign({}, read.data, { dueTime: '' }), read.documentId, true);
   const tid = res.id;
   let t = res.state.tenders.find((x) => x.id === tid);
   ok('saved and sent: still a draft, because the due time is missing', t.stage === 'draft' && /fill the fields marked in red/.test(res.message) &&
@@ -116,7 +141,8 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   res = await p.saveTenderField(tid, 'dueTime', '15:00');
   ok('a bad time is refused', await refuses(() => p.saveTenderField(tid, 'dueTime', '3pm'), /hours and minutes/));
   ok('a field that does not exist is refused', await refuses(() => p.saveTenderField(tid, 'stage', 'won'), /cannot be changed here/));
-  ok('the client must be in Customers', await refuses(() => p.saveTenderField(tid, 'client', 'CU-NOPE'), /not in Customers/));
+  ok('the client must be in the client list — an ERP customer is not', await refuses(() => p.saveTenderField(tid, 'client', 'CU-OTHER'), /not in the client list/));
+  ok('a client on a tender cannot be deleted', await refuses(() => p.deleteTenderMaster('client', gen.id), /stays/));
 
   console.log('APPROVAL AND ASSIGNING');
   await as('U-ENG');
@@ -138,7 +164,7 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('the assignee must be on the Tender Desk', await refuses(() => p.saveTenderField(tid, 'assignee', 'kiran@nowhere.invalid'), /on the Tender Desk/));
   await p.saveTenderField(tid, 'assignee', 'kiran@pie.invalid');
   st = await p.getTenderApp();
-  ok('a fulfilment person is not an executive: the gate says so', st.tenders.find((x) => x.id === tid).gate.reqs.some((r) => !r.ok && /Tender Executive role/.test(r.t)));
+  ok('a fulfilment person is not an executive: the gate says so', st.tenders.find((x) => x.id === tid).gate.reqs.some((r) => !r.ok && /Assignee is a Tender Executive/.test(r.t)));
   await p.saveTenderField(tid, 'assignee', 'rohan@pie.invalid');
   res = await p.advanceTender(tid);
   t = res.state.tenders.find((x) => x.id === tid);
@@ -187,6 +213,35 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await as('U-SVCC');
   ok('and Items Entry is asked for the PO', (await p.getTenderApp()).alerts.some((a) => /Won but PO not entered/.test(a.t)));
   await as('U-ENG');
+
+  console.log('SHORTLISTING & EXECUTIVE, ONE PERSON');
+  await as('U-MGMT');
+  await p.saveTenderMember('isha@pie.invalid', 'both', null);
+  await as('U-COORD');
+  res = await p.newTender();
+  const tb = res.id;
+  ok('the role is offered and named', res.state.roles.both === 'Shortlisting & Executive' && res.state.me.role === 'both');
+  const cl = res.state.clients[0].id;
+  for (const [k, v] of [['no', 'BOTH/2026/1'], ['title', 'Air dryers'], ['client', cl], ['portal', 'TDM-portal-1'], ['lastDate', inDays(9)], ['dueTime', '11:00'], ['estCost', 500000], ['emd', 10000], ['emdType', 'Online']]) {
+    await p.saveTenderField(tb, k, v);
+  }
+  await p.tenderItemLine(tb, 'add');
+  await p.saveTenderField(tb, 'items.0.desc', 'Refrigerated air dryer');
+  await p.attachTenderFile('tender', tb, pdf);
+  res = await p.advanceTender(tb);
+  ok('she enters a tender and sends it, as Shortlisting', res.state.tenders.find((x) => x.id === tb).stage === 'approval');
+  await as('U-MGMT'); await p.approveTender(tb, '');
+  await as('U-COORD');
+  res = await p.saveTenderField(tb, 'assignee', 'isha@pie.invalid');
+  ok('she can be the executive it is assigned to', res.state.tenders.find((x) => x.id === tb).gate.reqs.every((r) => r.ok));
+  res = await p.advanceTender(tb);
+  ok('assigned to herself, with the preparation task', res.state.tenders.find((x) => x.id === tb).stage === 'assigned' && res.state.tasks.some((k) => k.assignee === 'isha@pie.invalid' && /^Prepare & submit bid – BOTH/.test(k.title)));
+  res = await p.advanceTender(tb);
+  ok('and works it as the executive', res.state.tenders.find((x) => x.id === tb).stage === 'prep');
+  await as('U-ENG');
+  ok('another executive still cannot', await refuses(() => p.saveTenderField(tb, 'prep.min3', 'Yes'), /not change it/));
+  await as('U-COORD');
+  ok('and she still keeps the masters', !!(await p.saveTenderMaster('lossReason', { name: 'Specification not met' })));
 
   console.log('NOT PARTICIPATING');
   await as('U-COORD');
@@ -307,6 +362,14 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   res = await p.saveTenderRules({ alertDays: 10, urgentDays: 4 });
   ok('the rules change', res.state.cfg.alertDays === 10 && res.state.cfg.urgentDays === 4 && res.state.cfg.ldRate === 0.5);
   ok('urgent cannot be later than attention', await refuses(() => p.saveTenderRules({ urgentDays: 12 }), /Urgent|“Urgent”/));
+
+  console.log('TENDERS FROM BEFORE, NAMING AN ERP CUSTOMER');
+  await db.appendRow('Tenders', { id: 'TN-OLD', tenderNo: 'OLD/1', title: 'Entered before clients of its own', customerId: 'CU-OTHER', stage: 'draft', priority: 'Low', dataJson: '{}', active: 'TRUE' });
+  st = await p.getTenderApp();
+  const adopted = st.clients.find((c) => c.id === 'CU-OTHER');
+  ok('its customer becomes a Tender Desk client, same id, so the tender keeps it', adopted && adopted.name === 'Another Test Mills' && st.tenders.find((x) => x.id === 'TN-OLD').client === 'CU-OTHER');
+  st = await p.getTenderApp();
+  ok('once only', st.clients.filter((c) => c.id === 'CU-OTHER').length === 1);
 
   console.log('THE ERP DASHBOARD');
   await as('U-MGMT');

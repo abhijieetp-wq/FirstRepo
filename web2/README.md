@@ -176,8 +176,12 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   Desk design: its own rail — Dashboard, Shortlisting, Tenders, PO execution, Tasks, Masters — a
   voice note, alerts, light and dark. The ERP's dashboard has the switch to it (erpSwitchHtml, with
   how many alerts wait there) and the Tender Desk's dashboard the switch back; the ERP's menu has
-  no tender screens. It shares the ERP's sign-in (the same session), people (Users; a Tender Desk
-  role per person, Users.tenderRole, starting from their ERP role), clients (Customers), tasks
+  no tender screens. Its clients are its own (Masters → Clients, list 'client' in TenderMasters),
+  added by hand — also from a tender's client field — or uploaded from a CSV (importTenderClients);
+  tenders entered when it used Customers keep theirs, carried over with the same id
+  (tdAdoptCustomers_). Roles include Shortlisting & Executive ('both'), who shortlists and can be
+  assigned tenders to execute (tdHas_). It shares the ERP's sign-in (the same session), people
+  (Users; a Tender Desk role per person, Users.tenderRole, starting from their ERP role), tasks
   (Tasks: module 'tender', linkKind tender / tenderpo, with steps and comments; also on the Tasks
   page, with a new "Waiting on others" status), files (Documents) and AI. A tender goes through
   nine gated steps (tdGate_); a won tender's PO tracks each item ordered → procured → dispatched →

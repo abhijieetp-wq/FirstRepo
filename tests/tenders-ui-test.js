@@ -52,9 +52,8 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await person('U-ENG3', 'sneha', 'Sneha Gokhale', 'Sales Engineer', { tenderDesk: 'TRUE' });
   await person('U-SVC', 'kiran', 'Kiran Pawar', 'Service Engineer', { tenderDesk: 'TRUE' });
   await person('U-ACC', 'neha', 'Neha Rao', 'Accounts');
-  for (const [id, name] of [['CU-1', 'Test State Power Generation Co Ltd'], ['CU-2', 'Sample Transmission Utility'], ['CU-3', 'Demo Thermal Power Station'], ['CU-4', 'Another Test Mills']]) {
-    await db.appendRow('Customers', { id, customerCode: id, name, active: 'TRUE' });
-  }
+  // An ERP customer, to show it is not one of the Tender Desk's clients.
+  await db.appendRow('Customers', { id: 'CU-ERP', customerCode: 'E1', name: 'An ERP Customer Pvt Ltd', active: 'TRUE' });
   const p = loadPortal(db, 'isha@pie.invalid', { quiet: true, properties: {}, drive, ai });
   let actor = 'U-COORD';
   const as = async (id) => { actor = id; p.CURRENT_USER_ = await p.userFromRow_((await p.readTable_('Users')).find((u) => u.id === id)); };
@@ -62,6 +61,11 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
 
   // ---- invented work, entered through the module itself
   await as('U-COORD');
+  // The Tender Desk's own clients, uploaded as a CSV would be.
+  const cls = (await p.importTenderClients([{ Name: 'Test State Power Generation Co Ltd', 'Short name': 'TSPGCL', City: 'Nagpur' },
+    { Name: 'Sample Transmission Utility', 'Short name': 'STU', City: 'Mumbai' }, { Name: 'Demo Thermal Power Station', 'Short name': 'DTPS', City: 'Mouda' },
+    { Name: 'Another Test Mills', City: 'Pune' }])).state.clients;
+  const CL = (n) => cls.find((c) => c.name.indexOf(n) === 0).id;
   const sup = (await p.saveTenderMaster('supplier', { name: 'Invented Motors Pvt Ltd', city: 'Nagpur', rating: 'A' })).state.suppliers[0].id;
   await p.saveTenderMaster('supplier', { name: 'Sample Electricals', city: 'Pune', rating: 'B' });
   const mk = async (o) => {
@@ -70,11 +74,11 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
     await p.attachTenderFile('tender', id, { name: 'NIT ' + o.no + '.pdf', dataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF').toString('base64') });
     return id;
   };
-  const tA = await mk({ no: 'TG/KTPS/2026/1187', title: 'Supply of 3.3 kV HT induction motors for ID fan drives', client: 'CU-1', priority: 'High', lastDate: inDays(2), estCost: 18450000, emd: 184500 });
-  const tB = await mk({ no: 'ST/O&M/NGP/2026/88', title: 'Distribution transformers 315 kVA, 11/0.433 kV', client: 'CU-2', priority: 'High', lastDate: inDays(12), estCost: 9800000, emd: 98000 });
-  const tC = await mk({ no: 'DT/MOUDA/CS-9921', title: 'Centrifugal pumps with LT motors for raw water pump house', client: 'CU-3', lastDate: inDays(18), estCost: 4300000, emd: 86000 });
-  await mk({ no: 'AM/RTPS/MM/2026/412', title: 'Cast steel gate valves 300 NB class 600', client: 'CU-4', priority: 'Low', lastDate: inDays(21), estCost: 2700000, emd: 27000 });
-  const tW = await mk({ no: 'GEM/2026/B/5210077', title: 'Mandatory spares for HT motors (bearings, RTDs, terminal kits)', client: 'CU-1', priority: 'Low', lastDate: inDays(30), estCost: 1450000, emd: 0, emdType: 'Exempted' });
+  const tA = await mk({ no: 'TG/KTPS/2026/1187', title: 'Supply of 3.3 kV HT induction motors for ID fan drives', client: CL('Test State'), priority: 'High', lastDate: inDays(2), estCost: 18450000, emd: 184500 });
+  const tB = await mk({ no: 'ST/O&M/NGP/2026/88', title: 'Distribution transformers 315 kVA, 11/0.433 kV', client: CL('Sample'), priority: 'High', lastDate: inDays(12), estCost: 9800000, emd: 98000 });
+  const tC = await mk({ no: 'DT/MOUDA/CS-9921', title: 'Centrifugal pumps with LT motors for raw water pump house', client: CL('Demo'), lastDate: inDays(18), estCost: 4300000, emd: 86000 });
+  await mk({ no: 'AM/RTPS/MM/2026/412', title: 'Cast steel gate valves 300 NB class 600', client: CL('Another'), priority: 'Low', lastDate: inDays(21), estCost: 2700000, emd: 27000 });
+  const tW = await mk({ no: 'GEM/2026/B/5210077', title: 'Mandatory spares for HT motors (bearings, RTDs, terminal kits)', client: CL('Test State'), priority: 'Low', lastDate: inDays(30), estCost: 1450000, emd: 0, emdType: 'Exempted' });
   for (const id of [tA, tB, tC, tW]) await p.advanceTender(id);
   await as('U-MGMT');
   for (const id of [tA, tW]) await p.approveTender(id, 'Strategic – repeat client');
@@ -222,7 +226,17 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   ok('the masters as in the design, with Clients and Task statuses', ['Team members', 'Products', 'Clients', 'Suppliers', 'Portals', 'Tender categories', 'Units (UOM)', 'Loss / regret reasons', 'Submission checklist', 'Custom fields', 'Task statuses', 'Rules & alerts'].every((x) => mtabs.includes(x)), mtabs);
   await shot('td-masters');
   await page.click('.tab[data-v="clients"]');
-  ok('clients are the ERP\'s Customers, read here', /Test State Power Generation Co Ltd/.test(await page.textContent('.content')) && !!(await page.$('a[href="/customers"]')));
+  ok('clients are the Tender Desk\'s own: its list, not the ERP\'s Customers', (await page.inputValue('#m_clients_' + CL('Test State') + '_name')) === 'Test State Power Generation Co Ltd' &&
+    !/An ERP Customer/.test(await page.content()));
+  ok('with a CSV upload and its template', !!(await page.$('[data-act="clientCsv"]')) && !!(await page.$('[data-act="clientTemplate"]')));
+  const csv = path.join(require('os').tmpdir(), 'td-ui-clients.csv');
+  fs.writeFileSync(csv, '\uFEFFName,Short name,City,State,GSTIN\r\n"Coastal Power Co, Unit 2",CPC,Ratnagiri,Maharashtra,\r\nTest State Power Generation Co Ltd,,Koradi,,\r\n,,,,\r\nBad GST Co,,,,12\r\n');
+  await page.setInputFiles('#csvpick', csv); await settle();
+  ok('a CSV uploaded from the page: added, updated, the bad line said', /1 added, 1 updated, 1 skipped: line 5/.test(await page.textContent('.content')) &&
+    (await p.getTenderApp()).clients.some((c) => c.name === 'Coastal Power Co, Unit 2' && c.city === 'Ratnagiri'), await page.textContent('.note'));
+  await shot('td-clients');
+  await page.click('.tab[data-v="members"]');
+  ok('the team can be given the combined role', (await page.$$eval('select[data-member] option', (o) => o.map((x) => x.textContent))).includes('Shortlisting & Executive'));
   await page.click('.tab[data-v="portals"]');
   await page.click('[data-act="mAdd"]');
   await page.fill('#m_portals_new_name', 'KPCL eProcurement'); await page.press('#m_portals_new_name', 'Tab'); await settle();
@@ -249,12 +263,23 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await page.setInputFiles('#filepick', tmp);
   await page.waitForSelector('[data-act="xSave"]', { timeout: 15000 });
   ok('read into the form, the unsure field marked', (await page.inputValue('#f_x_no')) === 'TG/KHT/2026/1342' && !!(await page.$('#f_x_emd.lowc')));
-  ok('the client suggested from Customers', (await page.inputValue('#f_x_client')) === 'Demo Thermal Power Station');
+  ok('the client suggested from the client list', (await page.inputValue('#f_x_client')) === 'Demo Thermal Power Station');
   await shot('td-new-tender');
   await page.click('[data-act="xSave"][data-send="1"]'); await settle();
   const nt = (await p.getTenderApp()).tenders.find((t) => t.no === 'TG/KHT/2026/1342');
-  ok('saved and sent for approval in one go', nt && nt.stage === 'approval' && nt.client === 'CU-3', nt && nt.stage);
+  ok('saved and sent for approval in one go', nt && nt.stage === 'approval' && nt.client === CL('Demo'), nt && nt.stage);
   ok('and the page opened it', new globalThis.URL(page.url()).pathname === '/tender-desk/tenders/' + nt.id);
+
+  // A client added by hand, from the tender's own client field.
+  await page.click('.tab[data-v="details"]').catch(() => {});
+  await page.click('[data-act="newClient"]');
+  await page.fill('#f_n_name', 'Brand New Utility');
+  await page.fill('#f_n_city', 'Chandrapur'); await page.press('#f_n_city', 'Tab');
+  await shot('td-new-client');
+  await page.click('[data-act="clientSave"]'); await settle();
+  const fresh = (await p.getTenderApp());
+  const bn = fresh.clients.find((c) => c.name === 'Brand New Utility');
+  ok('a new client added by hand from the tender, and chosen for it', bn && bn.city === 'Chandrapur' && fresh.tenders.find((t) => t.id === nt.id).client === bn.id);
 
   console.log('THE SWITCH, A PHONE, THE DARK LOOK');
   await page.goto(B + '/tender-desk'); await page.waitForSelector('.switch');
