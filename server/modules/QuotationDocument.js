@@ -1131,17 +1131,31 @@ async function buildQuotationHtml(quotationId) {
     // offer's to state. Replacing only the period keeps both: "Delivery: 2-3 weeks. This
     // delivery shall reckon from the date of receipt of your clear and firm order."
     var deliveryPhrase = deliveryClause_(q, items);
+    // The delivery basis typed on the quotation (Ex-Works, FOR Destination...) – where the goods
+    // change hands. The standing terms never said it and nothing put it there, so an offer went
+    // out without the basis it was priced on. It replaces a "Delivery basis:" / "Price basis:"
+    // line where the terms have one, else it is printed straight after the Delivery line.
+    var basis = String(q.deliveryTerms || '').trim();
+    var basisLine = basis ? L('deliveryBasis', 'Delivery basis') + ': ' + basis.replace(/\.+$/, '') + '.' : '';
+    var statedBasis = false;
     push('<div class="h1">' + esc_(terms.title || L('termsHeading', 'Terms & conditions')) +
       '</div>');
-    push(bulletList_(templateLines_(terms.body).map(function (l) {
+    var termLines = templateLines_(terms.body).map(function (l) {
       if (/^validity\b/i.test(l)) { statedValidity = true; return validity; }
+      if (basisLine && /^(delivery|price)\s+basis\s*:/i.test(l)) { statedBasis = true; return basisLine; }
       if (deliveryPhrase && /^delivery\s*:/i.test(l)) {
         return l.replace(/^(delivery\s*:\s*)([^.]*)/i, function (m, head) {
           return head + deliveryPhrase;
         });
       }
       return l;
-    }), true));
+    });
+    if (basisLine && !statedBasis) {
+      var at = -1;
+      termLines.forEach(function (l, i) { if (at === -1 && /^delivery\s*:/i.test(l)) at = i; });
+      if (at === -1) termLines.push(basisLine); else termLines.splice(at + 1, 0, basisLine);
+    }
+    push(bulletList_(termLines, true));
     if (!statedValidity) push('<div class="note">' + esc_(validity) + '</div>');
   }
 

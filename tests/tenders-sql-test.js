@@ -425,8 +425,9 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   ok('Accounts cannot change the PO header', await refuses(() => p.savePoField(pid, 'payTerms', 'x'), /Accounts keeps the invoices/));
   for (const who of ['U-COORD', 'U-SVCC', 'U-SVC', 'U-POX']) {
     await as(who);
-    ok('invoices and payments are Accounts\' alone, not ' + who + '\'s', await refuses(() => p.poLine(pid, 'invoices', 'add'), /kept by Accounts/) &&
-      await refuses(() => p.poLine(pid, 'payments', 'add'), /kept by Accounts/));
+    ok('invoices, payments and the SD / PBG are Accounts\' alone, not ' + who + '\'s', await refuses(() => p.poLine(pid, 'invoices', 'add'), /kept by Accounts/) &&
+      await refuses(() => p.poLine(pid, 'payments', 'add'), /kept by Accounts/) && await refuses(() => p.poLine(pid, 'obligations', 'add'), /SD \/ PBG is kept by Accounts/) &&
+      await refuses(() => p.savePoField(pid, 'obligations.0.status', 'Submitted'), /SD \/ PBG is kept by Accounts/));
   }
   await as('U-ACC');
   await p.poLine(pid, 'invoices', 'add');

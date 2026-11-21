@@ -250,8 +250,12 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await page.click('.tab[data-v="money"]');
   ok('invoices and payments: he only looks', /kept by Accounts/.test(await page.textContent('.content')) && !(await page.$('[data-act="addRow"][data-list="invoices"]')) &&
     await page.$eval('[data-act="addRow"][data-list="payments"]', () => false).catch(() => true));
+  await page.click('.tab[data-v="obl"]');
+  ok('the SD / PBG too', /SD \/ PBG is kept by Accounts/.test(await page.textContent('.content')) && !(await page.$('[data-act="addRow"][data-list="obligations"]')));
   actor = 'U-ACC';
   await page.reload(); await page.waitForSelector('.ld-box');
+  await page.click('.tab[data-v="obl"]');
+  ok('Accounts keeps the SD / PBG', !!(await page.$('[data-act="addRow"][data-list="obligations"]')));
   await page.click('.tab[data-v="money"]');
   ok('Accounts keeps them', !!(await page.$('[data-act="addRow"][data-list="invoices"]')) && !/kept by Accounts/.test(await page.textContent('.content')));
   await shot('td-po-money');

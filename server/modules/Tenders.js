@@ -579,9 +579,11 @@ function tdValidateMove_(it, f, today) {
   else if (f.date > today) E.push('Date cannot be in the future');
   return E;
 }
-/** Invoices and payments on a PO are Accounts' alone; nobody else adds, changes or removes them. */
+/** Invoices, payments and the SD / PBG on a PO are Accounts' alone; nobody else adds, changes or removes them. */
 function tdAccountsOnly_(ctx, list) {
-  if (['invoices', 'payments'].indexOf(list) !== -1 && ctx.role !== 'accounts') throw new Error('Invoices and payments are kept by Accounts.');
+  if (['invoices', 'payments', 'obligations'].indexOf(list) !== -1 && ctx.role !== 'accounts') {
+    throw new Error(list === 'obligations' ? 'The SD / PBG is kept by Accounts.' : 'Invoices and payments are kept by Accounts.');
+  }
 }
 function tdPoEditable_(ctx) { return ['shortlist', 'items', 'fp', 'accounts'].some(function (r) { return tdHas_(ctx.role, r); }); }
 

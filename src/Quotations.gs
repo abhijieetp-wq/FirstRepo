@@ -690,7 +690,9 @@ function saveQuotationHeader(input) {
     validityDays: validityDays,
     validUntil: addDays_(String(input.date || existing.date).slice(0, 10), validityDays),
     paymentTerms: String(input.paymentTerms || '').trim(),
-    deliveryTerms: String(input.deliveryTerms || '').trim(),
+    // Kept as it was when a caller does not send it, so a save from somewhere that does not
+    // show the field cannot wipe the basis the offer was priced on.
+    deliveryTerms: String(input.deliveryTerms === undefined ? existing.deliveryTerms || '' : input.deliveryTerms || '').trim(),
     deliveryPeriod: String(input.deliveryPeriod || '').trim(),
     warrantyTerms: String(input.warrantyTerms || '').trim(),
     machineModel: String(input.machineModel || '').trim(),

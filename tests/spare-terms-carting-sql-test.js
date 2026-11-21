@@ -78,6 +78,17 @@ const BOSS = { email: 'office@pie.invalid', name: 'Office Admin', role: 'ERP Adm
   ok('the Delivery point prints the period chosen', terms.includes('Delivery: Ready stock subject to prior sale.'), terms);
   await p.saveQuotationHeader({ id: q.id, deliveryPeriod: '14-16 Weeks' });
   ok('and another', termsOf(await p.buildQuotationHtml(q.id)).includes('Delivery: 14-16 Weeks.'));
+  ok('no delivery basis typed, none printed', !termsOf(await p.buildQuotationHtml(q.id)).some((t) => /^Delivery basis/.test(t)));
+  await p.saveQuotationHeader({ id: q.id, deliveryPeriod: '14-16 Weeks', deliveryTerms: 'FOR Destination' });
+  terms = termsOf(await p.buildQuotationHtml(q.id));
+  ok('the delivery basis typed on the quotation is printed, straight after Delivery',
+    terms[terms.findIndex((t) => /^Delivery:/.test(t)) + 1] === 'Delivery basis: FOR Destination.', terms);
+  await p.saveQuotationHeader({ id: q.id, deliveryPeriod: '14-16 Weeks' });
+  ok('and kept by a save that does not send it', (await p.getQuotation(q.id)).deliveryTerms === 'FOR Destination');
+  const cq = await p.createBlankQuotation({ customerId: 'CU-1', businessStream: 'Compressor Sales' });
+  await p.saveQuotationHeader({ id: cq.id, deliveryTerms: 'Ex-Works' });
+  const ct = termsOf(await p.buildQuotationHtml(cq.id));
+  ok('on a compressor offer too, after its Delivery point', ct[ct.findIndex((t) => /^Delivery:/.test(t)) + 1] === 'Delivery basis: Ex-Works.', ct);
 
   console.log('\nTHE TERMS ALREADY INSTALLED');
   const OLD = 'GST shall be extra on the basic value of the order.\nCarting and freight shall be extra.\nTransit insurance shall be arranged by the Purchaser.';
