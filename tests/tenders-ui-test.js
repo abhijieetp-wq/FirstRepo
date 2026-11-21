@@ -294,6 +294,8 @@ const ai = { enabled: true, reason: '', propose: async () => aiAnswer };
   await page.click('.tab[data-v="members"]');
   ok('the team can be given the combined role', (await page.$$eval('select[data-member] option', (o) => o.map((x) => x.textContent))).includes('Shortlisting & Executive'));
   ok('and PO Execution', (await page.$$eval('select[data-member] option', (o) => o.map((x) => x.textContent))).includes('PO Execution'));
+  const roleOpts = await page.$$eval('select[data-member] option', (o) => o.map((x) => x.textContent));
+  ok('and the two that combine them', ['Shortlisting, Executive & PO Execution', 'Tender Executive & PO Execution'].every((r) => roleOpts.includes(r)));
   // Admin is a tick of its own on the team list, given by a fellow admin.
   ok('the team shows who is an admin', (await page.$$eval('input[data-admin]', (b) => b.filter((x) => x.checked).length)) === 1 &&
     await page.$eval('input[data-admin="isha@pie.invalid"]', (b) => b.disabled));

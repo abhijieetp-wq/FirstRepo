@@ -184,6 +184,8 @@ spares offer's, as before. An enquiry with no type reads as Spares.
   outside it (Session.gs call, TENDER_ONLY_CALLS_). Roles include Shortlisting & Executive ('both'), who shortlists and can be
   assigned tenders to execute, and PO Execution ('po'), who runs every PO: enters it, keeps it,
   moves its quantities and closes it — Items Entry's part and Fulfilment's together (tdHas_).
+  Two roles combine them: Shortlisting, Executive & PO Execution ('all') and Tender Executive &
+  PO Execution ('execpo'); TD_ROLE_PARTS says what each combined role does the work of.
   A PO's invoices, payments and SD / PBG are kept by Accounts alone (tdAccountsOnly_); everyone else sees them. Admin is not a role but a grant of its own
   (Users.tenderAdmin, tdIsAdmin_), ticked in Team members by a fellow admin; admins keep the team,
   the masters and the rules and open accounts. The ERP Admin always is one, and nobody takes away

@@ -455,6 +455,32 @@ const ai = { enabled: true, reason: '', propose: async (req) => { aiAsked = req;
   await p.savePoField(pid, 'items.' + itId + '.fp', 'kiran@pie.invalid');
   await p.savePoField(pid, 'warranty', '18 months from delivery');
   ok('it keeps the PO\'s terms', (await p.getTenderApp()).pos.find((x) => x.id === pid).warranty === '18 months from delivery');
+
+  console.log('ALL THREE IN ONE, AND TENDER EXECUTIVE WITH PO EXECUTION');
+  await as('U-ADMIN');
+  st = (await p.saveTenderMember('sanjay@pie.invalid', 'all', null)).state;
+  ok('the two combined roles are offered and named', st.roles.all === 'Shortlisting, Executive & PO Execution' &&
+    st.roles.execpo === 'Tender Executive & PO Execution');
+  ok('all three: Shortlisting, the submission team and the PO\'s work', ['shortlist', 'exec', 'po', 'items', 'fp'].every((r) => p.tdHas_('all', r)) &&
+    !p.tdHas_('all', 'mgmt') && !p.tdHas_('all', 'accounts'));
+  ok('executive with PO: the submission team and the PO\'s, not Shortlisting', ['exec', 'po', 'items', 'fp'].every((r) => p.tdHas_('execpo', r)) &&
+    !p.tdHas_('execpo', 'shortlist'));
+  await as('U-POX');
+  const allT = await p.newTender();
+  ok('with all three he enters a tender, as Shortlisting', allT.state.me.role === 'all' && !!allT.id);
+  await p.savePoField(pid, 'warranty', '24 months from delivery');
+  ok('and keeps the PO, as PO Execution', (await p.getTenderApp()).pos.find((x) => x.id === pid).warranty === '24 months from delivery');
+  await as('U-COORD');
+  await p.saveTenderField(allT.id, 'assignee', 'sanjay@pie.invalid');
+  ok('and can be named to prepare a tender, as the submission team', (await p.getTenderApp()).tenders.find((x) => x.id === allT.id).assignee === 'sanjay@pie.invalid');
+  await as('U-ADMIN');
+  await p.saveTenderMember('sanjay@pie.invalid', 'execpo', null);
+  await as('U-POX');
+  ok('as Tender Executive & PO Execution he does not enter tenders', await refuses(() => p.newTender(), /Shortlisting/));
+  await p.savePoField(pid, 'warranty', '18 months from delivery');
+  ok('but keeps the PO', (await p.getTenderApp()).pos.find((x) => x.id === pid).warranty === '18 months from delivery');
+  ok('and is told about it', (await p.getTenderApp()).alerts.some((a) => a.ref === 'p:' + pid));
+  ok('and money stays with Accounts', await refuses(() => p.poLine(pid, 'payments', 'add'), /kept by Accounts/));
   await p.savePoField(pid, 'perfCert', 'Yes');
   res = await p.closeTenderPo(pid);
   ok('closed', res.state.pos.find((x) => x.id === pid).closed === true && res.state.pos.find((x) => x.id === pid).calc.stage === 'closed');

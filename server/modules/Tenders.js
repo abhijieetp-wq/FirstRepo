@@ -45,6 +45,9 @@
  *   Shortlisting (Sales Coordinator, ERP Admin) — enters tenders, sends them for approval,
  *     names who prepares them.
  *   Shortlisting & Executive — that, and can also be assigned tenders and execute them.
+ *   Shortlisting, Executive & PO Execution — all three: shortlists, works tenders through
+ *     submission, and runs the POs.
+ *   Tender Executive & PO Execution — the submission team's work and the POs'.
  * Admin is not a role but a grant (Users.tenderAdmin), given and taken by a fellow admin in
  * Masters → Team members: admins keep the masters, the rules and the team, and open accounts.
  * The ERP Admin is always one, so the Tender Desk is never left without.
@@ -66,15 +69,22 @@
 
 // ---------------------------------------------------------------- the fixed parts
 
-var TD_ROLES = { shortlist: 'Shortlisting', both: 'Shortlisting & Executive', mgmt: 'Management', exec: 'Tender Executive',
+var TD_ROLES = { shortlist: 'Shortlisting', both: 'Shortlisting & Executive', all: 'Shortlisting, Executive & PO Execution',
+  mgmt: 'Management', exec: 'Tender Executive', execpo: 'Tender Executive & PO Execution',
   po: 'PO Execution', items: 'Items Entry', fp: 'Fulfilment', accounts: 'Accounts' };
+/**
+ * The combined roles, and the roles each one does the work of. PO Execution is Items Entry's
+ * part and Fulfilment's together; the others add it, or the submission team, to Shortlisting.
+ */
+var TD_ROLE_PARTS = { both: ['shortlist', 'exec'], all: ['shortlist', 'exec', 'po', 'items', 'fp'],
+  execpo: ['exec', 'po', 'items', 'fp'], po: ['items', 'fp'] };
 /**
  * Whether a person's Tender Desk role includes another: Shortlisting & Executive is both of those;
  * PO Execution runs the whole PO – what Items Entry does (enter it, close it) and what Fulfilment
  * does (move its quantities), on every PO rather than only the items assigned to them.
  */
 function tdHas_(role, r) {
-  return role === r || (role === 'both' && (r === 'shortlist' || r === 'exec')) || (role === 'po' && (r === 'items' || r === 'fp'));
+  return role === r || (TD_ROLE_PARTS[role] || []).indexOf(r) !== -1;
 }
 var TD_ALWAYS = [ROLES.MANAGEMENT, ROLES.ERP_ADMIN, ROLES.ACCOUNTS, ROLES.TENDER_DESK];
 /**
@@ -845,7 +855,7 @@ async function saveTenderField(id, path, value) {
       if (!tdHas_(ctx.role, 'shortlist') && !mine) throw new Error('The owner of a tender is named by Shortlisting, or taken by an executive while it has none.');
       var m = value ? tdMember_(ctx, value) : null;
       if (value && !m) throw new Error('Pick somebody who is on the Tender Desk.');
-      if (m && !tdHas_(m.role, 'exec')) throw new Error(m.name + ' is not on the submission team (Tender Executive, or Shortlisting & Executive).');
+      if (m && !tdHas_(m.role, 'exec')) throw new Error(m.name + ' is not on the submission team (a role with Tender Executive in it).');
       var before = t.assignee;
       t.assignee = m ? m.id : '';
       if (before !== t.assignee) {
@@ -996,7 +1006,7 @@ async function approveTender(id, note, owner) {
   if (t.stage !== 'approval') throw new Error('This tender is not waiting for approval.');
   if (owner) {
     var m = tdMember_(ctx, owner);
-    if (!m || !tdHas_(m.role, 'exec')) throw new Error('Pick somebody on the submission team (Tender Executive, or Shortlisting & Executive).');
+    if (!m || !tdHas_(m.role, 'exec')) throw new Error('Pick somebody on the submission team (a role with Tender Executive in it).');
     t.assignee = m.id;
   }
   t.approval = { status: 'approved', by: ctx.me, at: ctx.today, note: String(note || '').trim().slice(0, 1000) };

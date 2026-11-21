@@ -393,8 +393,12 @@ const role = () => S.me.role;
 // Shortlisting & Executive ('both') is Shortlisting and a Tender Executive at once. Admin is a
 // separate grant (S.me.admin), not part of any role.
 // PO Execution ('po') runs every PO: Items Entry's part and Fulfilment's part, as on the server.
-const roleHas = (m, r) => m === r || (m === 'both' && (r === 'shortlist' || r === 'exec')) || (m === 'po' && (r === 'items' || r === 'fp'));
+// The combined roles and what each does the work of, as on the server (TD_ROLE_PARTS).
+const ROLE_PARTS = { both: ['shortlist', 'exec'], all: ['shortlist', 'exec', 'po', 'items', 'fp'], execpo: ['exec', 'po', 'items', 'fp'], po: ['items', 'fp'] };
+const roleHas = (m, r) => m === r || (ROLE_PARTS[m] || []).includes(r);
 const has = (r) => roleHas(role(), r);
+// On the submission team without Shortlisting: works the tenders they own, or nobody does.
+const execOnly = () => has('exec') && !has('shortlist');
 const ROLES = () => S.roles;
 const cli = (id) => S.clients.find((c) => c.id === id);
 const sup = (id) => S.suppliers.find((s) => s.id === id);
@@ -524,7 +528,7 @@ function navItems() {
     { p: 'dashboard', l: 'Dashboard', i: 'home' },
     { p: 'shortlist', l: 'Shortlisting', i: 'search', ct: sl },
     { p: 'approvals', l: 'Approvals', i: 'check', ct: wait, hot: approver() && wait > 0 },
-    { p: 'tenders', l: 'Tender submission', i: 'layers', ct: S.tenders.filter((t) => TEAM.includes(t.stage) && (r !== 'exec' || !t.assignee || t.assignee === S.me.id)).length },
+    { p: 'tenders', l: 'Tender submission', i: 'layers', ct: S.tenders.filter((t) => TEAM.includes(t.stage) && (!execOnly() || !t.assignee || t.assignee === S.me.id)).length },
     { p: 'pos', l: 'PO execution', i: 'truck', ct: S.pos.filter((p) => !p.closed).length },
     { p: 'tasks', l: 'Tasks', i: 'tasks', ct: myOpen.length, hot: od },
     { p: 'masters', l: 'Masters', i: 'cog' }
@@ -591,7 +595,7 @@ function page() {
 // ================= dashboard =================
 function vDashboard() {
   const r = role();
-  const mine = (t) => r !== 'exec' || t.assignee === S.me.id;
+  const mine = (t) => !execOnly() || t.assignee === S.me.id;
   const live = S.tenders.filter((t) => ['prep', 'bidcheck', 'ready'].includes(t.stage) && mine(t));
   const due7 = live.filter((t) => dd(t.lastDate) != null && dd(t.lastDate) <= S.cfg.alertDays);
   const appr = waitingMgmt();
@@ -617,7 +621,7 @@ function vDashboard() {
   const fun = [['Shortlisted', (t) => stageIdx(t.stage) >= 1], ['Approved to bid', (t) => stageIdx(t.stage) >= 2], ['Bid approved', (t) => stageIdx(t.stage) >= 4], ['Submitted', (t) => stageIdx(t.stage) >= 5], ['Won', (t) => t.result === 'won']];
   const base = S.tenders.filter((t) => t.stage !== 'draft' && t.result !== 'declined');
   const fv = fun.map(([l, f]) => [l, base.filter(f).length]); const fmax = Math.max(1, ...fv.map((x) => x[1]));
-  const myT = S.tenders.filter((t) => TEAM.includes(t.stage) && (t.assignee === S.me.id || (!t.assignee && r === 'exec')));
+  const myT = S.tenders.filter((t) => TEAM.includes(t.stage) && (t.assignee === S.me.id || (!t.assignee && execOnly())));
   return `
   <div class="kpis">${kpis.map((k) => `<div class="kpi ${k.c || ''}" ${k.a || ''}><div class="lbl">${esc(k.l)}</div><div class="v">${k.v}</div><div class="s">${esc(k.s)}</div></div>`).join('')}</div>
   <div class="split">
@@ -729,7 +733,7 @@ function tenderFilter(list) {
     && (!q || [t.no, t.title, (cli(t.client) || {}).name, t.plant].join(' ').toLowerCase().includes(q)));
 }
 function vTenders() {
-  const f = ui.filters; if (role() === 'exec' && !ui._minedef) { f.mine = true; ui._minedef = true; }
+  const f = ui.filters; if (execOnly() && !ui._minedef) { f.mine = true; ui._minedef = true; }
   const list = tenderFilter(S.tenders);
   const cols = [
     ['Shortlisting', (t) => t.stage === 'draft'], ['Awaiting approval', (t) => t.stage === 'approval'], ['Submission prep', (t) => t.stage === 'prep'], ['Bid approval', (t) => t.stage === 'bidcheck'],
